@@ -22,6 +22,7 @@ type Progress = {
   startedAt: number;
   json: boolean;
   quiet: boolean;
+  redactOutput: boolean;
 };
 
 type SendPlanFile = {
@@ -47,7 +48,8 @@ export async function sendFiles(
   keys: SessionKeys,
   files: SendFile[],
   json = false,
-  quiet = false
+  quiet = false,
+  redactOutput = false
 ): Promise<void> {
   const acks = new ControlAckWaiter(TRANSFER_CONTROL_TIMEOUT_MS);
   let failed: Error | undefined;
@@ -116,7 +118,7 @@ export async function sendFiles(
       totalBytes
     };
     assertTransferManifestWithinLimits(transferManifest);
-    const progress: Progress = { totalBytes, transferredBytes: 0, startedAt: Date.now(), json, quiet };
+    const progress: Progress = { totalBytes, transferredBytes: 0, startedAt: Date.now(), json, quiet, redactOutput };
     await sendControl(control, keys, {
       t: "manifest",
       files: transferFiles,
@@ -322,13 +324,14 @@ export async function receiveFiles(
   quiet = false,
   idleTimeoutMs = TRANSFER_CONTROL_TIMEOUT_MS,
   acceptedManifest?: FileManifest,
-  resume = false
+  resume = false,
+  redactOutput = false
 ): Promise<void> {
   const files = new Map<number, ReceiveState>();
   let manifest: TransferManifest | undefined;
   const expectedFiles = new Map<number, TransferManifest["files"][number]>();
   let totalBytes = 0;
-  const progress: Progress = { totalBytes: 0, transferredBytes: 0, startedAt: Date.now(), json, quiet };
+  const progress: Progress = { totalBytes: 0, transferredBytes: 0, startedAt: Date.now(), json, quiet, redactOutput };
   let resolveDone!: () => void;
   let rejectDone!: (error: Error) => void;
   const done = new Promise<void>((resolve, reject) => {
@@ -920,14 +923,19 @@ function isCanonicalDataChannelBytes(data: Uint8Array): boolean {
 function printProgress(action: string, label: string, progress: Progress, force = false): void {
   const elapsed = Math.max((Date.now() - progress.startedAt) / 1000, 0.1);
   const rate = progress.transferredBytes / elapsed;
-  const safeLabel = sanitizeDisplayText(label);
+  const safeLabel = progress.redactOutput && label !== "complete" ? "[redacted]" : sanitizeDisplayText(label);
   if (progress.json) {
     if (force) {
-      console.log(JSON.stringify(sanitizeStructuredOutput({ event: action, label: safeLabel, bytes: progress.transferredBytes, totalBytes: progress.totalBytes })));
+      const event = progress.redactOutput ? { event: action, label: safeLabel } : { event: action, label: safeLabel, bytes: progress.transferredBytes, totalBytes: progress.totalBytes };
+      console.log(JSON.stringify(sanitizeStructuredOutput(event)));
     }
     return;
   }
   if (progress.quiet) return;
+  if (progress.redactOutput) {
+    if (force) process.stdout.write(`\n${action} ${safeLabel}\n`);
+    return;
+  }
   if (!force && process.stdout.isTTY) {
     process.stdout.write(
       `\r${action} ${formatBytes(progress.transferredBytes)} / ${formatBytes(progress.totalBytes)} (${formatRate(rate)})`

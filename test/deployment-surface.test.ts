@@ -18,6 +18,7 @@ const codeowners = fs.readFileSync(new URL("../.github/CODEOWNERS", import.meta.
 const httpProbeScript = fs.readFileSync(new URL("../scripts/probe-http.mjs", import.meta.url), "utf8");
 const releaseArtifactScript = fs.readFileSync(new URL("../scripts/verify-release-artifact.mjs", import.meta.url), "utf8");
 const releaseChecksumScript = fs.readFileSync(new URL("../scripts/write-release-checksum.mjs", import.meta.url), "utf8");
+const releaseNotesScript = fs.readFileSync(new URL("../scripts/write-release-notes.mjs", import.meta.url), "utf8");
 const dependabotConfig = fs.readFileSync(new URL("../.github/dependabot.yml", import.meta.url), "utf8");
 const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
 const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
@@ -229,6 +230,8 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.doesNotMatch(releaseVerifyJob, /pnpm test:unit[\s\S]*pnpm build[\s\S]*pnpm smoke:native/);
   assert.match(releaseWorkflow, /pack release artifact[\s\S]*pnpm --config\.ignore-scripts=true pack --pack-destination release-artifacts[\s\S]*node scripts\/write-release-checksum\.mjs/);
   assert.match(releaseChecksumScript, /return `\$\{packedPackageName\(name\)\}-\$\{version\}\.tgz`[\s\S]*const expectedTarballName = expectedTarballNameFor\(packageJson\)[\s\S]*entries\.length !== 1 \|\| !entries\[0\]\?\.isFile\(\) \|\| entries\[0\]\.name !== expectedTarballName[\s\S]*createHash\("sha256"\)[\s\S]*writeFile\(path\.join\(artifactDir, "SHA256SUMS"\), `\$\{checksum\}  \$\{expectedTarballName\}\\n`, \{ flag: "wx" \}\)/);
+  assert.match(releaseNotesScript, /const headingPattern = \/\^##\\s\+\(\?:\\\[\(\?<bracketVersion>/);
+  assert.match(releaseNotesScript, /writeFile\(path\.join\(projectRoot, "release-artifacts", "RELEASE_NOTES\.md"\), notes, \{ flag: "wx" \}\)/);
   assert.doesNotMatch(releaseWorkflow, /pack release artifact[\s\S]*(find release-artifacts|basename "\$tgz"|sha256sum)/);
   assert.match(releaseWorkflow, /verify production origin policy is required[\s\S]*docker run --rm --read-only --cap-drop=ALL --security-opt no-new-privileges -e SIGNALING_TOPOLOGY=single-instance p2p-transfer:release[\s\S]*container started without ALLOWED_ORIGINS in production/);
   assert.match(releaseWorkflow, /verify signaling topology policy is required[\s\S]*docker run --rm --read-only --cap-drop=ALL --security-opt no-new-privileges -e ALLOWED_ORIGINS=https:\/\/files\.example\.com p2p-transfer:release[\s\S]*container started without SIGNALING_TOPOLOGY in production/);
@@ -243,7 +246,8 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releaseWorkflow, /attest release artifact[\s\S]*permissions:\n      contents: read\n      id-token: write\n      attestations: write/);
   assert.match(releaseWorkflow, /attest release artifact[\s\S]*verify downloaded release artifact[\s\S]*id: verify_artifact[\s\S]*node scripts\/verify-release-artifact\.mjs --print-tarball[\s\S]*uses: actions\/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4\.1\.0[\s\S]*subject-path: \$\{\{ steps\.verify_artifact\.outputs\.tarball \}\}/);
   assert.match(releaseWorkflow, /verify downloaded release artifact[\s\S]*id: verify_artifact[\s\S]*node scripts\/verify-release-artifact\.mjs --print-tarball[\s\S]*smoke downloaded release artifact[\s\S]*tgz="\$\{\{ steps\.verify_artifact\.outputs\.tarball \}\}"[\s\S]*PACKED_SMOKE_TARBALL="\$tgz" node scripts\/smoke-packed\.mjs[\s\S]*publish npm package[\s\S]*pnpm publish "\$tgz" --provenance --access public --ignore-scripts/);
-  assert.match(releaseWorkflow, /github-release:[\s\S]*needs:\n      - publish[\s\S]*permissions:\n      contents: write[\s\S]*verify downloaded release artifact[\s\S]*node scripts\/verify-release-artifact\.mjs --print-tarball[\s\S]*gh release create "\$GITHUB_REF_NAME" "\$tgz" release-artifacts\/SHA256SUMS --title "\$GITHUB_REF_NAME" --notes-file CHANGELOG\.md/);
+  assert.match(releaseWorkflow, /github-release:[\s\S]*needs:\n      - publish[\s\S]*permissions:\n      contents: write[\s\S]*verify downloaded release artifact[\s\S]*node scripts\/verify-release-artifact\.mjs --print-tarball[\s\S]*write release notes[\s\S]*node scripts\/write-release-notes\.mjs[\s\S]*gh release create "\$GITHUB_REF_NAME" "\$tgz" release-artifacts\/SHA256SUMS --title "\$GITHUB_REF_NAME" --notes-file release-artifacts\/RELEASE_NOTES\.md/);
+  assert.doesNotMatch(releaseWorkflow, /--notes-file CHANGELOG\.md/);
   const publishJob = releaseWorkflow.slice(releaseWorkflow.indexOf("  publish:"));
   assert.match(publishJob, /needs:\n      - verify\n      - attest\n      - docker\n      - platform-smoke/);
   assert.doesNotMatch(publishJob, /pnpm install|pnpm build|pnpm smoke:native/);
@@ -277,7 +281,8 @@ test("security-sensitive surfaces require code owner review", () => {
     "/test/package-surface.test.ts",
     "/test/deployment-surface.test.ts",
     "/test/release-artifact-verifier.test.ts",
-    "/test/release-checksum-writer.test.ts"
+    "/test/release-checksum-writer.test.ts",
+    "/test/release-notes-writer.test.ts"
   ]) {
     assert.match(codeowners, new RegExp(`^${escapeRegExp(path)}\\s+@VictorHaine$`, "m"), `${path} must be owned`);
   }
@@ -568,6 +573,7 @@ test("README reports implemented release capabilities without stale MVP-gap lang
   assert.match(readme, /## Known limitations/);
   assert.match(readme, /Browser receive resume is exposed only through the explicit `Resume in folder` accept action/);
   assert.match(readme, /preserves opaque tokenized `\.part` files on failure/);
+  assert.match(readme, /saved opaque partial record and browser-held lookup key/);
   assert.match(readme, /scrub legacy metadata-bearing resume records/);
   assert.doesNotMatch(readme, /saved tokenized partial record/);
   assert.match(readme, /The conformance fixture covers chunk framing, encrypted transfer control messages including resume offsets, canonical signaling-message serialization, PAKE confirmation tags, SDP offer\/answer authentication, and ICE candidate authentication including username fragments/);

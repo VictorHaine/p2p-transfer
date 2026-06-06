@@ -512,7 +512,9 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(securityPolicy, /release publishing must pass the verifier-emitted tarball path to packed smoke and `pnpm publish` instead of rediscovering the artifact with `find` or a shell glob after verification/);
   assert.match(releaseWorkflow, /verify downloaded release artifact[\s\S]*id: verify_artifact[\s\S]*tgz="\$\(node scripts\/verify-release-artifact\.mjs --print-tarball\)"[\s\S]*printf 'tarball=%s\\n' "\$tgz" >> "\$GITHUB_OUTPUT"/);
   assert.match(releaseWorkflow, /publish npm package[\s\S]*tgz="\$\{\{ steps\.verify_artifact\.outputs\.tarball \}\}"[\s\S]*test -f "\$tgz"[\s\S]*pnpm publish "\$tgz" --provenance --access public --ignore-scripts/);
-  assert.match(releaseWorkflow, /github-release:[\s\S]*needs:\n      - publish[\s\S]*permissions:\n      contents: write[\s\S]*node scripts\/verify-release-artifact\.mjs --print-tarball[\s\S]*gh release create "\$GITHUB_REF_NAME" "\$tgz" release-artifacts\/SHA256SUMS --title "\$GITHUB_REF_NAME" --notes-file CHANGELOG\.md/);
+  assert.match(securityPolicy, /GitHub Release job must run only after npm publishing succeeds, re-verify the downloaded tarball through the checked release-artifact verifier, generate version-scoped release notes from the checked changelog/);
+  assert.match(releaseWorkflow, /github-release:[\s\S]*needs:\n      - publish[\s\S]*permissions:\n      contents: write[\s\S]*node scripts\/verify-release-artifact\.mjs --print-tarball[\s\S]*node scripts\/write-release-notes\.mjs[\s\S]*gh release create "\$GITHUB_REF_NAME" "\$tgz" release-artifacts\/SHA256SUMS --title "\$GITHUB_REF_NAME" --notes-file release-artifacts\/RELEASE_NOTES\.md/);
+  assert.doesNotMatch(releaseWorkflow, /--notes-file CHANGELOG\.md/);
   assert.doesNotMatch(releaseWorkflow, /pnpm publish release-artifacts\/\*\.tgz/);
   assert.doesNotMatch(releaseWorkflow, /smoke downloaded release artifact[\s\S]*find release-artifacts/);
   assert.doesNotMatch(releaseWorkflow, /publish npm package[\s\S]*find release-artifacts/);

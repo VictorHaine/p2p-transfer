@@ -22,3 +22,4 @@
 /test/deployment-surface.test.ts @VictorHaine
 /test/release-artifact-verifier.test.ts @VictorHaine
 /test/release-checksum-writer.test.ts @VictorHaine
+/test/release-notes-writer.test.ts @VictorHaine

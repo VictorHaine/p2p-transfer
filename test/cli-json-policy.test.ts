@@ -19,6 +19,17 @@ test("CLI json mode emits structured sanitized error events instead of plain std
   assert.match(cliSource, /console\.error\(message\);/);
 });
 
+test("CLI redacted output mode removes file metadata from JSON and progress events", () => {
+  assert.match(securityPolicy, /CLI `--redact-output` must remove file names, MIME types, and byte counts from CLI JSON and human transfer output/);
+  assert.match(readme, /`--redact-output`: redact file names, MIME types, and byte counts/);
+  assert.match(cliSource, /\.option\("--redact-output", "redact file metadata from CLI output and JSON events"\)/);
+  assert.match(cliSource, /options\.redactOutput \? \{ event: "pair_request", fileCount: manifest\.fileCount \} : \{ event: "pair_request", files: manifest\.files, totalBytes: manifest\.totalBytes \}/);
+  assert.match(cliSource, /options\.redactOutput \? `Incoming transfer: \$\{manifest\.fileCount\} file\(s\)\. SAS \$\{sas\}` : `Incoming transfer: \$\{manifest\.fileCount\} file\(s\), \$\{formatBytes\(manifest\.totalBytes\)\}\. SAS \$\{sas\}`/);
+  assert.match(cliSource, /console\.log\(options\.redactOutput \? "  - \[redacted\]" : `  - \$\{safeFileName\(file\.name\)\} \(\$\{formatBytes\(file\.size\)\}\)`\)/);
+  assert.match(cliSource, /sendFiles\(control, bulk, keys, files, options\.json, options\.quiet, Boolean\(options\.redactOutput\)\)/);
+  assert.match(cliSource, /receiveFiles\(control, bulk, keys, outDir, options\.json, options\.quiet, undefined, manifest, Boolean\(options\.resume\), Boolean\(options\.redactOutput\)\)/);
+});
+
 test("CLI exit handling does not truncate piped output with direct process.exit", () => {
   assert.match(securityPolicy, /CLI entrypoints must set `process\.exitCode` after printing output/);
   for (const source of [cliSource, distCliSource]) {

@@ -68,8 +68,9 @@ test("clients derive public redacted manifest ids from descriptor-walked positio
 
 test("CLI transfer progress sanitizes labels at the output sink", () => {
   const printProgressBody = extractFunctionBody(cliTransferSource, "printProgress");
-  assert.match(printProgressBody, /const safeLabel = sanitizeDisplayText\(label\)/);
-  assert.match(printProgressBody, /JSON\.stringify\(sanitizeStructuredOutput\(\{ event: action, label: safeLabel/);
+  assert.match(printProgressBody, /const safeLabel = progress\.redactOutput && label !== "complete" \? "\[redacted\]" : sanitizeDisplayText\(label\)/);
+  assert.match(printProgressBody, /const event = progress\.redactOutput \? \{ event: action, label: safeLabel \} : \{ event: action, label: safeLabel, bytes: progress\.transferredBytes, totalBytes: progress\.totalBytes \}/);
+  assert.match(printProgressBody, /if \(progress\.redactOutput\) \{[\s\S]*if \(force\) process\.stdout\.write\(`\\n\$\{action\} \$\{safeLabel\}\\n`\);[\s\S]*return;[\s\S]*\}/);
   assert.match(printProgressBody, /\$\{safeLabel\}: \$\{formatBytes\(progress\.transferredBytes\)\} total/);
   assert.doesNotMatch(printProgressBody, /JSON\.stringify\(\{ event: action, label,/);
 });

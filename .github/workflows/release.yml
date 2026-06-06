@@ -256,6 +256,8 @@ jobs:
         run: |
           tgz="$(node scripts/verify-release-artifact.mjs --print-tarball)"
           printf 'tarball=%s\n' "$tgz" >> "$GITHUB_OUTPUT"
+      - name: write release notes
+        run: node scripts/write-release-notes.mjs
       - name: create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -263,4 +265,5 @@ jobs:
           tgz="${{ steps.verify_artifact.outputs.tarball }}"
           test -f "$tgz"
           test -f release-artifacts/SHA256SUMS
-          gh release create "$GITHUB_REF_NAME" "$tgz" release-artifacts/SHA256SUMS --title "$GITHUB_REF_NAME" --notes-file CHANGELOG.md
+          test -f release-artifacts/RELEASE_NOTES.md
+          gh release create "$GITHUB_REF_NAME" "$tgz" release-artifacts/SHA256SUMS --title "$GITHUB_REF_NAME" --notes-file release-artifacts/RELEASE_NOTES.md

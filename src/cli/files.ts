@@ -1,17 +1,18 @@
 import fs from "node:fs";
 import path from "node:path";
-import { randomBytes } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import { CHUNK_SIZE, MAX_FILE_BYTES, MAX_FILES_PER_SESSION, MAX_OUTPUT_NAME_ATTEMPTS } from "../shared/constants.js";
 import { basename } from "../shared/format.js";
 import { createSha256, digestHex, type Sha256 } from "../shared/hash.js";
-import { SAFE_FILE_NAME_BYTES, assertFileWithinLimits, assertTransferManifestWithinLimits, safeCollisionFileName, safeFileName } from "../shared/limits.js";
+import { assertFileWithinLimits, assertTransferManifestWithinLimits, safeCollisionFileName, safeFileName } from "../shared/limits.js";
 import type { FileManifest, FileManifestEntry } from "../shared/messages.js";
 
 const PART_FILE_SUFFIX = ".part";
 const PART_FILE_TOKEN_HEX_CHARS = 32;
-const PART_FILE_RANDOM_SUFFIX_BYTES = ".ff-".length + PART_FILE_TOKEN_HEX_CHARS + PART_FILE_SUFFIX.length;
-const SAFE_PART_BASE_NAME_BYTES = SAFE_FILE_NAME_BYTES - PART_FILE_RANDOM_SUFFIX_BYTES;
+const RESUME_SECRET_FILE = ".ff-resume-key";
+const RESUME_SECRET_BYTES = 32;
 const SAFE_READ_FLAGS = fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK;
+const SAFE_SECRET_READ_FLAGS = fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK;
 const MAX_SEND_PATH_BYTES = 4096;
 const MAX_OUTPUT_DIR_BYTES = 4096;
 const UNSAFE_SEND_PATH_CHARS = /[\p{Cc}\p{Cf}]/u;
@@ -183,7 +184,7 @@ export async function reserveOutputFile(dir: string, name: string, options?: { r
     }
     if (options?.resume) {
       if (!Number.isSafeInteger(options.size) || typeof options.size !== "number" || options.size < 0 || options.size > MAX_FILE_BYTES) throw new Error("Resume file size is invalid.");
-      const partPath = path.join(outputDir, resumablePartFileName(candidateName));
+      const partPath = path.join(outputDir, await resumablePartFileName(outputDir, candidateName, options.size));
       try {
         return await reserveExistingResumablePart(finalPath, partPath, options.size);
       } catch (error) {
@@ -196,7 +197,7 @@ export async function reserveOutputFile(dir: string, name: string, options?: { r
         throw error;
       }
     }
-    const partPath = path.join(outputDir, randomPartFileName(candidateName));
+    const partPath = path.join(outputDir, randomPartFileName());
     try {
       return await createOutputPart(finalPath, partPath);
     } catch (error) {
@@ -230,14 +231,57 @@ async function reserveExistingResumablePart(finalPath: string, partPath: string,
   }
 }
 
-function randomPartFileName(finalName: string): string {
-  const partBase = safeFileName(finalName, SAFE_PART_BASE_NAME_BYTES);
-  return `${partBase}.ff-${randomBytes(PART_FILE_TOKEN_HEX_CHARS / 2).toString("hex")}${PART_FILE_SUFFIX}`;
+function randomPartFileName(): string {
+  return `ff-${randomBytes(PART_FILE_TOKEN_HEX_CHARS / 2).toString("hex")}${PART_FILE_SUFFIX}`;
 }
 
-function resumablePartFileName(finalName: string): string {
-  const partBase = safeFileName(finalName, SAFE_PART_BASE_NAME_BYTES);
-  return `${partBase}.ff-resume${PART_FILE_SUFFIX}`;
+async function resumablePartFileName(outputDir: string, finalName: string, size: number): Promise<string> {
+  const secret = await readOrCreateResumeSecret(outputDir);
+  try {
+    const digest = createHmac("sha256", secret).update("ff-resume-v1\0").update(finalName).update("\0").update(String(size)).digest("hex");
+    return `ff-resume-${digest}${PART_FILE_SUFFIX}`;
+  } finally {
+    secret.fill(0);
+  }
+}
+
+async function readOrCreateResumeSecret(outputDir: string): Promise<Buffer> {
+  const secretPath = path.join(outputDir, RESUME_SECRET_FILE);
+  try {
+    return await readResumeSecret(secretPath);
+  } catch (error) {
+    if (!isMissingPathError(error)) throw error;
+  }
+
+  const secret = randomBytes(RESUME_SECRET_BYTES);
+  let handle: fs.promises.FileHandle | undefined;
+  try {
+    handle = await fs.promises.open(secretPath, "wx", 0o600);
+    await handle.writeFile(secret);
+    return Buffer.from(secret);
+  } catch (error) {
+    if (isNodeErrorCode(error, "EEXIST")) return readResumeSecret(secretPath);
+    throw error;
+  } finally {
+    secret.fill(0);
+    await handle?.close().catch(() => {});
+  }
+}
+
+async function readResumeSecret(secretPath: string): Promise<Buffer> {
+  const handle = await fs.promises.open(secretPath, SAFE_SECRET_READ_FLAGS);
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile() || stat.size !== RESUME_SECRET_BYTES) throw new Error("Resume secret is invalid.");
+    const secret = Buffer.alloc(RESUME_SECRET_BYTES);
+    const { bytesRead } = await handle.read(secret, 0, secret.byteLength, 0);
+    if (bytesRead !== secret.byteLength) throw new Error("Resume secret is invalid.");
+    return secret;
+  } catch (error) {
+    throw error;
+  } finally {
+    await handle.close().catch(() => {});
+  }
 }
 
 export function isMissingPathError(error: unknown): boolean {

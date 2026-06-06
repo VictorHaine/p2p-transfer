@@ -9,6 +9,7 @@ import { CHUNK_SIZE } from "../src/shared/constants.js";
 import { createSha256, digestHex } from "../src/shared/hash.js";
 import { finishPake, openControl, ownPakeShareB64, sealBulk, sealControl, startPake, type SessionKeys } from "../src/shared/security.js";
 import type { ControlMessage } from "../src/shared/transfer.js";
+import { reserveOutputFile } from "../src/cli/files.js";
 import { receiveFiles } from "../src/cli/transfer.js";
 
 type FakeChannel = RTCDataChannel & {
@@ -49,7 +50,11 @@ test("CLI receiver resumes from a chunk-aligned partial when resume is enabled",
   const prefix = Buffer.alloc(CHUNK_SIZE, 1);
   const suffix = new TextEncoder().encode("tail");
   const payload = Buffer.concat([prefix, suffix]);
-  await fs.writeFile(path.join(outDir, "resume.bin.ff-resume.part"), prefix);
+  const partial = await reserveOutputFile(outDir, "resume.bin", { resume: true, size: payload.byteLength });
+  await partial.handle.writeFile(prefix);
+  await partial.handle.close();
+  assert.match(path.basename(partial.partPath), /^ff-resume-[a-f0-9]{64}\.part$/);
+  assert.equal(path.basename(partial.partPath).includes("resume.bin"), false);
   const hash = createSha256();
   hash.update(payload);
   const control = fakeChannel();
@@ -67,7 +72,7 @@ test("CLI receiver resumes from a chunk-aligned partial when resume is enabled",
 
   await receive;
   assert.deepEqual(await fs.readFile(path.join(outDir, "resume.bin")), payload);
-  await assert.rejects(() => fs.stat(path.join(outDir, "resume.bin.ff-resume.part")), { code: "ENOENT" });
+  await assert.rejects(() => fs.stat(partial.partPath), { code: "ENOENT" });
 });
 
 test("CLI receiver tolerates all-done before bulk chunks drain across DataChannels", async () => {
@@ -432,7 +437,7 @@ test("CLI receiver verifies partial and published paths with no-follow nonblocki
   }
 
   const safeReadFlags = fsSync.constants.O_RDONLY | fsSync.constants.O_NOFOLLOW | fsSync.constants.O_NONBLOCK;
-  assert.equal(observed.some((entry) => /x\.txt\.ff-[a-f0-9]{32}\.part$/.test(entry.target) && entry.flags === safeReadFlags), true);
+  assert.equal(observed.some((entry) => /\/ff-[a-f0-9]{32}\.part$/.test(entry.target) && entry.flags === safeReadFlags), true);
   assert.equal(observed.some((entry) => entry.target.endsWith("x.txt") && !entry.target.endsWith(".part") && entry.flags === safeReadFlags), true);
 });
 
@@ -512,10 +517,9 @@ async function findSingleCliPartPath(dir: string, finalName: string): Promise<st
   return matches[0]!;
 }
 
-async function findCliPartPaths(dir: string, finalName: string): Promise<string[]> {
-  const prefix = `${finalName}.ff-`;
+async function findCliPartPaths(dir: string, _finalName: string): Promise<string[]> {
   const entries = await fs.readdir(dir);
-  return entries.filter((entry) => entry.startsWith(prefix) && /\.ff-[a-f0-9]{32}\.part$/.test(entry)).map((entry) => path.join(dir, entry));
+  return entries.filter((entry) => /^ff(?:-resume)?-[a-f0-9]{32,64}\.part$/.test(entry)).map((entry) => path.join(dir, entry));
 }
 
 function fakeChannel(): FakeChannel {

@@ -12,7 +12,7 @@ import { MAX_OUTPUT_NAME_ATTEMPTS } from "../src/shared/constants.js";
 import { SAFE_FILE_NAME_BYTES, safeFileName } from "../src/shared/limits.js";
 
 const PART_FILE_SUFFIX = ".part";
-const RANDOM_PART_SUFFIX = /\.ff-[a-f0-9]{32}\.part$/;
+const RANDOM_PART_SUFFIX = /^ff-[a-f0-9]{32}\.part$/;
 const sourceTransfer = fsSync.readFileSync(new URL("../src/cli/transfer.ts", import.meta.url), "utf8");
 const distTransfer = fsSync.readFileSync(new URL("../dist-node/cli/transfer.js", import.meta.url), "utf8");
 const sourceFiles = fsSync.readFileSync(new URL("../src/cli/files.ts", import.meta.url), "utf8");
@@ -397,10 +397,32 @@ test("reserveOutputFile uses collision-resistant partial names instead of predic
   const reserved = await reserveOutputFile(dir, "file.txt");
   try {
     assert.equal(path.basename(reserved.finalPath), "file.txt");
-    assert.match(path.basename(reserved.partPath), /^file\.txt\.ff-[a-f0-9]{32}\.part$/);
+    assert.match(path.basename(reserved.partPath), /^ff-[a-f0-9]{32}\.part$/);
+    assert.equal(path.basename(reserved.partPath).includes("file.txt"), false);
     assert.notEqual(path.basename(reserved.partPath), "file.txt.part");
   } finally {
     await reserved.handle.close();
+  }
+});
+
+test("reserveOutputFile uses opaque deterministic CLI resume partial names", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-reserve-resume-"));
+  const first = await reserveOutputFile(dir, "private-name.txt", { resume: true, size: "partial".length });
+  try {
+    const partName = path.basename(first.partPath);
+    assert.match(partName, /^ff-resume-[a-f0-9]{64}\.part$/);
+    assert.equal(partName.includes("private-name"), false);
+    await first.handle.writeFile(Buffer.from("partial"));
+  } finally {
+    await first.handle.close();
+  }
+
+  const second = await reserveOutputFile(dir, "private-name.txt", { resume: true, size: "partial".length });
+  try {
+    assert.equal(second.partPath, first.partPath);
+    assert.equal(second.resumeBytes, "partial".length);
+  } finally {
+    await second.handle.close();
   }
 });
 
@@ -411,7 +433,8 @@ test("reserveOutputFile treats dangling final-path symlinks as occupied", { skip
   const reserved = await reserveOutputFile(dir, "file.txt");
   try {
     assert.equal(path.basename(reserved.finalPath), "file (1).txt");
-    assert.match(path.basename(reserved.partPath), /^file \(1\)\.txt\.ff-[a-f0-9]{32}\.part$/);
+    assert.match(path.basename(reserved.partPath), /^ff-[a-f0-9]{32}\.part$/);
+    assert.equal(path.basename(reserved.partPath).includes("file"), false);
   } finally {
     await reserved.handle.close();
   }
@@ -494,7 +517,8 @@ test("reserveOutputFile rejects unsafe runtime output directories before path jo
   for (const source of [sourceFiles, distFiles]) {
     assert.match(source, /const outputDir = path\.resolve\(outputDirInput\(dir\)\)/);
     assert.match(source, /path\.join\(outputDir, candidateName\)/);
-    assert.match(source, /path\.join\(outputDir, randomPartFileName\(candidateName\)\)/);
+    assert.match(source, /path\.join\(outputDir, randomPartFileName\(\)\)/);
+    assert.match(source, /path\.join\(outputDir, await resumablePartFileName\(outputDir, candidateName, options\.size\)\)/);
     assert.doesNotMatch(source, /path\.join\(dir, candidateName\)/);
     assert.doesNotMatch(source, /path\.join\(dir, randomPartFileName\(candidateName\)\)/);
   }

@@ -120,6 +120,7 @@ Useful CLI flags:
 - `--server <url>`: use a self-hosted signaling server.
 - `--json`: emit machine-readable events.
 - `--quiet`: suppress human-readable progress.
+- `--redact-output`: redact file names, MIME types, and byte counts from CLI output and JSON events for log-collected automation.
 - `--relay`: force relay-only ICE when TURN is configured, reducing local and public endpoint candidate exposure to peers and signaling logs.
 - `--no-server-ice`: ignore signaling-provided STUN/TURN endpoints and use the built-in public STUN defaults. This reduces trust in the rendezvous operator's ICE configuration, but disables that server's TURN fallback.
 - `send --code-stdin`: read the receive code from piped stdin instead of argv.
@@ -240,7 +241,7 @@ The release workflow is tag-only. Release artifacts, npm publishes, and GitHub R
 Before publishing, the release workflow downloads the exact npm tarball artifact, verifies its checksum and package metadata, then runs the packed-install smoke against a no-follow-verified staged copy of that downloaded tarball rather than trusting a different tarball produced earlier in the job.
 The same verified tarball is attested with GitHub artifact attestations before publish; the attestation job downloads and verifies the artifact but does not reinstall, rebuild, repack, or rediscover release contents.
 Npm publishing uses GitHub OIDC trusted publishing from the `npm` environment; configure the npm package trusted publisher instead of storing a long-lived `NPM_TOKEN` secret.
-After npm publish succeeds, the workflow re-verifies the downloaded tarball again and creates the GitHub Release with that exact tarball plus `SHA256SUMS`.
+After npm publish succeeds, the workflow re-verifies the downloaded tarball again, extracts the matching version section from `CHANGELOG.md`, and creates the GitHub Release with that exact tarball plus `SHA256SUMS`.
 Package-surface tests run after the build in local verification, CI, and release, and assert the published `ff` and `ff-server` bin entrypoints keep their Node shebangs and executable mode.
 Protocol conformance fixtures live in `conformance/protocol-v4.json` and are included in the npm package.
 
@@ -288,8 +289,9 @@ MIT. See `LICENSE`.
 ## Known limitations
 
 - A local MDM/EDR administrator can still observe selected files through endpoint controls. `send --code-stdin`, `send --code-env`, and `send --files-stdin` reduce shell-history and process-argv exposure, but they are not protection from a privileged endpoint monitor.
+- CLI output is metadata-bearing by default for consent and progress. Use `--redact-output` for log-collected automation; it does not hide metadata from the peer, the endpoint, or the network.
 - Browsers without File System Access support can only receive transfers up to the 128 MiB Blob fallback cap.
 - Browser folder receives cannot get CLI-style exclusive create from File System Access, so every browser-created folder entry must carry an unguessable `ff-<128-bit>` reservation token; data streams to opaque tokenized `.part` entries and publishes a final tokenized name only after hash verification.
-- Browser receive resume is exposed only through the explicit `Resume in folder` accept action. It preserves opaque tokenized `.part` files on failure and can resume a later matching manifest only when the same browser profile still has the saved opaque partial record and the user selects a folder containing that entry. Browser startup and registry reads scrub legacy metadata-bearing resume records so saved records do not retain plaintext filenames, MIME types, or sizes. Without that saved browser record, or when using the Blob download fallback, browser receive starts fresh. This is intentionally narrower than CLI `recv --resume` because File System Access does not provide CLI-style path identity and atomic publish primitives.
+- Browser receive resume is exposed only through the explicit `Resume in folder` accept action. It preserves opaque tokenized `.part` files on failure and can resume a later matching manifest only when the same browser profile still has the saved opaque partial record and browser-held lookup key, and the user selects a folder containing that entry. Browser startup and registry reads scrub legacy metadata-bearing resume records so saved records do not retain plaintext filenames, MIME types, or sizes. Without that saved browser state, or when using the Blob download fallback, browser receive starts fresh. This is intentionally narrower than CLI `recv --resume` because File System Access does not provide CLI-style path identity and atomic publish primitives.
 
 The conformance fixture covers chunk framing, encrypted transfer control messages including resume offsets, canonical signaling-message serialization, PAKE confirmation tags, SDP offer/answer authentication, and ICE candidate authentication including username fragments.

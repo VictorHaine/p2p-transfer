@@ -36,6 +36,7 @@ type CommonOptions = {
   relay?: boolean;
   serverIce?: boolean;
   quiet?: boolean;
+  redactOutput?: boolean;
   noColor?: boolean;
 };
 
@@ -81,6 +82,7 @@ program
   .option("--no-server-ice", "ignore signaling-provided ICE servers and use built-in public STUN only")
   .option("--json", "emit machine-readable events")
   .option("--quiet", "suppress human-readable progress output")
+  .option("--redact-output", "redact file metadata from CLI output and JSON events")
   .option("--no-color", "disable color output")
   .option("--verbose", "show debug details");
 
@@ -194,7 +196,7 @@ async function recv(options: RecvOptions): Promise<void> {
           signalWire.dispose();
           unwireSignals = undefined;
           human(options, "Connected. Receiving files...");
-          await receiveFiles(control, bulk, keys, outDir, options.json, options.quiet, undefined, manifest, Boolean(options.resume));
+          await receiveFiles(control, bulk, keys, outDir, options.json, options.quiet, undefined, manifest, Boolean(options.resume), Boolean(options.redactOutput));
           safeSend(signaling, { type: "bye", sid: joined.sid, reason: "complete" });
           completed = true;
           break;
@@ -345,7 +347,7 @@ async function send(code: string, paths: string[], options: CommonOptions): Prom
           signalWire.dispose();
           unwireSignals = undefined;
           human(options, "Connected. Sending files...");
-          await sendFiles(control, bulk, keys, files, options.json, options.quiet);
+          await sendFiles(control, bulk, keys, files, options.json, options.quiet, Boolean(options.redactOutput));
           safeSend(signaling, { type: "bye", sid: joined.sid, reason: "complete" });
           completed = true;
         })(),
@@ -469,10 +471,10 @@ async function openSignaling(url: string): Promise<SignalingClient> {
 }
 
 async function showManifestAndMaybeAccept(manifest: FileManifest, options: RecvOptions, sas: string): Promise<boolean> {
-  print(options, { event: "pair_request", files: manifest.files, totalBytes: manifest.totalBytes });
+  print(options, options.redactOutput ? { event: "pair_request", fileCount: manifest.fileCount } : { event: "pair_request", files: manifest.files, totalBytes: manifest.totalBytes });
   if (!options.json && !options.quiet) {
-    console.log(`Incoming transfer: ${manifest.fileCount} file(s), ${formatBytes(manifest.totalBytes)}. SAS ${sas}`);
-    for (const file of manifest.files) console.log(`  - ${safeFileName(file.name)} (${formatBytes(file.size)})`);
+    console.log(options.redactOutput ? `Incoming transfer: ${manifest.fileCount} file(s). SAS ${sas}` : `Incoming transfer: ${manifest.fileCount} file(s), ${formatBytes(manifest.totalBytes)}. SAS ${sas}`);
+    for (const file of manifest.files) console.log(options.redactOutput ? "  - [redacted]" : `  - ${safeFileName(file.name)} (${formatBytes(file.size)})`);
   }
   if (options.yes) return true;
   if (!input.isTTY) {

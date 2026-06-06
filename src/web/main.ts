@@ -109,10 +109,14 @@ const STATIC_HTML_POLICY_NAME = "ff-static";
 const SHA256_HEX = /^[a-f0-9]{64}$/;
 const MAX_BROWSER_CHUNK_HASHES_PER_FILE = Math.ceil(MAX_FILE_BYTES / CHUNK_SIZE);
 const BROWSER_RESUME_STORAGE_KEY = "ff.browserReceiveResume.v1";
-const BROWSER_RESUME_KEY_PREFIX = "ff.resume.v1:";
-const BROWSER_RESUME_STORAGE_ENTRY_KEY = /^ff\.resume\.v1:[a-f0-9]{64}$/;
+const BROWSER_RESUME_KEY_DB = "ff.browserReceiveResume.keys.v1";
+const BROWSER_RESUME_KEY_STORE = "keys";
+const BROWSER_RESUME_LOOKUP_KEY_ID = "lookup";
+const BROWSER_RESUME_KEY_PREFIX = "ff.resume.v2:";
+const BROWSER_RESUME_STORAGE_ENTRY_KEY = /^ff\.resume\.v2:[a-f0-9]{64}$/;
 const MAX_BROWSER_RESUME_RECORDS = 200;
 const browserResumeText = new TextEncoder();
+let browserResumeLookupKeyPromise: Promise<CryptoKey> | undefined;
 const BROWSER_WAIT_MESSAGE_TYPES = new Set<ServerMessage["type"]>([
   "registered",
   "peer-joined",
@@ -809,7 +813,7 @@ async function receiveBrowserFiles(
         assertFileWithinLimits(message.name, message.size);
         const name = directory ? safeFileName(message.name) : randomizedBrowserOutputName(message.name);
         const writableState: Partial<BrowserWritableReceiveFile> = directory
-          ? await createBrowserReceiveFile(directory, message.name, message.size, browserResumeKey(acceptedManifest, expected), resume)
+          ? await createBrowserReceiveFile(directory, message.name, message.size, await browserResumeKey(acceptedManifest, expected), resume)
           : {};
         states.set(message.id, {
           id: message.id,
@@ -2047,10 +2051,90 @@ async function hashBrowserPartialPrefix(file: File, bytes: number, label: string
   return hash;
 }
 
-function browserResumeKey(manifest: FileManifest, file: TransferManifest["files"][number]): string {
-  const hash = createSha256();
-  hash.update(browserResumeText.encode(canonicalBrowserResumeIdentity(manifest, file)));
-  return `${BROWSER_RESUME_KEY_PREFIX}${digestHex(hash)}`;
+async function browserResumeKey(manifest: FileManifest, file: TransferManifest["files"][number]): Promise<string> {
+  const identity = browserResumeText.encode(canonicalBrowserResumeIdentity(manifest, file));
+  const mac = new Uint8Array(await crypto.subtle.sign("HMAC", await browserResumeLookupKey(), identity));
+  return `${BROWSER_RESUME_KEY_PREFIX}${hexBytes(mac)}`;
+}
+
+async function browserResumeLookupKey(): Promise<CryptoKey> {
+  browserResumeLookupKeyPromise ??= loadBrowserResumeLookupKey();
+  return browserResumeLookupKeyPromise;
+}
+
+async function loadBrowserResumeLookupKey(): Promise<CryptoKey> {
+  try {
+    const db = await openBrowserResumeKeyDb();
+    try {
+      const stored = await readStoredBrowserResumeLookupKey(db);
+      if (stored) return stored;
+      const created = await createBrowserResumeLookupKey();
+      await storeBrowserResumeLookupKey(db, created);
+      clearBrowserResumeRegistry();
+      return created;
+    } finally {
+      db.close();
+    }
+  } catch {
+    clearBrowserResumeRegistry();
+    return createBrowserResumeLookupKey();
+  }
+}
+
+function createBrowserResumeLookupKey(): Promise<CryptoKey> {
+  return crypto.subtle.generateKey({ name: "HMAC", hash: "SHA-256", length: 256 }, false, ["sign"]);
+}
+
+function openBrowserResumeKeyDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(BROWSER_RESUME_KEY_DB, 1);
+    request.onupgradeneeded = () => {
+      request.result.createObjectStore(BROWSER_RESUME_KEY_STORE);
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(new Error("Browser resume key store failed."));
+    request.onblocked = () => reject(new Error("Browser resume key store is blocked."));
+  });
+}
+
+async function readStoredBrowserResumeLookupKey(db: IDBDatabase): Promise<CryptoKey | undefined> {
+  const transaction = db.transaction(BROWSER_RESUME_KEY_STORE, "readonly");
+  const value = await idbRequest<unknown>(transaction.objectStore(BROWSER_RESUME_KEY_STORE).get(BROWSER_RESUME_LOOKUP_KEY_ID));
+  if (!isBrowserResumeLookupKey(value)) return undefined;
+  return value;
+}
+
+async function storeBrowserResumeLookupKey(db: IDBDatabase, key: CryptoKey): Promise<void> {
+  const transaction = db.transaction(BROWSER_RESUME_KEY_STORE, "readwrite");
+  await idbRequest(transaction.objectStore(BROWSER_RESUME_KEY_STORE).put(key, BROWSER_RESUME_LOOKUP_KEY_ID));
+  await idbTransactionDone(transaction);
+}
+
+function idbRequest<T>(request: IDBRequest<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(new Error("Browser resume key store failed."));
+  });
+}
+
+function idbTransactionDone(transaction: IDBTransaction): Promise<void> {
+  return new Promise((resolve, reject) => {
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(new Error("Browser resume key store failed."));
+    transaction.onabort = () => reject(new Error("Browser resume key store failed."));
+  });
+}
+
+function isBrowserResumeLookupKey(value: unknown): value is CryptoKey {
+  if (typeof CryptoKey === "undefined" || !(value instanceof CryptoKey)) return false;
+  const algorithm = value.algorithm;
+  return value.type === "secret" && value.extractable === false && algorithm.name === "HMAC" && value.usages.length === 1 && value.usages[0] === "sign";
+}
+
+function hexBytes(bytes: Uint8Array): string {
+  let hex = "";
+  for (const byte of bytes) hex += byte.toString(16).padStart(2, "0");
+  return hex;
 }
 
 function canonicalBrowserResumeIdentity(manifest: FileManifest, file: TransferManifest["files"][number]): string {

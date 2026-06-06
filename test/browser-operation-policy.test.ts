@@ -158,7 +158,7 @@ test("browser sender rejects too many files before hashing", () => {
 
 test("browser download fallback uses randomized output names", () => {
   assert.match(webSource, /const name = directory \? safeFileName\(message\.name\) : randomizedBrowserOutputName\(message\.name\);/);
-  assert.match(webSource, /const writableState: Partial<BrowserWritableReceiveFile> = directory[\s\S]*await createBrowserReceiveFile\(directory, message\.name, message\.size, browserResumeKey\(acceptedManifest, expected\), resume\)/);
+  assert.match(webSource, /const writableState: Partial<BrowserWritableReceiveFile> = directory[\s\S]*await createBrowserReceiveFile\(directory, message\.name, message\.size, await browserResumeKey\(acceptedManifest, expected\), resume\)/);
   assert.match(webSource, /anchor\.download = state\.name;/);
 });
 
@@ -174,7 +174,7 @@ test("browser receive resume is explicit and limited to saved opaque folder part
   assert.match(promptBody, /Resume in folder keeps opaque tokenized \.part files after failures/);
   assert.match(webSource, /receiveBrowserFiles\(control, bulk, keys, recvLog, manifest, accept\.accepted \? accept\.directory : undefined, accept\.accepted \? accept\.resume : false\)/);
   assert.match(webSource, /resume = false\s*\): Promise<void> \{/);
-  assert.match(receiveBody, /browserResumeKey\(acceptedManifest, expected\), resume/);
+  assert.match(receiveBody, /await browserResumeKey\(acceptedManifest, expected\), resume/);
   assert.match(receiveBody, /hash: writableState\.hash \?\? createSha256\(\)/);
   assert.match(receiveBody, /bytes: writableState\.bytes \?\? 0/);
   assert.match(receiveBody, /expectedSeq: writableState\.expectedSeq \?\? 0/);
@@ -194,12 +194,13 @@ test("browser receive resume is explicit and limited to saved opaque folder part
   assert.match(webSource, /if \(partialSize >= expectedSize\) return expectedSize;/);
   assert.match(webSource, /Math\.floor\(partialSize \/ CHUNK_SIZE\) \* CHUNK_SIZE/);
   assert.match(webSource, /const BROWSER_RESUME_STORAGE_KEY = "ff\.browserReceiveResume\.v1";/);
-  assert.match(webSource, /const BROWSER_RESUME_KEY_PREFIX = "ff\.resume\.v1:";/);
-  assert.match(resumeKeyBody, /hash\.update\(browserResumeText\.encode\(canonicalBrowserResumeIdentity\(manifest, file\)\)\);/);
-  assert.match(resumeKeyBody, /return `\$\{BROWSER_RESUME_KEY_PREFIX\}\$\{digestHex\(hash\)\}`;/);
+  assert.match(webSource, /const BROWSER_RESUME_KEY_DB = "ff\.browserReceiveResume\.keys\.v1";/);
+  assert.match(webSource, /const BROWSER_RESUME_KEY_PREFIX = "ff\.resume\.v2:";/);
+  assert.match(resumeKeyBody, /crypto\.subtle\.sign\("HMAC", await browserResumeLookupKey\(\), identity\)/);
+  assert.match(resumeKeyBody, /return `\$\{BROWSER_RESUME_KEY_PREFIX\}\$\{hexBytes\(mac\)\}`;/);
   assert.doesNotMatch(resumeKeyBody, /return JSON\.stringify/);
   assert.match(webSource, /function canonicalBrowserResumeIdentity\(manifest: FileManifest, file: TransferManifest\["files"\]\[number\]\): string/);
-  assert.match(securityPolicy, /browser receive resume registry keys must be digest identifiers over canonical manifest identity, not plaintext manifest, file name, MIME, size, or count JSON/);
+  assert.match(securityPolicy, /browser receive resume registry keys must be HMAC identifiers over canonical manifest identity using a non-extractable browser-held lookup key/);
   assert.match(securityPolicy, /browser receive resume registry values must not persist plaintext file names, MIME types, or sizes/);
   assert.match(securityPolicy, /browser receive resume registry reads must scrub invalid, noncanonical, or legacy metadata-bearing entries, clear stale storage before writing sanitized replacements/);
   assert.match(securityPolicy, /browser receive resume must be explicit and limited to same-browser saved opaque tokenized `.part` records/);
@@ -208,7 +209,8 @@ test("browser receive resume is explicit and limited to saved opaque folder part
   assert.doesNotMatch(webSource, /type BrowserResumePartialRecord = \{(?:(?!\n\};)[\s\S])*size:/);
   assert.doesNotMatch(webSource, /rememberBrowserResumePartial\(resumeKey, \{(?:(?!\}\);)[\s\S])*(?:finalName|size)/);
   assert.match(webSource, /const \{ name: partName, handle \} = await createAvailableBrowserFile\(directory, opaqueBrowserPartName\(\), browserPartCandidateName\)/);
-  assert.equal(webSource.includes("const BROWSER_RESUME_STORAGE_ENTRY_KEY = /^ff\\.resume\\.v1:[a-f0-9]{64}$/;"), true);
+  assert.equal(webSource.includes("const BROWSER_RESUME_STORAGE_ENTRY_KEY = /^ff\\.resume\\.v2:[a-f0-9]{64}$/;"), true);
+  assert.match(webSource, /function isBrowserResumeLookupKey\(value: unknown\): value is CryptoKey \{[\s\S]*value\.type === "secret"[\s\S]*value\.extractable === false[\s\S]*algorithm\.name === "HMAC"/);
   assert.match(webSource, /pruneBrowserResumeRegistry\(\);[\s\S]*const app = document\.querySelector/);
   assert.match(webSource, /function sanitizeBrowserResumeRegistry\(registry: Record<string, unknown>\): Record<string, unknown>/);
   assert.match(webSource, /if \(!BROWSER_RESUME_STORAGE_ENTRY_KEY\.test\(entryKey\)\) \{[\s\S]*changed = true;[\s\S]*continue;/);
