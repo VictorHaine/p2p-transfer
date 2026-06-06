@@ -261,6 +261,8 @@ The project is expected to preserve these invariants:
 - dependency pins must respect the configured pnpm minimum-release-age policy; emergency vulnerability bumps should pin the oldest reviewed patched version that satisfies the advisory instead of bypassing the supply-chain cooling-off window
 - critical PAKE dependency metadata must stay reviewed and must not add install lifecycle hooks because that package controls the untrusted-signaling trust boundary
 - Dependabot must track the critical `@cipherman/pake-js` PAKE dependency in its own production update group and exclude it from bulk production dependency groups, so CPace changes get explicit review instead of being hidden in routine dependency batches
+- native WebRTC dependency metadata, optional prebuilt package set, allowed build-script surface, and platform smoke coverage must stay reviewed because `@roamhq/wrtc` controls native code loading and the CLI WebRTC transport
+- Dependabot must track `@roamhq/wrtc` and `@roamhq/wrtc-*` in their own production update group and exclude them from bulk production dependency groups, so native WebRTC changes get explicit review instead of being hidden in routine dependency batches
 - Release publishing must use npm trusted publishing with OIDC provenance, not long-lived `NPM_TOKEN` secrets
 - Release artifact attestation must use GitHub artifact attestations on the same verifier-checked npm tarball before publish
 - GitHub Releases must be tag-only, run only after npm publishing succeeds, re-verify the downloaded npm tarball with the checked release-artifact verifier, and attach that exact tarball plus `SHA256SUMS`

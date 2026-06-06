@@ -8,17 +8,21 @@ type PackageJson = {
   version?: string;
   author?: string;
   homepage?: string;
-  bugs?: { url?: string };
+  bugs?: { url?: string } | string;
   license?: string;
   repository?: { type?: string; url?: string };
   packageManager?: string;
   engines?: { node?: string };
   bin?: Record<string, string>;
   files?: string[];
+  main?: string;
+  types?: string;
+  browser?: string;
   scripts?: Record<string, string>;
   publishConfig?: Record<string, unknown>;
   pnpm?: Record<string, unknown>;
   dependencies?: Record<string, string>;
+  optionalDependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
 };
 
@@ -32,11 +36,21 @@ const releaseArtifactScript = fs.readFileSync(new URL("../scripts/verify-release
 const releaseChecksumScript = fs.readFileSync(new URL("../scripts/write-release-checksum.mjs", import.meta.url), "utf8");
 const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
 const cpaceReview = fs.readFileSync(new URL("../docs/security/cpace-review.md", import.meta.url), "utf8");
+const nativeWebrtcReview = fs.readFileSync(new URL("../docs/security/native-webrtc-review.md", import.meta.url), "utf8");
 const dependabotConfig = fs.readFileSync(new URL("../.github/dependabot.yml", import.meta.url), "utf8");
 const ciWorkflow = fs.readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
 const releaseWorkflow = fs.readFileSync(new URL("../.github/workflows/release.yml", import.meta.url), "utf8");
 const conformanceFiles = fs.readdirSync(new URL("../conformance", import.meta.url));
 const pakePackageJson = JSON.parse(fs.readFileSync(new URL("../node_modules/@cipherman/pake-js/package.json", import.meta.url), "utf8")) as PackageJson;
+const wrtcPackageJson = JSON.parse(fs.readFileSync(new URL("../node_modules/@roamhq/wrtc/package.json", import.meta.url), "utf8")) as PackageJson;
+
+const reviewedWrtcPrebuiltPackages = [
+  "@roamhq/wrtc-darwin-arm64",
+  "@roamhq/wrtc-darwin-x64",
+  "@roamhq/wrtc-linux-arm64",
+  "@roamhq/wrtc-linux-x64",
+  "@roamhq/wrtc-win32-x64"
+];
 
 test("npm package surface is restricted to built artifacts and required docs", () => {
   assert.deepEqual(packageJson.files, [
@@ -537,6 +551,7 @@ test("package install scripts are restricted to the required native tooling", ()
   assert.doesNotMatch(pnpmWorkspace, /\bneverBuiltDependencies\b/);
   assert.match(pnpmWorkspace, /^strictDepBuilds: true$/m);
   assert.deepEqual([...allowedBuilds].sort(), ["@roamhq/wrtc", "esbuild"]);
+  assert.match(nativeWebrtcReview, /`@roamhq\/wrtc` is in `allowBuilds` because this native dependency is the only production package allowed to run reviewed dependency build tooling/);
 });
 
 test("pnpm project policy keeps installs strict and resists fresh package compromises", () => {
@@ -607,6 +622,76 @@ test("critical PAKE dependency identity and install surface stay reviewed", () =
   assert.match(cpaceReview, /Release must stop if any of these are true:/);
   assert.match(cpaceReview, /`@cipherman\/pake-js` adds `preinstall`, `install`, `postinstall`, or `prepare` hooks, requires build-script allowlisting, or changes to a non-registry source/);
   assert.match(cpaceReview, /`pnpm audit --audit-level low`, `pnpm audit signatures`, dependency review, installed-state verification, package-surface tests, CPace protocol tests, or release-artifact verification fails/);
+});
+
+test("native WebRTC dependency identity and install surface stay reviewed", () => {
+  const wrtcPin = packageJson.dependencies?.["@roamhq/wrtc"];
+  assert.match(securityPolicy, /native WebRTC dependency metadata, optional prebuilt package set, allowed build-script surface, and platform smoke coverage must stay reviewed/);
+  assert.match(securityPolicy, /Dependabot must track `@roamhq\/wrtc` and `@roamhq\/wrtc-\*` in their own production update group/);
+  assert.match(dependabotConfig, /native-webrtc-dependency:\n\s+patterns:\n\s+- "@roamhq\/wrtc"\n\s+- "@roamhq\/wrtc-\*"\n\s+dependency-type: production/);
+  assert.match(dependabotConfig, /production-dependencies:\n\s+dependency-type: production\n\s+exclude-patterns:\n\s+- "@cipherman\/pake-js"\n\s+- "@roamhq\/wrtc"\n\s+- "@roamhq\/wrtc-\*"/);
+  assert.equal(wrtcPin, "0.10.0");
+  assert.equal(wrtcPackageJson.name, "@roamhq/wrtc");
+  assert.equal(wrtcPackageJson.version, wrtcPin);
+  assert.equal(wrtcPackageJson.license, "BSD-2-Clause");
+  assert.equal(wrtcPackageJson.homepage, "https://github.com/WonderInventions/node-webrtc");
+  assert.equal(wrtcPackageJson.bugs, "https://github.com/WonderInventions/node-webrtc/issues");
+  assert.deepEqual(wrtcPackageJson.repository, {
+    type: "git",
+    url: "git+ssh://git@github.com/WonderInventions/node-webrtc.git"
+  });
+  assert.equal(wrtcPackageJson.main, "lib/index.js");
+  assert.equal(wrtcPackageJson.types, "types/index.d.ts");
+  assert.equal(wrtcPackageJson.browser, "lib/browser.js");
+  assert.deepEqual(wrtcPackageJson.files, ["AUTHORS", "CHANGELOG.md", "lib", "types"]);
+  for (const lifecycle of ["preinstall", "install", "postinstall", "prepublish", "prepublishOnly"]) {
+    assert.equal(wrtcPackageJson.scripts?.[lifecycle], undefined);
+  }
+  assert.equal(wrtcPackageJson.scripts?.prepare, "husky");
+  assert.equal(wrtcPackageJson.scripts?.build, "node scripts/build-from-source.js");
+  assert.equal(wrtcPackageJson.scripts?.["make-prebuilt"], "node scripts/make-prebuilt.js");
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(wrtcPackageJson.optionalDependencies ?? {}).filter(([name]) => name.startsWith("@roamhq/wrtc-"))),
+    Object.fromEntries(reviewedWrtcPrebuiltPackages.map((name) => [name, wrtcPin]))
+  );
+  assert.equal(wrtcPackageJson.optionalDependencies?.domexception, "^4.0.0");
+  assert.match(pnpmLock, /^  '@roamhq\/wrtc@0\.10\.0':\n    resolution: \{integrity: sha512-/m);
+  for (const name of reviewedWrtcPrebuiltPackages) {
+    assert.match(pnpmLock, new RegExp(`^  '${escapeRegExp(name)}@0\\.10\\.0':\\n    resolution: \\{integrity: sha512-`, "m"));
+  }
+  assert.match(nativeSmokeScript, /const mod = await import\("@roamhq\/wrtc"\)/);
+  assert.match(nativeSmokeScript, /requiredConstructor\(wrtc\.RTCPeerConnection, "RTCPeerConnection"\)/);
+  assert.match(nativeSmokeScript, /requiredConstructor\(wrtc\.RTCDataChannel, "RTCDataChannel"\)/);
+  assert.match(nativeSmokeScript, /requiredConstructor\(wrtc\.RTCIceCandidate, "RTCIceCandidate"\)/);
+  assert.match(packedSmokeScript, /onlyBuiltDependencies:[\s\S]*- '@roamhq\/wrtc'/);
+  assert.match(ciWorkflow, /ubuntu-24\.04/);
+  assert.match(ciWorkflow, /macos-15/);
+  assert.match(ciWorkflow, /windows-2025/);
+  assert.match(releaseWorkflow, /ubuntu-24\.04/);
+  assert.match(releaseWorkflow, /macos-15/);
+  assert.match(releaseWorkflow, /windows-2025/);
+  assert.match(nativeWebrtcReview, /# Native WebRTC Dependency Review/);
+  assert.match(nativeWebrtcReview, new RegExp(`Package: \`${escapeRegExp(wrtcPackageJson.name ?? "")}\``));
+  assert.match(nativeWebrtcReview, new RegExp(`Reviewed package version: \`${escapeRegExp(wrtcPin ?? "")}\``));
+  assert.match(nativeWebrtcReview, new RegExp(`Local pin: \`package\\.json\` pins \`@roamhq/wrtc\` to exact version \`${escapeRegExp(wrtcPin ?? "")}\``));
+  assert.match(nativeWebrtcReview, new RegExp(`Installed package identity: \`node_modules/@roamhq/wrtc/package\\.json\` reports name \`${escapeRegExp(wrtcPackageJson.name ?? "")}\` and version \`${escapeRegExp(wrtcPackageJson.version ?? "")}\``));
+  assert.match(nativeWebrtcReview, new RegExp(`License: \`${escapeRegExp(wrtcPackageJson.license ?? "")}\``));
+  assert.match(nativeWebrtcReview, /Upstream repository: `git\+ssh:\/\/git@github\.com\/WonderInventions\/node-webrtc\.git`/);
+  assert.match(nativeWebrtcReview, /Homepage: `https:\/\/github\.com\/WonderInventions\/node-webrtc`/);
+  assert.match(nativeWebrtcReview, /Issue tracker: `https:\/\/github\.com\/WonderInventions\/node-webrtc\/issues`/);
+  assert.match(nativeWebrtcReview, /`RTCPeerConnection`, `RTCDataChannel`, and `RTCIceCandidate`/);
+  assert.match(nativeWebrtcReview, /Consumer install lifecycle hooks reviewed: `preinstall`, `install`, and `postinstall` are absent/);
+  assert.match(nativeWebrtcReview, /`prepare` is present upstream but is not run during registry consumer installs/);
+  assert.match(nativeWebrtcReview, /Optional platform prebuilt packages reviewed: `@roamhq\/wrtc-darwin-arm64@0\.10\.0`, `@roamhq\/wrtc-darwin-x64@0\.10\.0`, `@roamhq\/wrtc-linux-arm64@0\.10\.0`, `@roamhq\/wrtc-linux-x64@0\.10\.0`, and `@roamhq\/wrtc-win32-x64@0\.10\.0`/);
+  assert.match(nativeWebrtcReview, /This repo does not contain a formal independent audit certificate for the package or its prebuilts/);
+  assert.match(nativeWebrtcReview, /does not include Windows ARM64, Linux ARMv7, or other unsupported platforms/);
+  assert.match(nativeWebrtcReview, /does not hide endpoint compromise, MDM inspection of local files before encryption or after decryption, or network-level metadata/);
+  assert.match(nativeWebrtcReview, /Dependabot must keep `@roamhq\/wrtc` and `@roamhq\/wrtc-\*` in the `native-webrtc-dependency` production group and excluded from the bulk production dependency group/);
+  assert.match(nativeWebrtcReview, /Native WebRTC dependency updates must update this artifact in the same change as the package pin and lockfile/);
+  assert.match(nativeWebrtcReview, /Release must stop if any of these are true:/);
+  assert.match(nativeWebrtcReview, /`@roamhq\/wrtc` adds `preinstall`, `install`, or `postinstall` hooks, removes the reviewed registry-consumer install behavior, or changes to a non-registry source/);
+  assert.match(nativeWebrtcReview, /The optional platform prebuilt package set changes without explicit platform-support review/);
+  assert.match(nativeWebrtcReview, /native smoke, packed-install smoke, platform smoke, browser tests, e2e tests, or release-artifact verification fails/);
 });
 
 test("lockfile resolves registry tarballs with integrity for every package", () => {
