@@ -337,9 +337,10 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.match(ciWorkflow, /pnpm exec playwright install --with-deps chromium/);
   assert.match(ciWorkflow, /pnpm test:e2e/);
   assert.match(ciWorkflow, /pnpm test:browser/);
-  assert.match(ciWorkflow, /ubuntu-latest/);
-  assert.match(ciWorkflow, /macos-latest/);
-  assert.match(ciWorkflow, /windows-latest/);
+  assert.match(ciWorkflow, /ubuntu-24\.04/);
+  assert.match(ciWorkflow, /macos-15/);
+  assert.match(ciWorkflow, /windows-2025/);
+  assert.doesNotMatch(ciWorkflow, /runs-on:\s*[a-z]+-latest|-\s+[a-z]+-latest/);
   assert.match(ciWorkflow, /docker build -t p2p-transfer:test \./);
   assert.match(ciWorkflow, /container started without ALLOWED_ORIGINS in production/);
   assert.match(ciWorkflow, /container started without SIGNALING_TOPOLOGY in production/);
@@ -357,6 +358,9 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.doesNotMatch(releaseWorkflow, /pull_request:/);
   assert.doesNotMatch(releaseWorkflow, /branches:/);
   assert.match(releaseWorkflow, /test "\$\{GITHUB_REF_NAME\}" = "v\$\{version\}"/);
+  assert.match(securityPolicy, /release tag commit must be reachable from protected `main` before release artifact packaging, attestation, npm publish, or GitHub Release creation/);
+  assert.match(releaseWorkflow, /fetch-depth: 0/);
+  assert.match(releaseWorkflow, /Verify release tag is on main[\s\S]*git fetch --no-tags --prune origin \+refs\/heads\/main:refs\/remotes\/origin\/main[\s\S]*git merge-base --is-ancestor "\$GITHUB_SHA" origin\/main/);
   assert.match(releaseWorkflow, /pnpm install --frozen-lockfile/);
   assert.match(releaseWorkflow, /pnpm check:install-state[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed[\s\S]*pnpm test:e2e[\s\S]*pnpm test:browser[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures/);
   assert.match(releaseWorkflow, /pnpm --config\.ignore-scripts=true pack --pack-destination release-artifacts/);
@@ -503,9 +507,10 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseWorkflow, /container started without ALLOWED_ORIGINS in production/);
   assert.match(releaseWorkflow, /container started without SIGNALING_TOPOLOGY in production/);
   assert.match(releaseWorkflow, /--read-only --cap-drop=ALL --security-opt no-new-privileges/);
-  assert.match(releaseWorkflow, /ubuntu-latest/);
-  assert.match(releaseWorkflow, /macos-latest/);
-  assert.match(releaseWorkflow, /windows-latest/);
+  assert.match(releaseWorkflow, /ubuntu-24\.04/);
+  assert.match(releaseWorkflow, /macos-15/);
+  assert.match(releaseWorkflow, /windows-2025/);
+  assert.doesNotMatch(releaseWorkflow, /runs-on:\s*[a-z]+-latest|-\s+[a-z]+-latest/);
   assert.match(releaseWorkflow, /- 22\.22\.3/);
   assert.match(releaseWorkflow, /- 24\.13\.1/);
   assert.doesNotMatch(releaseWorkflow, /NPM_TOKEN|NODE_AUTH_TOKEN/);

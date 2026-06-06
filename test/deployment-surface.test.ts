@@ -43,6 +43,7 @@ const PLATFORM_SMOKE_NODE_VERSIONS = ["22.22.3", "24.13.1"];
 const PINNED_NODE_IMAGE = `${PINNED_NODE_VERSION}-bookworm-slim`;
 const PINNED_NODE_IMAGE_DIGEST = "6ed70fbf60557fb3a2faea5657d4105bace34c93449c2571919a1589fae30153";
 const PINNED_NODE_IMAGE_REF = `node:${PINNED_NODE_IMAGE}@sha256:${PINNED_NODE_IMAGE_DIGEST}`;
+const PINNED_RUNNERS = ["ubuntu-24.04", "macos-15", "windows-2025"];
 const PINNED_ACTIONS = new Map([
   ["actions/checkout", { sha: "11bd71901bbe5b1630ceea73d27597364c9af683", version: "v4.2.2" }],
   ["actions/setup-node", { sha: "49933ea5288caeca8642d1e84afbd3f7d6820020", version: "v4.4.0" }],
@@ -53,8 +54,7 @@ const PINNED_ACTIONS = new Map([
   ["github/codeql-action/init", { sha: "8aad20d150bbac5944a9f9d289da16a4b0d87c1e", version: "v4.36.2" }],
   ["github/codeql-action/analyze", { sha: "8aad20d150bbac5944a9f9d289da16a4b0d87c1e", version: "v4.36.2" }],
   ["github/codeql-action/upload-sarif", { sha: "8aad20d150bbac5944a9f9d289da16a4b0d87c1e", version: "v4.36.2" }],
-  ["ossf/scorecard-action", { sha: "4eaacf0543bb3f2c246792bd56e8cdeffafb205a", version: "v2.4.3" }],
-  ["pnpm/action-setup", { sha: "41ff72655975bd51cab0327fa583b6e92b6d3061", version: "v4.2.0" }]
+  ["ossf/scorecard-action", { sha: "4eaacf0543bb3f2c246792bd56e8cdeffafb205a", version: "v2.4.3" }]
 ]);
 
 test("Docker runtime image keeps a minimal non-root production surface", () => {
@@ -171,8 +171,12 @@ function escapeRegExp(value: string): string {
 }
 
 test("CI and release workflows keep minimal token permissions", () => {
-  for (const workflow of [ciWorkflow, releaseWorkflow]) {
+  for (const workflow of [ciWorkflow, releaseWorkflow, codeqlWorkflow, scorecardWorkflow, dependencyReviewWorkflow]) {
     assert.doesNotMatch(workflow, /pull_request_target|workflow_run/);
+    assert.doesNotMatch(workflow, /runs-on:\s*[a-z]+-latest|-\s+[a-z]+-latest/);
+  }
+
+  for (const workflow of [ciWorkflow, releaseWorkflow]) {
     assert.match(workflow, /^permissions:\n  contents: read$/m);
     assert.doesNotMatch(workflow, /node-version:\s*22(?:\s|$)/);
     assert.doesNotMatch(workflow, /node-version:\s*node|node-version:\s*lts/);
@@ -190,15 +194,22 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.doesNotMatch(releaseWorkflow, /workflow_dispatch/);
   assert.match(releaseWorkflow, /^concurrency:\n  group: release-\$\{\{ github\.ref \}\}\n  cancel-in-progress: false$/m);
   assert.match(releaseWorkflow, /^on:\n  push:\n    tags:\n      - "v\*\.\*\.\*"$/m);
+  assert.match(securityPolicy, /release tag commit must be reachable from protected `main` before release artifact packaging, attestation, npm publish, or GitHub Release creation/);
+  assert.match(releaseWorkflow, /fetch-depth: 0/);
+  assert.match(releaseWorkflow, /Verify release tag is on main[\s\S]*git fetch --no-tags --prune origin \+refs\/heads\/main:refs\/remotes\/origin\/main[\s\S]*git merge-base --is-ancestor "\$GITHUB_SHA" origin\/main/);
   const ciVerifyJob = workflowJob(ciWorkflow, "verify");
   const ciPlatformSmokeJob = workflowJob(ciWorkflow, "platform-smoke");
   const releasePlatformSmokeJob = workflowJob(releaseWorkflow, "platform-smoke");
+  for (const runner of PINNED_RUNNERS) {
+    assert.match(ciWorkflow, new RegExp(escapeRegExp(runner)));
+    assert.match(releaseWorkflow, new RegExp(escapeRegExp(runner)));
+  }
   assert.match(ciVerifyJob, /pnpm check:install-state[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native/);
   assert.doesNotMatch(ciVerifyJob, /pnpm test:unit[\s\S]*pnpm build[\s\S]*pnpm smoke:native/);
   assert.match(ciPlatformSmokeJob, /pnpm check:install-state[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed/);
   assert.doesNotMatch(ciPlatformSmokeJob, /pnpm test:unit[\s\S]*pnpm build[\s\S]*pnpm smoke:native/);
   assert.match(releasePlatformSmokeJob, /node:\n\s+- 22\.22\.3\n\s+- 24\.13\.1/);
-  assert.match(releasePlatformSmokeJob, /os:\n\s+- ubuntu-latest\n\s+- macos-latest\n\s+- windows-latest/);
+  assert.match(releasePlatformSmokeJob, /os:\n\s+- ubuntu-24\.04\n\s+- macos-15\n\s+- windows-2025/);
   assert.match(releasePlatformSmokeJob, /pnpm check:install-state[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed/);
   assert.doesNotMatch(releasePlatformSmokeJob, /pnpm test:unit[\s\S]*pnpm build[\s\S]*pnpm smoke:native/);
   assert.match(ciWorkflow, /pnpm smoke:packed/);
@@ -560,8 +571,11 @@ test("interop tests run the signaling server behind an explicit origin policy", 
 });
 
 test("CI and release workflows pin third-party actions to reviewed full-length commits", () => {
+  const seenActions = new Set<string>();
   for (const workflow of [ciWorkflow, releaseWorkflow, codeqlWorkflow, scorecardWorkflow, dependencyReviewWorkflow]) {
-    const actionUses = [...workflow.matchAll(/uses:\s+([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)@([a-f0-9]{40}|[^\s#]+)(?:\s+#\s+(v[0-9][^\s]+))?/g)];
+    const actionUses = [
+      ...workflow.matchAll(/uses:\s+([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)?)@([a-f0-9]{40}|[^\s#]+)(?:\s+#\s+(v[0-9][^\s]+))?/g)
+    ];
     assert.notEqual(actionUses.length, 0);
     for (const match of actionUses) {
       const repo = match[1]!;
@@ -569,11 +583,13 @@ test("CI and release workflows pin third-party actions to reviewed full-length c
       const version = match[3];
       const expected = PINNED_ACTIONS.get(repo);
       assert.ok(expected, `${repo} must be explicitly reviewed before use`);
+      seenActions.add(repo);
       assert.equal(ref, expected.sha, `${repo} must be pinned to reviewed commit ${expected.sha}`);
       assert.equal(version, expected.version, `${repo} pin must document the audited upstream tag`);
     }
-    assert.doesNotMatch(workflow, /uses:\s+[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+@v[0-9]/);
+    assert.doesNotMatch(workflow, /uses:\s+[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)?@v[0-9]/);
   }
+  assert.deepEqual([...PINNED_ACTIONS.keys()].sort(), [...seenActions].sort());
 });
 
 test("dependency update automation covers npm, GitHub Actions, and Docker", () => {
