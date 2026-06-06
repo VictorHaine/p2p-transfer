@@ -72,8 +72,10 @@ test("Docker runtime image keeps a minimal non-root production surface", () => {
   assert.match(dockerfile, /^COPY --chown=node:node --from=build \/app\/node_modules \.\/node_modules$/m);
   assert.match(dockerfile, /^COPY --chown=node:node --from=build \/app\/dist-node \.\/dist-node$/m);
   assert.match(dockerfile, /^COPY --chown=node:node --from=build \/app\/dist-web \.\/dist-web$/m);
+  assert.match(dockerfile, /^COPY --chown=node:node --from=build \/app\/scripts\/probe-http\.mjs \.\/scripts\/probe-http\.mjs$/m);
   assert.match(dockerfile, /^USER node$/m);
-  assert.match(dockerfile, /^HEALTHCHECK .*\/healthz/m);
+  assert.match(dockerfile, /^HEALTHCHECK .*PROBE_URL=http:\/\/127\.0\.0\.1:\$\{PORT:-8787\}\/healthz PROBE_STATUS=200 node scripts\/probe-http\.mjs$/m);
+  assert.doesNotMatch(dockerfile, /^HEALTHCHECK .*node -e "fetch\(/m);
   assert.match(dockerfile, /^CMD \["node", "dist-node\/server\/index\.js"\]$/m);
 
   const runtimeStage = dockerfile.slice(dockerfile.lastIndexOf(`\nFROM ${PINNED_NODE_IMAGE_REF}`));
@@ -359,6 +361,7 @@ test("documented release gates require a hardened Docker runtime smoke, not just
 });
 
 test("Docker HTTP probes are bounded and timeout protected", () => {
+  assert.match(securityPolicy, /Docker image healthchecks must use the checked HTTP probe script instead of inline fetch snippets/);
   assert.match(securityPolicy, /Docker runtime HTTP probes must use the checked probe script with a symlink-safe realpath entrypoint check, validated response byte caps, request environment byte caps, an abort deadline, disabled redirects, deterministic URL\/origin parse failures, probe-owned top-level failure reporting that does not echo raw probe URLs or stack traces, fatal UTF-8 response decoding, and fail-closed URL validation that rejects credential-bearing, query-bearing, or fragment-bearing probe URLs/);
   assert.match(httpProbeScript, /const PROBE_TIMEOUT_MS = 10_000/);
   assert.match(httpProbeScript, /const MAX_RESPONSE_BYTES = 1_048_576/);

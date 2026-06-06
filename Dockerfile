@@ -17,7 +17,8 @@ COPY --chown=node:node --from=build /app/package.json /app/pnpm-lock.yaml ./
 COPY --chown=node:node --from=build /app/node_modules ./node_modules
 COPY --chown=node:node --from=build /app/dist-node ./dist-node
 COPY --chown=node:node --from=build /app/dist-web ./dist-web
+COPY --chown=node:node --from=build /app/scripts/probe-http.mjs ./scripts/probe-http.mjs
 USER node
 EXPOSE 8787
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 CMD node -e "fetch('http://127.0.0.1:' + (process.env.PORT || '8787') + '/healthz').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 CMD PROBE_URL=http://127.0.0.1:${PORT:-8787}/healthz PROBE_STATUS=200 node scripts/probe-http.mjs
 CMD ["node", "dist-node/server/index.js"]
