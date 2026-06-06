@@ -1,0 +1,18 @@
+minimumReleaseAge: 10080
+minimumReleaseAgeIgnoreMissingTime: false
+minimumReleaseAgeStrict: true
+trustPolicy: no-downgrade
+blockExoticSubdeps: true
+nodeVersion: 22.22.3
+engineStrict: true
+pmOnFail: error
+saveExact: true
+verifyStoreIntegrity: true
+strictStorePkgContentCheck: true
+autoInstallPeers: false
+verifyDepsBeforeRun: error
+strictDepBuilds: true
+
+allowBuilds:
+  "@roamhq/wrtc": true
+  esbuild: true

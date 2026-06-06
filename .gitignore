@@ -1,0 +1,8 @@
+node_modules/
+.pnpm-store/
+dist/
+dist-node/
+dist-web/
+.DS_Store
+*.log
+*.part
