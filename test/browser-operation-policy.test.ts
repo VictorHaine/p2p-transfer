@@ -166,6 +166,7 @@ test("browser receive resume is explicit and limited to saved tokenized folder p
   const receiveBody = extractFunctionBody(webSource, "receiveBrowserFiles");
   const fileFactoryBody = extractFunctionBody(webSource, "createBrowserReceiveFile");
   const resumeBody = extractFunctionBody(webSource, "resumeBrowserPartialFile");
+  const resumeKeyBody = extractFunctionBody(webSource, "browserResumeKey");
   const promptBody = extractFunctionBody(webSource, "promptForBrowserAccept");
 
   assert.match(webSource, /type BrowserReceiveAccept = \{ accepted: true; directory\?: FileSystemDirectoryHandle; resume: boolean \} \| \{ accepted: false \};/);
@@ -193,6 +194,12 @@ test("browser receive resume is explicit and limited to saved tokenized folder p
   assert.match(webSource, /if \(partialSize >= expectedSize\) return expectedSize;/);
   assert.match(webSource, /Math\.floor\(partialSize \/ CHUNK_SIZE\) \* CHUNK_SIZE/);
   assert.match(webSource, /const BROWSER_RESUME_STORAGE_KEY = "ff\.browserReceiveResume\.v1";/);
+  assert.match(webSource, /const BROWSER_RESUME_KEY_PREFIX = "ff\.resume\.v1:";/);
+  assert.match(resumeKeyBody, /hash\.update\(browserResumeText\.encode\(canonicalBrowserResumeIdentity\(manifest, file\)\)\);/);
+  assert.match(resumeKeyBody, /return `\$\{BROWSER_RESUME_KEY_PREFIX\}\$\{digestHex\(hash\)\}`;/);
+  assert.doesNotMatch(resumeKeyBody, /return JSON\.stringify/);
+  assert.match(webSource, /function canonicalBrowserResumeIdentity\(manifest: FileManifest, file: TransferManifest\["files"\]\[number\]\): string/);
+  assert.match(securityPolicy, /browser receive resume registry keys must be digest identifiers over canonical manifest identity, not plaintext manifest, file name, MIME, size, or count JSON/);
   assert.match(securityPolicy, /browser receive resume must be explicit and limited to same-browser saved tokenized `.part` records/);
 });
 

@@ -109,7 +109,9 @@ const STATIC_HTML_POLICY_NAME = "ff-static";
 const SHA256_HEX = /^[a-f0-9]{64}$/;
 const MAX_BROWSER_CHUNK_HASHES_PER_FILE = Math.ceil(MAX_FILE_BYTES / CHUNK_SIZE);
 const BROWSER_RESUME_STORAGE_KEY = "ff.browserReceiveResume.v1";
+const BROWSER_RESUME_KEY_PREFIX = "ff.resume.v1:";
 const MAX_BROWSER_RESUME_RECORDS = 200;
+const browserResumeText = new TextEncoder();
 const BROWSER_WAIT_MESSAGE_TYPES = new Set<ServerMessage["type"]>([
   "registered",
   "peer-joined",
@@ -1972,16 +1974,40 @@ async function hashBrowserPartialPrefix(file: File, bytes: number, label: string
 }
 
 function browserResumeKey(manifest: FileManifest, file: TransferManifest["files"][number]): string {
+  const hash = createSha256();
+  hash.update(browserResumeText.encode(canonicalBrowserResumeIdentity(manifest, file)));
+  return `${BROWSER_RESUME_KEY_PREFIX}${digestHex(hash)}`;
+}
+
+function canonicalBrowserResumeIdentity(manifest: FileManifest, file: TransferManifest["files"][number]): string {
   assertTransferManifestWithinLimits(manifest);
-  assertFileWithinLimits(file.name, file.size);
+  const filesValue = ownDataValue(manifest, "files");
+  const fileCount = ownDataValue(manifest, "fileCount");
+  const totalBytes = ownDataValue(manifest, "totalBytes");
+  if (!Array.isArray(filesValue) || typeof fileCount !== "number" || typeof totalBytes !== "number") {
+    throw new Error("Browser resume manifest is invalid.");
+  }
+  const files = [];
+  for (let index = 0; index < filesValue.length; index += 1) files.push(canonicalBrowserResumeFile(ownDataValue(filesValue, String(index))));
   return JSON.stringify({
-    file: { id: file.id, name: file.name, size: file.size, mime: file.mime ?? null },
-    manifest: {
-      fileCount: manifest.fileCount,
-      totalBytes: manifest.totalBytes,
-      files: manifest.files.map((entry) => ({ id: entry.id, name: entry.name, size: entry.size, mime: entry.mime ?? null }))
-    }
+    v: 1,
+    t: "browser-resume",
+    file: canonicalBrowserResumeFile(file),
+    manifest: { fileCount, totalBytes, files }
   });
+}
+
+function canonicalBrowserResumeFile(value: unknown): { id: number; name: string; size: number; mime: string | null } {
+  const id = ownDataValue(value, "id");
+  const name = ownDataValue(value, "name");
+  const size = ownDataValue(value, "size");
+  const mime = ownDataValue(value, "mime");
+  if (typeof id !== "number" || !Number.isSafeInteger(id) || id < 0 || id > 255 || typeof name !== "string" || typeof size !== "number") {
+    throw new Error("Browser resume file identity is invalid.");
+  }
+  assertFileWithinLimits(name, size);
+  if (mime !== undefined && typeof mime !== "string") throw new Error("Browser resume file identity is invalid.");
+  return { id, name, size, mime: mime ?? null };
 }
 
 function readBrowserResumePartial(key: string): BrowserResumePartialRecord | undefined {
