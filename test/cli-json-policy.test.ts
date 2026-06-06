@@ -23,6 +23,8 @@ test("CLI redacted output mode removes file metadata from JSON and progress even
   assert.match(securityPolicy, /CLI `--redact-output` must remove file names, MIME types, and byte counts from CLI JSON and human transfer output/);
   assert.match(readme, /`--redact-output`: redact file names, MIME types, and byte counts/);
   assert.match(cliSource, /\.option\("--redact-output", "redact file metadata from CLI output and JSON events"\)/);
+  assert.match(cliSource, /options\.redactOutput \? \{ event: "pair_requested", sid: joined\.sid, fileCount: manifest\.fileCount \} : \{ event: "pair_requested", sid: joined\.sid, files: manifest\.fileCount, totalBytes: manifest\.totalBytes \}/);
+  assert.match(cliSource, /options\.redactOutput \? `Waiting for receiver to accept \$\{manifest\.fileCount\} file\(s\)\. SAS \$\{keys\.sas\}` : `Waiting for receiver to accept \$\{manifest\.fileCount\} file\(s\), \$\{formatBytes\(manifest\.totalBytes\)\}\. SAS \$\{keys\.sas\}`/);
   assert.match(cliSource, /options\.redactOutput \? \{ event: "pair_request", fileCount: manifest\.fileCount \} : \{ event: "pair_request", files: manifest\.files, totalBytes: manifest\.totalBytes \}/);
   assert.match(cliSource, /options\.redactOutput \? `Incoming transfer: \$\{manifest\.fileCount\} file\(s\)\. SAS \$\{sas\}` : `Incoming transfer: \$\{manifest\.fileCount\} file\(s\), \$\{formatBytes\(manifest\.totalBytes\)\}\. SAS \$\{sas\}`/);
   assert.match(cliSource, /console\.log\(options\.redactOutput \? "  - \[redacted\]" : `  - \$\{safeFileName\(file\.name\)\} \(\$\{formatBytes\(file\.size\)\}\)`\)/);
@@ -97,6 +99,8 @@ test("CLI private receive-code inputs are not echoed back into local telemetry",
   }
   assert.match(readme, /read -rs FF_RECEIVE_CODE/);
   assert.match(readme, /FF_RECEIVE_CODE="\$FF_RECEIVE_CODE" node dist-node\/cli\/index\.js send --code-env FF_RECEIVE_CODE --files-stdin/);
+  assert.match(readme, /`--code-env` only avoids argv and shell-history exposure/);
+  assert.match(securityPolicy, /CLI environment-sourced codes must be documented as protection from argv and shell-history capture only/);
   assert.doesNotMatch(readme, /printf '%s(?:\\n%s\\n)?' '<code>'/);
 });
 

@@ -116,6 +116,8 @@ find ./to-send -maxdepth 1 -type f | FF_RECEIVE_CODE="$FF_RECEIVE_CODE" node dis
 unset FF_RECEIVE_CODE
 ```
 
+`--code-env` only avoids argv and shell-history exposure. Environment variables are not a secrecy boundary against process-environment telemetry, same-user inspection windows, privileged endpoint tools, or MDM/EDR.
+
 Useful CLI flags:
 
 - `--server <url>`: use a self-hosted signaling server.
@@ -194,6 +196,7 @@ The signaling server requires an explicit fixed `PORT` between 1 and 65535; `POR
 In production, `ALLOWED_ORIGINS` entries must use `https://`; set `ALLOW_INSECURE_ORIGINS=true` only for private deployments behind a trusted network boundary.
 Clients reject plain `ws://` signaling URLs except localhost/loopback. Use `wss://` for any remote signaling server.
 The served browser app's production Content Security Policy permits same-origin signaling only by default. Local development allows loopback `ws://` signaling sockets; in production, set `BROWSER_ALLOW_LOOPBACK_WS=true` only for a deliberate private deployment that needs browser-to-localhost signaling. If you intentionally host one static web UI that must connect to arbitrary custom `wss://` signaling servers, set `BROWSER_ALLOW_ANY_WSS=true`; both switches widen the browser exfiltration surface and should not be the default for public production deployments.
+Host the browser client on a dedicated origin. Browser resume records are opaque, but they live in origin-scoped storage; unrelated scripts on the same origin could inspect opaque registry entries and use the browser-held lookup key to test guessed manifest identities.
 
 ## Docker
 
@@ -291,6 +294,7 @@ MIT. See `LICENSE`.
 ## Known limitations
 
 - A local MDM/EDR administrator can still observe selected files through endpoint controls. `send --code-stdin`, `send --code-env`, and `send --files-stdin` reduce shell-history and process-argv exposure, but they are not protection from a privileged endpoint monitor.
+- Environment variables are local process metadata. `--code-env` deletes the variable after capture, but local process telemetry or privileged observers may still see it briefly; use `--code-stdin` when you need to avoid both argv and environment exposure.
 - CLI output is metadata-bearing by default for consent and progress. Use `--redact-output` for log-collected automation; it does not hide metadata from the peer, the endpoint, or the network.
 - Browsers without File System Access support can only receive transfers up to the 128 MiB Blob fallback cap.
 - Browser folder receives cannot get CLI-style exclusive create from File System Access, so every browser-created folder entry must carry an unguessable `ff-<128-bit>` reservation token; data streams to opaque tokenized `.part` entries and publishes a final tokenized name only after hash verification.

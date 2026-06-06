@@ -4,6 +4,7 @@ import fs from "node:fs";
 
 const webSource = fs.readFileSync(new URL("../src/web/main.ts", import.meta.url), "utf8");
 const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
+const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
 const distWebBundle = readDistWebBundle();
 
 test("browser UI prevents overlapping send and receive operations from one tab", () => {
@@ -202,6 +203,8 @@ test("browser receive resume is explicit and limited to saved opaque folder part
   assert.doesNotMatch(resumeKeyBody, /return JSON\.stringify/);
   assert.match(webSource, /function canonicalBrowserResumeIdentity\(manifest: FileManifest, file: TransferManifest\["files"\]\[number\]\): string/);
   assert.match(securityPolicy, /browser receive resume registry keys must be HMAC identifiers over canonical manifest identity using a non-extractable browser-held lookup key/);
+  assert.match(securityPolicy, /production browser deployments that use browser resume should run on a dedicated origin/);
+  assert.match(readme, /Host the browser client on a dedicated origin/);
   assert.match(securityPolicy, /missing, invalid, or unavailable browser resume lookup keys must clear the resume registry before a fresh key is used/);
   assert.match(lookupKeyBody, /const stored = await readStoredBrowserResumeLookupKey\(db\);[\s\S]*if \(stored\) return stored;[\s\S]*const created = await createBrowserResumeLookupKey\(\);[\s\S]*await storeBrowserResumeLookupKey\(db, created\);[\s\S]*clearBrowserResumeRegistry\(\);[\s\S]*return created;/);
   assert.match(lookupKeyBody, /catch \{[\s\S]*clearBrowserResumeRegistry\(\);[\s\S]*return createBrowserResumeLookupKey\(\);[\s\S]*\}/);

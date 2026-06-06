@@ -445,6 +445,10 @@ test("reserveOutputFile rejects invalid or symlinked CLI resume secrets", { skip
   await fs.writeFile(path.join(invalidDir, ".ff-resume-key"), "short", { mode: 0o600 });
   await assert.rejects(() => reserveOutputFile(invalidDir, "file.txt", { resume: true, size: 1 }), /Resume secret is invalid/);
 
+  const publicDir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-reserve-public-secret-"));
+  await fs.writeFile(path.join(publicDir, ".ff-resume-key"), Buffer.alloc(32, 1), { mode: 0o644 });
+  await assert.rejects(() => reserveOutputFile(publicDir, "file.txt", { resume: true, size: 1 }), /Resume secret is not private/);
+
   const symlinkDir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-reserve-symlink-secret-"));
   await fs.writeFile(path.join(symlinkDir, "target"), Buffer.alloc(32, 1), { mode: 0o600 });
   await fs.symlink(path.join(symlinkDir, "target"), path.join(symlinkDir, ".ff-resume-key"));

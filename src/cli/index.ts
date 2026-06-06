@@ -327,9 +327,9 @@ async function send(code: string, paths: string[], options: CommonOptions): Prom
           const publicManifest = redactManifest(manifest);
           const sealedManifest = await sealManifest(keys, manifest);
           signaling.send({ type: "pair-request", sid: joined.sid, manifest: publicManifest, sealedManifest });
-          print(options, { event: "pair_requested", sid: joined.sid, files: manifest.fileCount, totalBytes: manifest.totalBytes });
+          print(options, options.redactOutput ? { event: "pair_requested", sid: joined.sid, fileCount: manifest.fileCount } : { event: "pair_requested", sid: joined.sid, files: manifest.fileCount, totalBytes: manifest.totalBytes });
           print(options, { event: "secure_session", sas: keys.sas });
-          human(options, `Waiting for receiver to accept ${manifest.fileCount} file(s), ${formatBytes(manifest.totalBytes)}. SAS ${keys.sas}`);
+          human(options, options.redactOutput ? `Waiting for receiver to accept ${manifest.fileCount} file(s). SAS ${keys.sas}` : `Waiting for receiver to accept ${manifest.fileCount} file(s), ${formatBytes(manifest.totalBytes)}. SAS ${keys.sas}`);
           await waitForPairAccept(signaling, joined.sid, keys, sealedManifest);
           iceServers = await getIceServersAfterAccept(signaling, iceServers, useServerIce);
 
