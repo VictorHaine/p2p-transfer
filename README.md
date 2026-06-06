@@ -254,7 +254,7 @@ In GitHub:
 
 - create the `npm` environment used by `.github/workflows/release.yml`
 - enable private vulnerability reporting
-- create branch protection for `main` requiring CI
+- create branch protection for `main` requiring CI and CODEOWNERS review
 
 In npm:
 

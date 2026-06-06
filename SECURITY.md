@@ -255,6 +255,7 @@ The project is expected to preserve these invariants:
 - Dependabot must track the critical `@cipherman/pake-js` PAKE dependency in its own production update group and exclude it from bulk production dependency groups, so CPace changes get explicit review instead of being hidden in routine dependency batches
 - Release publishing must use npm trusted publishing with OIDC provenance, not long-lived `NPM_TOKEN` secrets
 - GitHub Releases must be tag-only, run only after npm publishing succeeds, re-verify the downloaded npm tarball with the checked release-artifact verifier, and attach that exact tarball plus `SHA256SUMS`
+- security-sensitive crypto, protocol, release, dependency, Docker, server, and file-publish surfaces must be covered by `.github/CODEOWNERS`; branch protection should require CODEOWNERS review before merge
 - the release workflow is tag-only; release artifacts must never be produced from pull requests, branches, manual dispatches, or a maintainer's local machine
 - browser and CLI protocol wait paths must use the same shared connection and pair-decision timeout constants so one client cannot silently become more permissive than the other
 - exported CLI signaling wait helpers must reject invalid message types, malformed timeout values, malformed session ids, malformed abort signals, and malformed emitted message records before timers, field reads, or error interpolation so embedders cannot invoke coercion/accessor hooks or create unbounded waits

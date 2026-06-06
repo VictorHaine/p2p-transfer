@@ -1,0 +1,23 @@
+# Security-sensitive surfaces require explicit owner review.
+/.github/ @VictorHaine
+/Dockerfile @VictorHaine
+/package.json @VictorHaine
+/pnpm-lock.yaml @VictorHaine
+/pnpm-workspace.yaml @VictorHaine
+/SECURITY.md @VictorHaine
+/conformance/ @VictorHaine
+/scripts/ @VictorHaine
+/src/shared/security.ts @VictorHaine
+/src/shared/messages.ts @VictorHaine
+/src/shared/chunks.ts @VictorHaine
+/src/shared/transfer.ts @VictorHaine
+/src/cli/files.ts @VictorHaine
+/src/cli/secure.ts @VictorHaine
+/src/cli/transfer.ts @VictorHaine
+/src/server/ @VictorHaine
+/src/web/file-system.ts @VictorHaine
+/test/security.test.ts @VictorHaine
+/test/package-surface.test.ts @VictorHaine
+/test/deployment-surface.test.ts @VictorHaine
+/test/release-artifact-verifier.test.ts @VictorHaine
+/test/release-checksum-writer.test.ts @VictorHaine

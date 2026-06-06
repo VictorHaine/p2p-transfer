@@ -11,6 +11,7 @@ const dockerfile = fs.readFileSync(new URL("../Dockerfile", import.meta.url), "u
 const dockerignore = fs.readFileSync(new URL("../.dockerignore", import.meta.url), "utf8");
 const ciWorkflow = fs.readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
 const releaseWorkflow = fs.readFileSync(new URL("../.github/workflows/release.yml", import.meta.url), "utf8");
+const codeowners = fs.readFileSync(new URL("../.github/CODEOWNERS", import.meta.url), "utf8");
 const httpProbeScript = fs.readFileSync(new URL("../scripts/probe-http.mjs", import.meta.url), "utf8");
 const releaseArtifactScript = fs.readFileSync(new URL("../scripts/verify-release-artifact.mjs", import.meta.url), "utf8");
 const releaseChecksumScript = fs.readFileSync(new URL("../scripts/write-release-checksum.mjs", import.meta.url), "utf8");
@@ -224,6 +225,37 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.doesNotMatch(publishJob, /pnpm install|pnpm build|pnpm smoke:native/);
   assert.match(publishJob, /--ignore-scripts/);
   assert.doesNotMatch(publishJob, /NODE_AUTH_TOKEN|NPM_TOKEN/);
+});
+
+test("security-sensitive surfaces require code owner review", () => {
+  assert.match(securityPolicy, /security-sensitive crypto, protocol, release, dependency, Docker, server, and file-publish surfaces must be covered by `\.github\/CODEOWNERS`/);
+  assert.match(readme, /branch protection for `main` requiring CI and CODEOWNERS review/);
+  for (const path of [
+    "/.github/",
+    "/Dockerfile",
+    "/package.json",
+    "/pnpm-lock.yaml",
+    "/pnpm-workspace.yaml",
+    "/SECURITY.md",
+    "/conformance/",
+    "/scripts/",
+    "/src/shared/security.ts",
+    "/src/shared/messages.ts",
+    "/src/shared/chunks.ts",
+    "/src/shared/transfer.ts",
+    "/src/cli/files.ts",
+    "/src/cli/secure.ts",
+    "/src/cli/transfer.ts",
+    "/src/server/",
+    "/src/web/file-system.ts",
+    "/test/security.test.ts",
+    "/test/package-surface.test.ts",
+    "/test/deployment-surface.test.ts",
+    "/test/release-artifact-verifier.test.ts",
+    "/test/release-checksum-writer.test.ts"
+  ]) {
+    assert.match(codeowners, new RegExp(`^${escapeRegExp(path)}\\s+@VictorHaine$`, "m"), `${path} must be owned`);
+  }
 });
 
 test("documented release gates require a hardened Docker runtime smoke, not just image build", () => {
