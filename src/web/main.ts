@@ -2125,6 +2125,10 @@ function readBrowserResumeRegistry(): Record<string, unknown> {
 
 function writeBrowserResumeRegistry(registry: Record<string, unknown>): void {
   try {
+    if (Object.keys(registry).length === 0) {
+      window.localStorage.removeItem(BROWSER_RESUME_STORAGE_KEY);
+      return;
+    }
     window.localStorage.setItem(BROWSER_RESUME_STORAGE_KEY, JSON.stringify(registry));
   } catch {
     // Resume records are opportunistic; transfer integrity does not depend on storage.
@@ -2159,8 +2163,13 @@ function sanitizeBrowserResumeRegistry(registry: Record<string, unknown>): Recor
     sanitized[entryKey] = record;
     if (!browserResumePartialRecordIsCanonical(entryValue, record)) changed = true;
   }
-  if (changed) writeBrowserResumeRegistry(sanitized);
+  if (changed) replaceBrowserResumeRegistry(sanitized);
   return sanitized;
+}
+
+function replaceBrowserResumeRegistry(registry: Record<string, unknown>): void {
+  clearBrowserResumeRegistry();
+  writeBrowserResumeRegistry(registry);
 }
 
 function browserResumePartialRecordIsCanonical(value: unknown, record: BrowserResumePartialRecord): boolean {
