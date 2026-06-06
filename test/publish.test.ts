@@ -426,6 +426,31 @@ test("reserveOutputFile uses opaque deterministic CLI resume partial names", asy
   }
 });
 
+test("reserveOutputFile keeps the CLI resume secret private and fixed size", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-reserve-secret-"));
+  const reserved = await reserveOutputFile(dir, "secret-name.txt", { resume: true, size: 1 });
+  try {
+    const secretPath = path.join(dir, ".ff-resume-key");
+    const stat = await fs.stat(secretPath);
+    assert.equal(stat.size, 32);
+    if (process.platform !== "win32") assert.equal(stat.mode & 0o777, 0o600);
+    assert.equal(path.basename(reserved.partPath).includes("secret-name"), false);
+  } finally {
+    await reserved.handle.close();
+  }
+});
+
+test("reserveOutputFile rejects invalid or symlinked CLI resume secrets", { skip: process.platform === "win32" ? "symlink behavior differs on Windows." : false }, async () => {
+  const invalidDir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-reserve-invalid-secret-"));
+  await fs.writeFile(path.join(invalidDir, ".ff-resume-key"), "short", { mode: 0o600 });
+  await assert.rejects(() => reserveOutputFile(invalidDir, "file.txt", { resume: true, size: 1 }), /Resume secret is invalid/);
+
+  const symlinkDir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-reserve-symlink-secret-"));
+  await fs.writeFile(path.join(symlinkDir, "target"), Buffer.alloc(32, 1), { mode: 0o600 });
+  await fs.symlink(path.join(symlinkDir, "target"), path.join(symlinkDir, ".ff-resume-key"));
+  await assert.rejects(() => reserveOutputFile(symlinkDir, "file.txt", { resume: true, size: 1 }));
+});
+
 test("reserveOutputFile treats dangling final-path symlinks as occupied", { skip: process.platform === "win32" ? "symlink behavior differs on Windows." : false }, async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-reserve-dangling-link-"));
   await fs.symlink(path.join(dir, "missing-target"), path.join(dir, "file.txt"));
@@ -519,6 +544,10 @@ test("reserveOutputFile rejects unsafe runtime output directories before path jo
     assert.match(source, /path\.join\(outputDir, candidateName\)/);
     assert.match(source, /path\.join\(outputDir, randomPartFileName\(\)\)/);
     assert.match(source, /path\.join\(outputDir, await resumablePartFileName\(outputDir, candidateName, options\.size\)\)/);
+    assert.match(source, /const RESUME_SECRET_FILE = "\.ff-resume-key"/);
+    assert.match(source, /const SAFE_SECRET_READ_FLAGS = fs\.constants\.O_RDONLY \| fs\.constants\.O_NOFOLLOW \| fs\.constants\.O_NONBLOCK/);
+    assert.match(source, /fs\.promises\.open\(secretPath, "wx", 0o600\)/);
+    assert.match(source, /stat\.size !== RESUME_SECRET_BYTES/);
     assert.doesNotMatch(source, /path\.join\(dir, candidateName\)/);
     assert.doesNotMatch(source, /path\.join\(dir, randomPartFileName\(candidateName\)\)/);
   }
