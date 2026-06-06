@@ -258,6 +258,7 @@ In GitHub:
 - create branch protection for `main` requiring CI and CODEOWNERS review
 - enable code scanning alerts; `.github/workflows/codeql.yml` runs pinned CodeQL analysis on pull requests, pushes to `main`, and a weekly schedule
 - enable OpenSSF Scorecard alerts; `.github/workflows/scorecard.yml` runs the pinned Scorecard action on pushes to `main` and a weekly schedule, then uploads SARIF to code scanning
+- keep dependency review required on pull requests; `.github/workflows/dependency-review.yml` runs the pinned GitHub dependency review action on pull requests and blocks vulnerable runtime or development dependency changes at low severity or higher
 - enable artifact attestations for the release workflow; `.github/workflows/release.yml` attests the same verifier-checked npm tarball before publish
 
 In npm:

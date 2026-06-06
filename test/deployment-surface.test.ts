@@ -13,6 +13,7 @@ const ciWorkflow = fs.readFileSync(new URL("../.github/workflows/ci.yml", import
 const releaseWorkflow = fs.readFileSync(new URL("../.github/workflows/release.yml", import.meta.url), "utf8");
 const codeqlWorkflow = fs.readFileSync(new URL("../.github/workflows/codeql.yml", import.meta.url), "utf8");
 const scorecardWorkflow = fs.readFileSync(new URL("../.github/workflows/scorecard.yml", import.meta.url), "utf8");
+const dependencyReviewWorkflow = fs.readFileSync(new URL("../.github/workflows/dependency-review.yml", import.meta.url), "utf8");
 const codeowners = fs.readFileSync(new URL("../.github/CODEOWNERS", import.meta.url), "utf8");
 const httpProbeScript = fs.readFileSync(new URL("../scripts/probe-http.mjs", import.meta.url), "utf8");
 const releaseArtifactScript = fs.readFileSync(new URL("../scripts/verify-release-artifact.mjs", import.meta.url), "utf8");
@@ -48,6 +49,7 @@ const PINNED_ACTIONS = new Map([
   ["actions/upload-artifact", { sha: "ea165f8d65b6e75b540449e92b4886f43607fa02", version: "v4.6.2" }],
   ["actions/download-artifact", { sha: "d3f86a106a0bac45b974a628896c90dbdf5c8093", version: "v4.3.0" }],
   ["actions/attest-build-provenance", { sha: "a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32", version: "v4.1.0" }],
+  ["actions/dependency-review-action", { sha: "a1d282b36b6f3519aa1f3fc636f609c47dddb294", version: "v5.0.0" }],
   ["github/codeql-action/init", { sha: "8aad20d150bbac5944a9f9d289da16a4b0d87c1e", version: "v4.36.2" }],
   ["github/codeql-action/analyze", { sha: "8aad20d150bbac5944a9f9d289da16a4b0d87c1e", version: "v4.36.2" }],
   ["github/codeql-action/upload-sarif", { sha: "8aad20d150bbac5944a9f9d289da16a4b0d87c1e", version: "v4.36.2" }],
@@ -290,6 +292,18 @@ test("OpenSSF Scorecard scanning is pinned and uploads SARIF", () => {
   assert.match(scorecardWorkflow, /uses: ossf\/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a # v2\.4\.3[\s\S]*results_file: scorecard-results\.sarif[\s\S]*results_format: sarif[\s\S]*publish_results: true/);
   assert.match(scorecardWorkflow, /uses: github\/codeql-action\/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4\.36\.2[\s\S]*sarif_file: scorecard-results\.sarif/);
   assert.doesNotMatch(scorecardWorkflow, /contents:\s*write|pull-requests:\s*write|actions:\s*write|packages:\s*write/);
+});
+
+test("dependency review blocks vulnerable dependency introductions", () => {
+  assert.match(securityPolicy, /GitHub dependency review must run from a pinned workflow on pull requests with read-only permissions and fail on vulnerable runtime or development dependency changes at low severity or higher/);
+  assert.match(readme, /\.github\/workflows\/dependency-review\.yml` runs the pinned GitHub dependency review action on pull requests/);
+  assert.match(dependencyReviewWorkflow, /^name: dependency-review$/m);
+  assert.match(dependencyReviewWorkflow, /^on:\n  pull_request:$/m);
+  assert.match(dependencyReviewWorkflow, /^permissions:\n  contents: read$/m);
+  assert.match(dependencyReviewWorkflow, /^concurrency:\n  group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}\n  cancel-in-progress: true$/m);
+  assert.match(dependencyReviewWorkflow, /uses: actions\/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4\.2\.2[\s\S]*persist-credentials: false/);
+  assert.match(dependencyReviewWorkflow, /uses: actions\/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5\.0\.0[\s\S]*vulnerability-check: true[\s\S]*license-check: false[\s\S]*fail-on-severity: low[\s\S]*fail-on-scopes: runtime, development[\s\S]*comment-summary-in-pr: never[\s\S]*show-patched-versions: true/);
+  assert.doesNotMatch(dependencyReviewWorkflow, /pull_request_target|workflow_run|contents:\s*write|pull-requests:\s*write|id-token:\s*write|actions:\s*write|packages:\s*write/);
 });
 
 test("documented release gates require a hardened Docker runtime smoke, not just image build", () => {
@@ -546,7 +560,7 @@ test("interop tests run the signaling server behind an explicit origin policy", 
 });
 
 test("CI and release workflows pin third-party actions to reviewed full-length commits", () => {
-  for (const workflow of [ciWorkflow, releaseWorkflow, codeqlWorkflow, scorecardWorkflow]) {
+  for (const workflow of [ciWorkflow, releaseWorkflow, codeqlWorkflow, scorecardWorkflow, dependencyReviewWorkflow]) {
     const actionUses = [...workflow.matchAll(/uses:\s+([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)@([a-f0-9]{40}|[^\s#]+)(?:\s+#\s+(v[0-9][^\s]+))?/g)];
     assert.notEqual(actionUses.length, 0);
     for (const match of actionUses) {
