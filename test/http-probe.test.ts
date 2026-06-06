@@ -24,6 +24,11 @@ test("HTTP probe bounds URL-like environment values by UTF-8 bytes", () => {
   assert.throws(() => optionalOrigin(`http://${"😀".repeat(512)}.localhost`), /bounded origin/);
 });
 
+test("HTTP probe rejects query strings and fragments in probe URLs", () => {
+  assert.throws(() => requiredUrl("http://127.0.0.1/healthz?token=secret"), /query string or fragment/);
+  assert.throws(() => requiredUrl("http://127.0.0.1/healthz#secret"), /query string or fragment/);
+});
+
 test("HTTP probe bounds every environment value before field parsing", async () => {
   const result = await runProbe({
     PROBE_URL: "http://127.0.0.1:1/healthz",
@@ -36,13 +41,13 @@ test("HTTP probe bounds every environment value before field parsing", async () 
 
 test("HTTP probe runtime failures do not echo raw probe URLs or stack traces", async () => {
   const result = await runProbe({
-    PROBE_URL: "http://127.0.0.1:1/secret-token?api_key=hidden",
+    PROBE_URL: "http://127.0.0.1:1/secret-token",
     PROBE_STATUS: "200"
   });
 
   assert.notEqual(result.code, 0);
   assert.match(result.stderr, /HTTP probe failed:/);
-  assert.doesNotMatch(result.stderr, /secret-token|api_key|hidden|probe-http\.mjs\s*:/);
+  assert.doesNotMatch(result.stderr, /secret-token|probe-http\.mjs\s*:/);
 });
 
 test("HTTP probe error renderer suppresses URL and path shaped runtime evidence", () => {

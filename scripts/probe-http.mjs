@@ -104,6 +104,9 @@ export function requiredUrl(value) {
   if (parsed.username !== "" || parsed.password !== "") {
     throw new Error("PROBE_URL must not contain credentials.");
   }
+  if (parsed.search !== "" || parsed.hash !== "") {
+    throw new Error("PROBE_URL must not contain a query string or fragment.");
+  }
   return parsed;
 }
 

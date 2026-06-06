@@ -359,7 +359,7 @@ test("documented release gates require a hardened Docker runtime smoke, not just
 });
 
 test("Docker HTTP probes are bounded and timeout protected", () => {
-  assert.match(securityPolicy, /Docker runtime HTTP probes must use the checked probe script with a symlink-safe realpath entrypoint check, validated response byte caps, request environment byte caps, an abort deadline, disabled redirects, deterministic URL\/origin parse failures, probe-owned top-level failure reporting that does not echo raw probe URLs or stack traces, fatal UTF-8 response decoding, and fail-closed URL validation that rejects credential-bearing probe URLs/);
+  assert.match(securityPolicy, /Docker runtime HTTP probes must use the checked probe script with a symlink-safe realpath entrypoint check, validated response byte caps, request environment byte caps, an abort deadline, disabled redirects, deterministic URL\/origin parse failures, probe-owned top-level failure reporting that does not echo raw probe URLs or stack traces, fatal UTF-8 response decoding, and fail-closed URL validation that rejects credential-bearing, query-bearing, or fragment-bearing probe URLs/);
   assert.match(httpProbeScript, /const PROBE_TIMEOUT_MS = 10_000/);
   assert.match(httpProbeScript, /const MAX_RESPONSE_BYTES = 1_048_576/);
   assert.match(httpProbeScript, /const MAX_ENV_VALUE_BYTES = 2_048/);
@@ -389,6 +389,7 @@ test("Docker HTTP probes are bounded and timeout protected", () => {
   assert.match(httpProbeScript, /HTTP probe response is not valid UTF-8/);
   assert.match(httpProbeScript, /Plain HTTP probes are restricted to loopback hosts/);
   assert.match(httpProbeScript, /PROBE_URL must not contain credentials/);
+  assert.match(httpProbeScript, /PROBE_URL must not contain a query string or fragment/);
   assert.doesNotMatch(httpProbeScript, /parsed\.username = ""|parsed\.password = ""/);
   assert.match(httpProbeScript, /PROBE_ORIGIN must be an exact http or https origin/);
   assert.doesNotMatch(ciWorkflow, /node -e "fetch\(/);
