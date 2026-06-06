@@ -1009,7 +1009,7 @@ async function promptForBrowserAccept(manifest: FileManifest, sas: string): Prom
   if (hasDirectoryPicker) {
     const resumeNote = document.createElement("p");
     resumeNote.className = "sas";
-    resumeNote.textContent = "Resume in folder keeps tokenized .part files after failures and reuses only saved browser partial entries for the same manifest.";
+    resumeNote.textContent = "Resume in folder keeps opaque tokenized .part files after failures and reuses only saved opaque partial entries for the same manifest.";
     requestBox.append(resumeNote);
   }
 

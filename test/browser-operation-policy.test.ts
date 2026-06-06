@@ -171,7 +171,7 @@ test("browser receive resume is explicit and limited to saved opaque folder part
 
   assert.match(webSource, /type BrowserReceiveAccept = \{ accepted: true; directory\?: FileSystemDirectoryHandle; resume: boolean \} \| \{ accepted: false \};/);
   assert.match(promptBody, /makeButton\("resumeButton", "Resume in folder", "secondary"\)/);
-  assert.match(promptBody, /Resume in folder keeps tokenized \.part files after failures/);
+  assert.match(promptBody, /Resume in folder keeps opaque tokenized \.part files after failures/);
   assert.match(webSource, /receiveBrowserFiles\(control, bulk, keys, recvLog, manifest, accept\.accepted \? accept\.directory : undefined, accept\.accepted \? accept\.resume : false\)/);
   assert.match(webSource, /resume = false\s*\): Promise<void> \{/);
   assert.match(receiveBody, /browserResumeKey\(acceptedManifest, expected\), resume/);

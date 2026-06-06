@@ -567,6 +567,9 @@ test("README reports implemented release capabilities without stale MVP-gap lang
   assert.doesNotMatch(readme, /## MVP gaps/);
   assert.match(readme, /## Known limitations/);
   assert.match(readme, /Browser receive resume is exposed only through the explicit `Resume in folder` accept action/);
+  assert.match(readme, /preserves opaque tokenized `\.part` files on failure/);
+  assert.match(readme, /scrub legacy metadata-bearing resume records/);
+  assert.doesNotMatch(readme, /saved tokenized partial record/);
   assert.match(readme, /The conformance fixture covers chunk framing, encrypted transfer control messages including resume offsets, canonical signaling-message serialization, PAKE confirmation tags, SDP offer\/answer authentication, and ICE candidate authentication including username fragments/);
 });
 
