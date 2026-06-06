@@ -162,7 +162,7 @@ test("browser download fallback uses randomized output names", () => {
   assert.match(webSource, /anchor\.download = state\.name;/);
 });
 
-test("browser receive resume is explicit and limited to saved tokenized folder partials", () => {
+test("browser receive resume is explicit and limited to saved opaque folder partials", () => {
   const receiveBody = extractFunctionBody(webSource, "receiveBrowserFiles");
   const fileFactoryBody = extractFunctionBody(webSource, "createBrowserReceiveFile");
   const resumeBody = extractFunctionBody(webSource, "resumeBrowserPartialFile");
@@ -183,9 +183,9 @@ test("browser receive resume is explicit and limited to saved tokenized folder p
   assert.match(webSource, /async function preserveBrowserPartialFile\(state: BrowserReceiveState\): Promise<void> \{[\s\S]*await state\.writable\.close\(\);[\s\S]*await state\.writable\.abort\(\);/);
   assert.match(webSource, /if \(actual !== state\.expectedSha256\) \{[\s\S]*state\.resume = false;[\s\S]*forgetBrowserResumePartial\(state\.resumeKey\);[\s\S]*Hash mismatch/);
   assert.match(fileFactoryBody, /if \(resume\) \{[\s\S]*const resumed = await resumeBrowserPartialFile\(directory, name, size, resumeKey\);[\s\S]*if \(resumed\) return resumed;/);
-  assert.match(fileFactoryBody, /rememberBrowserResumePartial\(resumeKey, \{ finalName: created\.name, partName: created\.partName, size, updatedAt: Date\.now\(\) \}\)/);
-  assert.match(resumeBody, /assertBrowserTokenizedFileName\(record\.finalName\);/);
-  assert.match(resumeBody, /assertBrowserTokenizedFileName\(record\.partName\);/);
+  assert.match(fileFactoryBody, /rememberBrowserResumePartial\(resumeKey, \{ partName: created\.partName, updatedAt: Date\.now\(\) \}\)/);
+  assert.match(resumeBody, /assertBrowserOpaquePartFileName\(record\.partName\);/);
+  assert.match(resumeBody, /name: randomizedBrowserOutputName\(name\)/);
   assert.match(resumeBody, /const bytes = browserResumeOffset\(file\.size, size\);/);
   assert.match(resumeBody, /const hash = await hashBrowserPartialPrefix\(file, bytes, name\);/);
   assert.match(resumeBody, /await writable\.write\(\{ type: "truncate", size: bytes \}\);/);
@@ -200,7 +200,13 @@ test("browser receive resume is explicit and limited to saved tokenized folder p
   assert.doesNotMatch(resumeKeyBody, /return JSON\.stringify/);
   assert.match(webSource, /function canonicalBrowserResumeIdentity\(manifest: FileManifest, file: TransferManifest\["files"\]\[number\]\): string/);
   assert.match(securityPolicy, /browser receive resume registry keys must be digest identifiers over canonical manifest identity, not plaintext manifest, file name, MIME, size, or count JSON/);
-  assert.match(securityPolicy, /browser receive resume must be explicit and limited to same-browser saved tokenized `.part` records/);
+  assert.match(securityPolicy, /browser receive resume registry values must not persist plaintext file names, MIME types, or sizes/);
+  assert.match(securityPolicy, /browser receive resume must be explicit and limited to same-browser saved opaque tokenized `.part` records/);
+  assert.match(webSource, /type BrowserResumePartialRecord = \{\n  partName: string;\n  updatedAt: number;\n\};/);
+  assert.doesNotMatch(webSource, /type BrowserResumePartialRecord = \{(?:(?!\n\};)[\s\S])*finalName:/);
+  assert.doesNotMatch(webSource, /type BrowserResumePartialRecord = \{(?:(?!\n\};)[\s\S])*size:/);
+  assert.doesNotMatch(webSource, /rememberBrowserResumePartial\(resumeKey, \{(?:(?!\}\);)[\s\S])*(?:finalName|size)/);
+  assert.match(webSource, /const \{ name: partName, handle \} = await createAvailableBrowserFile\(directory, opaqueBrowserPartName\(\), browserPartCandidateName\)/);
 });
 
 test("browser download fallback always schedules Blob URL revocation", () => {
@@ -218,7 +224,7 @@ test("browser download fallback always schedules Blob URL revocation", () => {
 test("browser folder receive removes a created partial if writable stream creation fails", () => {
   assert.match(
     webSource,
-    /const \{ name: partName, handle \} = await createAvailableBrowserFile\(directory, browserPartName\(finalName\), browserPartCandidateName\);[\s\S]*try \{[\s\S]*writable: await handle\.createWritable\(\{ keepExistingData: false \}\)[\s\S]*\} catch \(error\) \{[\s\S]*await directory\.removeEntry\(partName\)\.catch\(ignoreNotFoundError\);[\s\S]*throw error;[\s\S]*\}/
+    /const \{ name: partName, handle \} = await createAvailableBrowserFile\(directory, opaqueBrowserPartName\(\), browserPartCandidateName\);[\s\S]*try \{[\s\S]*writable: await handle\.createWritable\(\{ keepExistingData: false \}\)[\s\S]*\} catch \(error\) \{[\s\S]*await directory\.removeEntry\(partName\)\.catch\(ignoreNotFoundError\);[\s\S]*throw error;[\s\S]*\}/
   );
 });
 

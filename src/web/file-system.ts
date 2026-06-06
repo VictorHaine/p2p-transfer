@@ -1,5 +1,5 @@
 import { MAX_OUTPUT_NAME_ATTEMPTS } from "../shared/constants.js";
-import { MAX_BROWSER_OUTPUT_NAME_BYTES } from "./file-names.js";
+import { isOpaqueBrowserPartName, MAX_BROWSER_OUTPUT_NAME_BYTES } from "./file-names.js";
 
 const UNSAFE_BROWSER_FILE_NAME_CHARS = /[\p{Cc}\p{Cf}/\\<>:"|?*]/u;
 const BROWSER_RESERVATION_TOKEN = /\bff-[a-f0-9]{32}\b/;
@@ -48,6 +48,11 @@ export function ignoreNotFoundError(error: unknown): void {
 export function assertBrowserTokenizedFileName(name: string): void {
   assertBrowserFileName(name);
   assertBrowserReservationToken(name);
+}
+
+export function assertBrowserOpaquePartFileName(name: string): void {
+  assertBrowserTokenizedFileName(name);
+  if (!isOpaqueBrowserPartName(name)) throw new Error("Browser resume partial file name must be opaque.");
 }
 
 async function browserFileExists(directory: FileSystemDirectoryHandle, name: string): Promise<boolean> {

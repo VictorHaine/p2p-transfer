@@ -53,9 +53,9 @@ import {
   type SessionKeys
 } from "../shared/security.js";
 import { abortControlMessage, assertControlMessage, assertSenderControlMessage, assertTransferManifestMatchesAccepted, remoteAbortError, type TransferManifest, type ControlMessage } from "../shared/transfer.js";
-import { assertBrowserTokenizedFileName, availableBrowserName, createAvailableBrowserFile, ignoreNotFoundError, isNotFoundError } from "./file-system.js";
+import { assertBrowserOpaquePartFileName, createAvailableBrowserFile, ignoreNotFoundError, isNotFoundError } from "./file-system.js";
 import { generateCode, normalizeCode, parseCode } from "../shared/wordlist.js";
-import { browserFinalCandidateName, browserPartCandidateName, browserPartName, randomizedBrowserOutputName } from "./file-names.js";
+import { browserFinalCandidateName, browserPartCandidateName, opaqueBrowserPartName, randomizedBrowserOutputName } from "./file-names.js";
 import "./styles.css";
 
 type BrowserReceiveState = {
@@ -80,9 +80,7 @@ type BrowserReceiveState = {
 type BrowserReceiveAccept = { accepted: true; directory?: FileSystemDirectoryHandle; resume: boolean } | { accepted: false };
 
 type BrowserResumePartialRecord = {
-  finalName: string;
   partName: string;
-  size: number;
   updatedAt: number;
 };
 
@@ -1953,19 +1951,14 @@ async function createBrowserReceiveFile(
     if (resumed) return resumed;
   }
   const created = await createWritableFile(directory, name);
-  if (resume) rememberBrowserResumePartial(resumeKey, { finalName: created.name, partName: created.partName, size, updatedAt: Date.now() });
+  if (resume) rememberBrowserResumePartial(resumeKey, { partName: created.partName, updatedAt: Date.now() });
   return resume ? { ...created, resumeKey } : created;
 }
 
 async function resumeBrowserPartialFile(directory: FileSystemDirectoryHandle, name: string, size: number, resumeKey: string): Promise<BrowserWritableReceiveFile | undefined> {
   const record = readBrowserResumePartial(resumeKey);
   if (!record) return undefined;
-  if (record.size !== size) {
-    forgetBrowserResumePartial(resumeKey);
-    return undefined;
-  }
-  assertBrowserTokenizedFileName(record.finalName);
-  assertBrowserTokenizedFileName(record.partName);
+  assertBrowserOpaquePartFileName(record.partName);
 
   let handle: FileSystemFileHandle;
   try {
@@ -1990,7 +1983,7 @@ async function resumeBrowserPartialFile(directory: FileSystemDirectoryHandle, na
     throw error;
   }
   return {
-    name: record.finalName,
+    name: randomizedBrowserOutputName(name),
     partName: record.partName,
     writable,
     fileHandle: handle,
@@ -2006,8 +1999,8 @@ async function createWritableFile(
   directory: FileSystemDirectoryHandle,
   name: string
 ): Promise<{ name: string; partName: string; writable: FileSystemWritableFileStream; fileHandle: FileSystemFileHandle; directory: FileSystemDirectoryHandle }> {
-  const finalName = await availableBrowserName(directory, randomizedBrowserOutputName(name), browserFinalCandidateName);
-  const { name: partName, handle } = await createAvailableBrowserFile(directory, browserPartName(finalName), browserPartCandidateName);
+  const finalName = randomizedBrowserOutputName(name);
+  const { name: partName, handle } = await createAvailableBrowserFile(directory, opaqueBrowserPartName(), browserPartCandidateName);
   try {
     return { name: finalName, partName, writable: await handle.createWritable({ keepExistingData: false }), fileHandle: handle, directory };
   } catch (error) {
@@ -2133,17 +2126,10 @@ function writeBrowserResumeRegistry(registry: Record<string, unknown>): void {
 
 function browserResumePartialRecordInput(value: unknown): BrowserResumePartialRecord | undefined {
   if (!value || typeof value !== "object") return undefined;
-  const finalName = ownDataValue(value, "finalName");
   const partName = ownDataValue(value, "partName");
-  const size = ownDataValue(value, "size");
   const updatedAt = ownDataValue(value, "updatedAt");
   if (
-    typeof finalName !== "string" ||
     typeof partName !== "string" ||
-    typeof size !== "number" ||
-    !Number.isSafeInteger(size) ||
-    size < 0 ||
-    size > MAX_FILE_BYTES ||
     typeof updatedAt !== "number" ||
     !Number.isSafeInteger(updatedAt) ||
     updatedAt < 0
@@ -2151,12 +2137,11 @@ function browserResumePartialRecordInput(value: unknown): BrowserResumePartialRe
     return undefined;
   }
   try {
-    assertBrowserTokenizedFileName(finalName);
-    assertBrowserTokenizedFileName(partName);
+    assertBrowserOpaquePartFileName(partName);
   } catch {
     return undefined;
   }
-  return { finalName, partName, size, updatedAt };
+  return { partName, updatedAt };
 }
 
 async function discardBrowserPartialFile(state: BrowserReceiveState): Promise<void> {

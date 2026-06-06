@@ -7,6 +7,7 @@ export const MAX_BROWSER_FINAL_NAME_BYTES = MAX_BROWSER_OUTPUT_NAME_BYTES - utf8
 const MAX_BROWSER_OUTPUT_EXTENSION_BYTES = 32;
 const RANDOM_NAME_TOKEN_HEX_CHARS = 32;
 const RANDOM_SUFFIX = /^(.*)( \(ff-[a-f0-9]{32}\))(\.[^.]*)?$/;
+const OPAQUE_PART_NAME = /^ff-[a-f0-9]{32}\.part$/;
 
 export function randomizedBrowserOutputName(name: string, token = randomNameToken()): string {
   assertBrowserNameInput(name);
@@ -26,6 +27,17 @@ export function browserPartName(finalName: string): string {
   assertBrowserNameInput(finalName);
   if (utf8ByteLength(finalName) > MAX_BROWSER_FINAL_NAME_BYTES) throw new Error("Browser final output name is too long.");
   return `${finalName}${BROWSER_PART_SUFFIX}`;
+}
+
+export function opaqueBrowserPartName(token = randomNameToken()): string {
+  if (typeof token !== "string") throw new Error("Browser output token is invalid.");
+  if (!/^[a-f0-9]{32}$/.test(token)) throw new Error("Browser output token is invalid.");
+  return `ff-${token}${BROWSER_PART_SUFFIX}`;
+}
+
+export function isOpaqueBrowserPartName(name: string): boolean {
+  assertBrowserNameInput(name);
+  return OPAQUE_PART_NAME.test(name);
 }
 
 export function browserFinalCandidateName(name: string, index: number): string {

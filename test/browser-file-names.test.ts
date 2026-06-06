@@ -4,12 +4,14 @@ import {
   browserFinalCandidateName,
   browserPartCandidateName,
   browserPartName,
+  isOpaqueBrowserPartName,
   MAX_BROWSER_FINAL_NAME_BYTES,
   MAX_BROWSER_OUTPUT_NAME_BYTES,
+  opaqueBrowserPartName,
   randomizedBrowserOutputName
 } from "../src/web/file-names.js";
 import fs from "node:fs";
-import { assertBrowserTokenizedFileName, availableBrowserName, createAvailableBrowserFile, isNotFoundError } from "../src/web/file-system.js";
+import { assertBrowserOpaquePartFileName, assertBrowserTokenizedFileName, availableBrowserName, createAvailableBrowserFile, isNotFoundError } from "../src/web/file-system.js";
 
 const fileSystemSource = fs.readFileSync(new URL("../src/web/file-system.ts", import.meta.url), "utf8");
 const distWebBundle = readDistWebBundle();
@@ -54,6 +56,15 @@ test("browser output trimming preserves utf-8 character boundaries", () => {
 
 test("browser part names refuse final names that did not reserve suffix space", () => {
   assert.throws(() => browserPartName("x".repeat(196)), /too long/);
+});
+
+test("browser resume partial names are opaque tokenized part files", () => {
+  assert.equal(opaqueBrowserPartName("0123456789abcdef0123456789abcdef"), "ff-0123456789abcdef0123456789abcdef.part");
+  assert.equal(isOpaqueBrowserPartName("ff-0123456789abcdef0123456789abcdef.part"), true);
+  assert.equal(isOpaqueBrowserPartName("report (ff-0123456789abcdef0123456789abcdef).txt.part"), false);
+  assert.doesNotThrow(() => assertBrowserOpaquePartFileName("ff-0123456789abcdef0123456789abcdef.part"));
+  assert.throws(() => opaqueBrowserPartName("short"), /token/);
+  assert.throws(() => assertBrowserOpaquePartFileName("report (ff-0123456789abcdef0123456789abcdef).txt.part"), /opaque/);
 });
 
 test("browser collision names stay bounded and preserve random suffixes", () => {
