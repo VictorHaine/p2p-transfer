@@ -110,6 +110,7 @@ const SHA256_HEX = /^[a-f0-9]{64}$/;
 const MAX_BROWSER_CHUNK_HASHES_PER_FILE = Math.ceil(MAX_FILE_BYTES / CHUNK_SIZE);
 const BROWSER_RESUME_STORAGE_KEY = "ff.browserReceiveResume.v1";
 const BROWSER_RESUME_KEY_PREFIX = "ff.resume.v1:";
+const BROWSER_RESUME_STORAGE_ENTRY_KEY = /^ff\.resume\.v1:[a-f0-9]{64}$/;
 const MAX_BROWSER_RESUME_RECORDS = 200;
 const browserResumeText = new TextEncoder();
 const BROWSER_WAIT_MESSAGE_TYPES = new Set<ServerMessage["type"]>([
@@ -126,6 +127,8 @@ const BROWSER_WAIT_MESSAGE_TYPES = new Set<ServerMessage["type"]>([
   "error"
 ]);
 const BROWSER_WAIT_SESSION_ID = /^[A-Za-z0-9_-]{1,128}$/;
+
+pruneBrowserResumeRegistry();
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("Missing app root");
@@ -2109,9 +2112,13 @@ function readBrowserResumeRegistry(): Record<string, unknown> {
     const raw = window.localStorage.getItem(BROWSER_RESUME_STORAGE_KEY);
     if (!raw) return {};
     const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
-    return parsed as Record<string, unknown>;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      clearBrowserResumeRegistry();
+      return {};
+    }
+    return sanitizeBrowserResumeRegistry(parsed as Record<string, unknown>);
   } catch {
+    clearBrowserResumeRegistry();
     return {};
   }
 }
@@ -2122,6 +2129,45 @@ function writeBrowserResumeRegistry(registry: Record<string, unknown>): void {
   } catch {
     // Resume records are opportunistic; transfer integrity does not depend on storage.
   }
+}
+
+function clearBrowserResumeRegistry(): void {
+  try {
+    window.localStorage.removeItem(BROWSER_RESUME_STORAGE_KEY);
+  } catch {
+    // Resume records are opportunistic; transfer integrity does not depend on storage.
+  }
+}
+
+function pruneBrowserResumeRegistry(): void {
+  readBrowserResumeRegistry();
+}
+
+function sanitizeBrowserResumeRegistry(registry: Record<string, unknown>): Record<string, unknown> {
+  const sanitized: Record<string, BrowserResumePartialRecord> = {};
+  let changed = false;
+  for (const [entryKey, entryValue] of Object.entries(registry)) {
+    if (!BROWSER_RESUME_STORAGE_ENTRY_KEY.test(entryKey)) {
+      changed = true;
+      continue;
+    }
+    const record = browserResumePartialRecordInput(entryValue);
+    if (!record) {
+      changed = true;
+      continue;
+    }
+    sanitized[entryKey] = record;
+    if (!browserResumePartialRecordIsCanonical(entryValue, record)) changed = true;
+  }
+  if (changed) writeBrowserResumeRegistry(sanitized);
+  return sanitized;
+}
+
+function browserResumePartialRecordIsCanonical(value: unknown, record: BrowserResumePartialRecord): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const keys = Object.keys(value);
+  if (keys.length !== 2 || !keys.includes("partName") || !keys.includes("updatedAt")) return false;
+  return ownDataValue(value, "partName") === record.partName && ownDataValue(value, "updatedAt") === record.updatedAt;
 }
 
 function browserResumePartialRecordInput(value: unknown): BrowserResumePartialRecord | undefined {

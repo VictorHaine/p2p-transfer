@@ -201,12 +201,20 @@ test("browser receive resume is explicit and limited to saved opaque folder part
   assert.match(webSource, /function canonicalBrowserResumeIdentity\(manifest: FileManifest, file: TransferManifest\["files"\]\[number\]\): string/);
   assert.match(securityPolicy, /browser receive resume registry keys must be digest identifiers over canonical manifest identity, not plaintext manifest, file name, MIME, size, or count JSON/);
   assert.match(securityPolicy, /browser receive resume registry values must not persist plaintext file names, MIME types, or sizes/);
+  assert.match(securityPolicy, /browser receive resume registry reads must scrub invalid, noncanonical, or legacy metadata-bearing entries/);
   assert.match(securityPolicy, /browser receive resume must be explicit and limited to same-browser saved opaque tokenized `.part` records/);
   assert.match(webSource, /type BrowserResumePartialRecord = \{\n  partName: string;\n  updatedAt: number;\n\};/);
   assert.doesNotMatch(webSource, /type BrowserResumePartialRecord = \{(?:(?!\n\};)[\s\S])*finalName:/);
   assert.doesNotMatch(webSource, /type BrowserResumePartialRecord = \{(?:(?!\n\};)[\s\S])*size:/);
   assert.doesNotMatch(webSource, /rememberBrowserResumePartial\(resumeKey, \{(?:(?!\}\);)[\s\S])*(?:finalName|size)/);
   assert.match(webSource, /const \{ name: partName, handle \} = await createAvailableBrowserFile\(directory, opaqueBrowserPartName\(\), browserPartCandidateName\)/);
+  assert.equal(webSource.includes("const BROWSER_RESUME_STORAGE_ENTRY_KEY = /^ff\\.resume\\.v1:[a-f0-9]{64}$/;"), true);
+  assert.match(webSource, /pruneBrowserResumeRegistry\(\);[\s\S]*const app = document\.querySelector/);
+  assert.match(webSource, /function sanitizeBrowserResumeRegistry\(registry: Record<string, unknown>\): Record<string, unknown>/);
+  assert.match(webSource, /if \(!BROWSER_RESUME_STORAGE_ENTRY_KEY\.test\(entryKey\)\) \{[\s\S]*changed = true;[\s\S]*continue;/);
+  assert.match(webSource, /if \(!browserResumePartialRecordIsCanonical\(entryValue, record\)\) changed = true;/);
+  assert.match(webSource, /if \(changed\) writeBrowserResumeRegistry\(sanitized\);/);
+  assert.match(webSource, /keys\.length !== 2 \|\| !keys\.includes\("partName"\) \|\| !keys\.includes\("updatedAt"\)/);
 });
 
 test("browser download fallback always schedules Blob URL revocation", () => {
