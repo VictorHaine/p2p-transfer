@@ -255,6 +255,7 @@ In GitHub:
 - create the `npm` environment used by `.github/workflows/release.yml`
 - enable private vulnerability reporting
 - create branch protection for `main` requiring CI and CODEOWNERS review
+- enable code scanning alerts; `.github/workflows/codeql.yml` runs pinned CodeQL analysis on pull requests, pushes to `main`, and a weekly schedule
 
 In npm:
 

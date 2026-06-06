@@ -11,6 +11,7 @@ const dockerfile = fs.readFileSync(new URL("../Dockerfile", import.meta.url), "u
 const dockerignore = fs.readFileSync(new URL("../.dockerignore", import.meta.url), "utf8");
 const ciWorkflow = fs.readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
 const releaseWorkflow = fs.readFileSync(new URL("../.github/workflows/release.yml", import.meta.url), "utf8");
+const codeqlWorkflow = fs.readFileSync(new URL("../.github/workflows/codeql.yml", import.meta.url), "utf8");
 const codeowners = fs.readFileSync(new URL("../.github/CODEOWNERS", import.meta.url), "utf8");
 const httpProbeScript = fs.readFileSync(new URL("../scripts/probe-http.mjs", import.meta.url), "utf8");
 const releaseArtifactScript = fs.readFileSync(new URL("../scripts/verify-release-artifact.mjs", import.meta.url), "utf8");
@@ -45,6 +46,8 @@ const PINNED_ACTIONS = new Map([
   ["actions/setup-node", { sha: "49933ea5288caeca8642d1e84afbd3f7d6820020", version: "v4.4.0" }],
   ["actions/upload-artifact", { sha: "ea165f8d65b6e75b540449e92b4886f43607fa02", version: "v4.6.2" }],
   ["actions/download-artifact", { sha: "d3f86a106a0bac45b974a628896c90dbdf5c8093", version: "v4.3.0" }],
+  ["github/codeql-action/init", { sha: "8aad20d150bbac5944a9f9d289da16a4b0d87c1e", version: "v4.36.2" }],
+  ["github/codeql-action/analyze", { sha: "8aad20d150bbac5944a9f9d289da16a4b0d87c1e", version: "v4.36.2" }],
   ["pnpm/action-setup", { sha: "41ff72655975bd51cab0327fa583b6e92b6d3061", version: "v4.2.0" }]
 ]);
 
@@ -256,6 +259,19 @@ test("security-sensitive surfaces require code owner review", () => {
   ]) {
     assert.match(codeowners, new RegExp(`^${escapeRegExp(path)}\\s+@VictorHaine$`, "m"), `${path} must be owned`);
   }
+});
+
+test("CodeQL code scanning is pinned and least-privilege", () => {
+  assert.match(securityPolicy, /CodeQL code scanning must run from a pinned workflow on pull requests, pushes to `main`, and a weekly schedule/);
+  assert.match(readme, /\.github\/workflows\/codeql\.yml` runs pinned CodeQL analysis/);
+  assert.match(codeqlWorkflow, /^name: codeql$/m);
+  assert.match(codeqlWorkflow, /^on:\n  pull_request:\n  push:\n    branches:\n      - main\n  schedule:\n    - cron: "17 3 \* \* 2"$/m);
+  assert.match(codeqlWorkflow, /^permissions:\n  contents: read\n  security-events: write$/m);
+  assert.match(codeqlWorkflow, /^concurrency:\n  group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}\n  cancel-in-progress: true$/m);
+  assert.match(codeqlWorkflow, /uses: actions\/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4\.2\.2[\s\S]*persist-credentials: false/);
+  assert.match(codeqlWorkflow, /uses: github\/codeql-action\/init@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4\.36\.2[\s\S]*languages: javascript-typescript/);
+  assert.match(codeqlWorkflow, /uses: github\/codeql-action\/analyze@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4\.36\.2[\s\S]*category: "\/language:javascript-typescript"/);
+  assert.doesNotMatch(codeqlWorkflow, /id-token:\s*write|contents:\s*write|pull-requests:\s*write|actions:\s*write/);
 });
 
 test("documented release gates require a hardened Docker runtime smoke, not just image build", () => {
@@ -512,7 +528,7 @@ test("interop tests run the signaling server behind an explicit origin policy", 
 });
 
 test("CI and release workflows pin third-party actions to reviewed full-length commits", () => {
-  for (const workflow of [ciWorkflow, releaseWorkflow]) {
+  for (const workflow of [ciWorkflow, releaseWorkflow, codeqlWorkflow]) {
     const actionUses = [...workflow.matchAll(/uses:\s+([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)@([a-f0-9]{40}|[^\s#]+)(?:\s+#\s+(v[0-9][^\s]+))?/g)];
     assert.notEqual(actionUses.length, 0);
     for (const match of actionUses) {
