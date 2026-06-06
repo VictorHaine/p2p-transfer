@@ -558,6 +558,13 @@ test("README documents the auto-accept consent tradeoff", () => {
   assert.match(readme, /recv --yes.*trusted automation/);
 });
 
+test("README reports implemented release capabilities without stale MVP-gap language", () => {
+  assert.doesNotMatch(readme, /## MVP gaps/);
+  assert.match(readme, /## Known limitations/);
+  assert.match(readme, /Browser receive resume is exposed only through the explicit `Resume in folder` accept action/);
+  assert.match(readme, /The conformance fixture covers chunk framing, encrypted transfer control messages including resume offsets, canonical signaling-message serialization, PAKE confirmation tags, SDP offer\/answer authentication, and ICE candidate authentication including username fragments/);
+});
+
 test("interop tests run the signaling server behind an explicit origin policy", () => {
   const e2eTest = fs.readFileSync(new URL("../test/e2e/cli-transfer.test.ts", import.meta.url), "utf8");
   const browserTest = fs.readFileSync(new URL("../test/browser/browser-cli-send.test.ts", import.meta.url), "utf8");
