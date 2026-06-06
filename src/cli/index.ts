@@ -58,6 +58,11 @@ type RecvCommandOptions = Omit<RecvOptions, "out"> & {
   out?: string;
 };
 
+type ResolvedRecvCode = {
+  parsedCode: ReturnType<typeof parseRequiredCode>;
+  supplied: boolean;
+};
+
 const RECEIVE_CODE_GENERATION_ATTEMPTS = 10;
 const ICE_CONFIG_GRACE_MS = 1_000;
 const CLI_STDIN_MAX_BYTES = 512 * 1024;
@@ -86,7 +91,7 @@ program
   .option("-y, --yes", "auto-accept incoming transfers")
   .option("--resume", "resume from chunk-aligned CLI partial files left in the output directory")
   .option("--code <code>", "use a supplied code like 12345678-two-words")
-  .option("--code-stdin", "read a supplied receive code from stdin or an interactive prompt")
+  .option("--code-stdin", "read a supplied receive code from piped stdin")
   .option("--code-env <name>", "read a supplied receive code from an environment variable")
   .action(async (options: RecvCommandOptions) => {
     const merged: RecvOptions = { ...program.opts<CommonOptions>(), ...options, out: options.out ?? process.cwd() };
@@ -98,7 +103,7 @@ program
   .description("send files")
   .argument("[code]", "receiver code")
   .argument("[files...]", "files to send")
-  .option("--code-stdin", "read the receiver code from stdin or an interactive prompt instead of argv")
+  .option("--code-stdin", "read the receiver code from piped stdin instead of argv")
   .option("--code-env <name>", "read the receiver code from an environment variable instead of argv")
   .option("--files-stdin", "read newline-delimited file paths from stdin instead of argv")
   .action(async (code: string | undefined, files: string[], options: SendOptions) => {
@@ -144,8 +149,7 @@ async function recv(options: RecvOptions): Promise<void> {
         const registeredCode = await registerReceiver(signaling, suppliedCode);
         parsedCode = registeredCode.parsedCode;
         const registered = registeredCode.registered;
-        print(options, { event: "registered", code: parsedCode.handle, rendezvous: registered.code, expiresInSec: registered.expiresInSec });
-        human(options, `Ready to receive. Share this code: ${parsedCode.handle}`);
+        printRegisteredReceiver(options, parsedCode.handle, registered, registeredCode.supplied);
 
         for (let pairRequestRetry = 0; ; pairRequestRetry += 1) {
           const joined = await waitForConfirmedReceiverSession(signaling, parsedCode.handle, options);
@@ -210,22 +214,32 @@ async function recv(options: RecvOptions): Promise<void> {
 
 async function registerReceiver(
   signaling: SignalingClient,
-  suppliedCode?: ReturnType<typeof parseRequiredCode>
-): Promise<{ parsedCode: ReturnType<typeof parseRequiredCode>; registered: Extract<ServerMessage, { type: "registered" }> }> {
+  suppliedCode?: ResolvedRecvCode
+): Promise<{ parsedCode: ReturnType<typeof parseRequiredCode>; registered: Extract<ServerMessage, { type: "registered" }>; supplied: boolean }> {
   const attempts = suppliedCode ? 1 : RECEIVE_CODE_GENERATION_ATTEMPTS;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    const parsedCode = suppliedCode ?? parseRequiredCode(normalizeCode(generateCode()));
+    const parsedCode = suppliedCode?.parsedCode ?? parseRequiredCode(normalizeCode(generateCode()));
     signaling.send({ type: "register", role: "receiver", code: parsedCode.rendezvous, protocolVersion: PROTOCOL_VERSION });
     try {
       const registered = await waitForMessage(signaling, "registered", CONNECT_TIMEOUT_MS);
       assertRegisteredRendezvous(registered, parsedCode.rendezvous);
-      return { parsedCode, registered };
+      return { parsedCode, registered, supplied: suppliedCode?.supplied ?? false };
     } catch (error) {
       if (!suppliedCode && error instanceof SignalingError && error.code === "code_taken") continue;
       throw error;
     }
   }
   throw new Error("Could not allocate a receive code after repeated collisions.");
+}
+
+function printRegisteredReceiver(options: RecvOptions, handle: string, registered: Extract<ServerMessage, { type: "registered" }>, supplied: boolean): void {
+  if (supplied) {
+    print(options, { event: "registered", codeSupplied: true, rendezvous: registered.code, expiresInSec: registered.expiresInSec });
+    human(options, "Ready to receive with the supplied code.");
+    return;
+  }
+  print(options, { event: "registered", code: handle, rendezvous: registered.code, expiresInSec: registered.expiresInSec });
+  human(options, `Ready to receive. Share this code: ${handle}`);
 }
 
 async function waitForConfirmedReceiverSession(
@@ -350,12 +364,12 @@ async function send(code: string, paths: string[], options: CommonOptions): Prom
   }
 }
 
-async function resolveRecvCode(options: RecvOptions): Promise<ReturnType<typeof parseRequiredCode> | undefined> {
+async function resolveRecvCode(options: RecvOptions): Promise<ResolvedRecvCode | undefined> {
   const sourceCount = Number(options.code !== undefined) + Number(Boolean(options.codeStdin)) + Number(options.codeEnv !== undefined);
   if (sourceCount === 0) return undefined;
   if (sourceCount > 1) throw new Error("Use only one receive code input source.");
-  const code = options.codeStdin ? await readCodeFromStdinOrPrompt("Receive code") : options.codeEnv !== undefined ? readCodeEnv(options.codeEnv) : options.code;
-  return parseRequiredCode(normalizeCode(code));
+  const code = options.codeStdin ? await readCodeFromStdin("Receive code") : options.codeEnv !== undefined ? readCodeEnv(options.codeEnv) : options.code;
+  return { parsedCode: parseRequiredCode(normalizeCode(code)), supplied: true };
 }
 
 async function resolveSendInputs(code: string | undefined, files: string[], options: SendOptions): Promise<{ code: string; files: string[] }> {
@@ -379,7 +393,7 @@ async function resolveSendInputs(code: string | undefined, files: string[], opti
 
   let resolvedCode: string | undefined;
   if (options.codeStdin) {
-    resolvedCode = await readCodeFromStdinOrPrompt("Receiver code");
+    resolvedCode = await readCodeFromStdin("Receiver code");
   } else if (options.codeEnv !== undefined) {
     resolvedCode = readCodeEnv(options.codeEnv);
   } else {
@@ -401,18 +415,8 @@ async function resolveSendInputs(code: string | undefined, files: string[], opti
   return { code: resolvedCode, files: resolvedFiles };
 }
 
-async function readCodeFromStdinOrPrompt(label: string): Promise<string> {
-  if (!input.isTTY) return readBoundedStdin(label);
-  return promptCode(label);
-}
-
-async function promptCode(label: string): Promise<string> {
-  const rl = readline.createInterface({ input, output });
-  try {
-    return (await rl.question(`${label}: `)).trim();
-  } finally {
-    rl.close();
-  }
+async function readCodeFromStdin(label: string): Promise<string> {
+  return readBoundedStdin(label);
 }
 
 function readCodeEnv(name: string): string {
@@ -421,6 +425,7 @@ function readCodeEnv(name: string): string {
   if (!descriptor || !("value" in descriptor) || typeof descriptor.value !== "string" || descriptor.value.length === 0) {
     throw new Error(`Environment variable ${name} is not set.`);
   }
+  delete process.env[name];
   return descriptor.value;
 }
 

@@ -107,12 +107,12 @@ node dist-node/cli/index.js recv --out ./downloads
 node dist-node/cli/index.js send <code> ./file.zip
 ```
 
-If local shell history or process-argument telemetry matters, avoid putting the full code or local paths in argv. With both stdin flags, the first line is the receive code and remaining lines are file paths:
+If local shell history or process-argument telemetry matters, avoid putting the full code or local paths in argv. Read the code without echo, pass file paths through stdin, and clear the environment variable after the child process starts:
 
 ```sh
-printf '%s\n%s\n' '<code>' './file.zip' | node dist-node/cli/index.js send --code-stdin --files-stdin
-find ./to-send -maxdepth 1 -type f | node dist-node/cli/index.js send --code-env FF_RECEIVE_CODE --files-stdin
-printf '%s' '<code>' | node dist-node/cli/index.js send --code-stdin ./file.zip
+read -rs FF_RECEIVE_CODE
+find ./to-send -maxdepth 1 -type f | FF_RECEIVE_CODE="$FF_RECEIVE_CODE" node dist-node/cli/index.js send --code-env FF_RECEIVE_CODE --files-stdin
+unset FF_RECEIVE_CODE
 ```
 
 Useful CLI flags:
@@ -122,12 +122,12 @@ Useful CLI flags:
 - `--quiet`: suppress human-readable progress.
 - `--relay`: force relay-only ICE when TURN is configured, reducing local and public endpoint candidate exposure to peers and signaling logs.
 - `--no-server-ice`: ignore signaling-provided STUN/TURN endpoints and use the built-in public STUN defaults. This reduces trust in the rendezvous operator's ICE configuration, but disables that server's TURN fallback.
-- `send --code-stdin`: read the receive code from stdin or an interactive prompt instead of argv.
+- `send --code-stdin`: read the receive code from piped stdin instead of argv.
 - `send --code-env <name>`: read the receive code from an environment variable instead of argv.
 - `send --files-stdin`: read newline-delimited file paths from stdin instead of argv.
 - `recv --yes`: auto-accept, required for headless receive flows. This bypasses the interactive consent gate, so use it only with a private receive code in trusted automation.
 - `recv --code <code>`: use a supplied code like `12345678-two-words` instead of generating one.
-- `recv --code-stdin` / `recv --code-env <name>`: provide that supplied receive code without putting it directly in argv.
+- `recv --code-stdin` / `recv --code-env <name>`: provide that supplied receive code without putting it directly in argv. Supplied receive codes are not reprinted in the CLI registered event or human output.
 - `recv --resume`: keep failed CLI partials and resume a later attempt from the last verified chunk boundary. The final SHA-256 still has to match before publish.
 
 Exit codes:

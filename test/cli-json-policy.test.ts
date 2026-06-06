@@ -7,6 +7,7 @@ const distCliSource = fs.readFileSync(new URL("../dist-node/cli/index.js", impor
 const cliFilesSource = fs.readFileSync(new URL("../src/cli/files.ts", import.meta.url), "utf8");
 const distCliFilesSource = fs.readFileSync(new URL("../dist-node/cli/files.js", import.meta.url), "utf8");
 const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
+const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
 
 test("CLI json mode emits structured sanitized error events instead of plain stderr", () => {
   assert.match(cliSource, /return runWithExit\(\(\) => recv\(merged\), merged\)/);
@@ -39,14 +40,15 @@ test("CLI receive validates supplied codes before filesystem or signaling side e
 
     assert.match(source, /function resolveRecvCode/);
     assert.match(source, /parseRequiredCode\(normalizeCode\(code\)\)/);
-    assert.match(source, /function registerReceiver[\s\S]*const parsedCode = suppliedCode \?\? parseRequiredCode\(normalizeCode\(generateCode\(\)\)\)/);
+    assert.match(source, /supplied: true/);
+    assert.match(source, /function registerReceiver[\s\S]*const parsedCode = suppliedCode\?\.parsedCode \?\? parseRequiredCode\(normalizeCode\(generateCode\(\)\)\)/);
     assert.match(source, /const attempts = suppliedCode \? 1 : RECEIVE_CODE_GENERATION_ATTEMPTS/);
     assert.doesNotMatch(source, /parseRequiredCode\(normalizeCode\(options\.code \?\? generateCode\(\)\)\)/);
   }
 });
 
 test("CLI send supports non-argv code and file path input", () => {
-  assert.match(securityPolicy, /CLI senders must support stdin, prompt, or environment-variable receive-code input and newline-delimited stdin file lists/);
+  assert.match(securityPolicy, /CLI senders must support piped stdin or environment-variable receive-code input and newline-delimited stdin file lists/);
   for (const source of [cliSource, distCliSource]) {
     assert.match(source, /process\.title = "ff"/);
     assert.match(source, /\.option\("--out <dir>", "output directory"\)/);
@@ -66,6 +68,25 @@ test("CLI send supports non-argv code and file path input", () => {
     assert.doesNotMatch(source, /\.argument\("<code>"/);
     assert.doesNotMatch(source, /\.argument\("<files\.\.\.>"/);
   }
+});
+
+test("CLI private receive-code inputs are not echoed back into local telemetry", () => {
+  assert.match(securityPolicy, /supplied receive codes must not be reprinted in registered output/);
+  assert.match(securityPolicy, /environment-sourced codes must be cleared after capture/);
+  assert.match(securityPolicy, /code-stdin paths must not fall back to echoing terminal prompts/);
+  for (const source of [cliSource, distCliSource]) {
+    assert.match(source, /function printRegisteredReceiver/);
+    assert.match(source, /codeSupplied: true/);
+    assert.match(source, /Ready to receive with the supplied code/);
+    assert.match(source, /printRegisteredReceiver\(options, parsedCode\.handle, registered, registeredCode\.supplied\)/);
+    assert.doesNotMatch(source, /code: parsedCode\.handle, rendezvous: registered\.code, expiresInSec: registered\.expiresInSec \}\);[\s\S]*Ready to receive\. Share this code/);
+    assert.match(source, /delete process\.env\[name\]/);
+    assert.match(source, /function readCodeFromStdin/);
+    assert.doesNotMatch(source, /readCodeFromStdinOrPrompt|function promptCode|Receiver code:|Receive code:/);
+  }
+  assert.match(readme, /read -rs FF_RECEIVE_CODE/);
+  assert.match(readme, /FF_RECEIVE_CODE="\$FF_RECEIVE_CODE" node dist-node\/cli\/index\.js send --code-env FF_RECEIVE_CODE --files-stdin/);
+  assert.doesNotMatch(readme, /printf '%s(?:\\n%s\\n)?' '<code>'/);
 });
 
 test("CLI path setup errors do not echo raw local paths", () => {
