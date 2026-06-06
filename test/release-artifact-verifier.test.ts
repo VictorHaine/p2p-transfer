@@ -420,6 +420,7 @@ function fixturePackageJson(packageName: string, version: string) {
       access: "public",
       provenance: true
     },
+    exports: {},
     files: ["conformance", "dist-node/cli", "dist-node/server", "dist-node/shared", "dist-web", "CHANGELOG.md", "CONTRIBUTING.md", "LICENSE", "README.md", "SECURITY.md"],
     engines: { node: ">=22.22.3 <23 || >=24.13.1 <25" },
     bin: {

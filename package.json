@@ -4,6 +4,7 @@
   "description": "End-to-end encrypted WebRTC file transfer with a CLI, browser client, and tiny signaling server.",
   "packageManager": "pnpm@11.1.1",
   "type": "module",
+  "exports": {},
   "engines": {
     "node": ">=22.22.3 <23 || >=24.13.1 <25"
   },

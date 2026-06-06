@@ -17,6 +17,7 @@ type PackageJson = {
   files?: string[];
   main?: string;
   types?: string;
+  exports?: unknown;
   browser?: string;
   scripts?: Record<string, string>;
   publishConfig?: Record<string, unknown>;
@@ -70,6 +71,8 @@ test("npm package surface is restricted to built artifacts and required docs", (
     ff: "./dist-node/cli/index.js",
     "ff-server": "./dist-node/server/index.js"
   });
+  assert.deepEqual(packageJson.exports, {});
+  assert.match(securityPolicy, /published package must keep an empty `exports` map unless a separately reviewed public JavaScript API is added/);
   for (const binPath of Object.values(packageJson.bin ?? {})) {
     const normalized = binPath.replace(/^\.\//, "");
     assert.equal(packageJson.files?.some((entry) => normalized === entry || normalized.startsWith(`${entry}/`)), true, `${binPath} must be included by package files`);

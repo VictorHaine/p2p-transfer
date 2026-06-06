@@ -38,6 +38,7 @@ pnpm test
 ```
 
 The npm package name is `@victorhaine/p2p-transfer`; the installed binaries are still `ff` and `ff-server`.
+The npm package is CLI/server-first and intentionally has no supported JavaScript import surface; use the `ff` and `ff-server` binaries instead of deep-importing `dist-node/*`.
 
 Runtime requirement: Node.js 22.22.3 through the latest Node.js 22 patch, or Node.js 24.13.1 through the latest Node.js 24 patch. Node.js 23 is intentionally unsupported because it is not part of the CI/platform-smoke matrix. CI, release, and Docker builds pin Node.js 22.22.3 so published artifacts are built against an exact runtime patch level instead of a floating major tag. Docker base images are also pinned by immutable digest; update the tag and digest together during base-image maintenance.
 
@@ -260,6 +261,7 @@ In GitHub:
 - create the `npm` environment used by `.github/workflows/release.yml`
 - enable private vulnerability reporting
 - create branch protection for `main` requiring CI and CODEOWNERS review
+- create a tag protection rule or repository ruleset for `v*` release tags so only maintainers can create or update release tags
 - enable code scanning alerts; `.github/workflows/codeql.yml` runs pinned CodeQL analysis on pull requests, pushes to `main`, and a weekly schedule
 - enable OpenSSF Scorecard alerts; `.github/workflows/scorecard.yml` runs the pinned Scorecard action on pushes to `main` and a weekly schedule, then uploads SARIF to code scanning
 - keep dependency review required on pull requests; `.github/workflows/dependency-review.yml` runs the pinned GitHub dependency review action on pull requests and blocks vulnerable runtime or development dependency changes at low severity or higher
@@ -280,7 +282,7 @@ git tag v0.1.0
 git push origin main --tags
 ```
 
-The tag starts the release workflow. It verifies the tag matches `package.json`, verifies the tagged commit is reachable from protected `main`, repeats the release gate, attests the exact checked tarball, publishes that tarball to npm with provenance, then creates the GitHub Release with the same tarball and `SHA256SUMS`.
+The tag starts the release workflow. It verifies the tag matches `package.json`, verifies the tagged commit is reachable from protected `main`, repeats the release gate, attests the exact checked tarball, publishes that tarball to npm with provenance, then creates the GitHub Release with the same tarball and `SHA256SUMS`. Protect `v*` tags with a ruleset/tag-protection rule before the first release; branch protection alone does not restrict who can create release tags.
 
 ## License
 
