@@ -167,6 +167,7 @@ test("browser receive resume is explicit and limited to saved opaque folder part
   const fileFactoryBody = extractFunctionBody(webSource, "createBrowserReceiveFile");
   const resumeBody = extractFunctionBody(webSource, "resumeBrowserPartialFile");
   const resumeKeyBody = extractFunctionBody(webSource, "browserResumeKey");
+  const lookupKeyBody = extractFunctionBody(webSource, "loadBrowserResumeLookupKey");
   const promptBody = extractFunctionBody(webSource, "promptForBrowserAccept");
 
   assert.match(webSource, /type BrowserReceiveAccept = \{ accepted: true; directory\?: FileSystemDirectoryHandle; resume: boolean \} \| \{ accepted: false \};/);
@@ -201,6 +202,9 @@ test("browser receive resume is explicit and limited to saved opaque folder part
   assert.doesNotMatch(resumeKeyBody, /return JSON\.stringify/);
   assert.match(webSource, /function canonicalBrowserResumeIdentity\(manifest: FileManifest, file: TransferManifest\["files"\]\[number\]\): string/);
   assert.match(securityPolicy, /browser receive resume registry keys must be HMAC identifiers over canonical manifest identity using a non-extractable browser-held lookup key/);
+  assert.match(securityPolicy, /missing, invalid, or unavailable browser resume lookup keys must clear the resume registry before a fresh key is used/);
+  assert.match(lookupKeyBody, /const stored = await readStoredBrowserResumeLookupKey\(db\);[\s\S]*if \(stored\) return stored;[\s\S]*const created = await createBrowserResumeLookupKey\(\);[\s\S]*await storeBrowserResumeLookupKey\(db, created\);[\s\S]*clearBrowserResumeRegistry\(\);[\s\S]*return created;/);
+  assert.match(lookupKeyBody, /catch \{[\s\S]*clearBrowserResumeRegistry\(\);[\s\S]*return createBrowserResumeLookupKey\(\);[\s\S]*\}/);
   assert.match(securityPolicy, /browser receive resume registry values must not persist plaintext file names, MIME types, or sizes/);
   assert.match(securityPolicy, /browser receive resume registry reads must scrub invalid, noncanonical, or legacy metadata-bearing entries, clear stale storage before writing sanitized replacements/);
   assert.match(securityPolicy, /browser receive resume must be explicit and limited to same-browser saved opaque tokenized `.part` records/);
