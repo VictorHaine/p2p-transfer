@@ -12,6 +12,7 @@ const dockerignore = fs.readFileSync(new URL("../.dockerignore", import.meta.url
 const ciWorkflow = fs.readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
 const releaseWorkflow = fs.readFileSync(new URL("../.github/workflows/release.yml", import.meta.url), "utf8");
 const codeqlWorkflow = fs.readFileSync(new URL("../.github/workflows/codeql.yml", import.meta.url), "utf8");
+const scorecardWorkflow = fs.readFileSync(new URL("../.github/workflows/scorecard.yml", import.meta.url), "utf8");
 const codeowners = fs.readFileSync(new URL("../.github/CODEOWNERS", import.meta.url), "utf8");
 const httpProbeScript = fs.readFileSync(new URL("../scripts/probe-http.mjs", import.meta.url), "utf8");
 const releaseArtifactScript = fs.readFileSync(new URL("../scripts/verify-release-artifact.mjs", import.meta.url), "utf8");
@@ -48,6 +49,8 @@ const PINNED_ACTIONS = new Map([
   ["actions/download-artifact", { sha: "d3f86a106a0bac45b974a628896c90dbdf5c8093", version: "v4.3.0" }],
   ["github/codeql-action/init", { sha: "8aad20d150bbac5944a9f9d289da16a4b0d87c1e", version: "v4.36.2" }],
   ["github/codeql-action/analyze", { sha: "8aad20d150bbac5944a9f9d289da16a4b0d87c1e", version: "v4.36.2" }],
+  ["github/codeql-action/upload-sarif", { sha: "8aad20d150bbac5944a9f9d289da16a4b0d87c1e", version: "v4.36.2" }],
+  ["ossf/scorecard-action", { sha: "4eaacf0543bb3f2c246792bd56e8cdeffafb205a", version: "v2.4.3" }],
   ["pnpm/action-setup", { sha: "41ff72655975bd51cab0327fa583b6e92b6d3061", version: "v4.2.0" }]
 ]);
 
@@ -272,6 +275,18 @@ test("CodeQL code scanning is pinned and least-privilege", () => {
   assert.match(codeqlWorkflow, /uses: github\/codeql-action\/init@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4\.36\.2[\s\S]*languages: javascript-typescript/);
   assert.match(codeqlWorkflow, /uses: github\/codeql-action\/analyze@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4\.36\.2[\s\S]*category: "\/language:javascript-typescript"/);
   assert.doesNotMatch(codeqlWorkflow, /id-token:\s*write|contents:\s*write|pull-requests:\s*write|actions:\s*write/);
+});
+
+test("OpenSSF Scorecard scanning is pinned and uploads SARIF", () => {
+  assert.match(securityPolicy, /OpenSSF Scorecard must run from a pinned workflow on pushes to `main` and a weekly schedule/);
+  assert.match(readme, /\.github\/workflows\/scorecard\.yml` runs the pinned Scorecard action/);
+  assert.match(scorecardWorkflow, /^name: scorecard$/m);
+  assert.match(scorecardWorkflow, /^on:\n  push:\n    branches:\n      - main\n  schedule:\n    - cron: "29 4 \* \* 3"$/m);
+  assert.match(scorecardWorkflow, /^permissions:\n  contents: read\n  security-events: write\n  id-token: write$/m);
+  assert.match(scorecardWorkflow, /^concurrency:\n  group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}\n  cancel-in-progress: true$/m);
+  assert.match(scorecardWorkflow, /uses: ossf\/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a # v2\.4\.3[\s\S]*results_file: scorecard-results\.sarif[\s\S]*results_format: sarif[\s\S]*publish_results: true/);
+  assert.match(scorecardWorkflow, /uses: github\/codeql-action\/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4\.36\.2[\s\S]*sarif_file: scorecard-results\.sarif/);
+  assert.doesNotMatch(scorecardWorkflow, /contents:\s*write|pull-requests:\s*write|actions:\s*write|packages:\s*write/);
 });
 
 test("documented release gates require a hardened Docker runtime smoke, not just image build", () => {
@@ -528,7 +543,7 @@ test("interop tests run the signaling server behind an explicit origin policy", 
 });
 
 test("CI and release workflows pin third-party actions to reviewed full-length commits", () => {
-  for (const workflow of [ciWorkflow, releaseWorkflow, codeqlWorkflow]) {
+  for (const workflow of [ciWorkflow, releaseWorkflow, codeqlWorkflow, scorecardWorkflow]) {
     const actionUses = [...workflow.matchAll(/uses:\s+([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)@([a-f0-9]{40}|[^\s#]+)(?:\s+#\s+(v[0-9][^\s]+))?/g)];
     assert.notEqual(actionUses.length, 0);
     for (const match of actionUses) {
