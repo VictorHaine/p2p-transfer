@@ -4,12 +4,9 @@
 
 ## Verification
 
-- [ ] `pnpm check:install-state`
-- [ ] `pnpm build`
-- [ ] `pnpm check`
-- [ ] `pnpm test:unit`
-- [ ] `pnpm smoke:native`
-- [ ] `pnpm smoke:packed`
+- [ ] `pnpm verify:local`
+- [ ] `pnpm verify:release` for protocol, crypto, browser, dependency, release, Docker, deployment, or file-write changes
+- [ ] Docker runtime policy smoke from `README.md` / `SECURITY.md` for Docker, deployment, release, or server changes
 
 ## Security Impact
 

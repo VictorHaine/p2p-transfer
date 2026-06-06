@@ -15,6 +15,7 @@ const codeqlWorkflow = fs.readFileSync(new URL("../.github/workflows/codeql.yml"
 const scorecardWorkflow = fs.readFileSync(new URL("../.github/workflows/scorecard.yml", import.meta.url), "utf8");
 const dependencyReviewWorkflow = fs.readFileSync(new URL("../.github/workflows/dependency-review.yml", import.meta.url), "utf8");
 const codeowners = fs.readFileSync(new URL("../.github/CODEOWNERS", import.meta.url), "utf8");
+const pullRequestTemplate = fs.readFileSync(new URL("../.github/pull_request_template.md", import.meta.url), "utf8");
 const httpProbeScript = fs.readFileSync(new URL("../scripts/probe-http.mjs", import.meta.url), "utf8");
 const releaseArtifactScript = fs.readFileSync(new URL("../scripts/verify-release-artifact.mjs", import.meta.url), "utf8");
 const releaseChecksumScript = fs.readFileSync(new URL("../scripts/write-release-checksum.mjs", import.meta.url), "utf8");
@@ -566,6 +567,16 @@ test("README documents the auto-accept consent tradeoff", () => {
   assert.match(readme, /recv --yes.*auto-accept/);
   assert.match(readme, /recv --yes.*bypasses the interactive consent gate/);
   assert.match(readme, /recv --yes.*trusted automation/);
+});
+
+test("pull request template keeps production-sensitive verification explicit", () => {
+  assert.match(securityPolicy, /CI must enforce the same local typecheck, build, unit, native smoke, packed-install, browser interop, and hardened Docker policy gates that release depends on/);
+  assert.match(pullRequestTemplate, /`pnpm verify:local`/);
+  assert.match(pullRequestTemplate, /`pnpm verify:release` for protocol, crypto, browser, dependency, release, Docker, deployment, or file-write changes/);
+  assert.match(pullRequestTemplate, /Docker runtime policy smoke from `README\.md` \/ `SECURITY\.md` for Docker, deployment, release, or server changes/);
+  assert.match(pullRequestTemplate, /No protocol, crypto, file-write, dependency, release, Docker, or deployment security invariant changed/);
+  assert.match(pullRequestTemplate, /Relevant `SECURITY\.md` invariants and conformance fixtures were updated/);
+  assert.doesNotMatch(pullRequestTemplate, /`pnpm check:install-state`\n- \[ \] `pnpm build`\n- \[ \] `pnpm check`\n- \[ \] `pnpm test:unit`/);
 });
 
 test("README reports implemented release capabilities without stale MVP-gap language", () => {
