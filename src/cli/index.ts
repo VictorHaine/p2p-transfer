@@ -34,6 +34,7 @@ type CommonOptions = {
   json?: boolean;
   verbose?: boolean;
   relay?: boolean;
+  serverIce?: boolean;
   quiet?: boolean;
   noColor?: boolean;
 };
@@ -72,6 +73,7 @@ program
   .version(`${PACKAGE_VERSION} protocol ${PROTOCOL_VERSION}`)
   .option("--server <url>", "signaling server WebSocket URL", DEFAULT_SERVER_URL)
   .option("--relay", "force TURN relay candidates when TURN is configured")
+  .option("--no-server-ice", "ignore signaling-provided ICE servers and use built-in public STUN only")
   .option("--json", "emit machine-readable events")
   .option("--quiet", "suppress human-readable progress output")
   .option("--no-color", "disable color output")
@@ -121,11 +123,14 @@ async function recv(options: RecvOptions): Promise<void> {
   let completed = false;
   let iceServers = cloneIceServers(DEFAULT_ICE_SERVERS);
   let unwireSignals: (() => void) | undefined;
-  signaling.on("ice-config", (message: unknown) => {
-    if (!isServerMessage(message)) return;
-    if (message.type === "ice-config") iceServers = cloneIceServers(message.iceServers);
-  });
-  iceServers = signaling.currentIceServers() ?? iceServers;
+  const useServerIce = shouldUseServerIce(options);
+  if (useServerIce) {
+    signaling.on("ice-config", (message: unknown) => {
+      if (!isServerMessage(message)) return;
+      if (message.type === "ice-config") iceServers = cloneIceServers(message.iceServers);
+    });
+    iceServers = signaling.currentIceServers() ?? iceServers;
+  }
 
   const interrupt = onInterrupt(() => {
     safeBye(signaling, sid, "cancelled");
@@ -173,7 +178,7 @@ async function recv(options: RecvOptions): Promise<void> {
           }
 
           signaling.send({ type: "pair-accept", sid: joined.sid, auth: pairDecisionAuthTag(keys.signalAuthKey, joined.sid, "receiver", "accept", sealedManifest) });
-          iceServers = await getIceServersAfterAccept(signaling, iceServers);
+          iceServers = await getIceServersAfterAccept(signaling, iceServers, useServerIce);
 
           peer = createPeer(joined.sid, iceServers, signaling, keys.signalAuthKey, "receiver", options.relay);
           const channels = waitForIncomingChannels(peer.pc);
@@ -250,7 +255,12 @@ function isPrePairRetryable(error: unknown): boolean {
   return /PAKE confirmation failed|invalid PAKE|Peer disconnected|Timed out waiting for (?:pake|confirm)/i.test(message);
 }
 
-async function getIceServersAfterAccept(signaling: SignalingClient, fallback: RTCIceServer[]): Promise<RTCIceServer[]> {
+function shouldUseServerIce(options: CommonOptions): boolean {
+  return options.serverIce !== false;
+}
+
+async function getIceServersAfterAccept(signaling: SignalingClient, fallback: RTCIceServer[], useServerIce: boolean): Promise<RTCIceServer[]> {
+  if (!useServerIce) return cloneIceServers(fallback);
   const cached = signaling.currentIceServers();
   if (cached) return cached;
   try {
@@ -272,14 +282,17 @@ async function send(code: string, paths: string[], options: CommonOptions): Prom
   let interrupted = false;
   let iceServers = cloneIceServers(DEFAULT_ICE_SERVERS);
   let unwireSignals: (() => void) | undefined;
+  const useServerIce = shouldUseServerIce(options);
 
   try {
     signaling = await openSignaling(options.server);
-    signaling.on("ice-config", (message: unknown) => {
-      if (!isServerMessage(message)) return;
-      if (message.type === "ice-config") iceServers = cloneIceServers(message.iceServers);
-    });
-    iceServers = signaling.currentIceServers() ?? iceServers;
+    if (useServerIce) {
+      signaling.on("ice-config", (message: unknown) => {
+        if (!isServerMessage(message)) return;
+        if (message.type === "ice-config") iceServers = cloneIceServers(message.iceServers);
+      });
+      iceServers = signaling.currentIceServers() ?? iceServers;
+    }
 
     const interrupt = onInterrupt(() => {
       interrupted = true;
@@ -302,7 +315,7 @@ async function send(code: string, paths: string[], options: CommonOptions): Prom
           print(options, { event: "secure_session", sas: keys.sas });
           human(options, `Waiting for receiver to accept ${manifest.fileCount} file(s), ${formatBytes(manifest.totalBytes)}. SAS ${keys.sas}`);
           await waitForPairAccept(signaling, joined.sid, keys, sealedManifest);
-          iceServers = await getIceServersAfterAccept(signaling, iceServers);
+          iceServers = await getIceServersAfterAccept(signaling, iceServers, useServerIce);
 
           peer = createPeer(joined.sid, iceServers, signaling, keys.signalAuthKey, "sender", options.relay);
           const signalWire = wireSignals(signaling, peer.pc, joined.sid, keys, false);

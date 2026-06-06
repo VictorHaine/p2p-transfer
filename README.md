@@ -121,6 +121,7 @@ Useful CLI flags:
 - `--json`: emit machine-readable events.
 - `--quiet`: suppress human-readable progress.
 - `--relay`: force relay-only ICE when TURN is configured, reducing local and public endpoint candidate exposure to peers and signaling logs.
+- `--no-server-ice`: ignore signaling-provided STUN/TURN endpoints and use the built-in public STUN defaults. This reduces trust in the rendezvous operator's ICE configuration, but disables that server's TURN fallback.
 - `send --code-stdin`: read the receive code from stdin or an interactive prompt instead of argv.
 - `send --code-env <name>`: read the receive code from an environment variable instead of argv.
 - `send --files-stdin`: read newline-delimited file paths from stdin instead of argv.
@@ -151,13 +152,15 @@ Metadata privacy is intentionally limited and should be understood before using 
 
 | Observer | Can learn | Should not learn |
 | --- | --- | --- |
-| Signaling server | client IPs, public rendezvous prefix, roles, session timing, accept/reject/teardown events, total transfer bytes, file count, signaling frame sizes, PAKE public shares/tags, authenticated SDP/ICE contents | two secret words, PAKE output, plaintext file names, MIME types, file bytes, DataChannel control plaintext, true per-file size distribution |
+| Signaling server | client IPs, public rendezvous prefix, roles, session timing, accept/reject/teardown events, total transfer bytes, file count, signaling frame sizes, PAKE public shares/tags, authenticated SDP/ICE contents, and whether clients accept its ICE endpoint hints | two secret words, PAKE output, plaintext file names, MIME types, file bytes, DataChannel control plaintext, true per-file size distribution |
 | STUN server | client public IP/port and ICE timing | code, manifest, file names, file bytes |
 | TURN server | client IPs, relay allocation timing, packet sizes, traffic volume/duration | file bytes or DataChannel plaintext |
 | Network observer | endpoints, DNS/SNI where applicable, timing, traffic volume, peer IPs for direct WebRTC, TURN use when relayed | file bytes or DataChannel plaintext when using `wss://` and WebRTC |
 | Peer | real manifest before consent, SAS, transfer timing, resume offsets, ICE metadata, and transferred file contents | nothing in the accepted transfer is hidden from the chosen peer |
 
 Per-file sizes in the server-visible pair request are synthetic placeholders that sum to the real total. The encrypted manifest still gives the receiver the real names, sizes, and MIME types before consent.
+
+If you do not trust the rendezvous operator's ICE endpoint choices, use CLI `--no-server-ice` or clear the browser `Server ICE/TURN` checkbox. The signaling server will still see authenticated SDP/ICE signaling metadata, but it cannot make the client use operator-supplied STUN/TURN endpoints. Direct connection reliability may drop because server-provided TURN fallback is skipped.
 
 Because rendezvous state is in memory, production and non-loopback deployments must set `SIGNALING_TOPOLOGY=single-instance` or `SIGNALING_TOPOLOGY=sticky-sessions`. Do not put multiple random replicas behind a load balancer unless every receiver/sender WebSocket pair for a rendezvous is pinned to the same process or you replace the in-memory rendezvous map with shared state.
 

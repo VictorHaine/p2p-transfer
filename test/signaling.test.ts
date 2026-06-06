@@ -229,10 +229,10 @@ test("browser signaling waits revalidate emitted messages before field reads", (
 test("CLI pair decision and ICE listeners revalidate emitted messages before field reads", () => {
   assert.match(securityPolicy, /client event listeners for ICE config, pair decisions, and WebRTC signaling must revalidate emitted signaling records before any field reads/);
   assert.match(cliIndexSource, /import \{ isServerMessage, type FileManifest/);
-  assert.match(cliIndexSource, /signaling\.on\("ice-config", \(message: unknown\) => \{\n    if \(!isServerMessage\(message\)\) return;/);
+  assert.match(cliIndexSource, /signaling\.on\("ice-config", \(message: unknown\) => \{[\s\S]*if \(!isServerMessage\(message\)\) return;[\s\S]*if \(message\.type === "ice-config"\) iceServers = cloneIceServers\(message\.iceServers\);[\s\S]*\}\);/);
   assert.match(cliIndexSource, /const onMessage = \(message: unknown\) => \{\n      if \(!isServerMessage\(message\)\) return;/);
   assert.match(distCliIndexSource(), /import \{ isServerMessage \} from "\.\.\/shared\/messages\.js";/);
-  assert.match(distCliIndexSource(), /signaling\.on\("ice-config", \(message\) => \{\n\s+if \(!isServerMessage\(message\)\)\n\s+return;/);
+  assert.match(distCliIndexSource(), /signaling\.on\("ice-config", \(message\) => \{[\s\S]*if \(!isServerMessage\(message\)\)[\s\S]*return;[\s\S]*if \(message\.type === "ice-config"\)[\s\S]*iceServers = cloneIceServers\(message\.iceServers\);[\s\S]*\}\);/);
   assert.match(distCliIndexSource(), /const onMessage = \(message\) => \{\n\s+if \(!isServerMessage\(message\)\)\n\s+return;/);
 });
 
@@ -376,11 +376,22 @@ test("signaling clients expose defensive ICE server snapshots", () => {
 
 test("client connection setup clones ICE server lists before WebRTC use", () => {
   assert.match(securityPolicy, /CLI and browser connection setup must clone default and received ICE server lists before handing them to WebRTC/);
+  assert.match(securityPolicy, /CLI and browser clients must expose an explicit way to ignore signaling-provided ICE server hints/);
   assert.match(cliIndexSource, /import \{ cloneIceServers \} from "\.\.\/shared\/ice\.js";/);
+  assert.match(cliIndexSource, /\.option\("--no-server-ice", "ignore signaling-provided ICE servers and use built-in public STUN only"\)/);
+  assert.match(cliIndexSource, /function shouldUseServerIce\(options: CommonOptions\): boolean \{[\s\S]*return options\.serverIce !== false;[\s\S]*\}/);
   assert.match(cliIndexSource, /let iceServers = cloneIceServers\(DEFAULT_ICE_SERVERS\);/);
-  assert.match(cliIndexSource, /if \(message\.type === "ice-config"\) iceServers = cloneIceServers\(message\.iceServers\);/);
+  assert.match(cliIndexSource, /const useServerIce = shouldUseServerIce\(options\);[\s\S]*if \(useServerIce\) \{[\s\S]*if \(message\.type === "ice-config"\) iceServers = cloneIceServers\(message\.iceServers\);/);
+  assert.match(cliIndexSource, /getIceServersAfterAccept\(signaling, iceServers, useServerIce\)/);
+  assert.match(cliIndexSource, /if \(!useServerIce\) return cloneIceServers\(fallback\);/);
   assert.match(cliIndexSource, /return cloneIceServers\(\(await waitForMessage\(signaling, "ice-config", ICE_CONFIG_GRACE_MS\)\)\.iceServers\);/);
   assert.match(cliIndexSource, /return cloneIceServers\(fallback\);/);
+  assert.match(webSource, /<input id="serverIce" type="checkbox" checked \/>/);
+  assert.match(webSource, /const serverIce = byId<HTMLInputElement>\("serverIce"\);/);
+  assert.match(webSource, /function shouldUseBrowserServerIce\(\): boolean \{[\s\S]*return serverIce\.checked;[\s\S]*\}/);
+  assert.match(webSource, /await getIceServers\(signaling, shouldUseBrowserServerIce\(\)\)/);
+  assert.match(webSource, /if \(!useServerIce\) return cloneIceServers\(DEFAULT_ICE_SERVERS\);/);
+  assert.match(webSource, /serverIce\.disabled = busy;/);
   assert.match(webSource, /resolve\(cloneIceServers\(message\.iceServers\)\);/);
   assert.match(webSource, /resolve\(cloneIceServers\(DEFAULT_ICE_SERVERS\)\);/);
 });

@@ -139,10 +139,16 @@ app.innerHTML = staticTrustedHtml`
         <h1>ff transfer</h1>
         <p>Peer-to-peer file sharing with a tiny signaling server.</p>
       </div>
-      <label class="server">
-        <span>Server</span>
-        <input id="serverUrl" spellcheck="false" />
-      </label>
+      <div class="serverControls">
+        <label class="server">
+          <span>Server</span>
+          <input id="serverUrl" spellcheck="false" />
+        </label>
+        <label class="serverIce">
+          <input id="serverIce" type="checkbox" checked />
+          <span>Server ICE/TURN</span>
+        </label>
+      </div>
     </header>
 
     <section class="workspace" aria-label="Transfer tools">
@@ -179,6 +185,7 @@ app.innerHTML = staticTrustedHtml`
 
 const serverUrl = byId<HTMLInputElement>("serverUrl");
 serverUrl.value = defaultBrowserServerUrl();
+const serverIce = byId<HTMLInputElement>("serverIce");
 const sendForm = byId<HTMLFormElement>("sendForm");
 const sendCode = byId<HTMLInputElement>("sendCode");
 const fileInput = byId<HTMLInputElement>("fileInput");
@@ -246,7 +253,7 @@ async function sendFromBrowser(): Promise<void> {
     signaling.send({ type: "pair-request", sid: joined.sid, manifest: redactManifest(manifest), sealedManifest });
     setStatus(sendStatus, "Waiting");
     await waitForAuthenticatedPairAccept(signaling, joined.sid, keys, sealedManifest);
-    const iceServers = await getIceServers(signaling);
+    const iceServers = await getIceServers(signaling, shouldUseBrowserServerIce());
 
     pc = new RTCPeerConnection({ iceServers });
     const signalWire = wireSignals(signaling, pc, joined.sid, keys, false);
@@ -328,7 +335,7 @@ async function receiveInBrowser(): Promise<void> {
       }
 
       signaling.send({ type: "pair-accept", sid: joined.sid, auth: pairDecisionAuthTag(keys.signalAuthKey, joined.sid, "receiver", "accept", sealedManifest) });
-      const iceServers = await getIceServers(signaling);
+      const iceServers = await getIceServers(signaling, shouldUseBrowserServerIce());
       pc = new RTCPeerConnection({ iceServers });
       const channels = waitIncomingChannels(pc);
       const signalWire = wireSignals(signaling, pc, joined.sid, keys, true);
@@ -1248,7 +1255,8 @@ async function openSignaling(): Promise<BrowserSignaling> {
   return signaling;
 }
 
-async function getIceServers(signaling: BrowserSignaling): Promise<RTCIceServer[]> {
+async function getIceServers(signaling: BrowserSignaling, useServerIce: boolean): Promise<RTCIceServer[]> {
+  if (!useServerIce) return cloneIceServers(DEFAULT_ICE_SERVERS);
   const cached = signaling.currentIceServers();
   if (cached) return cached;
   return new Promise((resolve, reject) => {
@@ -1282,6 +1290,10 @@ async function getIceServers(signaling: BrowserSignaling): Promise<RTCIceServer[
     signaling.on("error", onError);
     signaling.on("close", onClose);
   });
+}
+
+function shouldUseBrowserServerIce(): boolean {
+  return serverIce.checked;
 }
 
 function connectCode(signaling: BrowserSignaling, code: string) {
@@ -2293,6 +2305,7 @@ function setLog(element: HTMLElement, message: string): void {
 function updateOperationControls(): void {
   const busy = operationBusy();
   serverUrl.disabled = busy;
+  serverIce.disabled = busy;
   sendCode.disabled = busy;
   fileInput.disabled = busy;
   sendButton.disabled = busy;

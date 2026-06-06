@@ -73,6 +73,7 @@ h2 {
 }
 
 .server,
+.serverIce,
 .panel label {
   display: grid;
   gap: 8px;
@@ -80,8 +81,29 @@ h2 {
   font-size: 0.9rem;
 }
 
-.server {
+.serverControls {
   width: min(420px, 100%);
+  display: grid;
+  gap: 10px;
+}
+
+.server {
+  width: 100%;
+}
+
+.serverIce {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  justify-self: start;
+  min-height: 24px;
+}
+
+.serverIce input {
+  width: 18px;
+  min-height: 18px;
+  margin: 0;
+  padding: 0;
 }
 
 input {
@@ -192,4 +214,3 @@ input {
     align-items: stretch;
   }
 }
-

@@ -31,6 +31,7 @@ const installStateScript = fs.readFileSync(new URL("../scripts/check-install-sta
 const releaseArtifactScript = fs.readFileSync(new URL("../scripts/verify-release-artifact.mjs", import.meta.url), "utf8");
 const releaseChecksumScript = fs.readFileSync(new URL("../scripts/write-release-checksum.mjs", import.meta.url), "utf8");
 const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
+const cpaceReview = fs.readFileSync(new URL("../docs/security/cpace-review.md", import.meta.url), "utf8");
 const dependabotConfig = fs.readFileSync(new URL("../.github/dependabot.yml", import.meta.url), "utf8");
 const ciWorkflow = fs.readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
 const releaseWorkflow = fs.readFileSync(new URL("../.github/workflows/release.yml", import.meta.url), "utf8");
@@ -566,13 +567,14 @@ test("known vulnerable dependency versions cannot be reintroduced", () => {
 });
 
 test("critical PAKE dependency identity and install surface stay reviewed", () => {
+  const pakePin = packageJson.dependencies?.["@cipherman/pake-js"];
   assert.match(securityPolicy, /critical PAKE dependency metadata must stay reviewed and must not add install lifecycle hooks/);
   assert.match(securityPolicy, /Dependabot must track the critical `@cipherman\/pake-js` PAKE dependency in its own production update group/);
   assert.match(dependabotConfig, /critical-pake-dependency:\n\s+patterns:\n\s+- "@cipherman\/pake-js"\n\s+dependency-type: production/);
   assert.match(dependabotConfig, /production-dependencies:\n\s+dependency-type: production\n\s+exclude-patterns:\n\s+- "@cipherman\/pake-js"/);
-  assert.equal(packageJson.dependencies?.["@cipherman/pake-js"], "0.1.1");
+  assert.equal(pakePin, "0.1.1");
   assert.equal(pakePackageJson.name, "@cipherman/pake-js");
-  assert.equal(pakePackageJson.version, "0.1.1");
+  assert.equal(pakePackageJson.version, pakePin);
   assert.equal(pakePackageJson.license, "MIT");
   assert.deepEqual(pakePackageJson.repository, {
     type: "git",
@@ -584,6 +586,27 @@ test("critical PAKE dependency identity and install surface stay reviewed", () =
   assert.match(pnpmLock, /^  '@cipherman\/pake-js@0\.1\.1':\n    resolution: \{integrity: sha512-/m);
   assert.match(pnpmLock, /^  '@noble\/curves@1\.9\.7':\n    resolution: \{integrity: sha512-/m);
   assert.match(pnpmLock, /^  '@noble\/hashes@1\.8\.0':\n    resolution: \{integrity: sha512-/m);
+  assert.match(cpaceReview, /# CPace Dependency Review/);
+  assert.match(cpaceReview, new RegExp(`Package: \`${escapeRegExp(pakePackageJson.name ?? "")}\``));
+  assert.match(cpaceReview, new RegExp(`Reviewed package version: \`${escapeRegExp(pakePin ?? "")}\``));
+  assert.match(cpaceReview, new RegExp(`Local pin: \`package\\.json\` pins \`@cipherman/pake-js\` to exact version \`${escapeRegExp(pakePin ?? "")}\``));
+  assert.match(cpaceReview, new RegExp(`Installed package identity: \`node_modules/@cipherman/pake-js/package\\.json\` reports name \`${escapeRegExp(pakePackageJson.name ?? "")}\` and version \`${escapeRegExp(pakePackageJson.version ?? "")}\``));
+  assert.match(cpaceReview, new RegExp(`License: \`${escapeRegExp(pakePackageJson.license ?? "")}\``));
+  assert.match(cpaceReview, /Upstream repository: `git\+https:\/\/github\.com\/alicommit-malp\/pake-js\.git`/);
+  assert.match(cpaceReview, /`cpace\.ristretto255\.init`/);
+  assert.match(cpaceReview, /`cpace\.ristretto255\.deriveIskInitiatorResponder`/);
+  assert.match(cpaceReview, /untrusted-signaling trust boundary/);
+  assert.match(cpaceReview, /Consumer install lifecycle hooks reviewed: `preinstall`, `install`, `postinstall`, `prepare`, and `prepublish` are absent/);
+  assert.match(cpaceReview, /`prepublishOnly` is present upstream but is not run during consumer installs/);
+  assert.match(cpaceReview, /`strictDepBuilds: true`; `@cipherman\/pake-js` is not in `allowBuilds`/);
+  assert.match(cpaceReview, /Locked transitive crypto dependency reviewed: `@noble\/curves@1\.9\.7`, with `@noble\/hashes@1\.8\.0`/);
+  assert.match(cpaceReview, /This repo does not contain a formal independent audit certificate for `@cipherman\/pake-js`/);
+  assert.match(cpaceReview, /Dependabot must keep `@cipherman\/pake-js` in the `critical-pake-dependency` production group and excluded from the bulk production dependency group/);
+  assert.match(cpaceReview, /Release verification must run `pnpm security:audit` and `pnpm security:signatures`/);
+  assert.match(cpaceReview, /CPace dependency updates must update this artifact in the same change as the package pin and lockfile/);
+  assert.match(cpaceReview, /Release must stop if any of these are true:/);
+  assert.match(cpaceReview, /`@cipherman\/pake-js` adds `preinstall`, `install`, `postinstall`, or `prepare` hooks, requires build-script allowlisting, or changes to a non-registry source/);
+  assert.match(cpaceReview, /`pnpm audit --audit-level low`, `pnpm audit signatures`, dependency review, installed-state verification, package-surface tests, CPace protocol tests, or release-artifact verification fails/);
 });
 
 test("lockfile resolves registry tarballs with integrity for every package", () => {
