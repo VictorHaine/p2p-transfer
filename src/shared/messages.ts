@@ -28,8 +28,8 @@ export type ClientMessage =
   | { type: "pake"; sid: string; data: string }
   | { type: "confirm"; sid: string; tag: string }
   | { type: "pair-request"; sid: string; manifest: FileManifest; sealedManifest: string }
-  | { type: "pair-accept"; sid: string }
-  | { type: "pair-reject"; sid: string; reason?: string }
+  | { type: "pair-accept"; sid: string; auth: string }
+  | { type: "pair-reject"; sid: string; auth: string; reason?: string }
   | { type: "signal"; sid: string; signal: SignalPayload }
   | { type: "bye"; sid?: string; reason?: string };
 
@@ -39,8 +39,8 @@ export type ServerMessage =
   | { type: "pake"; sid: string; data: string }
   | { type: "confirm"; sid: string; tag: string }
   | { type: "pair-request"; sid: string; manifest: FileManifest; sealedManifest: string }
-  | { type: "pair-accept"; sid: string }
-  | { type: "pair-reject"; sid: string; reason?: string }
+  | { type: "pair-accept"; sid: string; auth: string }
+  | { type: "pair-reject"; sid: string; auth: string; reason?: string }
   | { type: "signal"; sid: string; signal: SignalPayload }
   | { type: "peer-left"; sid: string; reason?: string }
   | { type: "ice-config"; iceServers: RTCIceServer[] }
@@ -188,9 +188,9 @@ export function isClientMessage(value: unknown): value is ClientMessage {
     case "pair-request":
       return hasOnlyKeys(value, ["type", "sid", "manifest", "sealedManifest"]) && isSessionId(ownDataValue(value, "sid")) && isManifest(ownDataValue(value, "manifest")) && isBoundedCanonicalBase64(ownDataValue(value, "sealedManifest"), MIN_ENCRYPTED_JSON_BASE64_CHARS, MAX_SEALED_MANIFEST_CHARS);
     case "pair-accept":
-      return hasOnlyKeys(value, ["type", "sid"]) && isSessionId(ownDataValue(value, "sid"));
+      return hasOnlyKeys(value, ["type", "sid", "auth"]) && isSessionId(ownDataValue(value, "sid")) && isBase64EncodedBytes(ownDataValue(value, "auth"), HMAC_SHA256_BYTES);
     case "pair-reject":
-      return hasOnlyKeys(value, ["type", "sid", "reason"]) && isSessionId(ownDataValue(value, "sid")) && optionalSafeReason(ownDataValue(value, "reason"));
+      return hasOnlyKeys(value, ["type", "sid", "reason", "auth"]) && isSessionId(ownDataValue(value, "sid")) && isBase64EncodedBytes(ownDataValue(value, "auth"), HMAC_SHA256_BYTES) && optionalSafeReason(ownDataValue(value, "reason"));
     case "signal":
       return hasOnlyKeys(value, ["type", "sid", "signal"]) && isSessionId(ownDataValue(value, "sid")) && isSignalPayload(ownDataValue(value, "signal"));
     case "bye":
@@ -216,9 +216,9 @@ export function isServerMessage(value: unknown): value is ServerMessage {
     case "pair-request":
       return hasOnlyKeys(value, ["type", "sid", "manifest", "sealedManifest"]) && isSessionId(ownDataValue(value, "sid")) && isManifest(ownDataValue(value, "manifest")) && isBoundedCanonicalBase64(ownDataValue(value, "sealedManifest"), MIN_ENCRYPTED_JSON_BASE64_CHARS, MAX_SEALED_MANIFEST_CHARS);
     case "pair-accept":
-      return hasOnlyKeys(value, ["type", "sid"]) && isSessionId(ownDataValue(value, "sid"));
+      return hasOnlyKeys(value, ["type", "sid", "auth"]) && isSessionId(ownDataValue(value, "sid")) && isBase64EncodedBytes(ownDataValue(value, "auth"), HMAC_SHA256_BYTES);
     case "pair-reject":
-      return hasOnlyKeys(value, ["type", "sid", "reason"]) && isSessionId(ownDataValue(value, "sid")) && optionalSafeReason(ownDataValue(value, "reason"));
+      return hasOnlyKeys(value, ["type", "sid", "reason", "auth"]) && isSessionId(ownDataValue(value, "sid")) && isBase64EncodedBytes(ownDataValue(value, "auth"), HMAC_SHA256_BYTES) && optionalSafeReason(ownDataValue(value, "reason"));
     case "signal":
       return hasOnlyKeys(value, ["type", "sid", "signal"]) && isSessionId(ownDataValue(value, "sid")) && isSignalPayload(ownDataValue(value, "signal"));
     case "peer-left":

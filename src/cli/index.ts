@@ -18,7 +18,7 @@ import { isServerMessage, type FileManifest, type ServerMessage, type SignalPayl
 import { sanitizeDisplayText, sanitizeStructuredOutput } from "../shared/output-safety.js";
 import { PACKAGE_VERSION } from "../shared/package-info.js";
 import { generateCode, normalizeCode, parseCode } from "../shared/wordlist.js";
-import { openManifest, sdpAuthTag, sealManifest, verifySignalAuthTag, wipeSessionKeys, type SessionKeys } from "../shared/security.js";
+import { openManifest, pairDecisionAuthTag, sdpAuthTag, sealManifest, verifyPairDecisionAuthTag, verifySignalAuthTag, wipeSessionKeys, type SessionKeys } from "../shared/security.js";
 import { cloneIceServers } from "../shared/ice.js";
 import { buildManifest, closeSendFiles, ensureOutputDir } from "./files.js";
 import { classifyExitCode, safeErrorMessage } from "./exit-codes.js";
@@ -148,8 +148,10 @@ async function recv(options: RecvOptions): Promise<void> {
           keys = joined.keys;
           print(options, { event: "secure_session", sas: keys.sas });
           let manifest: FileManifest;
+          let sealedManifest: string;
           try {
             const request = await waitForMessage(signaling, "pair-request", PAIR_TIMEOUT_MS, joined.sid);
+            sealedManifest = request.sealedManifest;
             manifest = await openManifest<FileManifest>(keys, request.sealedManifest);
             assertTransferManifestWithinLimits(manifest);
           } catch (error) {
@@ -166,11 +168,11 @@ async function recv(options: RecvOptions): Promise<void> {
           }
           const accepted = await showManifestAndMaybeAccept(manifest, options, keys.sas);
           if (!accepted) {
-            safeSend(signaling, { type: "pair-reject", sid: joined.sid, reason: "user_declined" });
+            safeSend(signaling, { type: "pair-reject", sid: joined.sid, reason: "user_declined", auth: pairDecisionAuthTag(keys.signalAuthKey, joined.sid, "receiver", "reject", sealedManifest, "user_declined") });
             throw new Error("Transfer declined.");
           }
 
-          signaling.send({ type: "pair-accept", sid: joined.sid });
+          signaling.send({ type: "pair-accept", sid: joined.sid, auth: pairDecisionAuthTag(keys.signalAuthKey, joined.sid, "receiver", "accept", sealedManifest) });
           iceServers = await getIceServersAfterAccept(signaling, iceServers);
 
           peer = createPeer(joined.sid, iceServers, signaling, keys.signalAuthKey, "receiver", options.relay);
@@ -294,11 +296,12 @@ async function send(code: string, paths: string[], options: CommonOptions): Prom
           sid = joined.sid;
           keys = await establishKeys(signaling, joined.sid, "sender", parsedCode.handle);
           const publicManifest = redactManifest(manifest);
-          signaling.send({ type: "pair-request", sid: joined.sid, manifest: publicManifest, sealedManifest: await sealManifest(keys, manifest) });
+          const sealedManifest = await sealManifest(keys, manifest);
+          signaling.send({ type: "pair-request", sid: joined.sid, manifest: publicManifest, sealedManifest });
           print(options, { event: "pair_requested", sid: joined.sid, files: manifest.fileCount, totalBytes: manifest.totalBytes });
           print(options, { event: "secure_session", sas: keys.sas });
           human(options, `Waiting for receiver to accept ${manifest.fileCount} file(s), ${formatBytes(manifest.totalBytes)}. SAS ${keys.sas}`);
-          await waitForPairAccept(signaling, joined.sid);
+          await waitForPairAccept(signaling, joined.sid, keys, sealedManifest);
           iceServers = await getIceServersAfterAccept(signaling, iceServers);
 
           peer = createPeer(joined.sid, iceServers, signaling, keys.signalAuthKey, "sender", options.relay);
@@ -548,7 +551,7 @@ function isUnsetRetransmissionLimit(value: unknown): boolean {
   return value === null || value === 65535;
 }
 
-function waitForPairAccept(signaling: SignalingClient, sid: string): Promise<void> {
+function waitForPairAccept(signaling: SignalingClient, sid: string, keys: SessionKeys, sealedManifest: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       cleanup();
@@ -560,10 +563,18 @@ function waitForPairAccept(signaling: SignalingClient, sid: string): Promise<voi
       if ("sid" in message && message.sid !== sid) return;
       if (message.type === "pair-accept") {
         cleanup();
-        resolve();
+        if (verifyPairDecisionAuthTag(keys.signalAuthKey, sid, "receiver", "accept", sealedManifest, undefined, message.auth)) {
+          resolve();
+        } else {
+          reject(new Error("Authenticated pair decision check failed. Wrong code or signaling MITM."));
+        }
       } else if (message.type === "pair-reject") {
         cleanup();
-        reject(new Error(pairRejectMessage(message.reason)));
+        if (verifyPairDecisionAuthTag(keys.signalAuthKey, sid, "receiver", "reject", sealedManifest, message.reason, message.auth)) {
+          reject(new Error(pairRejectMessage(message.reason)));
+        } else {
+          reject(new Error("Authenticated pair decision check failed. Wrong code or signaling MITM."));
+        }
       } else if (message.type === "error") {
         cleanup();
         reject(new SignalingError(message.code));

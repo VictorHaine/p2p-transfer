@@ -62,6 +62,7 @@ const MAX_PAKE_CONTEXT_CHARS = 256;
 const MAX_AUTH_SDP_BYTES = 128 * 1024;
 const MAX_AUTH_CANDIDATE_BYTES = 4096;
 const MAX_AUTH_TOKEN_BYTES = 256;
+const MAX_PAIR_DECISION_REASON_CHARS = 1000;
 const AES_GCM_TAG_BYTES = 16;
 const MAX_BULK_SEALED_BYTES = CHUNK_SIZE + AES_GCM_TAG_BYTES;
 const MAX_ENCRYPTED_JSON_PLAINTEXT_BYTES = Math.floor(ENCRYPTED_JSON_MAX_CHARS / 4) * 3 - 12 - AES_GCM_TAG_BYTES;
@@ -272,8 +273,57 @@ export function verifySessionConfirmTag(key: Uint8Array, sid: string, fromRole: 
   }
 }
 
+export function pairDecisionAuthTag(key: Uint8Array, sid: string, fromRole: PakeRole, decision: "accept" | "reject", sealedManifest: string, reason?: string): string {
+  const authKey = authenticationKeyCopy(key);
+  const tag = hmac(sha256, authKey, text.encode(canonicalPairDecisionForAuth(sid, fromRole, decision, sealedManifest, reason)));
+  try {
+    return bytesToBase64(tag);
+  } finally {
+    tag.fill(0);
+    authKey.fill(0);
+  }
+}
+
+export function verifyPairDecisionAuthTag(
+  key: Uint8Array,
+  sid: string,
+  fromRole: PakeRole,
+  decision: "accept" | "reject",
+  sealedManifest: string,
+  reason: string | undefined,
+  tag: string | undefined
+): boolean {
+  if (typeof tag !== "string" || tag.length !== HMAC_SHA256_BASE64_CHARS) return false;
+  let expected: Uint8Array | undefined;
+  let actual: Uint8Array | undefined;
+  try {
+    expected = base64ToBytes(pairDecisionAuthTag(key, sid, fromRole, decision, sealedManifest, reason));
+    actual = base64ToBytes(tag);
+    return timingSafeEqual(expected, actual);
+  } catch {
+    return false;
+  } finally {
+    expected?.fill(0);
+    actual?.fill(0);
+  }
+}
+
 function assertPakeRole(role: unknown): asserts role is PakeRole {
   if (role !== "sender" && role !== "receiver") throw new Error("PAKE role is invalid.");
+}
+
+function canonicalPairDecisionForAuth(sid: string, fromRole: PakeRole, decision: "accept" | "reject", sealedManifest: string, reason?: string): string {
+  assertPakeSid(sid);
+  assertPakeRole(fromRole);
+  if (decision !== "accept" && decision !== "reject") throw new Error("Pair decision is invalid.");
+  if (!isNonEmptyByteBoundedString(sealedManifest, ENCRYPTED_JSON_MAX_CHARS) || !SAFE_ASCII_TOKEN.test(sealedManifest)) {
+    throw new Error("Pair decision manifest is invalid.");
+  }
+  if (reason !== undefined && (!isSafeByteBoundedString(reason, MAX_PAIR_DECISION_REASON_CHARS) || reason.length === 0)) {
+    throw new Error("Pair decision reason is invalid.");
+  }
+  const sealedManifestSha256 = bytesToHex(sha256(text.encode(sealedManifest)));
+  return JSON.stringify({ v: 1, t: "pair-decision", sid, fromRole, decision, sealedManifestSha256, reason: reason ?? null });
 }
 
 function assertPakeSid(sid: unknown): asserts sid is string {

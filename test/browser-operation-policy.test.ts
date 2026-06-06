@@ -32,7 +32,7 @@ test("browser sender revalidates transfer manifests at the send boundary", () =>
   assert.match(webSource, /assertTransferManifestWithinLimits\(manifest\);/);
   assert.match(
     webSource,
-    /const sendPlan = await buildBrowserSendPlan\(files\);[\s\S]*const manifest = browserSendPlanManifest\(sendPlan\);[\s\S]*signaling\.send\(\{ type: "pair-request", sid: joined\.sid, manifest: redactManifest\(manifest\), sealedManifest: await sealManifest\(keys, manifest\) \}\)/
+    /const sendPlan = await buildBrowserSendPlan\(files\);[\s\S]*const manifest = browserSendPlanManifest\(sendPlan\);[\s\S]*const sealedManifest = await sealManifest\(keys, manifest\);[\s\S]*signaling\.send\(\{ type: "pair-request", sid: joined\.sid, manifest: redactManifest\(manifest\), sealedManifest \}\)/
   );
   assert.match(
     webSource,

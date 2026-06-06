@@ -18,8 +18,8 @@ test("successful transfers treat final signaling bye as best-effort teardown", (
 });
 
 test("receiver declines preserve local decision even if signaling teardown fails", () => {
-  assert.match(cliSource, /safeSend\(signaling, \{ type: "pair-reject", sid: joined\.sid, reason: "user_declined" \}\);[\s\S]*throw new Error\("Transfer declined\."\)/);
-  assert.match(webSource, /safeBrowserSend\(signaling, \{ type: "pair-reject", sid: joined\.sid, reason: "user_declined" \}\);[\s\S]*setStatus\(recvStatus, "Declined"\)/);
+  assert.match(cliSource, /safeSend\(signaling, \{ type: "pair-reject", sid: joined\.sid, reason: "user_declined", auth: pairDecisionAuthTag\(keys\.signalAuthKey, joined\.sid, "receiver", "reject", sealedManifest, "user_declined"\) \}\);[\s\S]*throw new Error\("Transfer declined\."\)/);
+  assert.match(webSource, /safeBrowserSend\(signaling, \{ type: "pair-reject", sid: joined\.sid, reason: "user_declined", auth: pairDecisionAuthTag\(keys\.signalAuthKey, joined\.sid, "receiver", "reject", sealedManifest, "user_declined"\) \}\);[\s\S]*setStatus\(recvStatus, "Declined"\)/);
   assert.doesNotMatch(cliSource, /signaling\.send\(\{ type: "pair-reject", sid: joined\.sid, reason: "user_declined" \}\);[\s\S]*throw new Error\("Transfer declined\."\)/);
   assert.doesNotMatch(webSource, /signaling\.send\(\{ type: "pair-reject", sid: joined\.sid, reason: "user_declined" \}\);[\s\S]*setStatus\(recvStatus, "Declined"\)/);
 });
@@ -105,7 +105,8 @@ test("browser protocol waits use shared timeout constants", () => {
   assert.match(webSource, /CONNECT_TIMEOUT_MS/);
   assert.doesNotMatch(webSource, /waitFor(?:Session)?\(signaling, "[^"]+", [^,\n]+, 300_000\)/);
   assert.doesNotMatch(webSource, /waitFor\(signaling, "[^"]+", 45_000/);
-  assert.match(webSource, /waitForSession\(signaling, "pair-accept", joined\.sid, PAIR_TIMEOUT_MS\)/);
+  assert.match(webSource, /await waitForAuthenticatedPairAccept\(signaling, joined\.sid, keys, sealedManifest\)/);
+  assert.match(webSource, /const timer = setTimeout\(\(\) => \{[\s\S]*Timed out waiting for pair decision[\s\S]*\}, PAIR_TIMEOUT_MS\)/);
   assert.match(webSource, /waitForSession\(signaling, "pair-request", joined\.sid, PAIR_TIMEOUT_MS\)/);
   assert.match(webSource, /return waitFor\(signaling, "peer-joined", CONNECT_TIMEOUT_MS\)/);
   assert.match(webSource, /waitFor\(signaling, "pake", CONNECT_TIMEOUT_MS, sid, waitAbort\.signal\)/);

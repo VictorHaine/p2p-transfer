@@ -7,6 +7,7 @@ import { initialSessionExpiresAt, nextSessionExpiresAt, remainingExpirySeconds }
 const sessionExpirySource = fs.readFileSync(new URL("../src/server/session-expiry.ts", import.meta.url), "utf8");
 const distSessionExpirySource = fs.readFileSync(new URL("../dist-node/server/session-expiry.js", import.meta.url), "utf8");
 const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
+const AUTH_TAG = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 
 test("new signaling sessions expire at the PAKE deadline until sender proves the code", () => {
   const now = 1_000_000;
@@ -18,7 +19,7 @@ test("pair request and receiver acceptance extend session deadlines", () => {
   const current = initialSessionExpiresAt(now);
   assert.equal(nextSessionExpiresAt(current, now + 10, { type: "pake", sid: "sid", data: "share" }), current);
   assert.equal(nextSessionExpiresAt(current, now + 20, { type: "pair-request", sid: "sid", manifest: { fileCount: 1, totalBytes: 1, files: [{ name: "x", size: 1 }] }, sealedManifest: "sealed" }), now + 20 + PAIR_TIMEOUT_MS);
-  assert.equal(nextSessionExpiresAt(current, now + 30, { type: "pair-accept", sid: "sid" }), now + 30 + SESSION_TTL_MS);
+  assert.equal(nextSessionExpiresAt(current, now + 30, { type: "pair-accept", sid: "sid", auth: AUTH_TAG }), now + 30 + SESSION_TTL_MS);
 });
 
 test("restored pre-pair registrations report remaining original code TTL", () => {

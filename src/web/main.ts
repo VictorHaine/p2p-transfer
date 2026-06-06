@@ -34,6 +34,7 @@ import {
   openControl,
   openManifest,
   ownPakeShareB64,
+  pairDecisionAuthTag,
   parsePakeShareMessage,
   sdpAuthTag,
   sealBulk,
@@ -43,6 +44,7 @@ import {
   signalAuthTag,
   startPake,
   finishPake,
+  verifyPairDecisionAuthTag,
   verifySessionConfirmTag,
   verifySignalAuthTag,
   wipePakeState,
@@ -240,9 +242,10 @@ async function sendFromBrowser(): Promise<void> {
     const joined = await connectCode(signaling, parsedCode.rendezvous);
     sid = joined.sid;
     keys = await establishBrowserKeys(signaling, joined.sid, "sender", parsedCode.handle);
-    signaling.send({ type: "pair-request", sid: joined.sid, manifest: redactManifest(manifest), sealedManifest: await sealManifest(keys, manifest) });
+    const sealedManifest = await sealManifest(keys, manifest);
+    signaling.send({ type: "pair-request", sid: joined.sid, manifest: redactManifest(manifest), sealedManifest });
     setStatus(sendStatus, "Waiting");
-    await waitForSession(signaling, "pair-accept", joined.sid, PAIR_TIMEOUT_MS);
+    await waitForAuthenticatedPairAccept(signaling, joined.sid, keys, sealedManifest);
     const iceServers = await getIceServers(signaling);
 
     pc = new RTCPeerConnection({ iceServers });
@@ -299,8 +302,10 @@ async function receiveInBrowser(): Promise<void> {
       sid = joined.sid;
       keys = joined.keys;
       let manifest: FileManifest;
+      let sealedManifest: string;
       try {
         const request = await waitForSession(signaling, "pair-request", joined.sid, PAIR_TIMEOUT_MS);
+        sealedManifest = request.sealedManifest;
         manifest = await openManifest<FileManifest>(keys, request.sealedManifest);
         assertTransferManifestWithinLimits(manifest);
       } catch (error) {
@@ -316,13 +321,13 @@ async function receiveInBrowser(): Promise<void> {
       }
       const accept = await promptForBrowserAccept(manifest, keys.sas);
       if (!accept.accepted) {
-        safeBrowserSend(signaling, { type: "pair-reject", sid: joined.sid, reason: "user_declined" });
+        safeBrowserSend(signaling, { type: "pair-reject", sid: joined.sid, reason: "user_declined", auth: pairDecisionAuthTag(keys.signalAuthKey, joined.sid, "receiver", "reject", sealedManifest, "user_declined") });
         finished = true;
         setStatus(recvStatus, "Declined");
         return;
       }
 
-      signaling.send({ type: "pair-accept", sid: joined.sid });
+      signaling.send({ type: "pair-accept", sid: joined.sid, auth: pairDecisionAuthTag(keys.signalAuthKey, joined.sid, "receiver", "accept", sealedManifest) });
       const iceServers = await getIceServers(signaling);
       pc = new RTCPeerConnection({ iceServers });
       const channels = waitIncomingChannels(pc);
@@ -1428,6 +1433,67 @@ function waitFor<T extends ServerMessage["type"]>(
     signaling.on("error", onError);
     signaling.on("peer-left", onPeerLeft);
     signaling.on("pair-reject", onPairReject);
+    signaling.on("close", onClose);
+  });
+}
+
+function waitForAuthenticatedPairAccept(signaling: BrowserSignaling, sid: string, keys: SessionKeys, sealedManifest: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const cleanup = () => {
+      clearTimeout(timer);
+      signaling.off("pair-accept", onPairAccept);
+      signaling.off("pair-reject", onPairReject);
+      signaling.off("error", onError);
+      signaling.off("peer-left", onPeerLeft);
+      signaling.off("close", onClose);
+    };
+    const succeed = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve();
+    };
+    const fail = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+    const onPairAccept = (message: BrowserSignalingEvent) => {
+      if (!isServerMessage(message) || message.type !== "pair-accept" || message.sid !== sid) return;
+      if (verifyPairDecisionAuthTag(keys.signalAuthKey, sid, "receiver", "accept", sealedManifest, undefined, message.auth)) {
+        succeed();
+      } else {
+        fail(new Error("Authenticated pair decision check failed. Wrong code or signaling MITM."));
+      }
+    };
+    const onPairReject = (message: BrowserSignalingEvent) => {
+      if (!isServerMessage(message) || message.type !== "pair-reject" || message.sid !== sid) return;
+      if (verifyPairDecisionAuthTag(keys.signalAuthKey, sid, "receiver", "reject", sealedManifest, message.reason, message.auth)) {
+        fail(new Error(pairRejectMessage(message.reason)));
+      } else {
+        fail(new Error("Authenticated pair decision check failed. Wrong code or signaling MITM."));
+      }
+    };
+    const onError = (message: BrowserSignalingEvent) => {
+      if (!isServerMessage(message)) return;
+      fail(message.type === "error" ? new BrowserSignalingError(message.code) : new Error("Signaling error"));
+    };
+    const onPeerLeft = (message: BrowserSignalingEvent) => {
+      if (!isServerMessage(message) || message.type !== "peer-left" || message.sid !== sid) return;
+      fail(new Error("Peer disconnected."));
+    };
+    const onClose = () => {
+      fail(new Error("Signaling socket closed."));
+    };
+    const timer = setTimeout(() => {
+      fail(new Error("Timed out waiting for pair decision"));
+    }, PAIR_TIMEOUT_MS);
+    signaling.on("pair-accept", onPairAccept);
+    signaling.on("pair-reject", onPairReject);
+    signaling.on("error", onError);
+    signaling.on("peer-left", onPeerLeft);
     signaling.on("close", onClose);
   });
 }

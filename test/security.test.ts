@@ -9,6 +9,7 @@ import {
   openControl,
   openManifest,
   ownPakeShareB64,
+  pairDecisionAuthTag,
   parsePakeShareMessage,
   sdpAuthTag,
   sealBulk,
@@ -18,6 +19,7 @@ import {
   signalAuthTag,
   startPake,
   verifySessionConfirmTag,
+  verifyPairDecisionAuthTag,
   verifySdpAuthTag,
   verifySignalAuthTag,
   wipePakeState,
@@ -29,11 +31,13 @@ import {
   openControl as distOpenControl,
   openManifest as distOpenManifest,
   parsePakeShareMessage as distParsePakeShareMessage,
+  pairDecisionAuthTag as distPairDecisionAuthTag,
   sealBulk as distSealBulk,
   sealControl as distSealControl,
   sessionConfirmTag as distSessionConfirmTag,
   signalAuthTag as distSignalAuthTag,
   verifySessionConfirmTag as distVerifySessionConfirmTag,
+  verifyPairDecisionAuthTag as distVerifyPairDecisionAuthTag,
   verifySignalAuthTag as distVerifySignalAuthTag
 } from "../dist-node/shared/security.js";
 import { CHUNK_SIZE, ENCRYPTED_JSON_MAX_CHARS, MAX_FILE_NAME_CHARS, MAX_FILES_PER_SESSION, PROTOCOL_VERSION, SIGNALING_MAX_PAYLOAD_BYTES } from "../src/shared/constants.js";
@@ -741,6 +745,37 @@ test("PAKE confirmation proves both peers derived the same session key", async (
   assert.equal(verifySessionConfirmTag(receiverKeys.signalAuthKey, "other-session", "sender", senderTag), false);
 });
 
+test("pair decisions are authenticated and bound to the sealed manifest", async () => {
+  assert.match(securityPolicy, /`pair-accept` and `pair-reject` decisions must be authenticated with the PAKE-derived signal-auth key/);
+  const sid = "pair-decision-session";
+  const sender = startPake("sender", "123456-apple-anchor", sid);
+  const receiver = startPake("receiver", "123456-apple-anchor", sid);
+  const wrongReceiver = startPake("receiver", "123456-apple-artist", sid);
+  const senderShare = ownPakeShareB64(sender);
+  const receiverShare = ownPakeShareB64(receiver);
+  const senderKeys = await finishPake(sender, receiverShare);
+  const receiverKeys = await finishPake(receiver, senderShare);
+  const wrongKeys = await finishPake(wrongReceiver, senderShare);
+  const sealedManifest = await sealManifest(senderKeys, { fileCount: 1, totalBytes: 5, files: [{ id: 0, name: "secret.txt", size: 5 }] });
+  const tamperedManifest = await sealManifest(senderKeys, { fileCount: 1, totalBytes: 5, files: [{ id: 0, name: "other.txt", size: 5 }] });
+
+  const acceptAuth = pairDecisionAuthTag(receiverKeys.signalAuthKey, sid, "receiver", "accept", sealedManifest);
+  assert.equal(verifyPairDecisionAuthTag(senderKeys.signalAuthKey, sid, "receiver", "accept", sealedManifest, undefined, acceptAuth), true);
+  assert.equal(distVerifyPairDecisionAuthTag(senderKeys.signalAuthKey, sid, "receiver", "accept", sealedManifest, undefined, acceptAuth), true);
+  assert.equal(verifyPairDecisionAuthTag(senderKeys.signalAuthKey, sid, "receiver", "accept", tamperedManifest, undefined, acceptAuth), false);
+  assert.equal(verifyPairDecisionAuthTag(senderKeys.signalAuthKey, "other-session", "receiver", "accept", sealedManifest, undefined, acceptAuth), false);
+  assert.equal(verifyPairDecisionAuthTag(senderKeys.signalAuthKey, sid, "sender", "accept", sealedManifest, undefined, acceptAuth), false);
+  assert.equal(verifyPairDecisionAuthTag(senderKeys.signalAuthKey, sid, "receiver", "reject", sealedManifest, undefined, acceptAuth), false);
+  assert.equal(verifyPairDecisionAuthTag(wrongKeys.signalAuthKey, sid, "receiver", "accept", sealedManifest, undefined, acceptAuth), false);
+  assert.equal(verifyPairDecisionAuthTag(senderKeys.signalAuthKey, sid, "receiver", "accept", sealedManifest, undefined, "not-base64"), false);
+
+  const rejectAuth = distPairDecisionAuthTag(receiverKeys.signalAuthKey, sid, "receiver", "reject", sealedManifest, "user_declined");
+  assert.equal(verifyPairDecisionAuthTag(senderKeys.signalAuthKey, sid, "receiver", "reject", sealedManifest, "user_declined", rejectAuth), true);
+  assert.equal(distVerifyPairDecisionAuthTag(senderKeys.signalAuthKey, sid, "receiver", "reject", sealedManifest, "user_declined", rejectAuth), true);
+  assert.equal(verifyPairDecisionAuthTag(senderKeys.signalAuthKey, sid, "receiver", "reject", sealedManifest, "other_reason", rejectAuth), false);
+  assert.equal(verifyPairDecisionAuthTag(senderKeys.signalAuthKey, sid, "receiver", "reject", sealedManifest, undefined, rejectAuth), false);
+});
+
 test("WebRTC signal authentication also binds ICE candidates", async () => {
   const sid = "candidate-session";
   const sender = startPake("sender", "123456-apple-anchor", sid);
@@ -1301,8 +1336,13 @@ test("signaling schema rejects malformed signal and manifest fields", () => {
   assert.equal(isClientMessage({ type: "pair-request", sid: "sid", manifest: { fileCount: 1, totalBytes: 1, files: [{ id: 0, name: "x", size: 1 }] }, sealedManifest: "AAAA" }), false);
   assert.equal(isClientMessage({ type: "pair-request", sid: "sid", manifest: { fileCount: 1, totalBytes: 1, files: [{ id: 0, name: "x", size: 1 }] }, sealedManifest: `${"A".repeat(17)}AB=` }), false);
   assert.equal(isClientMessage({ type: "pair-accept", sid: "" }), false);
+  assert.equal(isClientMessage({ type: "pair-accept", sid: "sid" }), false);
+  assert.equal(isClientMessage({ type: "pair-accept", sid: "sid", auth: validTag }), true);
+  assert.equal(isClientMessage({ type: "pair-accept", sid: "sid", auth: "auth" }), false);
   assert.equal(isClientMessage({ type: "pair-reject", sid: "" }), false);
-  assert.equal(isClientMessage({ type: "pair-reject", sid: "sid", reason: "\u001b[31mnope" }), false);
+  assert.equal(isClientMessage({ type: "pair-reject", sid: "sid", reason: "user_declined" }), false);
+  assert.equal(isClientMessage({ type: "pair-reject", sid: "sid", auth: validTag, reason: "user_declined" }), true);
+  assert.equal(isClientMessage({ type: "pair-reject", sid: "sid", auth: validTag, reason: "\u001b[31mnope" }), false);
   assert.equal(isClientMessage({ type: "signal", sid: "", signal: { kind: "offer", sdp: "v=0\r\n", auth: validTag } }), false);
   assert.equal(isClientMessage({ type: "bye", sid: "" }), false);
   assert.equal(isClientMessage({ type: "register", role: "receiver", code: "123456", protocolVersion: 1, extra: true }), false);
@@ -1404,7 +1444,10 @@ test("signaling schema rejects malformed signal and manifest fields", () => {
   assert.equal(isServerMessage({ type: "confirm", sid: "sid", tag: "tag" }), false);
   assert.equal(isServerMessage({ type: "pair-request", sid: "sid", manifest: { fileCount: 1, totalBytes: 1, files: [{ id: 0, name: "x", size: 1 }] }, sealedManifest: "" }), false);
   assert.equal(isServerMessage({ type: "pair-accept", sid: "" }), false);
+  assert.equal(isServerMessage({ type: "pair-accept", sid: "sid" }), false);
+  assert.equal(isServerMessage({ type: "pair-accept", sid: "sid", auth: validTag }), true);
   assert.equal(isServerMessage({ type: "pair-reject", sid: "" }), false);
+  assert.equal(isServerMessage({ type: "pair-reject", sid: "sid", auth: validTag, reason: "user_declined" }), true);
   assert.equal(isServerMessage({ type: "peer-left", sid: "" }), false);
   assert.equal(isServerMessage({ type: "peer-left", sid: "sid", reason: "\u202ereason" }), false);
   assert.equal(isServerMessage({ type: "signal", sid: "sid", signal: { kind: "candidate", candidate: { candidate: "candidate:0 1 UDP 1 127.0.0.1 9 typ host" }, auth: validTag } }), false);

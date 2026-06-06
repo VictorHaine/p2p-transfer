@@ -22,6 +22,7 @@ const serverSource = fs.readFileSync(new URL("../src/server/index.ts", import.me
 const policySource = fs.readFileSync(new URL("../src/server/policy.ts", import.meta.url), "utf8");
 const distPolicySource = fs.readFileSync(new URL("../dist-node/server/policy.js", import.meta.url), "utf8");
 const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
+const AUTH_TAG = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 
 test("relay role policy rejects impossible sender/receiver messages", () => {
   const session = makeSession();
@@ -33,8 +34,8 @@ test("relay role policy rejects impossible sender/receiver messages", () => {
   assert.equal(relayAllowedForRole(session, session.sender, pairRequest()), true);
   assert.equal(relayAllowedForRole(session, session.receiver, pairRequest()), false);
   assert.equal(relayAllowedForRole(session, { id: "intruder" }, pairRequest()), false);
-  assert.equal(relayAllowedForRole(session, session.receiver, { type: "pair-accept", sid: "sid" }), true);
-  assert.equal(relayAllowedForRole(session, session.sender, { type: "pair-accept", sid: "sid" }), false);
+  assert.equal(relayAllowedForRole(session, session.receiver, { type: "pair-accept", sid: "sid", auth: AUTH_TAG }), true);
+  assert.equal(relayAllowedForRole(session, session.sender, { type: "pair-accept", sid: "sid", auth: AUTH_TAG }), false);
   assert.equal(relayAllowedForRole(session, session.sender, offer()), true);
   assert.equal(relayAllowedForRole(session, session.receiver, offer()), false);
   assert.equal(relayAllowedForRole(session, session.receiver, answer()), true);
@@ -71,7 +72,7 @@ test("relay phase policy enforces pair decision before WebRTC signaling", () => 
   const session = makeSession();
   assert.equal(sessionHasConfirmedPake(session), false);
   assert.equal(relayAllowedForPhase(session, session.sender, offer()), false);
-  assert.equal(relayAllowedForPhase(session, session.receiver, { type: "pair-accept", sid: "sid" }), false);
+  assert.equal(relayAllowedForPhase(session, session.receiver, { type: "pair-accept", sid: "sid", auth: AUTH_TAG }), false);
   assert.equal(relayAllowedForPhase(session, session.sender, pairRequest()), false);
   assert.equal(relayAllowedForPhase(session, session.sender, pake()), true);
   applyRelayPhase(session, session.sender, pake());
@@ -92,8 +93,8 @@ test("relay phase policy enforces pair decision before WebRTC signaling", () => 
   applyRelayPhase(session, session.sender, pairRequest());
   assert.equal(relayAllowedForPhase(session, session.sender, pairRequest()), false);
   assert.equal(relayAllowedForPhase(session, session.receiver, pake()), false);
-  assert.equal(relayAllowedForPhase(session, session.receiver, { type: "pair-accept", sid: "sid" }), true);
-  applyRelayPhase(session, session.receiver, { type: "pair-accept", sid: "sid" });
+  assert.equal(relayAllowedForPhase(session, session.receiver, { type: "pair-accept", sid: "sid", auth: AUTH_TAG }), true);
+  applyRelayPhase(session, session.receiver, { type: "pair-accept", sid: "sid", auth: AUTH_TAG });
   assert.equal(relayAllowedForPhase(session, session.sender, offer()), true);
   assert.equal(relayAllowedForPhase(session, session.sender, candidate()), false);
   assert.equal(relayAllowedForPhase(session, session.receiver, candidate()), false);
