@@ -250,7 +250,7 @@ test("CI and release workflows keep minimal token permissions", () => {
 });
 
 test("security-sensitive surfaces require code owner review", () => {
-  assert.match(securityPolicy, /security-sensitive crypto, protocol, release, dependency, Docker, server, and file-publish surfaces must be covered by `\.github\/CODEOWNERS`/);
+  assert.match(securityPolicy, /security-sensitive crypto, protocol, release, dependency, dependency-review artifacts, Docker, server, and file-publish surfaces must be covered by `\.github\/CODEOWNERS`/);
   assert.match(readme, /branch protection for `main` requiring CI and CODEOWNERS review/);
   for (const path of [
     "/.github/",
@@ -259,6 +259,7 @@ test("security-sensitive surfaces require code owner review", () => {
     "/pnpm-lock.yaml",
     "/pnpm-workspace.yaml",
     "/SECURITY.md",
+    "/docs/security/",
     "/conformance/",
     "/scripts/",
     "/src/shared/security.ts",

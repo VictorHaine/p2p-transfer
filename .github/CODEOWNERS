@@ -5,6 +5,7 @@
 /pnpm-lock.yaml @VictorHaine
 /pnpm-workspace.yaml @VictorHaine
 /SECURITY.md @VictorHaine
+/docs/security/ @VictorHaine
 /conformance/ @VictorHaine
 /scripts/ @VictorHaine
 /src/shared/security.ts @VictorHaine
