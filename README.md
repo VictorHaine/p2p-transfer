@@ -235,6 +235,7 @@ docker run --rm --read-only --cap-drop=ALL --security-opt no-new-privileges -p 8
 CI also proves the production Docker image independently refuses to start without `ALLOWED_ORIGINS` and without `SIGNALING_TOPOLOGY`, then boots it with both policies explicit, a read-only filesystem, dropped Linux capabilities, and `no-new-privileges`, and checks `/healthz`, origin policy, and the bundled web UI; a build-only Docker pass is not treated as enough for release. Platform smoke runs the packed-install check on Linux, macOS, and Windows for each supported Node major because the CLI depends on native WebRTC bindings.
 The release workflow is tag-only. Release artifacts, npm publishes, and GitHub Releases are produced only from `v*` tags that match `package.json` version, not from manual workflow dispatches or branch-built artifacts.
 Before publishing, the release workflow downloads the exact npm tarball artifact, verifies its checksum and package metadata, then runs the packed-install smoke against a no-follow-verified staged copy of that downloaded tarball rather than trusting a different tarball produced earlier in the job.
+The same verified tarball is attested with GitHub artifact attestations before publish; the attestation job downloads and verifies the artifact but does not reinstall, rebuild, repack, or rediscover release contents.
 Npm publishing uses GitHub OIDC trusted publishing from the `npm` environment; configure the npm package trusted publisher instead of storing a long-lived `NPM_TOKEN` secret.
 After npm publish succeeds, the workflow re-verifies the downloaded tarball again and creates the GitHub Release with that exact tarball plus `SHA256SUMS`.
 Package-surface tests run after the build in local verification, CI, and release, and assert the published `ff` and `ff-server` bin entrypoints keep their Node shebangs and executable mode.
@@ -257,6 +258,7 @@ In GitHub:
 - create branch protection for `main` requiring CI and CODEOWNERS review
 - enable code scanning alerts; `.github/workflows/codeql.yml` runs pinned CodeQL analysis on pull requests, pushes to `main`, and a weekly schedule
 - enable OpenSSF Scorecard alerts; `.github/workflows/scorecard.yml` runs the pinned Scorecard action on pushes to `main` and a weekly schedule, then uploads SARIF to code scanning
+- enable artifact attestations for the release workflow; `.github/workflows/release.yml` attests the same verifier-checked npm tarball before publish
 
 In npm:
 
@@ -273,7 +275,7 @@ git tag v0.1.0
 git push origin main --tags
 ```
 
-The tag starts the release workflow. It verifies the tag matches `package.json`, repeats the release gate, publishes the exact checked tarball to npm with provenance, then creates the GitHub Release with the same tarball and `SHA256SUMS`.
+The tag starts the release workflow. It verifies the tag matches `package.json`, repeats the release gate, attests the exact checked tarball, publishes that tarball to npm with provenance, then creates the GitHub Release with the same tarball and `SHA256SUMS`.
 
 ## License
 

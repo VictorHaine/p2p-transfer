@@ -47,6 +47,7 @@ const PINNED_ACTIONS = new Map([
   ["actions/setup-node", { sha: "49933ea5288caeca8642d1e84afbd3f7d6820020", version: "v4.4.0" }],
   ["actions/upload-artifact", { sha: "ea165f8d65b6e75b540449e92b4886f43607fa02", version: "v4.6.2" }],
   ["actions/download-artifact", { sha: "d3f86a106a0bac45b974a628896c90dbdf5c8093", version: "v4.3.0" }],
+  ["actions/attest-build-provenance", { sha: "a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32", version: "v4.1.0" }],
   ["github/codeql-action/init", { sha: "8aad20d150bbac5944a9f9d289da16a4b0d87c1e", version: "v4.36.2" }],
   ["github/codeql-action/analyze", { sha: "8aad20d150bbac5944a9f9d289da16a4b0d87c1e", version: "v4.36.2" }],
   ["github/codeql-action/upload-sarif", { sha: "8aad20d150bbac5944a9f9d289da16a4b0d87c1e", version: "v4.36.2" }],
@@ -222,12 +223,14 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releaseWorkflow, /verify origin policy[\s\S]*PROBE_URL=http:\/\/127\.0\.0\.1:8787\/v1\/ice PROBE_STATUS=403 PROBE_ORIGIN=https:\/\/evil\.example node scripts\/probe-http\.mjs/);
   assert.doesNotMatch(releaseWorkflow, /fetch\('http:\/\/127\.0\.0\.1:8787|body\.includes\('ff transfer'\)/);
   assert.doesNotMatch(releaseWorkflow, /ALLOW_ANY_ORIGIN/);
-  assert.equal(releaseWorkflow.match(/id-token:\s*write/g)?.length, 1);
+  assert.equal(releaseWorkflow.match(/id-token:\s*write/g)?.length, 2);
   assert.match(releaseWorkflow, /publish npm package[\s\S]*permissions:\n      contents: read\n      id-token: write/);
+  assert.match(releaseWorkflow, /attest release artifact[\s\S]*permissions:\n      contents: read\n      id-token: write\n      attestations: write/);
+  assert.match(releaseWorkflow, /attest release artifact[\s\S]*verify downloaded release artifact[\s\S]*id: verify_artifact[\s\S]*node scripts\/verify-release-artifact\.mjs --print-tarball[\s\S]*uses: actions\/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4\.1\.0[\s\S]*subject-path: \$\{\{ steps\.verify_artifact\.outputs\.tarball \}\}/);
   assert.match(releaseWorkflow, /verify downloaded release artifact[\s\S]*id: verify_artifact[\s\S]*node scripts\/verify-release-artifact\.mjs --print-tarball[\s\S]*smoke downloaded release artifact[\s\S]*tgz="\$\{\{ steps\.verify_artifact\.outputs\.tarball \}\}"[\s\S]*PACKED_SMOKE_TARBALL="\$tgz" node scripts\/smoke-packed\.mjs[\s\S]*publish npm package[\s\S]*pnpm publish "\$tgz" --provenance --access public --ignore-scripts/);
   assert.match(releaseWorkflow, /github-release:[\s\S]*needs:\n      - publish[\s\S]*permissions:\n      contents: write[\s\S]*verify downloaded release artifact[\s\S]*node scripts\/verify-release-artifact\.mjs --print-tarball[\s\S]*gh release create "\$GITHUB_REF_NAME" "\$tgz" release-artifacts\/SHA256SUMS --title "\$GITHUB_REF_NAME" --notes-file CHANGELOG\.md/);
   const publishJob = releaseWorkflow.slice(releaseWorkflow.indexOf("  publish:"));
-  assert.match(publishJob, /needs:\n      - verify\n      - docker\n      - platform-smoke/);
+  assert.match(publishJob, /needs:\n      - verify\n      - attest\n      - docker\n      - platform-smoke/);
   assert.doesNotMatch(publishJob, /pnpm install|pnpm build|pnpm smoke:native/);
   assert.match(publishJob, /--ignore-scripts/);
   assert.doesNotMatch(publishJob, /NODE_AUTH_TOKEN|NPM_TOKEN/);

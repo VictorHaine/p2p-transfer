@@ -485,7 +485,9 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseArtifactScript, /await reader\.close\(\)/);
   assert.doesNotMatch(releaseArtifactScript, /execFileSync|child_process|maxBuffer: MAX_PACKED_PACKAGE_JSON_BYTES/);
   assert.match(securityPolicy, /release publishing must packed-install smoke the exact downloaded tarball artifact immediately before `pnpm publish`/);
-  assert.match(releaseWorkflow, /needs:\n\s+- verify\n\s+- docker\n\s+- platform-smoke/);
+  assert.match(securityPolicy, /release artifact attestation must run after the checked release-artifact verifier proves the downloaded npm tarball and before npm publish/);
+  assert.match(releaseWorkflow, /attest release artifact[\s\S]*node scripts\/verify-release-artifact\.mjs --print-tarball[\s\S]*uses: actions\/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4\.1\.0[\s\S]*subject-path: \$\{\{ steps\.verify_artifact\.outputs\.tarball \}\}/);
+  assert.match(releaseWorkflow, /needs:\n\s+- verify\n\s+- attest\n\s+- docker\n\s+- platform-smoke/);
   assert.match(releaseWorkflow, /environment: npm/);
   assert.match(releaseWorkflow, /id-token: write/);
   assert.match(securityPolicy, /release publishing must pass the verifier-emitted tarball path to packed smoke and `pnpm publish` instead of rediscovering the artifact with `find` or a shell glob after verification/);
