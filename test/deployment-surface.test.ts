@@ -575,11 +575,13 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(githubReleaseControlsScript, /await assertPersistedRulesets\(token, options\.repository\)/);
   assert.match(githubReleaseControlsScript, /privateVulnerabilityReportingStatus\(token, options\.repository\)/);
   assert.match(githubReleaseControlsScript, /dependencyVulnerabilityAlertsStatus\(token, options\.repository\)/);
-  assert.match(githubReleaseControlsScript, /await ensureDependencyVulnerabilityAlerts\(token, options\.repository, dependencyVulnerabilityAlerts\)/);
+  assert.match(githubReleaseControlsScript, /const verifiedDependencyVulnerabilityAlerts = await ensureDependencyVulnerabilityAlerts\(token, options\.repository, dependencyVulnerabilityAlerts\)/);
+  assert.match(githubReleaseControlsScript, /dependencyVulnerabilityAlerts: verifiedDependencyVulnerabilityAlerts/);
   assert.match(githubReleaseControlsScript, /\/repos\/\$\{repository\}\/vulnerability-alerts/);
   assert.match(githubReleaseControlsScript, /"PUT", `\/repos\/\$\{repository\}\/vulnerability-alerts`/);
   assert.match(githubReleaseControlsScript, /GitHub dependency vulnerability alerts must be enabled\./);
-  assert.match(githubReleaseControlsScript, /await ensurePrivateVulnerabilityReporting\(token, options\.repository, privateVulnerabilityReporting\)/);
+  assert.match(githubReleaseControlsScript, /const verifiedPrivateVulnerabilityReporting = await ensurePrivateVulnerabilityReporting\(token, options\.repository, privateVulnerabilityReporting\)/);
+  assert.match(githubReleaseControlsScript, /privateVulnerabilityReporting: verifiedPrivateVulnerabilityReporting/);
   assert.match(githubReleaseControlsScript, /\/repos\/\$\{repository\}\/private-vulnerability-reporting/);
   assert.match(githubReleaseControlsScript, /"PUT", `\/repos\/\$\{repository\}\/private-vulnerability-reporting`/);
   assert.match(githubReleaseControlsScript, /GitHub private vulnerability reporting must be enabled\./);
@@ -614,12 +616,12 @@ test("checked GitHub release controls setup matches the protected release surfac
     "npm environment reviewer protection must be checked before mutating rulesets"
   );
   assert.ok(
-    githubReleaseControlsScript.indexOf("await ensureDependencyVulnerabilityAlerts(token, options.repository, dependencyVulnerabilityAlerts)") <
+    githubReleaseControlsScript.indexOf("const verifiedDependencyVulnerabilityAlerts = await ensureDependencyVulnerabilityAlerts(token, options.repository, dependencyVulnerabilityAlerts)") <
       githubReleaseControlsScript.indexOf("if (desiredEnvironment)"),
     "dependency vulnerability alerts must be enabled before mutating the npm environment"
   );
   assert.ok(
-    githubReleaseControlsScript.indexOf("await ensurePrivateVulnerabilityReporting(token, options.repository, privateVulnerabilityReporting)") <
+    githubReleaseControlsScript.indexOf("const verifiedPrivateVulnerabilityReporting = await ensurePrivateVulnerabilityReporting(token, options.repository, privateVulnerabilityReporting)") <
       githubReleaseControlsScript.indexOf("if (desiredEnvironment)"),
     "private vulnerability reporting must be enabled before mutating the npm environment"
   );
@@ -637,9 +639,9 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(readme, /refuses read-only or unknown reviewers/);
   assert.match(readme, /refuses to create a sole-reviewer self-approval deadlock/);
   assert.match(readme, /refuses `--allow-missing-main` outside dry-run mode/);
-  assert.match(readme, /re-reads the persisted repository security controls, `npm` environment, persisted reviewer permissions, deployment tag policy, and repository ruleset details after writes/);
+  assert.match(readme, /re-reads the persisted repository security controls, dependency vulnerability alert status, `npm` environment, persisted reviewer permissions, deployment tag policy, and repository ruleset details after writes/);
   assert.match(readme, /refuses to mutate deployment policies or repository rulesets if GitHub returns a persisted reviewer without write, maintain, or admin permission/);
-  assert.match(readme, /refuses to mutate repository rulesets if GitHub returns malformed, duplicate, unexpected, wrong-target, or bypass-enabled rulesets, or if the persisted repository security controls are still disabled or Dependabot security updates are paused, the persisted `npm` environment still has no required-reviewer protection/);
+  assert.match(readme, /refuses to mutate repository rulesets if GitHub returns malformed, duplicate, unexpected, wrong-target, or bypass-enabled rulesets, or if persisted repository security controls are still disabled, dependency vulnerability alerts are still disabled, or Dependabot security updates are paused, the persisted `npm` environment still has no required-reviewer protection/);
   assert.match(securityPolicy, /`--allow-missing-main` must be dry-run only and must not be accepted with `--apply`/);
   assert.match(securityPolicy, /the setup script must enable and re-read GitHub dependency vulnerability alerts, private vulnerability reporting, repository secret scanning, secret scanning push protection, and Dependabot security updates, verify Dependabot security updates are unpaused through the dedicated `automated-security-fixes` endpoint before mutating the npm environment, deployment policies, or repository rulesets/);
   assert.match(securityPolicy, /must be able to create or update the `npm` environment approval gate from explicit reviewers with write, maintain, or admin repository permission, self-review prevention, admin bypass disabled, and a single `v\*\.\*\.\*` tag deployment policy/);

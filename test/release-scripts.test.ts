@@ -1165,9 +1165,16 @@ globalThis.fetch = async (url, init = {}) => {
 
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.stderr, "");
-    const stdout = JSON.parse(result.stdout) as { mode: string; rulesets: string[] };
+    const stdout = JSON.parse(result.stdout) as {
+      mode: string;
+      rulesets: string[];
+      dependencyVulnerabilityAlerts?: { enabled?: boolean };
+      privateVulnerabilityReporting?: { enabled?: boolean };
+    };
     assert.equal(stdout.mode, "applied");
     assert.deepEqual(stdout.rulesets, ["p2p-transfer: protect main", "p2p-transfer: protect release tags"]);
+    assert.deepEqual(stdout.dependencyVulnerabilityAlerts, { enabled: true });
+    assert.deepEqual(stdout.privateVulnerabilityReporting, { enabled: true });
     assert.deepEqual(requestTargets, [
       "GET /user",
       "GET /repos/VictorHaine/p2p-transfer",

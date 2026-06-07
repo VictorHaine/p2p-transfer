@@ -79,8 +79,8 @@ async function main() {
     return;
   }
 
-  await ensureDependencyVulnerabilityAlerts(token, options.repository, dependencyVulnerabilityAlerts);
-  await ensurePrivateVulnerabilityReporting(token, options.repository, privateVulnerabilityReporting);
+  const verifiedDependencyVulnerabilityAlerts = await ensureDependencyVulnerabilityAlerts(token, options.repository, dependencyVulnerabilityAlerts);
+  const verifiedPrivateVulnerabilityReporting = await ensurePrivateVulnerabilityReporting(token, options.repository, privateVulnerabilityReporting);
   const verifiedRepositorySecurity = await ensureRepositorySecurity(token, options.repository, repositorySecurity);
 
   if (desiredEnvironment) {
@@ -119,7 +119,21 @@ async function main() {
   }
   await assertPersistedRulesets(token, options.repository);
 
-  console.log(JSON.stringify({ repository: options.repository, mode: "applied", rulesets: desired.map((ruleset) => ruleset.name), environment: status, repositorySecurity: verifiedRepositorySecurity }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        repository: options.repository,
+        mode: "applied",
+        rulesets: desired.map((ruleset) => ruleset.name),
+        environment: status,
+        dependencyVulnerabilityAlerts: verifiedDependencyVulnerabilityAlerts,
+        privateVulnerabilityReporting: verifiedPrivateVulnerabilityReporting,
+        repositorySecurity: verifiedRepositorySecurity
+      },
+      null,
+      2
+    )
+  );
 }
 
 function mainRuleset() {
@@ -423,13 +437,15 @@ async function ensureDependencyVulnerabilityAlerts(token, repository, status) {
   if (!status.enabled) await github(token, "PUT", `/repos/${repository}/vulnerability-alerts`);
   const verified = await dependencyVulnerabilityAlertsStatus(token, repository);
   if (!verified.enabled) throw new Error("GitHub dependency vulnerability alerts must be enabled.");
+  return verified;
 }
 
 async function ensurePrivateVulnerabilityReporting(token, repository, status) {
-  if (status.enabled) return;
+  if (status.enabled) return status;
   await github(token, "PUT", `/repos/${repository}/private-vulnerability-reporting`);
   const verified = await privateVulnerabilityReportingStatus(token, repository);
   if (!verified.enabled) throw new Error("GitHub private vulnerability reporting must be enabled.");
+  return verified;
 }
 
 function assertPrivateVulnerabilityReportingResponse(status) {
