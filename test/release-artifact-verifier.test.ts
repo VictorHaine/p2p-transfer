@@ -416,6 +416,7 @@ test("release artifact verifier rejects changed packed bin and dependency metada
     { ...fixturePackedPackageJson("p2p-transfer", "1.2.3"), bin: { ff: "./dist-node/cli/evil.js", "ff-server": "./dist-node/server/index.js" } },
     { ...fixturePackedPackageJson("p2p-transfer", "1.2.3"), dependencies: { ...fixturePackedPackageJson("p2p-transfer", "1.2.3").dependencies, ws: "8.99.99" } },
     { ...fixturePackedPackageJson("p2p-transfer", "1.2.3"), publishConfig: { access: "restricted", provenance: true } },
+    { ...fixturePackedPackageJson("p2p-transfer", "1.2.3"), publishConfig: { access: "public", provenance: true, registry: "https://evil.example" } },
     { ...fixturePackedPackageJson("p2p-transfer", "1.2.3"), optionalDependencies: { "left-pad": "1.3.0" } },
     { ...fixturePackedPackageJson("p2p-transfer", "1.2.3"), exports: { ".": "./dist-node/cli/index.js" } },
     fixturePackageJson("p2p-transfer", "1.2.3")
@@ -813,7 +814,7 @@ function fixturePackageJson(packageName: string, version: string) {
     name: packageName,
     version,
     description: "fixture package",
-    packageManager: "pnpm@11.1.3",
+    packageManager: "pnpm@11.1.3+sha512.c85357fe17ca12dd23dd7071822666dfd7e3cb76fe214e3370b5ea2fb34f2a231185509b63e717f3cd0acb38dd3f8d82bcd5e8172400ae678b70ea4fbed0896d",
     type: "module",
     publishConfig: {
       access: "public",

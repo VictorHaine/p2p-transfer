@@ -360,8 +360,8 @@ async function readHandleText(handle, size, label) {
 }
 
 function requiredPackageManager(value) {
-  if (typeof value !== "string" || !/^pnpm@\d+\.\d+\.\d+$/.test(value)) {
-    throw new Error("package.json packageManager must be an exact pnpm version.");
+  if (typeof value !== "string" || !/^pnpm@\d+\.\d+\.\d+\+sha512\.[a-f0-9]+$/.test(value)) {
+    throw new Error("package.json packageManager must be an exact hash-pinned pnpm version.");
   }
   return value;
 }

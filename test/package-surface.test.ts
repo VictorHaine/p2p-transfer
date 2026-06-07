@@ -238,9 +238,11 @@ test("package publishing config keeps provenance and reproducible dependency pin
     type: "git",
     url: "git+https://github.com/VictorHaine/p2p-transfer.git"
   });
-  assert.equal(packageJson.packageManager, "pnpm@11.1.3");
-  assert.equal(packageJson.publishConfig?.provenance, true);
-  assert.equal(packageJson.publishConfig?.access, "public");
+  assert.equal(
+    packageJson.packageManager,
+    "pnpm@11.1.3+sha512.c85357fe17ca12dd23dd7071822666dfd7e3cb76fe214e3370b5ea2fb34f2a231185509b63e717f3cd0acb38dd3f8d82bcd5e8172400ae678b70ea4fbed0896d"
+  );
+  assert.deepEqual(packageJson.publishConfig, { access: "public", provenance: true });
   assert.equal(packageJson.scripts?.prepack, "pnpm build");
   assert.equal(packageJson.scripts?.check, "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.test.json");
   assert.equal(packageJson.scripts?.["security:audit"], "pnpm audit --audit-level low");
@@ -405,7 +407,7 @@ test("packed package smoke installs and executes published bins", () => {
   assert.match(securityPolicy, /packed-install smoke must require exact `ff --version` stdout and empty stderr/);
   assert.match(securityPolicy, /packed-install smoke must run an actual installed `ff recv` and `ff send` transfer through the installed `ff-server` using private stdin receive-code and file-list inputs, then compare received bytes/);
   assert.match(securityPolicy, /packed-install smoke must validate the project package name and `version`, derive the exact expected npm tarball name from that metadata before installing a self-packed workspace, and reject any pack output that is not exactly that single tarball/);
-  assert.match(securityPolicy, /packed-install smoke must validate the project `packageManager` is an exact `pnpm@\d+\.\d+\.\d+` pin/);
+  assert.match(securityPolicy, /packed-install smoke must validate the project `packageManager` is an exact hash-pinned `pnpm@\d+\.\d+\.\d+\+sha512\.[a-f0-9]+` pin/);
   assert.match(securityPolicy, /provided tarball paths must reject terminal control\/format characters and staging\/open failures must not echo raw tarball paths/);
   assert.match(securityPolicy, /packed-install smoke must byte-cap the provided tarball path by UTF-8 bytes, no-follow-open, identity-check, and stage the verified tarball into a distinct no-follow-copied file in its private temp workspace before fresh-project install/);
   assert.match(packedSmokeScript, /const MAX_CHILD_OUTPUT_CHARS = 200_000/);
@@ -467,7 +469,7 @@ test("packed package smoke installs and executes published bins", () => {
   assert.doesNotMatch(packedSmokeScript, /reject\(new Error\("Timed out waiting for packed transfer command\."\)\)/);
   assert.match(packedSmokeScript, /const packageManager = requiredPackageManager\(packageJson\.packageManager\)/);
   assert.match(packedSmokeScript, /function requiredPackageManager\(value\)/);
-  assert.match(packedSmokeScript, /\^pnpm@\\d\+\\\.\\d\+\\\.\\d\+\$/);
+  assert.match(packedSmokeScript, /\^pnpm@\\d\+\\\.\\d\+\\\.\\d\+\\\+sha512\\\.\[a-f0-9\]\+\$/);
   assert.match(packedSmokeScript, /const providedTarball = optionalProvidedTarball\(\)/);
   assert.match(packedSmokeScript, /function optionalProvidedTarball\(\)/);
   assert.match(packedSmokeScript, /PACKED_SMOKE_TARBALL/);
@@ -792,7 +794,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(securityPolicy, /reject invalid gzip archives with verifier-owned deterministic errors/);
   assert.match(securityPolicy, /release artifact verification must fatal-UTF-8-decode workspace metadata, checksum files, tar header text, and packed metadata through verifier-owned deterministic errors/);
   assert.match(securityPolicy, /release artifact verification must cap the checked workspace `package\.json files` expansion by file count and total bytes before hashing expected package files/);
-  assert.match(securityPolicy, /release artifact verification must reject packed package install lifecycle scripts, validate the checked workspace package manager as an exact `pnpm@\d+\.\d+\.\d+` pin, require packed metadata to omit the workspace-only `packageManager` field that real `pnpm pack` removes/);
+  assert.match(securityPolicy, /release artifact verification must reject packed package install lifecycle scripts, validate the checked workspace package manager as an exact hash-pinned `pnpm@\d+\.\d+\.\d+\+sha512\.[a-f0-9]+` pin, require packed metadata to omit the workspace-only `packageManager` field that real `pnpm pack` removes/);
   assert.match(releaseArtifactScript, /const MAX_TARBALL_BYTES = 50 \* 1024 \* 1024/);
   assert.match(releaseArtifactScript, /const MAX_EXPECTED_PACKED_FILES = 4096/);
   assert.match(releaseArtifactScript, /const MAX_EXPECTED_PACKED_BYTES = 256 \* 1024 \* 1024/);
@@ -832,8 +834,11 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseArtifactScript, /const packedMetadata = releasePackageMetadata\(packed, "package\/package\.json", \{ packageManager: "forbidden" \}\)/);
   assert.match(releaseArtifactScript, /delete expectedMetadata\.packageManager/);
   assert.match(releaseArtifactScript, /function exactPackageManager\(value, label\)/);
-  assert.match(releaseArtifactScript, /label\} packageManager must be an exact pnpm version pin/);
-  assert.match(releaseArtifactScript, /publishConfig: canonicalJsonValue\(requiredPlainRecord\(record, "publishConfig", label\)/);
+  assert.match(releaseArtifactScript, /label\} packageManager must be an exact hash-pinned pnpm version/);
+  assert.match(releaseArtifactScript, /publishConfig: exactPublishConfig\(requiredPlainRecord\(record, "publishConfig", label\)/);
+  assert.match(releaseArtifactScript, /function exactPublishConfig\(record, label\)/);
+  assert.match(releaseArtifactScript, /ownValue\(record, "access"\) !== "public"/);
+  assert.match(releaseArtifactScript, /ownValue\(record, "provenance"\) !== true/);
   assert.match(releaseArtifactScript, /function canonicalJsonValue\(value, label\)/);
   assert.match(releaseArtifactScript, /type: exactStringField\(record, "type", label\)/);
   assert.match(releaseArtifactScript, /engines: canonicalStringRecord\(requiredPlainRecord\(record, "engines", label\)/);
@@ -950,7 +955,8 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releasePublishScript, /verifiedTarballPath\(\{ \.\.\.childEnv, \.\.\.releaseVerifierEnv\(tag\) \}\)/);
   assert.match(releasePublishScript, /function releaseVerifierEnv\(tag\) \{[\s\S]*GITHUB_REF_NAME: tag[\s\S]*GITHUB_REF_TYPE: "tag"[\s\S]*GITHUB_REF: `refs\/tags\/\$\{tag\}`/);
   assert.doesNotMatch(releasePublishScript, /verifiedTarballPath\(\{ \.\.\.childEnv, GITHUB_REF_NAME: tag \}\)/);
-  assert.match(releasePublishScript, /\["publish", tarball, "--provenance", "--access", "public", "--ignore-scripts"\]/);
+  assert.match(releasePublishScript, /const NPM_REGISTRY = "https:\/\/registry\.npmjs\.org"/);
+  assert.match(releasePublishScript, /\["publish", tarball, "--provenance", "--access", "public", "--registry", NPM_REGISTRY, "--tag", "latest", "--ignore-scripts"\]/);
   assert.match(releasePublishScript, /timeoutError = new Error\("release publish subprocess timed out\."\);\s*child\.kill\("SIGTERM"\);\s*killTimer = setTimeout\(\(\) => child\.kill\("SIGKILL"\), 5_000\);/s);
   assert.match(releasePublishScript, /child\.on\("exit", \(code, signal\) => \{[\s\S]*if \(killTimer\) clearTimeout\(killTimer\);[\s\S]*if \(timeoutError\) \{[\s\S]*rejectOnce\(timeoutError\);[\s\S]*return;[\s\S]*\}/);
   assert.match(releasePublishScript, /release publish subprocess failed with \$\{childExitStatus\(code, signal\)\}\./);

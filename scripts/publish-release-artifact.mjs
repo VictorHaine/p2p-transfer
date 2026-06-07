@@ -12,6 +12,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const MAX_ENV_VALUE_BYTES = 8_192;
 const MAX_TARBALL_OUTPUT_BYTES = 512;
 const CHILD_TIMEOUT_MS = 240_000;
+const NPM_REGISTRY = "https://registry.npmjs.org";
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const REQUIRED_PUBLISH_ENV = [
   "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
@@ -49,7 +50,7 @@ async function main() {
       env: { ...childEnv, PACKED_SMOKE_TARBALL: tarball },
       timeoutMs: CHILD_TIMEOUT_MS
     });
-    await run(pnpm, ["publish", tarball, "--provenance", "--access", "public", "--ignore-scripts"], {
+    await run(pnpm, ["publish", tarball, "--provenance", "--access", "public", "--registry", NPM_REGISTRY, "--tag", "latest", "--ignore-scripts"], {
       env: { ...childEnv, ...requiredPublishEnv() },
       timeoutMs: CHILD_TIMEOUT_MS
     });

@@ -404,7 +404,8 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releasePublishScript, /ACTIONS_ID_TOKEN_REQUEST_TOKEN/);
   assert.match(releasePublishScript, /isolatedChildEnv\(privateHome\)/);
   assert.match(releasePublishScript, /PACKED_SMOKE_TARBALL: tarball/);
-  assert.match(releasePublishScript, /\["publish", tarball, "--provenance", "--access", "public", "--ignore-scripts"\]/);
+  assert.match(releasePublishScript, /const NPM_REGISTRY = "https:\/\/registry\.npmjs\.org"/);
+  assert.match(releasePublishScript, /\["publish", tarball, "--provenance", "--access", "public", "--registry", NPM_REGISTRY, "--tag", "latest", "--ignore-scripts"\]/);
   assert.match(releaseWorkflow, /github-release:[\s\S]*needs:\n      - publish\n      - docker[\s\S]*permissions:\n      contents: write[\s\S]*node scripts\/create-github-release\.mjs/);
   assert.match(githubReleaseScript, /requiredReleaseTag\(requiredEnvString\("GITHUB_REF_NAME"\)\)/);
   assert.match(githubReleaseScript, /const sha = requiredCommitSha\(requiredEnvString\("GITHUB_SHA"\)\)/);

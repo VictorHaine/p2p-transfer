@@ -150,7 +150,7 @@ function releasePackageMetadata(record, label, options) {
     name: requiredPackageName(ownValue(record, "name"), `${label} name`),
     version: requiredPackageVersion(ownValue(record, "version"), `${label} version`),
     type: exactStringField(record, "type", label),
-    publishConfig: canonicalJsonValue(requiredPlainRecord(record, "publishConfig", label), `${label} publishConfig`),
+    publishConfig: exactPublishConfig(requiredPlainRecord(record, "publishConfig", label), `${label} publishConfig`),
     engines: canonicalStringRecord(requiredPlainRecord(record, "engines", label), `${label} engines`),
     bin: canonicalStringRecord(requiredPlainRecord(record, "bin", label), `${label} bin`),
     files: canonicalStringArray(requiredArray(record, "files", label), `${label} files`),
@@ -187,9 +187,23 @@ function releasePackageMetadata(record, label, options) {
 }
 
 function exactPackageManager(value, label) {
-  if (typeof value !== "string" || !/^pnpm@\d+\.\d+\.\d+$/.test(value)) {
-    throw new Error(`${label} packageManager must be an exact pnpm version pin.`);
+  if (typeof value !== "string" || !/^pnpm@\d+\.\d+\.\d+\+sha512\.[a-f0-9]+$/.test(value)) {
+    throw new Error(`${label} packageManager must be an exact hash-pinned pnpm version.`);
   }
+}
+
+function exactPublishConfig(record, label) {
+  const keys = Object.keys(record).sort();
+  if (
+    keys.length !== 2 ||
+    keys[0] !== "access" ||
+    keys[1] !== "provenance" ||
+    ownValue(record, "access") !== "public" ||
+    ownValue(record, "provenance") !== true
+  ) {
+    throw new Error("release artifact package metadata does not match the checked workspace metadata.");
+  }
+  return { access: "public", provenance: true };
 }
 
 function assertNoInstallLifecycleScripts(scripts, label) {

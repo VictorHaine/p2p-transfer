@@ -139,9 +139,9 @@ function childEnvValue(name, required) {
 }
 
 function checkedPnpmVersion(value) {
-  if (typeof value !== "string") throw new Error("packageManager must be an exact pnpm version pin.");
-  const match = /^pnpm@(\d+\.\d+\.\d+)$/.exec(value);
-  if (!match) throw new Error("packageManager must be an exact pnpm version pin.");
+  if (typeof value !== "string") throw new Error("packageManager must be an exact hash-pinned pnpm version.");
+  const match = /^pnpm@(\d+\.\d+\.\d+)\+(sha512\.[a-f0-9]+)$/.exec(value);
+  if (!match || match[2] !== EXPECTED_PNPM_COREPACK_HASH) throw new Error("packageManager must be an exact hash-pinned pnpm version.");
   return match[1];
 }
 
