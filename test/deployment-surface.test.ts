@@ -494,6 +494,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(readme, /GITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
   assert.match(contributing, /pnpm exec playwright install --with-deps chromium\npnpm verify:release\ngh auth refresh -h github\.com -s workflow\nGITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
   assert.match(securityPolicy, /local release preflight must fail before tagging when the npm package is missing, the target npm version already exists, the GitHub token lacks `workflow` scope/);
+  assert.match(securityPolicy, /the `RELEASE_PREFLIGHT_TOKEN` repository secret is missing/);
   assert.match(securityPolicy, /GitHub `npm` environment lacks required reviewers, allows self-review, allows admin bypass, allows branch deployments, lacks the exact `v\*\.\*\.\*` tag deployment policy, or has the authenticated release operator as its sole required reviewer/);
   assert.match(securityPolicy, /first-time npm package bootstrap must use the checked bootstrap script, publish only the minimal temporary `0\.0\.0-bootstrap\.0` package from a private temporary directory/);
   assert.match(securityPolicy, /must not mutate workspace package metadata, publish the real release artifact, or appear in the trusted release workflow/);
@@ -519,6 +520,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(npmBootstrapScript, /\["--config\.ignore-scripts=true", "publish", "--access", "public", "--no-git-checks", "--registry", NPM_REGISTRY\]/);
   assert.doesNotMatch(npmBootstrapScript, /writeFile\(path\.join\(root, "package\.json"\)|pnpm, \["publish"\], \{ cwd: root/);
   assert.match(releaseReadinessScript, /const REQUIRED_OAUTH_SCOPES = \["repo", "workflow"\]/);
+  assert.match(releaseReadinessScript, /const RELEASE_PREFLIGHT_SECRET = "RELEASE_PREFLIGHT_TOKEN"/);
   assert.match(releaseReadinessScript, /class ReleaseReadinessFailure extends Error/);
   assert.match(releaseReadinessScript, /const failures = \[\]/);
   assert.match(releaseReadinessScript, /await collectReadinessFailure\(failures, async \(\) => \{/);
@@ -571,6 +573,8 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /async function collectGitHubRepositoryReadiness\(failures, token, repository, authenticatedLogin\)/);
   assert.match(releaseReadinessScript, /\/repos\/\$\{repository\}\/branches\/main/);
   assert.match(releaseReadinessScript, /Remote main branch is missing\. Push main before releasing\./);
+  assert.match(releaseReadinessScript, /\/repos\/\$\{repository\}\/actions\/secrets\/\$\{RELEASE_PREFLIGHT_SECRET\}/);
+  assert.match(releaseReadinessScript, /GitHub Actions secret RELEASE_PREFLIGHT_TOKEN is missing\./);
   assert.match(releaseReadinessScript, /const rulesetsByName = collectReadinessValueSync\(failures, \(\) => requiredRulesetsByName\(rulesets\)\)/);
   assert.match(releaseReadinessScript, /assertRequiredRuleset\(rulesetsByName, MAIN_RULESET_NAME, "branch"\)/);
   assert.match(releaseReadinessScript, /assertRequiredRuleset\(rulesetsByName, TAG_RULESET_NAME, "tag"\)/);

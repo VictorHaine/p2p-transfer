@@ -11,6 +11,7 @@ const MAIN_RULESET_NAME = "p2p-transfer: protect main";
 const TAG_RULESET_NAME = "p2p-transfer: protect release tags";
 const NPM_ENVIRONMENT = "npm";
 const NPM_DEPLOYMENT_TAG_POLICY = "v*.*.*";
+const RELEASE_PREFLIGHT_SECRET = "RELEASE_PREFLIGHT_TOKEN";
 const REPOSITORY_ADMIN_ROLE_BYPASS_ACTOR_ID = 5;
 const GITHUB_ACTIONS_INTEGRATION_ID = 15368;
 const REQUIRED_OAUTH_SCOPES = ["repo", "workflow"];
@@ -99,6 +100,13 @@ async function collectGitHubRepositoryReadiness(failures, token, repository, aut
   await collectReadinessFailure(failures, async () => {
     await github(token, "GET", `/repos/${repository}/branches/main`).catch((error) => {
       if (error instanceof GitHubApiError && error.status === 404) throw new Error("Remote main branch is missing. Push main before releasing.");
+      throw error;
+    });
+  });
+
+  await collectReadinessFailure(failures, async () => {
+    await github(token, "GET", `/repos/${repository}/actions/secrets/${RELEASE_PREFLIGHT_SECRET}`).catch((error) => {
+      if (error instanceof GitHubApiError && error.status === 404) throw new Error("GitHub Actions secret RELEASE_PREFLIGHT_TOKEN is missing.");
       throw error;
     });
   });
