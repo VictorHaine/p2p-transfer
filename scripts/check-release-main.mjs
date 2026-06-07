@@ -1,13 +1,13 @@
 #!/usr/bin/env node
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const MAX_RELEASE_ENV_VALUE_BYTES = 256;
 const MAX_CHILD_ENV_VALUE_BYTES = 8_192;
-const MAX_GIT_OUTPUT_BYTES = 128 * 1024;
 const GIT_TIMEOUT_MS = 120_000;
+const CHILD_KILL_GRACE_MS = 5_000;
 const MAX_ERROR_MESSAGE_CHARS = 1024;
 
 const scriptPath = fileURLToPath(import.meta.url);
@@ -25,8 +25,8 @@ async function verifyReleaseMain() {
   assertNoArgs(process.argv.slice(2));
   assertEntrypoint();
   const sha = requiredGitSha(envString("GITHUB_SHA"));
-  runGit(["fetch", "--no-tags", "--prune", "origin", "+refs/heads/main:refs/remotes/origin/main"], "remote main branch could not be fetched.");
-  const result = runGit(["merge-base", "--is-ancestor", sha, "origin/main"], "release tag reachability check failed.", { allowFailure: true });
+  await runGit(["fetch", "--no-tags", "--prune", "origin", "+refs/heads/main:refs/remotes/origin/main"], "remote main branch could not be fetched.");
+  const result = await runGit(["merge-base", "--is-ancestor", sha, "origin/main"], "release tag reachability check failed.", { allowFailure: true });
   if (result.status === 0) return;
   if (result.status === 1) throw new Error("release tag commit is not reachable from main.");
   throw new Error("release tag reachability check failed.");
@@ -41,18 +41,57 @@ function assertEntrypoint() {
 }
 
 function runGit(args, failureMessage, options = {}) {
-  const result = spawnSync("git", args, {
-    cwd: root,
-    encoding: "utf8",
-    env: safeChildEnv(),
-    maxBuffer: MAX_GIT_OUTPUT_BYTES,
-    timeout: GIT_TIMEOUT_MS,
-    stdio: ["ignore", "pipe", "pipe"]
+  return new Promise((resolve, reject) => {
+    const child = spawn("git", args, {
+      cwd: root,
+      env: safeChildEnv(),
+      stdio: "ignore"
+    });
+    let settled = false;
+    let killTimer;
+    let timeoutError;
+    const timer = setTimeout(() => {
+      timeoutError = new Error(`${failureMessage} Git subprocess timed out.`);
+      child.kill("SIGTERM");
+      killTimer = setTimeout(() => child.kill("SIGKILL"), CHILD_KILL_GRACE_MS);
+    }, GIT_TIMEOUT_MS);
+
+    child.on("error", () => {
+      rejectOnce(new Error(failureMessage));
+    });
+    child.on("exit", (code) => {
+      if (killTimer) clearTimeout(killTimer);
+      if (timeoutError) {
+        rejectOnce(timeoutError);
+        return;
+      }
+      const status = typeof code === "number" ? code : null;
+      if (!options.allowFailure && status !== 0) {
+        rejectOnce(new Error(failureMessage));
+        return;
+      }
+      resolveOnce({ status });
+    });
+
+    function resolveOnce(result) {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(result);
+    }
+
+    function rejectOnce(error) {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    }
+
+    function cleanup() {
+      clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
+    }
   });
-  if (result.error || (!options.allowFailure && result.status !== 0)) {
-    throw new Error(failureMessage);
-  }
-  return result;
 }
 
 function requiredGitSha(value) {
