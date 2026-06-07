@@ -344,8 +344,9 @@ test("checked GitHub release controls setup matches the protected release surfac
 
 test("release preflight checks external GitHub release prerequisites", () => {
   assert.equal(packageJson.scripts?.["release:preflight"], "node scripts/check-release-readiness.mjs");
+  assert.match(readme, /gh auth refresh -h github\.com -s workflow/);
   assert.match(readme, /GITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
-  assert.match(contributing, /pnpm verify:release\nGITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
+  assert.match(contributing, /pnpm verify:release\ngh auth refresh -h github\.com -s workflow\nGITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
   assert.match(securityPolicy, /local release preflight must fail before tagging when the GitHub token lacks `workflow` scope/);
   assert.match(releaseReadinessScript, /const REQUIRED_OAUTH_SCOPES = \["repo", "workflow"\]/);
   assert.match(releaseReadinessScript, /const MAX_ENV_VALUE_BYTES = 4_096/);
@@ -354,7 +355,8 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /\$\{name\} must be a non-empty control-free string under/);
   assert.doesNotMatch(releaseReadinessScript, /process\.env\.GITHUB_TOKEN|process\.env\.GH_TOKEN|process\.env\.GITHUB_REPOSITORY/);
   assert.match(releaseReadinessScript, /headers\.get\("x-oauth-scopes"\)/);
-  assert.match(releaseReadinessScript, /GitHub token is missing \$\{scope\} scope\./);
+  assert.match(releaseReadinessScript, /GitHub token is missing \$\{scope\} scope\.\$\{refresh\}/);
+  assert.match(releaseReadinessScript, /gh auth refresh -h github\.com -s workflow/);
   assert.match(releaseReadinessScript, /\/repos\/\$\{options\.repository\}\/branches\/main/);
   assert.match(releaseReadinessScript, /Remote main branch is missing\. Push main before releasing\./);
   assert.match(releaseReadinessScript, /assertRequiredRuleset\(rulesets, MAIN_RULESET_NAME, "branch"\)/);

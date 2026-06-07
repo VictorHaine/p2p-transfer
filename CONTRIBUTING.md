@@ -40,6 +40,7 @@ release prerequisite preflight:
 
 ```sh
 pnpm verify:release
+gh auth refresh -h github.com -s workflow
 GITHUB_TOKEN="$(gh auth token)" pnpm release:preflight
 ```
 

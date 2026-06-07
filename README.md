@@ -273,6 +273,7 @@ Release:
 ```sh
 pnpm install --frozen-lockfile
 pnpm verify:release
+gh auth refresh -h github.com -s workflow
 GITHUB_TOKEN="$(gh auth token)" pnpm release:preflight
 git tag v0.1.0
 git push origin main --tags

@@ -63,7 +63,10 @@ function assertOAuthScopes(rawScopes) {
       .filter((scope) => scope.length > 0)
   );
   for (const scope of REQUIRED_OAUTH_SCOPES) {
-    if (!scopes.has(scope)) throw new Error(`GitHub token is missing ${scope} scope.`);
+    if (!scopes.has(scope)) {
+      const refresh = scope === "workflow" ? " Run `gh auth refresh -h github.com -s workflow`, then rerun release preflight." : "";
+      throw new Error(`GitHub token is missing ${scope} scope.${refresh}`);
+    }
   }
 }
 
