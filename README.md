@@ -238,7 +238,7 @@ CLI clients do not send a browser `Origin` header and remain allowed.
 The signaling server defaults to `PORT=8787`; if `PORT` is set, it must be a fixed integer between 1 and 65535. `PORT=0` is rejected instead of silently binding a random ephemeral port.
 In production, `ALLOWED_ORIGINS` entries must use `https://`; set `ALLOW_INSECURE_ORIGINS=true` only for private deployments behind a trusted network boundary.
 
-If TLS terminates at a reverse proxy, the server normally sees the proxy socket IP for every client, which collapses connection and rate-limit buckets. Set `TRUSTED_PROXY_HOPS=1` only when every public request reaches the app through exactly one trusted reverse proxy that overwrites or appends a valid `X-Forwarded-For` header and direct-to-app traffic is blocked. Leave it unset for direct exposure; attacker-supplied `X-Forwarded-For` is ignored by default.
+If TLS terminates at a reverse proxy, the server normally sees the proxy socket IP for every client, which collapses connection and rate-limit buckets. Set `TRUSTED_PROXY_HOPS=1` and `TRUSTED_PROXY_IPS='<proxy-ip-or-cidr>'` only when every public request reaches the app through exactly one trusted reverse proxy that overwrites or appends a valid `X-Forwarded-For` header and direct-to-app traffic is blocked. `TRUSTED_PROXY_IPS` accepts exact IP literals or CIDR ranges for the actual socket peer, not hostnames. Leave both unset for direct exposure; attacker-supplied `X-Forwarded-For` is ignored by default.
 Clients reject plain `ws://` signaling URLs except localhost/loopback. Use `wss://` for any remote signaling server.
 The served browser app's production Content Security Policy permits same-origin signaling only by default. Local development allows loopback `ws://` signaling sockets; in production, set `BROWSER_ALLOW_LOOPBACK_WS=true` only for a deliberate private deployment that needs browser-to-localhost signaling. If you intentionally host one static web UI that must connect to arbitrary custom `wss://` signaling servers, set `BROWSER_ALLOW_ANY_WSS=true`; both switches widen the browser exfiltration surface and should not be the default for public production deployments.
 Host the browser client on a dedicated origin. Browser resume records are opaque, but they live in origin-scoped storage; unrelated scripts on the same origin could inspect opaque registry entries and use the browser-held lookup key to test guessed manifest identities.
@@ -256,8 +256,11 @@ docker run --rm -p 8787:8787 \
   -e ALLOWED_ORIGINS='https://files.example.com' \
   -e SIGNALING_TOPOLOGY=single-instance \
   -e TRUSTED_PROXY_HOPS=1 \
+  -e TRUSTED_PROXY_IPS='172.17.0.1' \
   p2p-transfer
 ```
+
+Replace `172.17.0.1` with the exact reverse-proxy address, or a narrow CIDR for the container bridge or private proxy subnet.
 
 Local browser smoke run, deliberately allowing the loopback HTTP origin:
 

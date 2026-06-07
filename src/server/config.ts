@@ -1,5 +1,6 @@
 import path from "node:path";
 import { createHmac, randomBytes } from "node:crypto";
+import { isIP } from "node:net";
 import { fileURLToPath } from "node:url";
 import { isLoopbackAuthority, isValidAuthority, isValidHostNameOrIp, isValidOriginHostname } from "../shared/authority.js";
 import { DEFAULT_ICE_SERVERS, TURN_REST_SECRET_MIN_BYTES } from "../shared/constants.js";
@@ -9,6 +10,7 @@ import { isIceServers } from "../shared/messages.js";
 const MAX_ICE_SERVERS_ENV_BYTES = 128 * 1024;
 const MAX_ALLOWED_ORIGINS_ENV_BYTES = 16 * 1024;
 const MAX_TURN_URLS_ENV_BYTES = 8 * 1024;
+const MAX_TRUSTED_PROXY_IPS_ENV_BYTES = 16 * 1024;
 const MAX_TURN_REST_SECRET_BYTES = 4096;
 const MAX_WEB_ROOT_ENV_BYTES = 4096;
 const MAX_SCALAR_ENV_BYTES = 4096;
@@ -24,6 +26,7 @@ export type ServerConfig = {
   browserAllowAnyWss: boolean;
   browserAllowLoopbackWs: boolean;
   trustedProxyHops: number;
+  trustedProxyIps: string[];
   turnRest: TurnRestConfig | undefined;
 };
 
@@ -43,6 +46,8 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
   const allowedOrigins = parseAllowedOrigins(envValue(env, "ALLOWED_ORIGINS"));
   const signalingTopology = parseSignalingTopology(envValue(env, "SIGNALING_TOPOLOGY"));
   const trustedProxyHops = parseTrustedProxyHops(envValue(env, "TRUSTED_PROXY_HOPS"));
+  const trustedProxyIps = parseTrustedProxyIps(envValue(env, "TRUSTED_PROXY_IPS"));
+  assertTrustedProxyPolicy(trustedProxyHops, trustedProxyIps);
   assertNoUnsupportedOriginBypass(env);
   const allowInsecureOrigins = parseBooleanEnv(envValue(env, "ALLOW_INSECURE_ORIGINS"), "ALLOW_INSECURE_ORIGINS");
   assertRequiredOriginPolicy(allowedOrigins, production, host);
@@ -58,6 +63,7 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
     browserAllowAnyWss: parseBooleanEnv(envValue(env, "BROWSER_ALLOW_ANY_WSS"), "BROWSER_ALLOW_ANY_WSS"),
     browserAllowLoopbackWs: parseBrowserLoopbackWs(env, production),
     trustedProxyHops,
+    trustedProxyIps,
     turnRest: parseTurnRestConfig(env)
   };
 }
@@ -127,6 +133,62 @@ function parseTrustedProxyHops(raw: unknown): number {
   const hops = Number(value);
   if (!Number.isInteger(hops) || hops < 0 || hops > 3) throw new Error("TRUSTED_PROXY_HOPS must be an integer between 0 and 3.");
   return hops;
+}
+
+function parseTrustedProxyIps(raw: unknown): string[] {
+  const value = optionalEnvString(raw, "TRUSTED_PROXY_IPS");
+  if (value === undefined) return [];
+  assertEnvStringByteLength(value, "TRUSTED_PROXY_IPS", MAX_TRUSTED_PROXY_IPS_ENV_BYTES);
+  const sources = parseTrustedProxyIpList(value);
+  return sources.map(parseTrustedProxySource);
+}
+
+function parseTrustedProxyIpList(raw: string): string[] {
+  if (raw.trim() === "") return [];
+  const sources: string[] = [];
+  let start = 0;
+  for (let index = 0; index <= raw.length; index += 1) {
+    if (index !== raw.length && raw[index] !== ",") continue;
+    if (sources.length >= 32) throw new Error("TRUSTED_PROXY_IPS may contain at most 32 IP addresses or CIDR ranges.");
+    const source = raw.slice(start, index);
+    if (source.length === 0) throw new Error("TRUSTED_PROXY_IPS entries must not be empty.");
+    if (source !== source.trim() || /[\p{Cc}\p{Cf}]/u.test(source)) {
+      throw new Error("TRUSTED_PROXY_IPS entries must not contain whitespace, separators, control characters, or format characters.");
+    }
+    sources.push(source);
+    start = index + 1;
+  }
+  return sources;
+}
+
+function parseTrustedProxySource(source: string): string {
+  const slash = source.indexOf("/");
+  if (slash < 0) return normalizeIpLiteral(source, "TRUSTED_PROXY_IPS entries must be IP addresses or CIDR ranges.");
+  if (source.indexOf("/", slash + 1) !== -1) throw new Error("TRUSTED_PROXY_IPS entries must be IP addresses or CIDR ranges.");
+  const address = normalizeIpLiteral(source.slice(0, slash), "TRUSTED_PROXY_IPS entries must be IP addresses or CIDR ranges.");
+  const prefixText = source.slice(slash + 1);
+  if (!/^\d+$/.test(prefixText)) throw new Error("TRUSTED_PROXY_IPS CIDR prefixes are invalid.");
+  const family = isIP(address);
+  const prefix = Number(prefixText);
+  const maxPrefix = family === 4 ? 32 : 128;
+  if (!Number.isInteger(prefix) || prefix < 0 || prefix > maxPrefix) throw new Error("TRUSTED_PROXY_IPS CIDR prefixes are invalid.");
+  return `${address}/${prefix}`;
+}
+
+function normalizeIpLiteral(address: string, message: string): string {
+  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(address);
+  const value = mapped?.[1] ?? address;
+  if (isIP(value) === 0) throw new Error(message);
+  return value;
+}
+
+function assertTrustedProxyPolicy(hops: number, trustedProxyIps: readonly string[]): void {
+  if (hops > 0 && trustedProxyIps.length === 0) {
+    throw new Error("TRUSTED_PROXY_IPS is required when TRUSTED_PROXY_HOPS is enabled.");
+  }
+  if (hops === 0 && trustedProxyIps.length > 0) {
+    throw new Error("TRUSTED_PROXY_HOPS must be enabled when TRUSTED_PROXY_IPS is set.");
+  }
 }
 
 export function iceServersForRequest(config: ServerConfig, now = Date.now()): RTCIceServer[] {

@@ -101,7 +101,7 @@ type Session = {
 };
 
 const serverConfig = loadServerConfig();
-const { port, host, webRoot, allowedOrigins, browserAllowAnyWss, browserAllowLoopbackWs, trustedProxyHops } = serverConfig;
+const { port, host, webRoot, allowedOrigins, browserAllowAnyWss, browserAllowLoopbackWs, trustedProxyHops, trustedProxyIps } = serverConfig;
 const realWebRoot = fs.realpath(webRoot).catch(() => webRoot);
 const codes = new Map<string, WaitingCode>();
 const sessions = new Map<string, Session>();
@@ -808,7 +808,7 @@ function requestCorsHeaders(req: http.IncomingMessage): Record<string, string> |
 }
 
 function requestIp(req: http.IncomingMessage): string {
-  return requestRemoteAddress(req, trustedProxyHops);
+  return requestRemoteAddress(req, trustedProxyHops, trustedProxyIps);
 }
 
 function parseRequestUrl(req: http.IncomingMessage): URL | null {

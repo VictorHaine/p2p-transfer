@@ -74,6 +74,15 @@ test("server config rejects malformed production values instead of silently fall
   assert.throws(() => loadServerConfig({ TRUSTED_PROXY_HOPS: "one" }), /TRUSTED_PROXY_HOPS/);
   assert.throws(() => loadServerConfig({ TRUSTED_PROXY_HOPS: "4" }), /TRUSTED_PROXY_HOPS/);
   assert.throws(() => loadServerConfig({ TRUSTED_PROXY_HOPS: " 1" }), /TRUSTED_PROXY_HOPS/);
+  assert.throws(() => loadServerConfig({ TRUSTED_PROXY_HOPS: "1" }), /TRUSTED_PROXY_IPS is required/);
+  assert.throws(() => loadServerConfig({ TRUSTED_PROXY_IPS: "10.0.0.10" }), /TRUSTED_PROXY_HOPS must be enabled/);
+  assert.throws(() => loadServerConfig({ TRUSTED_PROXY_HOPS: "1", TRUSTED_PROXY_IPS: "proxy.example" }), /TRUSTED_PROXY_IPS entries must be IP addresses or CIDR ranges/);
+  assert.throws(() => loadServerConfig({ TRUSTED_PROXY_HOPS: "1", TRUSTED_PROXY_IPS: "10.0.0.0/33" }), /TRUSTED_PROXY_IPS CIDR prefixes/);
+  assert.throws(() => loadServerConfig({ TRUSTED_PROXY_HOPS: "1", TRUSTED_PROXY_IPS: "2001:db8::/129" }), /TRUSTED_PROXY_IPS CIDR prefixes/);
+  assert.throws(() => loadServerConfig({ TRUSTED_PROXY_HOPS: "1", TRUSTED_PROXY_IPS: "10.0.0.10,,10.0.0.11" }), /TRUSTED_PROXY_IPS entries must not be empty/);
+  assert.throws(() => loadServerConfig({ TRUSTED_PROXY_HOPS: "1", TRUSTED_PROXY_IPS: " 10.0.0.10" }), /TRUSTED_PROXY_IPS entries must not contain whitespace/);
+  assert.throws(() => loadServerConfig({ TRUSTED_PROXY_HOPS: "1", TRUSTED_PROXY_IPS: "10.0.0.10\u200b" }), /TRUSTED_PROXY_IPS entries must not contain whitespace/);
+  assert.throws(() => loadServerConfig({ TRUSTED_PROXY_HOPS: "1", TRUSTED_PROXY_IPS: "10.0.0.0/24/1" }), /TRUSTED_PROXY_IPS entries must be IP addresses or CIDR ranges/);
   assert.throws(() => loadServerConfig({ ALLOW_INSECURE_ORIGINS: "yes" }), /ALLOW_INSECURE_ORIGINS/);
   assert.throws(() => loadServerConfig({ ALLOW_ANY_ORIGIN: "true", ALLOWED_ORIGINS: "https://files.example" }), /ALLOW_ANY_ORIGIN/);
   assert.throws(() => parseAllowedOrigins(" https://files.example"), /ALLOWED_ORIGINS entries must not contain whitespace/);
@@ -88,6 +97,7 @@ test("server config byte-caps scalar environment values before string parsing", 
   assert.throws(() => loadServerConfig({ HOST: oversized }), /HOST must be at most 4096 bytes/);
   assert.throws(() => loadServerConfig({ SIGNALING_TOPOLOGY: oversized }), /SIGNALING_TOPOLOGY must be at most 4096 bytes/);
   assert.throws(() => loadServerConfig({ TRUSTED_PROXY_HOPS: oversized }), /TRUSTED_PROXY_HOPS must be at most 4096 bytes/);
+  assert.throws(() => loadServerConfig({ TRUSTED_PROXY_HOPS: "1", TRUSTED_PROXY_IPS: "1".repeat(16 * 1024 + 1) }), /TRUSTED_PROXY_IPS must be at most 16384 bytes/);
   assert.throws(() => loadServerConfig({ BROWSER_ALLOW_ANY_WSS: oversized }), /BROWSER_ALLOW_ANY_WSS must be at most 4096 bytes/);
   assert.throws(() => loadServerConfig({ BROWSER_ALLOW_LOOPBACK_WS: oversized }), /BROWSER_ALLOW_LOOPBACK_WS must be at most 4096 bytes/);
   assert.throws(() => loadServerConfig({ WEB_ROOT: " ".repeat(4097) }), /WEB_ROOT must be at most 4096 bytes/);
@@ -132,6 +142,7 @@ test("server config rejects non-string env values before parsing or coercion", (
   assert.throws(() => loadServerConfig({ BROWSER_ALLOW_LOOPBACK_WS: hostile as never }), /BROWSER_ALLOW_LOOPBACK_WS must be a string/);
   assert.throws(() => loadServerConfig({ SIGNALING_TOPOLOGY: hostile as never }), /SIGNALING_TOPOLOGY must be a string/);
   assert.throws(() => loadServerConfig({ TRUSTED_PROXY_HOPS: hostile as never }), /TRUSTED_PROXY_HOPS must be a string/);
+  assert.throws(() => loadServerConfig({ TRUSTED_PROXY_HOPS: "1", TRUSTED_PROXY_IPS: hostile as never }), /TRUSTED_PROXY_IPS must be a string/);
   assert.throws(() => loadServerConfig({ WEB_ROOT: hostile as never }), /WEB_ROOT must be a string/);
   assert.equal(toStringCalled, false);
 
@@ -259,8 +270,15 @@ test("server config defaults are explicit and usable for local development", () 
   assert.equal(config.browserAllowAnyWss, false);
   assert.equal(config.browserAllowLoopbackWs, true);
   assert.equal(config.trustedProxyHops, 0);
-  assert.equal(loadServerConfig({ TRUSTED_PROXY_HOPS: "1" }).trustedProxyHops, 1);
-  assert.equal(loadServerConfig({ TRUSTED_PROXY_HOPS: "3" }).trustedProxyHops, 3);
+  assert.deepEqual(config.trustedProxyIps, []);
+  assert.equal(loadServerConfig({ TRUSTED_PROXY_HOPS: "1", TRUSTED_PROXY_IPS: "10.0.0.10" }).trustedProxyHops, 1);
+  assert.equal(loadServerConfig({ TRUSTED_PROXY_HOPS: "3", TRUSTED_PROXY_IPS: "10.0.0.10" }).trustedProxyHops, 3);
+  assert.deepEqual(loadServerConfig({ TRUSTED_PROXY_HOPS: "1", TRUSTED_PROXY_IPS: "::ffff:10.0.0.10,10.0.0.0/24,::1,2001:db8::/32" }).trustedProxyIps, [
+    "10.0.0.10",
+    "10.0.0.0/24",
+    "::1",
+    "2001:db8::/32"
+  ]);
   assert.equal(config.turnRest, undefined);
 });
 

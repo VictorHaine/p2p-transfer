@@ -1348,14 +1348,19 @@ test("trusted reverse-proxy client IP handling is explicit and documented", () =
   const serverSource = fs.readFileSync(new URL("../src/server/index.ts", import.meta.url), "utf8");
 
   assert.match(configSource, /trustedProxyHops: number/);
+  assert.match(configSource, /trustedProxyIps: string\[\]/);
   assert.match(configSource, /parseTrustedProxyHops\(envValue\(env, "TRUSTED_PROXY_HOPS"\)\)/);
+  assert.match(configSource, /parseTrustedProxyIps\(envValue\(env, "TRUSTED_PROXY_IPS"\)\)/);
+  assert.match(configSource, /assertTrustedProxyPolicy\(trustedProxyHops, trustedProxyIps\)/);
   assert.match(configSource, /TRUSTED_PROXY_HOPS must be an integer between 0 and 3/);
+  assert.match(configSource, /TRUSTED_PROXY_IPS is required when TRUSTED_PROXY_HOPS is enabled/);
   assert.match(requestHeaderSource, /rawHeaderValue\(req, "x-forwarded-for"\)/);
+  assert.match(requestHeaderSource, /trustedProxyMatches\(socketAddress, trustedProxyIps\)/);
   assert.match(requestHeaderSource, /isIP\(value\) !== 0/);
-  assert.match(serverSource, /const \{ port, host, webRoot, allowedOrigins, browserAllowAnyWss, browserAllowLoopbackWs, trustedProxyHops \} = serverConfig/);
-  assert.match(serverSource, /requestRemoteAddress\(req, trustedProxyHops\)/);
-  assert.match(readme, /Set `TRUSTED_PROXY_HOPS=1` only when every public request reaches the app through exactly one trusted reverse proxy/);
-  assert.match(securityPolicy, /server-side abuse buckets must not trust `X-Forwarded-For` unless `TRUSTED_PROXY_HOPS` is explicitly set/);
+  assert.match(serverSource, /const \{ port, host, webRoot, allowedOrigins, browserAllowAnyWss, browserAllowLoopbackWs, trustedProxyHops, trustedProxyIps \} = serverConfig/);
+  assert.match(serverSource, /requestRemoteAddress\(req, trustedProxyHops, trustedProxyIps\)/);
+  assert.match(readme, /Set `TRUSTED_PROXY_HOPS=1` and `TRUSTED_PROXY_IPS='<proxy-ip-or-cidr>'`/);
+  assert.match(securityPolicy, /server-side abuse buckets must not trust `X-Forwarded-For` unless `TRUSTED_PROXY_HOPS` is explicitly set and the socket peer matches `TRUSTED_PROXY_IPS`/);
 });
 
 test("README documents the auto-accept consent tradeoff", () => {

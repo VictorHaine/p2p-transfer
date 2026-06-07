@@ -1,5 +1,5 @@
 import type http from "node:http";
-import { isIP } from "node:net";
+import { BlockList, isIP } from "node:net";
 import { isValidAuthority, isValidOriginHostname } from "../shared/authority.js";
 import { HTTP_MAX_HEADERS_COUNT } from "../shared/constants.js";
 
@@ -49,10 +49,10 @@ export function requestMethod(req: http.IncomingMessage): string | null {
   return typeof method === "string" ? method : null;
 }
 
-export function requestRemoteAddress(req: http.IncomingMessage, trustedProxyHops = 0): string {
+export function requestRemoteAddress(req: http.IncomingMessage, trustedProxyHops = 0, trustedProxyIps: unknown = []): string {
   const socketAddress = requestSocketRemoteAddress(req);
   const hops = trustedProxyHopsInput(trustedProxyHops);
-  if (hops === 0) return socketAddress;
+  if (hops === 0 || !trustedProxyMatches(socketAddress, trustedProxyIps)) return socketAddress;
   return requestForwardedClientAddress(req, hops) ?? socketAddress;
 }
 
@@ -74,6 +74,43 @@ function requestForwardedClientAddress(req: http.IncomingMessage, trustedProxyHo
 
 function trustedProxyHopsInput(value: unknown): number {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 3 ? value : 0;
+}
+
+function trustedProxyMatches(socketAddress: string, trustedProxyIps: unknown): boolean {
+  if (!Array.isArray(trustedProxyIps) || trustedProxyIps.length === 0 || trustedProxyIps.length > 32) return false;
+  const normalizedSocketAddress = normalizeIpLiteral(socketAddress);
+  const socketFamily = isIP(normalizedSocketAddress);
+  if (socketFamily === 0) return false;
+  const blockList = new BlockList();
+  for (let index = 0; index < trustedProxyIps.length; index += 1) {
+    const source = ownArrayValue(trustedProxyIps, index);
+    if (typeof source !== "string" || !addTrustedProxySource(blockList, source)) return false;
+  }
+  return blockList.check(normalizedSocketAddress, socketFamily === 4 ? "ipv4" : "ipv6");
+}
+
+function addTrustedProxySource(blockList: BlockList, source: string): boolean {
+  const slash = source.indexOf("/");
+  if (slash < 0) {
+    const address = normalizeIpLiteral(source);
+    const family = isIP(address);
+    if (family === 0) return false;
+    blockList.addAddress(address, family === 4 ? "ipv4" : "ipv6");
+    return true;
+  }
+  if (source.indexOf("/", slash + 1) !== -1) return false;
+  const address = normalizeIpLiteral(source.slice(0, slash));
+  const prefix = Number(source.slice(slash + 1));
+  const family = isIP(address);
+  const maxPrefix = family === 4 ? 32 : 128;
+  if (family === 0 || !Number.isInteger(prefix) || prefix < 0 || prefix > maxPrefix) return false;
+  blockList.addSubnet(address, prefix, family === 4 ? "ipv4" : "ipv6");
+  return true;
+}
+
+function normalizeIpLiteral(address: string): string {
+  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(address);
+  return mapped?.[1] ?? address;
 }
 
 function isValidForwardedForHeader(value: string): boolean {
@@ -172,7 +209,7 @@ function isRawHeaderName(value: string): boolean {
   return value.length > 0 && value.length <= MAX_RAW_HEADER_NAME_CHARS && RAW_HEADER_NAME.test(value);
 }
 
-function ownArrayValue(value: unknown[], index: number): unknown {
+function ownArrayValue(value: readonly unknown[], index: number): unknown {
   const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
   return descriptor && "value" in descriptor ? descriptor.value : undefined;
 }
