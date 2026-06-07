@@ -115,6 +115,10 @@ async function collectGitHubRepositoryReadiness(failures, token, repository, aut
   });
 
   await collectReadinessFailure(failures, async () => {
+    assertDependabotAutomatedSecurityFixes(await github(token, "GET", `/repos/${repository}/automated-security-fixes`));
+  });
+
+  await collectReadinessFailure(failures, async () => {
     assertPrivateVulnerabilityReporting(await github(token, "GET", `/repos/${repository}/private-vulnerability-reporting`));
   });
 
@@ -373,6 +377,14 @@ function assertRepositorySecurityAndAnalysis(repository) {
   assertSecurityAnalysisFeature(security, "secret_scanning", "GitHub repository secret scanning must be enabled.");
   assertSecurityAnalysisFeature(security, "secret_scanning_push_protection", "GitHub repository secret scanning push protection must be enabled.");
   assertSecurityAnalysisFeature(security, "dependabot_security_updates", "GitHub repository Dependabot security updates must be enabled.");
+}
+
+function assertDependabotAutomatedSecurityFixes(status) {
+  if (!status || typeof status !== "object" || Array.isArray(status) || typeof status.enabled !== "boolean" || typeof status.paused !== "boolean") {
+    throw new Error("GitHub Dependabot security updates status response was invalid.");
+  }
+  if (!status.enabled) throw new Error("GitHub repository Dependabot security updates must be enabled.");
+  if (status.paused) throw new Error("GitHub repository Dependabot security updates must not be paused.");
 }
 
 function assertSecurityAnalysisFeature(security, key, message) {

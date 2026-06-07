@@ -26,6 +26,11 @@ const REQUIRED_RELEASE_CHECKS = [
   "platform smoke / windows-2025 / node 24.13.1"
 ];
 const RELEASE_TEST_SHA = "0123456789abcdef0123456789abcdef01234567";
+const ENABLED_SECURITY_AND_ANALYSIS = {
+  secret_scanning: { status: "enabled" },
+  secret_scanning_push_protection: { status: "enabled" },
+  dependabot_security_updates: { status: "enabled" }
+};
 
 test("release publish script rejects static npm tokens before artifact work", () => {
   const result = runScript("scripts/publish-release-artifact.mjs", {
@@ -1004,6 +1009,7 @@ const requiredChecks = ${JSON.stringify(REQUIRED_RELEASE_CHECKS)};
 let environmentUpdated = false;
 let deploymentCreated = false;
 let privateReportingEnabled = false;
+let repositorySecurityEnabled = false;
 let rulesetPosts = 0;
 
 function mainRuleset() {
@@ -1064,7 +1070,14 @@ globalThis.fetch = async (url, init = {}) => {
   const json = (status, value) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
   if (parsed.origin !== "https://api.github.com") return json(500, {});
   if (method === "GET" && path === "/user") return json(200, { login: "operator" });
-  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer") return json(200, { id: 1 });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer") return json(200, {
+    id: 1,
+    security_and_analysis: repositorySecurityEnabled ? ${JSON.stringify(ENABLED_SECURITY_AND_ANALYSIS)} : {
+      secret_scanning: { status: "disabled" },
+      secret_scanning_push_protection: { status: "disabled" },
+      dependabot_security_updates: { status: "disabled" }
+    }
+  });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/branches/main") return json(200, { name: "main" });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/collaborators/approver/permission") return json(200, { permission: "write", user: { login: "approver" } });
   if (method === "GET" && path === "/users/approver") return json(200, { id: 42, login: "approver" });
@@ -1090,6 +1103,14 @@ globalThis.fetch = async (url, init = {}) => {
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/private-vulnerability-reporting") return json(200, { enabled: privateReportingEnabled });
   if (method === "PUT" && path === "/repos/VictorHaine/p2p-transfer/private-vulnerability-reporting") {
     privateReportingEnabled = true;
+    return new Response(null, { status: 204 });
+  }
+  if (method === "PATCH" && path === "/repos/VictorHaine/p2p-transfer") {
+    if (body?.security_and_analysis?.secret_scanning?.status !== "enabled" || body?.security_and_analysis?.secret_scanning_push_protection?.status !== "enabled") return json(400, {});
+    return json(200, {});
+  }
+  if (method === "PUT" && path === "/repos/VictorHaine/p2p-transfer/automated-security-fixes") {
+    repositorySecurityEnabled = true;
     return new Response(null, { status: 204 });
   }
   if (method === "PUT" && path === "/repos/VictorHaine/p2p-transfer/environments/npm") {
@@ -1151,6 +1172,9 @@ globalThis.fetch = async (url, init = {}) => {
       "GET /repos/VictorHaine/p2p-transfer/private-vulnerability-reporting",
       "PUT /repos/VictorHaine/p2p-transfer/private-vulnerability-reporting",
       "GET /repos/VictorHaine/p2p-transfer/private-vulnerability-reporting",
+      "PATCH /repos/VictorHaine/p2p-transfer",
+      "PUT /repos/VictorHaine/p2p-transfer/automated-security-fixes",
+      "GET /repos/VictorHaine/p2p-transfer",
       "PUT /repos/VictorHaine/p2p-transfer/environments/npm",
       "GET /repos/VictorHaine/p2p-transfer/environments/npm",
       "GET /repos/VictorHaine/p2p-transfer/collaborators/approver/permission",
@@ -1163,11 +1187,19 @@ globalThis.fetch = async (url, init = {}) => {
       "GET /repos/VictorHaine/p2p-transfer/rulesets/101",
       "GET /repos/VictorHaine/p2p-transfer/rulesets/202"
     ]);
-    assert.equal(requests.length, 21);
-    const environmentPut = requests[10];
-    const deploymentPolicyPost = requests[14];
+    assert.equal(requests.length, 24);
+    const repositoryPatch = requests[10];
+    const environmentPut = requests[13];
+    const deploymentPolicyPost = requests[17];
+    assert.ok(repositoryPatch);
     assert.ok(environmentPut);
     assert.ok(deploymentPolicyPost);
+    assert.deepEqual(repositoryPatch.body, {
+      security_and_analysis: {
+        secret_scanning: { status: "enabled" },
+        secret_scanning_push_protection: { status: "enabled" }
+      }
+    });
     assert.deepEqual(environmentPut.body, {
       wait_timer: 0,
       can_admins_bypass: false,
@@ -1207,7 +1239,7 @@ globalThis.fetch = async (url, init = {}) => {
   const json = (status, value) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
   if (parsed.origin !== "https://api.github.com") return json(500, {});
   if (method === "GET" && path === "/user") return json(200, { login: "operator" });
-  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer") return json(200, { id: 1 });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer") return json(200, { id: 1, security_and_analysis: ${JSON.stringify(ENABLED_SECURITY_AND_ANALYSIS)} });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/branches/main") return json(200, { name: "main" });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/collaborators/approver/permission") return json(200, { permission: "write", user: { login: "approver" } });
   if (method === "GET" && path === "/users/approver") return json(200, { id: 42, login: "approver" });
@@ -1271,6 +1303,81 @@ globalThis.fetch = async (url, init = {}) => {
   }
 });
 
+test("GitHub release controls verify repository security before mutating environments", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-controls-repository-security-"));
+  const mock = path.join(tmp, "mock-github-fetch.mjs");
+  const log = path.join(tmp, "requests.log");
+  try {
+    await fs.writeFile(
+      mock,
+      `
+import { appendFileSync } from "node:fs";
+
+const log = process.env.FF_MOCK_GITHUB_LOG;
+
+function record(method, path) {
+  appendFileSync(log, method + " " + path + "\\n", "utf8");
+}
+
+globalThis.fetch = async (url, init = {}) => {
+  const parsed = new URL(url);
+  const method = init.method ?? "GET";
+  const path = parsed.pathname + parsed.search;
+  record(method, path);
+  const json = (status, value) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
+  if (parsed.origin !== "https://api.github.com") return json(500, {});
+  if (method === "GET" && path === "/user") return json(200, { login: "operator" });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer") return json(200, {
+    id: 1,
+    security_and_analysis: {
+      secret_scanning: { status: "disabled" },
+      secret_scanning_push_protection: { status: "disabled" },
+      dependabot_security_updates: { status: "disabled" }
+    }
+  });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/branches/main") return json(200, { name: "main" });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/collaborators/approver/permission") return json(200, { permission: "write", user: { login: "approver" } });
+  if (method === "GET" && path === "/users/approver") return json(200, { id: 42, login: "approver" });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/environments/npm") return json(200, {
+    can_admins_bypass: false,
+    protection_rules: [{ type: "required_reviewers", prevent_self_review: true, reviewers: [{ type: "User", reviewer: { login: "approver" } }] }],
+    deployment_branch_policy: { protected_branches: false, custom_branch_policies: true }
+  });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/rulesets?includes_parents=false") return json(200, []);
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/private-vulnerability-reporting") return json(200, { enabled: true });
+  if (method === "PATCH" && path === "/repos/VictorHaine/p2p-transfer") return json(200, {});
+  if (method === "PUT" && path === "/repos/VictorHaine/p2p-transfer/automated-security-fixes") return new Response(null, { status: 204 });
+  if (method === "PUT" && path === "/repos/VictorHaine/p2p-transfer/environments/npm") return json(500, { message: "environment must not be touched" });
+  if (path.includes("/deployment-branch-policies")) return json(500, { message: "deployment policy must not be touched" });
+  if (method === "POST" && path === "/repos/VictorHaine/p2p-transfer/rulesets") return json(500, { message: "rulesets must not be touched" });
+  return json(500, {});
+};
+`,
+      "utf8"
+    );
+
+    const result = runScriptWithNodeArgs(
+      "scripts/configure-github-release-controls.mjs",
+      {
+        FF_MOCK_GITHUB_LOG: log,
+        GITHUB_TOKEN: "token-that-must-not-be-printed"
+      },
+      ["--apply", "--npm-reviewer", "approver"],
+      ["--import", mock]
+    );
+    const requests = await fs.readFile(log, "utf8");
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /GitHub release control setup failed:\n- GitHub repository secret scanning must be enabled\./);
+    assert.doesNotMatch(result.stderr, /token-that-must-not-be-printed|environment must not be touched|deployment policy must not be touched|rulesets must not be touched|api\.github|Error:/);
+    assert.match(requests, /PATCH \/repos\/VictorHaine\/p2p-transfer\nPUT \/repos\/VictorHaine\/p2p-transfer\/automated-security-fixes\nGET \/repos\/VictorHaine\/p2p-transfer\n$/);
+    assert.doesNotMatch(requests, /PUT \/repos\/VictorHaine\/p2p-transfer\/environments\/npm|deployment-branch-policies|POST \/repos\/VictorHaine\/p2p-transfer\/rulesets/);
+  } finally {
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
+});
+
 test("GitHub release controls verify persisted npm reviewer permissions before deployment policy or rulesets", async () => {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-controls-reviewer-drift-"));
   const mock = path.join(tmp, "mock-github-fetch.mjs");
@@ -1297,7 +1404,7 @@ globalThis.fetch = async (url, init = {}) => {
   const json = (status, value) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
   if (parsed.origin !== "https://api.github.com") return json(500, {});
   if (method === "GET" && path === "/user") return json(200, { login: "operator" });
-  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer") return json(200, { id: 1 });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer") return json(200, { id: 1, security_and_analysis: ${JSON.stringify(ENABLED_SECURITY_AND_ANALYSIS)} });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/branches/main") return json(200, { name: "main" });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/collaborators/approver/permission") {
     permissionChecks += 1;
@@ -1376,7 +1483,7 @@ globalThis.fetch = async (url, init = {}) => {
   const json = (status, value) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
   if (parsed.origin !== "https://api.github.com") return json(500, {});
   if (method === "GET" && path === "/user") return json(200, { login: "operator" });
-  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer") return json(200, { id: 1 });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer") return json(200, { id: 1, security_and_analysis: ${JSON.stringify(ENABLED_SECURITY_AND_ANALYSIS)} });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/branches/main") return json(200, { name: "main" });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/collaborators/approver/permission") return json(200, { permission: "write", user: { login: "approver" } });
   if (method === "GET" && path === "/users/approver") return json(200, { id: 42, login: "approver" });
@@ -1509,6 +1616,7 @@ globalThis.fetch = async (url, init = {}) => {
   if (parsed.origin !== "https://api.github.com") return json(500, { message: "unexpected origin" });
   if (method === "GET" && path === "/user") return json(200, { login: "operator" }, { "x-oauth-scopes": "repo" });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer") return json(200, { id: 1 });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/automated-security-fixes") return json(200, { enabled: true, paused: true });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/private-vulnerability-reporting") return json(200, { enabled: false });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/branches/main") return json(404, { message: "raw main branch API body" });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/actions/secrets/RELEASE_PREFLIGHT_TOKEN") return json(404, { message: "raw secret API body" });
@@ -1542,6 +1650,7 @@ globalThis.fetch = async (url, init = {}) => {
     assert.match(result.stderr, /npm package is missing; bootstrap a lower throwaway version before trusted publishing\./);
     assert.match(result.stderr, /GitHub token is missing workflow scope\. Run `gh auth refresh -h github\.com -s workflow`, then rerun release preflight\./);
     assert.match(result.stderr, /GitHub repository security analysis status was missing\./);
+    assert.match(result.stderr, /GitHub repository Dependabot security updates must not be paused\./);
     assert.match(result.stderr, /GitHub private vulnerability reporting must be enabled\./);
     assert.match(result.stderr, /Remote main branch is missing\. Push main before releasing\./);
     assert.match(result.stderr, /GitHub Actions secret RELEASE_PREFLIGHT_TOKEN is missing\./);
@@ -1857,7 +1966,8 @@ globalThis.fetch = async (url, init = {}) => {
   if (parsed.origin === "https://registry.npmjs.org" && method === "GET" && path === "/%40victorhaine%2Fp2p-transfer") return json(200, { versions: { "0.0.0-bootstrap.0": {} }, "dist-tags": { bootstrap: "0.0.0-bootstrap.0" } });
   if (parsed.origin !== "https://api.github.com") return json(500, {});
   if (method === "GET" && path === "/user") return json(200, { login: "operator" }, { "x-oauth-scopes": "repo" });
-  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer") return json(200, { id: 1 });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer") return json(200, { id: 1, security_and_analysis: ${JSON.stringify(ENABLED_SECURITY_AND_ANALYSIS)} });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/automated-security-fixes") return json(200, { enabled: true, paused: false });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/private-vulnerability-reporting") return json(200, { enabled: true });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/branches/main") return json(200, { name: "main", commit: { sha: mainSha } });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/actions/workflows/codeql.yml/runs?branch=main&per_page=1") {
@@ -1983,7 +2093,8 @@ globalThis.fetch = async (url, init = {}) => {
   if (parsed.origin === "https://registry.npmjs.org" && method === "GET" && path === "/%40victorhaine%2Fp2p-transfer") return json(200, { versions: { "0.0.0-bootstrap.0": {} }, "dist-tags": { bootstrap: "0.0.0-bootstrap.0" } });
   if (parsed.origin !== "https://api.github.com") return json(500, {});
   if (method === "GET" && path === "/user") return json(200, { login: "operator" }, { "x-oauth-scopes": "repo" });
-  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer") return json(200, { id: 1 });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer") return json(200, { id: 1, security_and_analysis: ${JSON.stringify(ENABLED_SECURITY_AND_ANALYSIS)} });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/automated-security-fixes") return json(200, { enabled: true, paused: false });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/private-vulnerability-reporting") return json(200, { enabled: true });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/branches/main") return json(200, { name: "main", commit: { sha: mainSha } });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/actions/workflows/codeql.yml/runs?branch=main&per_page=1") {
@@ -2129,6 +2240,7 @@ globalThis.fetch = async (url, init = {}) => {
   if (parsed.origin !== "https://api.github.com") return json(500, {});
   if (method === "GET" && path === "/user") return json(200, { login: "operator" }, { "x-oauth-scopes": "repo" });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer") return json(200, { id: 1, security_and_analysis: securityAndAnalysis() });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/automated-security-fixes") return json(200, { enabled: true, paused: false });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/private-vulnerability-reporting") return json(200, { enabled: true });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/branches/main") return json(200, { name: "main", commit: { sha: mainSha } });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/actions/workflows/codeql.yml/runs?branch=main&per_page=1") {

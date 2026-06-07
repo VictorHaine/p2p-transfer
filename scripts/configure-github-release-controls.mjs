@@ -79,6 +79,7 @@ async function main() {
   }
 
   await ensurePrivateVulnerabilityReporting(token, options.repository, privateVulnerabilityReporting);
+  const verifiedRepositorySecurity = await ensureRepositorySecurity(token, options.repository, repositorySecurity);
 
   if (desiredEnvironment) {
     environment = await github(token, "PUT", `/repos/${options.repository}/environments/${encodeURIComponent(NPM_ENVIRONMENT)}`, desiredEnvironment);
@@ -116,7 +117,7 @@ async function main() {
   }
   await assertPersistedRulesets(token, options.repository);
 
-  console.log(JSON.stringify({ repository: options.repository, mode: "applied", rulesets: desired.map((ruleset) => ruleset.name), environment: status }, null, 2));
+  console.log(JSON.stringify({ repository: options.repository, mode: "applied", rulesets: desired.map((ruleset) => ruleset.name), environment: status, repositorySecurity: verifiedRepositorySecurity }, null, 2));
 }
 
 function mainRuleset() {
@@ -335,6 +336,28 @@ function securityFeatureStatus(security, key) {
   const feature = security?.[key];
   const status = feature?.status;
   return status === "enabled" || status === "disabled" ? status : "unknown";
+}
+
+async function ensureRepositorySecurity(token, repository, status) {
+  if (status.secretScanning !== "enabled" || status.secretScanningPushProtection !== "enabled") {
+    await github(token, "PATCH", `/repos/${repository}`, {
+      security_and_analysis: {
+        secret_scanning: { status: "enabled" },
+        secret_scanning_push_protection: { status: "enabled" }
+      }
+    });
+  }
+  if (status.dependabotSecurityUpdates !== "enabled") {
+    await github(token, "PUT", `/repos/${repository}/automated-security-fixes`);
+  }
+  return assertRepositorySecurityStatus(repositorySecurityStatus(await github(token, "GET", `/repos/${repository}`)));
+}
+
+function assertRepositorySecurityStatus(status) {
+  if (status.secretScanning !== "enabled") throw new Error("GitHub repository secret scanning must be enabled.");
+  if (status.secretScanningPushProtection !== "enabled") throw new Error("GitHub repository secret scanning push protection must be enabled.");
+  if (status.dependabotSecurityUpdates !== "enabled") throw new Error("GitHub repository Dependabot security updates must be enabled.");
+  return status;
 }
 
 function assertNpmEnvironmentStatus(status) {

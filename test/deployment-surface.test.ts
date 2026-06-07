@@ -578,6 +578,16 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(githubReleaseControlsScript, /\/repos\/\$\{repository\}\/private-vulnerability-reporting/);
   assert.match(githubReleaseControlsScript, /"PUT", `\/repos\/\$\{repository\}\/private-vulnerability-reporting`/);
   assert.match(githubReleaseControlsScript, /GitHub private vulnerability reporting must be enabled\./);
+  assert.match(githubReleaseControlsScript, /const verifiedRepositorySecurity = await ensureRepositorySecurity\(token, options\.repository, repositorySecurity\)/);
+  assert.match(githubReleaseControlsScript, /async function ensureRepositorySecurity\(token, repository, status\)/);
+  assert.match(githubReleaseControlsScript, /"PATCH", `\/repos\/\$\{repository\}`/);
+  assert.match(githubReleaseControlsScript, /secret_scanning: \{ status: "enabled" \}/);
+  assert.match(githubReleaseControlsScript, /secret_scanning_push_protection: \{ status: "enabled" \}/);
+  assert.match(githubReleaseControlsScript, /"PUT", `\/repos\/\$\{repository\}\/automated-security-fixes`/);
+  assert.match(githubReleaseControlsScript, /assertRepositorySecurityStatus\(repositorySecurityStatus\(await github\(token, "GET", `\/repos\/\$\{repository\}`\)\)\)/);
+  assert.match(githubReleaseControlsScript, /GitHub repository secret scanning must be enabled\./);
+  assert.match(githubReleaseControlsScript, /GitHub repository secret scanning push protection must be enabled\./);
+  assert.match(githubReleaseControlsScript, /GitHub repository Dependabot security updates must be enabled\./);
   assert.match(githubReleaseControlsScript, /async function assertPersistedRulesets\(token, repository\)/);
   assert.match(githubReleaseControlsScript, /assertMainRuleset\(await github\(token, "GET", `\/repos\/\$\{repository\}\/rulesets\/\$\{mainRuleset\.id\}`\)\)/);
   assert.match(githubReleaseControlsScript, /assertTagRuleset\(await github\(token, "GET", `\/repos\/\$\{repository\}\/rulesets\/\$\{tagRuleset\.id\}`\)\)/);
@@ -601,6 +611,11 @@ test("checked GitHub release controls setup matches the protected release surfac
       githubReleaseControlsScript.indexOf("if (desiredEnvironment)"),
     "private vulnerability reporting must be enabled before mutating the npm environment"
   );
+  assert.ok(
+    githubReleaseControlsScript.indexOf("const verifiedRepositorySecurity = await ensureRepositorySecurity(token, options.repository, repositorySecurity)") <
+      githubReleaseControlsScript.indexOf("if (desiredEnvironment)"),
+    "repository security controls must be enabled before mutating the npm environment"
+  );
 
   assert.match(readme, /create the `npm` environment[\s\S]*required reviewers with self-review prevention/);
   assert.match(readme, /reviewer with write, maintain, or admin repository permission/);
@@ -610,17 +625,17 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(readme, /refuses read-only or unknown reviewers/);
   assert.match(readme, /refuses to create a sole-reviewer self-approval deadlock/);
   assert.match(readme, /refuses `--allow-missing-main` outside dry-run mode/);
-  assert.match(readme, /re-reads the persisted `npm` environment, persisted reviewer permissions, deployment tag policy, and repository ruleset details after writes/);
+  assert.match(readme, /re-reads the persisted repository security controls, `npm` environment, persisted reviewer permissions, deployment tag policy, and repository ruleset details after writes/);
   assert.match(readme, /refuses to mutate deployment policies or repository rulesets if GitHub returns a persisted reviewer without write, maintain, or admin permission/);
-  assert.match(readme, /refuses to mutate repository rulesets if GitHub returns malformed, duplicate, unexpected, wrong-target, or bypass-enabled rulesets, or if the persisted `npm` environment still has no required-reviewer protection, still allows admin bypass or branch deployments, lacks the exact release-tag deployment policy, still has the authenticated setup operator as its sole required reviewer, or the persisted branch\/tag rulesets do not exactly match the requested protected surface/);
+  assert.match(readme, /refuses to mutate repository rulesets if GitHub returns malformed, duplicate, unexpected, wrong-target, or bypass-enabled rulesets, or if the persisted repository security controls are still disabled, the persisted `npm` environment still has no required-reviewer protection/);
   assert.match(securityPolicy, /`--allow-missing-main` must be dry-run only and must not be accepted with `--apply`/);
-  assert.match(securityPolicy, /the setup script must enable and re-read GitHub private vulnerability reporting before mutating the npm environment, deployment policies, or repository rulesets/);
+  assert.match(securityPolicy, /the setup script must enable and re-read GitHub private vulnerability reporting and repository secret scanning, secret scanning push protection, and Dependabot security updates before mutating the npm environment, deployment policies, or repository rulesets/);
   assert.match(securityPolicy, /must be able to create or update the `npm` environment approval gate from explicit reviewers with write, maintain, or admin repository permission, self-review prevention, admin bypass disabled, and a single `v\*\.\*\.\*` tag deployment policy/);
   assert.match(securityPolicy, /must not expose an option that writes `prevent_self_review: false`/);
   assert.match(securityPolicy, /release setup must create branch and tag rulesets with no bypass actors/);
   assert.match(securityPolicy, /release setup must reject malformed, unexpected, wrong-target, duplicate, or bypass-enabled GitHub rulesets list entries/);
   assert.match(securityPolicy, /setup script must reject unknown or read-only reviewers and sole-reviewer self-approval deadlocks/);
-  assert.match(securityPolicy, /release setup must re-read the persisted `npm` environment plus persisted reviewer permissions and fail before mutating deployment policies or repository rulesets when the persisted `npm` environment is missing required-reviewer protection, allows admin bypass or branch deployments, lacks a non-self user reviewer with write, maintain, or admin permission, or has the authenticated setup operator as its sole required reviewer/);
+  assert.match(securityPolicy, /release setup must re-read the persisted repository security controls, `npm` environment, plus persisted reviewer permissions and fail before mutating deployment policies or repository rulesets when repository secret scanning, secret scanning push protection, or Dependabot security updates are not enabled/);
   assert.match(securityPolicy, /release setup must re-read the persisted deployment tag policy and fail before mutating repository rulesets when the `npm` environment lacks the exact release-tag deployment policy/);
   assert.match(securityPolicy, /release setup must re-read persisted repository ruleset details after writes and fail before reporting success when GitHub drops, broadens, weakens, bypass-enables, or otherwise normalizes branch\/tag rulesets away from the exact protected surface/);
   assert.match(securityPolicy, /GitHub release setup and release preflight scripts must read token, repository, GitHub Actions mode, and release actor environment variables through own data descriptors[\s\S]*send GitHub API requests with an abort deadline/);
@@ -661,6 +676,8 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(readme, /the exact repository rulesets that release preflight requires for `main` and `v\*\.\*\.\*` release tags/);
   assert.match(readme, /checked release-control setup enables it with the GitHub `private-vulnerability-reporting` endpoint/);
   assert.match(readme, /release preflight verifies that endpoint reports enabled before tagging/);
+  assert.match(readme, /checked release-control setup enables and re-reads those repository security controls/);
+  assert.match(readme, /release preflight reads GitHub `security_and_analysis` plus the `automated-security-fixes` endpoint so tagging fails if any feature is disabled, paused, or hidden from the release token/);
   assert.match(readme, /read repository metadata including `security_and_analysis`, private vulnerability reporting status, the `main` branch, Actions secret metadata, Actions workflow run metadata, repository rulesets including bypass actors, repository environments, and deployment branch policies/);
   assert.match(readme, /verifies private vulnerability reporting is enabled/);
   assert.match(readme, /The checked repository ruleset for `v\*\.\*\.\*` tags must be active before the first release/);
@@ -669,7 +686,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(contributing, /pnpm exec playwright install --with-deps chromium\npnpm verify:release\nnode scripts\/write-release-notes\.mjs --check\nDOCKER_SMOKE_TAG=p2p-transfer:test pnpm smoke:docker-policy\ngh auth refresh -h github\.com -s workflow\nGITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
   assert.match(contributing, /make sure `main` already exists on\nGitHub, then run the full release gate/);
   assert.match(securityPolicy, /local release preflight must fail before tagging when the npm package is missing, the target npm version already exists, the bootstrap placeholder exists without the exact `bootstrap` dist-tag or with `latest` pointing to it, private vulnerability reporting is disabled/);
-  assert.match(securityPolicy, /GitHub repository `security_and_analysis` is missing or reports disabled secret scanning, disabled secret scanning push protection, or disabled Dependabot security updates/);
+  assert.match(securityPolicy, /GitHub repository `security_and_analysis` is missing or reports disabled secret scanning, disabled secret scanning push protection, disabled Dependabot security updates, or paused Dependabot security updates from the dedicated `automated-security-fixes` endpoint/);
   assert.match(securityPolicy, /the GitHub token is missing or lacks `workflow` scope/);
   assert.match(securityPolicy, /current `main` commit lacks a successful CodeQL, Scorecard, or dependency-integrity workflow run/);
   assert.match(securityPolicy, /the `RELEASE_PREFLIGHT_TOKEN` repository secret is missing/);
@@ -684,10 +701,12 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(securityPolicy, /reject ambient npm credential, registry, and userconfig environment values before package reads, registry requests, npm config, or publish work/);
   assert.match(securityPolicy, /branch\/tag rulesets have ref exclusions, unexpected or duplicate rules, or any bypass actors/);
   assert.match(securityPolicy, /release workflow preflight must run before dependency install through the checked Node script with an explicit `RELEASE_PREFLIGHT_TOKEN` secret/);
-  assert.match(securityPolicy, /repository-administration\/ruleset, private-vulnerability-reporting, repository security-analysis, and Actions workflow-run visibility/);
+  assert.match(securityPolicy, /repository-administration\/ruleset, private-vulnerability-reporting, repository security-analysis, Dependabot security-update status, and Actions workflow-run visibility/);
   assert.match(securityPolicy, /must reject missing GitHub tokens, classic PAT, OAuth, refresh, user, or unknown-prefix token classes in GitHub Actions before package or network work/);
   assert.match(securityPolicy, /must validate `GITHUB_ACTOR` before package reads or network work after token-class validation/);
-  assert.match(securityPolicy, /must still verify the npm package exists without the target version, any bootstrap placeholder is not `latest`, private vulnerability reporting is enabled, repository secret scanning, push protection, and Dependabot security updates are enabled, remote `main`, successful CodeQL, Scorecard, and dependency-integrity runs for current `main`, rulesets/);
+  assert.match(securityPolicy, /must still verify the npm package exists without the target version, any bootstrap placeholder is not `latest`, private vulnerability reporting is enabled, repository secret scanning, push protection, and Dependabot security updates are enabled and unpaused/);
+  assert.match(releaseReadinessScript, /\/repos\/\$\{repository\}\/automated-security-fixes/);
+  assert.match(releaseReadinessScript, /GitHub repository Dependabot security updates must not be paused\./);
   assert.match(securityPolicy, /no branch\/tag bypass actors, required status checks, and the npm environment approval\/tag-only deployment gate before packaging/);
   assert.match(readme, /verifies the npm package already exists, verifies any bootstrap placeholder is not tagged as `latest`, verifies the target version has not been published, verifies private vulnerability reporting is enabled, verifies repository secret scanning, secret scanning push protection, and Dependabot security updates are enabled/);
   assert.match(readme, /pnpm bootstrap:npm --dry-run/);
