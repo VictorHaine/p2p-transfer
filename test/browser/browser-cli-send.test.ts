@@ -249,9 +249,91 @@ test("browser folder receiver restarts after a corrupted saved partial", browser
   }
 });
 
-test("browser startup scrubs legacy resume registry metadata", browserTestOptions, async () => {
+test("browser folder receiver resumes from a valid saved partial", browserTestOptions, async () => {
   const root = process.cwd();
   const port = 24_000 + randomInt(1_000);
+  const origin = `http://127.0.0.1:${port}`;
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-cli-browser-valid-resume-"));
+  const childEnv = testChildEnv(tmp);
+  const server = spawn(process.execPath, ["dist-node/server/index.js"], {
+    cwd: root,
+    env: { ...childEnv, PORT: String(port), HOST: "127.0.0.1", NODE_ENV: "production", ALLOWED_ORIGINS: origin, SIGNALING_TOPOLOGY: "single-instance", ALLOW_INSECURE_ORIGINS: "true" }
+  });
+
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  try {
+    await waitForOutput(server, /listening/);
+    const source = path.join(tmp, "resume-valid.txt");
+    const payload = "browser valid resume chunk\n".repeat(4_000);
+    await fs.writeFile(source, payload);
+
+    const serverUrl = `ws://127.0.0.1:${port}/v1/ws`;
+    browser = await chromium.launch(chromiumLaunchOptions());
+    const page = await browser.newPage();
+    await installFolderPickerMock(page);
+    await page.goto(`http://127.0.0.1:${port}/`);
+    await page.locator("#serverUrl").fill(serverUrl);
+    await page.locator("#folderOnly").check();
+
+    await setFolderMockFailure(page, 1);
+    await page.locator("#receiveButton").click();
+    await page.locator("#codeBox").waitFor({ state: "visible", timeout: 30_000 });
+    const firstCode = (await page.locator("#codeBox").textContent())?.trim();
+    assert.match(firstCode ?? "", /^[0-9]{8}-[a-z]+-[a-z]+$/);
+    const failedSender = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "send", firstCode!, source], { cwd: root, env: childEnv });
+    const failedSenderDone = collectExit(failedSender);
+    await page.locator("#resumeButton").waitFor({ state: "visible", timeout: 30_000 });
+    await page.locator("#resumeButton").click();
+    const failedSenderResult = await failedSenderDone;
+    assert.notEqual(failedSenderResult.code, 0);
+    await waitForReceiveIdle(page);
+    const partial = await folderPickerSnapshot(page);
+    assert.equal(partial.partFiles.length, 1);
+    const partName = partial.partFiles[0]!;
+    const resumeBytes = partial.byteLengths[partName]!;
+    assert.ok(resumeBytes > 0);
+    assert.ok(resumeBytes < Buffer.byteLength(payload, "utf8"));
+
+    await setFolderMockFailure(page, null);
+    await page.locator("#receiveButton").click();
+    const secondCode = await waitForNewCode(page, firstCode!);
+    assert.match(secondCode ?? "", /^[0-9]{8}-[a-z]+-[a-z]+$/);
+    assert.notEqual(secondCode, firstCode);
+    const resumedSender = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "send", secondCode!, source], { cwd: root, env: childEnv });
+    const resumedSenderDone = collectExit(resumedSender);
+    await page.locator("#resumeButton").waitFor({ state: "visible", timeout: 30_000 });
+    await page.locator("#resumeButton").click();
+    await expectText(page.locator("#recvStatus"), "Done");
+
+    const resumedSenderResult = await resumedSenderDone;
+    assert.equal(resumedSenderResult.code, 0, resumedSenderResult.stderr);
+    assert.match(resumedSenderResult.stdout, /"secure_session"/);
+    const folder = await folderPickerSnapshot(page);
+    const entries = Object.entries(folder.files);
+    assert.equal(entries.length, 1);
+    assert.match(entries[0]![0], /^resume-valid \(ff-[a-f0-9]{32}\)\.txt$/);
+    assert.equal(entries[0]![1], payload);
+    assert.deepEqual(folder.partFiles, []);
+    assert.equal(folder.removed.some((name) => name === partName), true);
+    const keepIndex = folder.operations.findIndex((operation) => operation === `createWritable:${partName}:keep`);
+    const truncateIndex = folder.operations.findIndex((operation, index) => index > keepIndex && operation === `truncate:${partName}:${resumeBytes}`);
+    const seekIndex = folder.operations.findIndex((operation, index) => index > truncateIndex && operation === `seek:${partName}:${resumeBytes}`);
+    const resumedWriteIndex = folder.operations.findIndex((operation, index) => index > seekIndex && operation.startsWith(`write:${partName}:${resumeBytes}:`));
+    const rewriteFromZeroIndex = folder.operations.findIndex((operation, index) => index > seekIndex && operation.startsWith(`write:${partName}:0:`));
+    assert.notEqual(keepIndex, -1);
+    assert.notEqual(truncateIndex, -1);
+    assert.notEqual(seekIndex, -1);
+    assert.notEqual(resumedWriteIndex, -1);
+    assert.equal(rewriteFromZeroIndex, -1);
+  } finally {
+    await browser?.close();
+    server.kill();
+  }
+});
+
+test("browser startup scrubs legacy resume registry metadata", browserTestOptions, async () => {
+  const root = process.cwd();
+  const port = 25_000 + randomInt(1_000);
   const origin = `http://127.0.0.1:${port}`;
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-browser-registry-"));
   const childEnv = testChildEnv(tmp);
