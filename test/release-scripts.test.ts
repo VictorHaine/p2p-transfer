@@ -7,6 +7,19 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const REQUIRED_RELEASE_CHECKS = [
+  "verify",
+  "browser interop",
+  "codeql analyze",
+  "dependency review",
+  "production docker policy",
+  "platform smoke / ubuntu-24.04 / node 22.22.3",
+  "platform smoke / ubuntu-24.04 / node 24.13.1",
+  "platform smoke / macos-15 / node 22.22.3",
+  "platform smoke / macos-15 / node 24.13.1",
+  "platform smoke / windows-2025 / node 22.22.3",
+  "platform smoke / windows-2025 / node 24.13.1"
+];
 
 test("release publish script rejects static npm tokens before artifact work", () => {
   const result = runScript("scripts/publish-release-artifact.mjs", {
@@ -275,6 +288,122 @@ globalThis.fetch = async (url, init = {}) => {
     assert.match(requests, /^GET https:\/\/registry\.npmjs\.org\/%40victorhaine%2Fp2p-transfer\nGET https:\/\/api\.github\.com\/user\n/);
     assert.match(requests, /GET https:\/\/api\.github\.com\/repos\/VictorHaine\/p2p-transfer\/actions\/secrets\/RELEASE_PREFLIGHT_TOKEN\n/);
     assert.match(requests, /GET https:\/\/api\.github\.com\/repos\/VictorHaine\/p2p-transfer\/environments\/npm\/deployment-branch-policies\?per_page=100\n/);
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
+test("release preflight verifies the full remote release gate before succeeding", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-preflight-"));
+  const mock = path.join(tmp, "mock-release-preflight-fetch.mjs");
+  const log = path.join(tmp, "requests.log");
+  try {
+    await fs.writeFile(
+      mock,
+      `
+import { appendFileSync } from "node:fs";
+
+const log = process.env.FF_MOCK_PREFLIGHT_LOG;
+const requiredChecks = ${JSON.stringify(REQUIRED_RELEASE_CHECKS)};
+
+function record(method, origin, path) {
+  appendFileSync(log, method + " " + origin + path + "\\n", "utf8");
+}
+
+function mainRuleset() {
+  return {
+    id: 101,
+    name: "p2p-transfer: protect main",
+    target: "branch",
+    enforcement: "active",
+    bypass_actors: [],
+    conditions: { ref_name: { include: ["refs/heads/main"], exclude: [] } },
+    rules: [
+      { type: "deletion" },
+      { type: "non_fast_forward" },
+      {
+        type: "pull_request",
+        parameters: {
+          allowed_merge_methods: ["squash", "rebase"],
+          dismiss_stale_reviews_on_push: true,
+          require_code_owner_review: true,
+          require_last_push_approval: true,
+          required_approving_review_count: 1,
+          required_review_thread_resolution: true
+        }
+      },
+      {
+        type: "required_status_checks",
+        parameters: {
+          strict_required_status_checks_policy: true,
+          required_status_checks: requiredChecks.map((context) => ({ context, integration_id: 15368 }))
+        }
+      }
+    ]
+  };
+}
+
+function tagRuleset() {
+  return {
+    id: 202,
+    name: "p2p-transfer: protect release tags",
+    target: "tag",
+    enforcement: "active",
+    bypass_actors: [{ actor_type: "RepositoryRole", actor_id: 5, bypass_mode: "always" }],
+    conditions: { ref_name: { include: ["refs/tags/v*"], exclude: [] } },
+    rules: [{ type: "creation" }, { type: "deletion" }, { type: "non_fast_forward" }]
+  };
+}
+
+globalThis.fetch = async (url, init = {}) => {
+  const parsed = new URL(url);
+  const method = init.method ?? "GET";
+  const path = parsed.pathname + parsed.search;
+  record(method, parsed.origin, path);
+  const json = (status, body, headers = {}) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
+  if (parsed.origin === "https://registry.npmjs.org" && method === "GET" && path === "/%40victorhaine%2Fp2p-transfer") return json(200, { versions: { "0.0.0-bootstrap.0": {} } });
+  if (parsed.origin !== "https://api.github.com") return json(500, {});
+  if (method === "GET" && path === "/user") return json(200, { login: "operator" }, { "x-oauth-scopes": "repo, workflow" });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer") return json(200, { id: 1 });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/branches/main") return json(200, { name: "main" });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/actions/secrets/RELEASE_PREFLIGHT_TOKEN") return json(200, { name: "RELEASE_PREFLIGHT_TOKEN", created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z" });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/rulesets?includes_parents=false") return json(200, [
+    { id: 101, name: "p2p-transfer: protect main", target: "branch", enforcement: "active" },
+    { id: 202, name: "p2p-transfer: protect release tags", target: "tag", enforcement: "active" }
+  ]);
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/rulesets/101") return json(200, mainRuleset());
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/rulesets/202") return json(200, tagRuleset());
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/environments/npm") return json(200, {
+    can_admins_bypass: false,
+    protection_rules: [{ type: "required_reviewers", prevent_self_review: true, reviewers: [{ type: "User", reviewer: { login: "approver" } }] }],
+    deployment_branch_policy: { protected_branches: false, custom_branch_policies: true }
+  });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/environments/npm/deployment-branch-policies?per_page=100") return json(200, { total_count: 1, branch_policies: [{ id: 77, name: "v*.*.*", type: "tag" }] });
+  return json(500, {});
+};
+`,
+      "utf8"
+    );
+
+    const result = runScriptWithNodeArgs(
+      "scripts/check-release-readiness.mjs",
+      {
+        FF_MOCK_PREFLIGHT_LOG: log,
+        GITHUB_TOKEN: "token-that-must-not-be-printed"
+      },
+      [],
+      ["--import", mock]
+    );
+    const requests = await fs.readFile(log, "utf8");
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stderr, "");
+    assert.deepEqual(JSON.parse(result.stdout), { repository: "VictorHaine/p2p-transfer", ok: true });
+    assert.doesNotMatch(result.stdout, /token-that-must-not-be-printed|approver|RELEASE_PREFLIGHT_TOKEN|0\.0\.0-bootstrap/);
+    assert.match(requests, /^GET https:\/\/registry\.npmjs\.org\/%40victorhaine%2Fp2p-transfer\nGET https:\/\/api\.github\.com\/user\n/);
+    assert.match(requests, /GET https:\/\/api\.github\.com\/repos\/VictorHaine\/p2p-transfer\/rulesets\/101\n/);
+    assert.match(requests, /GET https:\/\/api\.github\.com\/repos\/VictorHaine\/p2p-transfer\/rulesets\/202\n/);
+    assert.match(requests, /GET https:\/\/api\.github\.com\/repos\/VictorHaine\/p2p-transfer\/environments\/npm\/deployment-branch-policies\?per_page=100\n$/);
   } finally {
     await fs.rm(tmp, { force: true, recursive: true });
   }
