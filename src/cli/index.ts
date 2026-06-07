@@ -22,6 +22,7 @@ import { openManifest, pairDecisionAuthTag, sdpAuthTag, sealManifest, verifyPair
 import { cloneIceServers } from "../shared/ice.js";
 import { assertReviewedCryptoDependencies } from "./crypto-dependencies.js";
 import { buildManifest, closeSendFiles, ensureOutputDir } from "./files.js";
+import { redactLocalPathEvidence } from "./error-redaction.js";
 import { classifyExitCode, safeErrorMessage } from "./exit-codes.js";
 import { onInterrupt, withInterrupt } from "./interrupt.js";
 import { closeDataChannel, createPeer, dataChannelLabel, handleSignal, isSafeIncomingDataChannel, waitForDataChannelOpen } from "./rtc.js";
@@ -829,12 +830,4 @@ function redactedErrorMessage(code: number): string {
   if (code === 2) return "Transfer declined.";
   if (code === 130) return "Interrupted.";
   return "Command failed. Re-run without --redact-output for details.";
-}
-
-function redactLocalPathEvidence(message: string): string {
-  let redacted = message.replace(/'((?:[A-Za-z]:[\\/]|\/)[^']*)'/g, "'[path]'");
-  redacted = redacted.replace(/"((?:[A-Za-z]:[\\/]|\/)[^"]*)"/g, "\"[path]\"");
-  const cwd = process.cwd();
-  if (cwd.length > 1) redacted = redacted.split(cwd).join("[cwd]");
-  return redacted;
 }

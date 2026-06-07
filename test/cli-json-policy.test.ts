@@ -7,6 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const cliSource = fs.readFileSync(new URL("../src/cli/index.ts", import.meta.url), "utf8");
+const cliErrorRedactionSource = fs.readFileSync(new URL("../src/cli/error-redaction.ts", import.meta.url), "utf8");
 const distCliSource = fs.readFileSync(new URL("../dist-node/cli/index.js", import.meta.url), "utf8");
 const cliFilesSource = fs.readFileSync(new URL("../src/cli/files.ts", import.meta.url), "utf8");
 const distCliFilesSource = fs.readFileSync(new URL("../dist-node/cli/files.js", import.meta.url), "utf8");
@@ -130,7 +131,8 @@ test("CLI send supports non-argv code and file path input", () => {
     assert.doesNotMatch(recvWarningBody, /\bcode\b|\bfiles\b|process\.argv|safeErrorMessage|formatBytes/);
     assert.match(source, /function readCodeEnv/);
     assert.match(source, /function readBoundedStdin/);
-    assert.match(source, /function redactLocalPathEvidence/);
+    assert.match(cliErrorRedactionSource, /export function redactLocalPathEvidence/);
+    assert.match(cliErrorRedactionSource, /UNQUOTED_ABSOLUTE_PATH/);
     assert.match(source, /new TextDecoder\("utf-8", \{ fatal: true \}\)/);
     assert.match(source, /input exceeds/);
     assert.doesNotMatch(source, /\.argument\("<code>"/);

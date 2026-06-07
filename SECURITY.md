@@ -73,7 +73,7 @@ The project is expected to preserve these invariants:
 - authenticated WebRTC signaling failures must surface as security failures, not generic NAT, timeout, or disconnect failures
 - encrypted payload authentication/decryption failures must surface as security failures, not generic transfer failures
 - CLI and browser error classification and error rendering must read error messages through data descriptors and must not call `String(error)` or hostile `message` accessors while deciding retry, exit-code, or JSON error output
-- CLI error output must redact quoted absolute local filesystem paths before human or JSON rendering, so platform filesystem exceptions cannot reintroduce path leakage after CLI-specific validation messages
+- CLI error output must redact quoted and unquoted absolute local filesystem paths before human or JSON rendering, so platform filesystem exceptions cannot reintroduce path leakage after CLI-specific validation messages
 - CLI entrypoints must set `process.exitCode` after printing output instead of calling `process.exit()` directly, so piped human or JSON output is not truncated before Node flushes stdout/stderr
 - fixed-window hit recording must retain from the bounded tail instead of filtering arbitrary caller arrays so exported rate-limit helpers cannot become allocation vectors
 - fixed-window rate-limit helpers must reject malformed runtime values before arithmetic, bound retained hit counts, and read timestamp arrays through own data descriptors so exported helpers cannot invoke hostile numeric coercion or array accessors
