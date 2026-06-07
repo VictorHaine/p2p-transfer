@@ -25,6 +25,7 @@ async function verifyReleaseTag() {
   const packageJson = parseJson(await readText(path.join(root, "package.json"), MAX_PACKAGE_JSON_BYTES), "package metadata");
   const version = requiredPackageVersion(ownDataValue(packageJson, "version"));
   const tag = requiredReleaseTag(envString("GITHUB_REF_NAME"));
+  assertReleaseTagRef(tag);
   if (tag !== `v${version}`) {
     throw new Error("release tag does not match package version.");
   }
@@ -102,6 +103,12 @@ function requiredReleaseTag(value) {
     throw new Error("release tag must be an exact v-prefixed semver release.");
   }
   return value;
+}
+
+function assertReleaseTagRef(tag) {
+  if (envString("GITHUB_REF_TYPE") !== "tag" || envString("GITHUB_REF") !== `refs/tags/${tag}`) {
+    throw new Error("release workflow ref must be the matching tag ref.");
+  }
 }
 
 function envString(name) {

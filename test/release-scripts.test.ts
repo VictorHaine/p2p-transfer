@@ -24,7 +24,7 @@ const REQUIRED_RELEASE_CHECKS = [
 test("release publish script rejects static npm tokens before artifact work", () => {
   const result = runScript("scripts/publish-release-artifact.mjs", {
     NODE_AUTH_TOKEN: "static-token-that-must-not-publish",
-    GITHUB_REF_NAME: "v0.1.0"
+    ...releaseTagEnv("v0.1.0")
   });
 
   assert.notEqual(result.status, 0);
@@ -72,7 +72,7 @@ test("GitHub release script rejects control-bearing env before artifact or gh wo
 
 test("GitHub release script rejects malformed repositories before artifact or gh work", () => {
   const result = runScript("scripts/create-github-release.mjs", {
-    GITHUB_REF_NAME: "v0.1.0",
+    ...releaseTagEnv("v0.1.0"),
     GITHUB_REPOSITORY: "not/a/repo/name",
     GH_TOKEN: "token-that-must-not-be-used"
   });
@@ -81,6 +81,34 @@ test("GitHub release script rejects malformed repositories before artifact or gh
   assert.equal(result.stdout, "");
   assert.match(result.stderr, /GitHub Release creation failed:\n- GITHUB_REPOSITORY must be an exact owner\/name repository\./);
   assert.doesNotMatch(result.stderr, /not\/a\/repo|release artifact directory|gh:|token-that-must-not-be-used|Error:/);
+});
+
+test("GitHub release script rejects branch refs before artifact or gh work", () => {
+  const result = runScript("scripts/create-github-release.mjs", {
+    ...releaseTagEnv("v0.1.0"),
+    GITHUB_REF_TYPE: "branch",
+    GITHUB_REF: "refs/heads/v0.1.0",
+    GITHUB_REPOSITORY: "VictorHaine/p2p-transfer",
+    GH_TOKEN: "token-that-must-not-be-used"
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.equal(result.stdout, "");
+  assert.match(result.stderr, /GitHub Release creation failed:\n- release workflow ref must be the matching tag ref\./);
+  assert.doesNotMatch(result.stderr, /refs\/heads|release artifact directory|gh:|token-that-must-not-be-used|Error:/);
+});
+
+test("release publish script rejects branch refs before artifact work", () => {
+  const result = runScript("scripts/publish-release-artifact.mjs", {
+    ...releaseTagEnv("v0.1.0"),
+    GITHUB_REF_TYPE: "branch",
+    GITHUB_REF: "refs/heads/v0.1.0"
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.equal(result.stdout, "");
+  assert.match(result.stderr, /Release publish failed:\n- release workflow ref must be the matching tag ref\./);
+  assert.doesNotMatch(result.stderr, /refs\/heads|release artifact directory|pnpm publish|Error:/);
 });
 
 test("npm bootstrap script rejects unsupported arguments before token or publish work", () => {
@@ -493,4 +521,8 @@ function runScriptWithNodeArgs(script: string, env: Record<string, string>, args
     },
     timeout: 10_000
   });
+}
+
+function releaseTagEnv(tag: string): Record<string, string> {
+  return { GITHUB_REF_NAME: tag, GITHUB_REF_TYPE: "tag", GITHUB_REF: `refs/tags/${tag}` };
 }

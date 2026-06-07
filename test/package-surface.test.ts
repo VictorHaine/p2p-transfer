@@ -515,6 +515,8 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseTagScript, /Object\.getOwnPropertyDescriptor\(process\.env, name\)/);
   assert.match(releaseTagScript, /\/\[\\p\{Cc\}\\p\{Cf\}\]\/u\.test\(descriptor\.value\)/);
   assert.match(releaseTagScript, /\$\{name\} must be a non-empty control-free string under \$\{MAX_RELEASE_ENV_VALUE_BYTES\} UTF-8 bytes\./);
+  assert.match(releaseTagScript, /envString\("GITHUB_REF_TYPE"\) !== "tag"/);
+  assert.match(releaseTagScript, /envString\("GITHUB_REF"\) !== `refs\/tags\/\$\{tag\}`/);
   assert.match(releaseTagScript, /release tag does not match package version\./);
   assert.doesNotMatch(releaseTagScript, /process\.env\.GITHUB_REF_NAME|readFile\(file, "utf8"\)|String\(error\)|error\.stack|release tag \$\{value\} does not match/);
   assert.match(securityPolicy, /release tag commit must exactly match protected `main` before release artifact packaging, attestation, npm publish, or GitHub Release creation/);
@@ -761,6 +763,8 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releasePublishScript, /STATIC_NPM_TOKEN_ENV = \["NODE_AUTH_TOKEN", "NPM_TOKEN"\]/);
   assert.match(releasePublishScript, /ACTIONS_ID_TOKEN_REQUEST_TOKEN/);
   assert.match(releasePublishScript, /GITHUB_ACTIONS must be true for trusted publishing/);
+  assert.match(releasePublishScript, /requiredEnvString\("GITHUB_REF_TYPE"\) !== "tag"/);
+  assert.match(releasePublishScript, /requiredEnvString\("GITHUB_REF"\) !== `refs\/tags\/\$\{tag\}`/);
   assert.match(releasePublishScript, /\/\[\\p\{Cc\}\\p\{Cf\}\]\/u\.test\(value\)/);
   assert.match(releasePublishScript, /\$\{name\} must be a non-empty control-free environment value under \$\{MAX_ENV_VALUE_BYTES\} UTF-8 bytes\./);
   assert.match(releasePublishScript, /isolatedChildEnv\(privateHome\)/);
@@ -779,6 +783,9 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(securityPolicy, /GitHub Release job must run only after npm publishing succeeds, re-verify the downloaded tarball and SBOM through `scripts\/create-github-release\.mjs`, generate version-scoped release notes from the checked changelog/);
   assert.match(releaseWorkflow, /github-release:[\s\S]*needs:\n      - publish[\s\S]*permissions:\n      contents: write[\s\S]*node scripts\/create-github-release\.mjs/);
   assert.match(githubReleaseScript, /requiredReleaseTag\(requiredEnvString\("GITHUB_REF_NAME"\)\)/);
+  assert.match(githubReleaseScript, /requiredEnvString\("GITHUB_REF_TYPE"\) !== "tag"/);
+  assert.match(githubReleaseScript, /requiredEnvString\("GITHUB_REF"\) !== `refs\/tags\/\$\{tag\}`/);
+  assert.match(githubReleaseScript, /"release",\s+"create",\s+tag[\s\S]*"--verify-tag"/);
   assert.match(githubReleaseScript, /requiredRepository\(requiredEnvString\("GITHUB_REPOSITORY"\)\)/);
   assert.match(githubReleaseScript, /\/\[\\p\{Cc\}\\p\{Cf\}\]\/u\.test\(value\)/);
   assert.match(githubReleaseScript, /\$\{name\} must be a non-empty control-free environment value under \$\{MAX_ENV_VALUE_BYTES\} UTF-8 bytes\./);

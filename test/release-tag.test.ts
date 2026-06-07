@@ -21,7 +21,7 @@ test("release tag verifier accepts the exact package version tag", async () => {
   try {
     const result = spawnSync(process.execPath, [script], {
       encoding: "utf8",
-      env: { ...process.env, GITHUB_REF_NAME: "v1.2.3" }
+      env: releaseTagEnv("v1.2.3")
     });
     assert.equal(result.status, 0);
     assert.equal(result.stdout, "");
@@ -36,7 +36,7 @@ test("release tag verifier rejects mismatches without echoing tag or package evi
   try {
     const result = spawnSync(process.execPath, [script], {
       encoding: "utf8",
-      env: { ...process.env, GITHUB_REF_NAME: "v9.9.9" }
+      env: releaseTagEnv("v9.9.9")
     });
     assert.equal(result.status, 1);
     assert.equal(result.stdout, "");
@@ -52,7 +52,7 @@ test("release tag verifier byte-caps release tag environment values", async () =
   try {
     const result = spawnSync(process.execPath, [script], {
       encoding: "utf8",
-      env: { ...process.env, GITHUB_REF_NAME: `${"v".repeat(257)}` }
+      env: releaseTagEnv(`${"v".repeat(257)}`)
     });
     assert.equal(result.status, 1);
     assert.equal(result.stdout, "");
@@ -68,7 +68,7 @@ test("release tag verifier rejects control-bearing release tag environment value
   try {
     const result = spawnSync(process.execPath, [script], {
       encoding: "utf8",
-      env: { ...process.env, GITHUB_REF_NAME: "v1.2.3\nwith-control" }
+      env: releaseTagEnv("v1.2.3\nwith-control")
     });
     assert.equal(result.status, 1);
     assert.equal(result.stdout, "");
@@ -79,12 +79,28 @@ test("release tag verifier rejects control-bearing release tag environment value
   }
 });
 
+test("release tag verifier rejects branch refs even when the ref name looks like a tag", async () => {
+  const { root, script } = await createFixture();
+  try {
+    const result = spawnSync(process.execPath, [script], {
+      encoding: "utf8",
+      env: { ...releaseTagEnv("v1.2.3"), GITHUB_REF_TYPE: "branch", GITHUB_REF: "refs/heads/v1.2.3" }
+    });
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Release tag verification failed:\n- release workflow ref must be the matching tag ref\./);
+    assert.doesNotMatch(result.stderr, /refs\/heads|ff-release-tag-|at async/);
+  } finally {
+    await fs.rm(root, { force: true, recursive: true });
+  }
+});
+
 test("release tag verifier owns invalid package JSON failures", async () => {
   const { root, script } = await createFixture("{bad package evidence}\n");
   try {
     const result = spawnSync(process.execPath, [script], {
       encoding: "utf8",
-      env: { ...process.env, GITHUB_REF_NAME: "v1.2.3" }
+      env: releaseTagEnv("v1.2.3")
     });
     assert.equal(result.status, 1);
     assert.equal(result.stdout, "");
@@ -94,3 +110,7 @@ test("release tag verifier owns invalid package JSON failures", async () => {
     await fs.rm(root, { force: true, recursive: true });
   }
 });
+
+function releaseTagEnv(tag: string): NodeJS.ProcessEnv {
+  return { ...process.env, GITHUB_REF_NAME: tag, GITHUB_REF_TYPE: "tag", GITHUB_REF: `refs/tags/${tag}` };
+}

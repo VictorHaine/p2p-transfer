@@ -16,7 +16,9 @@ const REQUIRED_PUBLISH_ENV = [
   "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
   "ACTIONS_ID_TOKEN_REQUEST_URL",
   "GITHUB_ACTIONS",
+  "GITHUB_REF",
   "GITHUB_REF_NAME",
+  "GITHUB_REF_TYPE",
   "GITHUB_REPOSITORY",
   "GITHUB_RUN_ID",
   "GITHUB_SHA"
@@ -35,10 +37,12 @@ if (isMain()) {
 
 async function main() {
   rejectStaticNpmTokens();
+  const tag = requiredReleaseTag(requiredEnvString("GITHUB_REF_NAME"));
+  assertReleaseTagRef(tag);
   const tmp = await mkdtemp(path.join(tmpdir(), "ff-release-publish-"));
   try {
     const childEnv = await privateChildEnv(path.join(tmp, "home"));
-    const tarball = await verifiedTarballPath({ ...childEnv, GITHUB_REF_NAME: requiredEnvString("GITHUB_REF_NAME") });
+    const tarball = await verifiedTarballPath({ ...childEnv, GITHUB_REF_NAME: tag });
     await run(process.execPath, ["scripts/smoke-packed.mjs"], {
       env: { ...childEnv, PACKED_SMOKE_TARBALL: tarball },
       timeoutMs: CHILD_TIMEOUT_MS
@@ -89,6 +93,19 @@ function requiredPublishEnv() {
   for (const name of REQUIRED_PUBLISH_ENV) out[name] = requiredEnvString(name);
   if (out.GITHUB_ACTIONS !== "true") throw new Error("GITHUB_ACTIONS must be true for trusted publishing.");
   return out;
+}
+
+function requiredReleaseTag(value) {
+  if (!/^v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/.test(value)) {
+    throw new Error("GITHUB_REF_NAME must be an exact release tag.");
+  }
+  return value;
+}
+
+function assertReleaseTagRef(tag) {
+  if (requiredEnvString("GITHUB_REF_TYPE") !== "tag" || requiredEnvString("GITHUB_REF") !== `refs/tags/${tag}`) {
+    throw new Error("release workflow ref must be the matching tag ref.");
+  }
 }
 
 function rejectStaticNpmTokens() {

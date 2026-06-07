@@ -27,6 +27,7 @@ if (isMain()) {
 
 async function main() {
   const tag = requiredReleaseTag(requiredEnvString("GITHUB_REF_NAME"));
+  assertReleaseTagRef(tag);
   const repository = requiredRepository(requiredEnvString("GITHUB_REPOSITORY"));
   const tmp = await mkdtemp(path.join(tmpdir(), "ff-github-release-"));
   try {
@@ -48,6 +49,7 @@ async function main() {
         "release-artifacts/SBOM.cdx.json",
         "--title",
         tag,
+        "--verify-tag",
         "--notes-file",
         "release-artifacts/RELEASE_NOTES.md",
         "--repo",
@@ -115,6 +117,12 @@ function requiredReleaseTag(value) {
     throw new Error("GITHUB_REF_NAME must be an exact release tag.");
   }
   return value;
+}
+
+function assertReleaseTagRef(tag) {
+  if (requiredEnvString("GITHUB_REF_TYPE") !== "tag" || requiredEnvString("GITHUB_REF") !== `refs/tags/${tag}`) {
+    throw new Error("release workflow ref must be the matching tag ref.");
+  }
 }
 
 function requiredRepository(value) {

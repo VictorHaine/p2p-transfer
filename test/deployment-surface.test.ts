@@ -222,6 +222,8 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releaseTagScript, /await open\(file, constants\.O_RDONLY \| \(constants\.O_NOFOLLOW \?\? 0\)\)/);
   assert.match(releaseTagScript, /Object\.getOwnPropertyDescriptor\(process\.env, name\)/);
   assert.match(releaseTagScript, /\$\{name\} must be a non-empty control-free string under \$\{MAX_RELEASE_ENV_VALUE_BYTES\} UTF-8 bytes\./);
+  assert.match(releaseTagScript, /envString\("GITHUB_REF_TYPE"\) !== "tag"/);
+  assert.match(releaseTagScript, /envString\("GITHUB_REF"\) !== `refs\/tags\/\$\{tag\}`/);
   assert.match(releaseTagScript, /release tag does not match package version\./);
   assert.match(securityPolicy, /release tag commit must exactly match protected `main` before release artifact packaging, attestation, npm publish, or GitHub Release creation/);
   assert.match(releaseWorkflow, /fetch-depth: 0/);
@@ -348,6 +350,7 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releasePublishScript, /\["publish", tarball, "--provenance", "--access", "public", "--ignore-scripts"\]/);
   assert.match(releaseWorkflow, /github-release:[\s\S]*needs:\n      - publish[\s\S]*permissions:\n      contents: write[\s\S]*node scripts\/create-github-release\.mjs/);
   assert.match(githubReleaseScript, /requiredReleaseTag\(requiredEnvString\("GITHUB_REF_NAME"\)\)/);
+  assert.match(githubReleaseScript, /"release",\s+"create",\s+tag[\s\S]*"--verify-tag"/);
   assert.match(githubReleaseScript, /requiredRepository\(requiredEnvString\("GITHUB_REPOSITORY"\)\)/);
   assert.match(githubReleaseScript, /\["scripts\/write-release-notes\.mjs"\]/);
   assert.match(githubReleaseScript, /\[\s+"release",\s+"create",\s+tag,\s+tarball,\s+"release-artifacts\/SHA256SUMS",\s+"release-artifacts\/SBOM\.cdx\.json"[\s\S]*"--notes-file",\s+"release-artifacts\/RELEASE_NOTES\.md"[\s\S]*"--repo",\s+repository/s);
@@ -776,7 +779,7 @@ test("documented release gates require a hardened Docker runtime smoke, not just
   assert.match(securityPolicy, /packed-install smoke that verifier-emitted downloaded tarball path/);
   assert.match(securityPolicy, /pass the verifier-emitted tarball path to packed smoke and `pnpm publish` instead of rediscovering the artifact with `find` or a shell glob after verification/);
   assert.match(securityPolicy, /The release workflow must not support manual dispatch/);
-  assert.match(securityPolicy, /release artifacts, npm publishes, and GitHub Releases must only be produced from `v\*` tags that match `package\.json` version/);
+  assert.match(securityPolicy, /release artifacts, npm publishes, and GitHub Releases must only be produced from `v\*` tag refs that match `package\.json` version/);
   assert.match(securityPolicy, /package-surface tests must run after the release build/);
   assert.match(securityPolicy, /checked release-artifact verifier/);
   assert.match(securityPolicy, /publish that resolved tarball path with `--ignore-scripts`/);
