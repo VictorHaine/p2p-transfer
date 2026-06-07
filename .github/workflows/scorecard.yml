@@ -20,6 +20,7 @@ jobs:
   analyze:
     name: analyze
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a # v2.4.3
         with:

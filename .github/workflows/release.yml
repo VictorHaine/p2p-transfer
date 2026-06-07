@@ -16,6 +16,7 @@ jobs:
   verify:
     name: release verification
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -73,6 +74,7 @@ jobs:
   docker:
     name: release docker policy
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     needs:
       - verify
     steps:
@@ -92,6 +94,7 @@ jobs:
   platform-smoke:
     name: platform smoke / ${{ matrix.os }} / node ${{ matrix.node }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -131,6 +134,7 @@ jobs:
   attest:
     name: attest release artifact
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     needs:
       - verify
     permissions:
@@ -158,6 +162,7 @@ jobs:
   publish:
     name: publish npm package
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     needs:
       - verify
       - attest
@@ -189,6 +194,7 @@ jobs:
   github-release:
     name: create GitHub release
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     needs:
       - publish
     permissions:

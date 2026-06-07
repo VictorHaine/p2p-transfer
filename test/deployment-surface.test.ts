@@ -187,6 +187,7 @@ test("CI and release workflows keep minimal token permissions", () => {
   for (const workflow of [ciWorkflow, releaseWorkflow, codeqlWorkflow, scorecardWorkflow, dependencyReviewWorkflow]) {
     assert.doesNotMatch(workflow, /pull_request_target|workflow_run/);
     assert.doesNotMatch(workflow, /runs-on:\s*[a-z]+-latest|-\s+[a-z]+-latest/);
+    assertEveryWorkflowJobHasTimeout(workflow);
   }
 
   for (const workflow of [ciWorkflow, releaseWorkflow]) {
@@ -238,6 +239,7 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(securityPolicy, /release main reachability checks must signal timed-out Git subprocesses, arm a bounded `SIGKILL` fallback, and reject only after the child exits/);
   assert.match(releaseWorkflow, /Release controls preflight[\s\S]*GITHUB_TOKEN: \$\{\{ github\.token \}\}[\s\S]*run: pnpm release:preflight[\s\S]*Install/);
   const ciVerifyJob = workflowJob(ciWorkflow, "verify");
+  const ciBrowserInteropJob = workflowJob(ciWorkflow, "browser-interop");
   const ciPlatformSmokeJob = workflowJob(ciWorkflow, "platform-smoke");
   const ciDockerJob = workflowJob(ciWorkflow, "docker");
   const releasePlatformSmokeJob = workflowJob(releaseWorkflow, "platform-smoke");
@@ -247,6 +249,11 @@ test("CI and release workflows keep minimal token permissions", () => {
     assert.match(releaseWorkflow, new RegExp(escapeRegExp(runner)));
   }
   assert.match(ciVerifyJob, /pnpm check:install-state[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native/);
+  assert.match(ciVerifyJob, /timeout-minutes: 20/);
+  assert.match(ciBrowserInteropJob, /timeout-minutes: 45/);
+  assert.match(ciPlatformSmokeJob, /timeout-minutes: 25/);
+  assert.match(ciDockerJob, /timeout-minutes: 30/);
+  assert.match(securityPolicy, /every CI and release workflow job must set an explicit `timeout-minutes` bound/);
   assert.doesNotMatch(ciVerifyJob, /pnpm test:unit[\s\S]*pnpm build[\s\S]*pnpm smoke:native/);
   assert.match(ciPlatformSmokeJob, /pnpm check:install-state[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed/);
   assert.doesNotMatch(ciPlatformSmokeJob, /pnpm test:unit[\s\S]*pnpm build[\s\S]*pnpm smoke:native/);
@@ -290,6 +297,12 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.doesNotMatch(ciWorkflow, /fetch\('http:\/\/127\.0\.0\.1:8787|body\.includes\('ff transfer'\)/);
   assert.doesNotMatch(ciWorkflow, /ALLOW_ANY_ORIGIN/);
   const releaseVerifyJob = workflowJob(releaseWorkflow, "verify");
+  assert.match(releaseVerifyJob, /timeout-minutes: 60/);
+  assert.match(releasePlatformSmokeJob, /timeout-minutes: 25/);
+  assert.match(releaseDockerJob, /timeout-minutes: 30/);
+  assert.match(workflowJob(releaseWorkflow, "attest"), /timeout-minutes: 10/);
+  assert.match(workflowJob(releaseWorkflow, "publish"), /timeout-minutes: 20/);
+  assert.match(workflowJob(releaseWorkflow, "github-release"), /timeout-minutes: 10/);
   assert.match(releaseVerifyJob, /pnpm check:install-state[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed[\s\S]*pnpm test:e2e[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures/);
   assert.doesNotMatch(releaseVerifyJob, /pnpm test:unit[\s\S]*pnpm build[\s\S]*pnpm smoke:native/);
   assert.match(securityPolicy, /release workflow artifact packaging must use `scripts\/smoke-release-artifact\.mjs --keep-artifacts`/);
@@ -550,11 +563,13 @@ test("security-sensitive surfaces require code owner review", () => {
 
 test("CodeQL code scanning is pinned and least-privilege", () => {
   assert.match(securityPolicy, /CodeQL code scanning must run from a pinned workflow on pull requests, pushes to `main`, and a weekly schedule/);
+  assert.match(securityPolicy, /CodeQL code scanning must[\s\S]*with only `contents: read` and `security-events: write` permissions and an explicit job timeout/);
   assert.match(readme, /\.github\/workflows\/codeql\.yml` runs pinned CodeQL analysis/);
   assert.match(codeqlWorkflow, /^name: codeql$/m);
   assert.match(codeqlWorkflow, /^on:\n  pull_request:\n  push:\n    branches:\n      - main\n  schedule:\n    - cron: "17 3 \* \* 2"$/m);
   assert.match(codeqlWorkflow, /^permissions:\n  contents: read\n  security-events: write$/m);
   assert.match(codeqlWorkflow, /^concurrency:\n  group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}\n  cancel-in-progress: true$/m);
+  assert.match(workflowJob(codeqlWorkflow, "analyze"), /timeout-minutes: 20/);
   assert.match(codeqlWorkflow, /uses: actions\/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4\.2\.2[\s\S]*persist-credentials: false/);
   assert.match(codeqlWorkflow, /uses: github\/codeql-action\/init@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4\.36\.2[\s\S]*languages: javascript-typescript/);
   assert.match(codeqlWorkflow, /uses: github\/codeql-action\/analyze@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4\.36\.2[\s\S]*category: "\/language:javascript-typescript"/);
@@ -563,23 +578,26 @@ test("CodeQL code scanning is pinned and least-privilege", () => {
 
 test("OpenSSF Scorecard scanning is pinned and uploads SARIF", () => {
   assert.match(securityPolicy, /OpenSSF Scorecard must run from a pinned workflow on pushes to `main` and a weekly schedule/);
+  assert.match(securityPolicy, /OpenSSF Scorecard must[\s\S]*set an explicit job timeout/);
   assert.match(readme, /\.github\/workflows\/scorecard\.yml` runs the pinned Scorecard action/);
   assert.match(scorecardWorkflow, /^name: scorecard$/m);
   assert.match(scorecardWorkflow, /^on:\n  push:\n    branches:\n      - main\n  schedule:\n    - cron: "29 4 \* \* 3"$/m);
   assert.match(scorecardWorkflow, /^permissions:\n  contents: read\n  security-events: write\n  id-token: write$/m);
   assert.match(scorecardWorkflow, /^concurrency:\n  group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}\n  cancel-in-progress: true$/m);
+  assert.match(workflowJob(scorecardWorkflow, "analyze"), /timeout-minutes: 15/);
   assert.match(scorecardWorkflow, /uses: ossf\/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a # v2\.4\.3[\s\S]*results_file: scorecard-results\.sarif[\s\S]*results_format: sarif[\s\S]*publish_results: true/);
   assert.match(scorecardWorkflow, /uses: github\/codeql-action\/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4\.36\.2[\s\S]*sarif_file: scorecard-results\.sarif/);
   assert.doesNotMatch(scorecardWorkflow, /contents:\s*write|pull-requests:\s*write|actions:\s*write|packages:\s*write/);
 });
 
 test("dependency review blocks vulnerable dependency introductions", () => {
-  assert.match(securityPolicy, /GitHub dependency review must run from a pinned workflow on pull requests with read-only permissions and fail on vulnerable runtime or development dependency changes at low severity or higher/);
+  assert.match(securityPolicy, /GitHub dependency review must run from a pinned workflow on pull requests with read-only permissions, an explicit job timeout, and fail on vulnerable runtime or development dependency changes at low severity or higher/);
   assert.match(readme, /\.github\/workflows\/dependency-review\.yml` runs the pinned GitHub dependency review action on pull requests/);
   assert.match(dependencyReviewWorkflow, /^name: dependency-review$/m);
   assert.match(dependencyReviewWorkflow, /^on:\n  pull_request:$/m);
   assert.match(dependencyReviewWorkflow, /^permissions:\n  contents: read$/m);
   assert.match(dependencyReviewWorkflow, /^concurrency:\n  group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}\n  cancel-in-progress: true$/m);
+  assert.match(workflowJob(dependencyReviewWorkflow, "dependency-review"), /timeout-minutes: 10/);
   assert.match(dependencyReviewWorkflow, /uses: actions\/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4\.2\.2[\s\S]*persist-credentials: false/);
   assert.match(dependencyReviewWorkflow, /uses: actions\/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5\.0\.0[\s\S]*vulnerability-check: true[\s\S]*license-check: false[\s\S]*fail-on-severity: low[\s\S]*fail-on-scopes: runtime, development[\s\S]*comment-summary-in-pr: never[\s\S]*show-patched-versions: true/);
   assert.doesNotMatch(dependencyReviewWorkflow, /pull_request_target|workflow_run|contents:\s*write|pull-requests:\s*write|id-token:\s*write|actions:\s*write|packages:\s*write/);
@@ -923,4 +941,19 @@ function workflowJob(workflow: string, job: string): string {
   const rest = workflow.slice(start + 1);
   const next = rest.search(/\n  [a-z][a-z0-9-]*:\n/);
   return next === -1 ? rest : rest.slice(0, next);
+}
+
+function assertEveryWorkflowJobHasTimeout(workflow: string): void {
+  const jobsStart = workflow.indexOf("\njobs:\n");
+  assert.notEqual(jobsStart, -1, "workflow must contain jobs");
+  const jobsDocument = workflow.slice(jobsStart);
+  const jobs = Array.from(jobsDocument.matchAll(/\n  ([a-z][a-z0-9-]*):\n/g), (match) => {
+    const job = match[1];
+    if (typeof job !== "string") throw new Error("workflow job capture failed");
+    return job;
+  });
+  assert.notEqual(jobs.length, 0, "workflow must contain jobs");
+  for (const job of jobs) {
+    assert.match(workflowJob(workflow, job), /\n    timeout-minutes: [1-9][0-9]?\n/, `${job} must set timeout-minutes`);
+  }
 }
