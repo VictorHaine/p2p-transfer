@@ -749,11 +749,14 @@ test("README reports implemented release capabilities without stale MVP-gap lang
 test("interop tests run the signaling server behind an explicit origin policy", () => {
   const e2eTest = fs.readFileSync(new URL("../test/e2e/cli-transfer.test.ts", import.meta.url), "utf8");
   const browserTest = fs.readFileSync(new URL("../test/browser/browser-cli-send.test.ts", import.meta.url), "utf8");
-  assert.match(readme, /browser sender to CLI receiver, CLI sender to browser download receiver, CLI sender to browser folder-only receiver, and browser folder resume after a failed partial write/);
+  assert.match(readme, /browser sender to CLI receiver, CLI sender to browser download receiver, CLI sender to browser folder-only receiver, browser resume-key replacement, and browser folder restart after a corrupted saved partial/);
   assert.match(browserTest, /CLI sender interoperates with browser folder-only receiver/);
-  assert.match(browserTest, /browser folder receiver resumes after a failed partial write/);
+  assert.match(browserTest, /browser folder receiver restarts after a corrupted saved partial/);
   assert.match(browserTest, /installFolderPickerMock\(page\)/);
   assert.match(browserTest, /setFolderMockFailure\(page, 1\)/);
+  assert.match(browserTest, /corruptFolderPartFile\(page, partial\.partFiles\[0\]!\)/);
+  assert.match(browserTest, /operation === `createWritable:\$\{partial\.partFiles\[0\]\}:reset`/);
+  assert.match(browserTest, /operation\.startsWith\(`write:\$\{partial\.partFiles\[0\]\}:0:`\)/);
   assert.match(browserTest, /waitForNewCode\(page, firstCode!\)/);
   assert.match(browserTest, /#folderOnly/);
   assert.match(browserTest, /#folderButton/);

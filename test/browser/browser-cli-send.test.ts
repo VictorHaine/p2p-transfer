@@ -159,7 +159,7 @@ test("CLI sender interoperates with browser folder-only receiver", { skip: chrom
   }
 });
 
-test("browser folder receiver resumes after a failed partial write", { skip: chromiumPath ? false : "No Chromium executable found" }, async () => {
+test("browser folder receiver restarts after a corrupted saved partial", { skip: chromiumPath ? false : "No Chromium executable found" }, async () => {
   const root = process.cwd();
   const port = 23_000 + randomInt(1_000);
   const origin = `http://127.0.0.1:${port}`;
@@ -200,6 +200,7 @@ test("browser folder receiver resumes after a failed partial write", { skip: chr
     const partial = await folderPickerSnapshot(page);
     assert.equal(partial.partFiles.length, 1);
     assert.ok(partial.byteLengths[partial.partFiles[0]!]! > 0);
+    await corruptFolderPartFile(page, partial.partFiles[0]!);
 
     await setFolderMockFailure(page, null);
     await page.locator("#receiveButton").click();
@@ -222,6 +223,12 @@ test("browser folder receiver resumes after a failed partial write", { skip: chr
     assert.equal(entries[0]![1], payload);
     assert.deepEqual(folder.partFiles, []);
     assert.equal(folder.removed.some((name) => name === partial.partFiles[0]), true);
+    const corruptIndex = folder.operations.indexOf(`corrupt:${partial.partFiles[0]}`);
+    const restartIndex = folder.operations.findIndex((operation, index) => index > corruptIndex && operation === `createWritable:${partial.partFiles[0]}:reset`);
+    const rewriteIndex = folder.operations.findIndex((operation, index) => index > restartIndex && operation.startsWith(`write:${partial.partFiles[0]}:0:`));
+    assert.notEqual(corruptIndex, -1);
+    assert.notEqual(restartIndex, -1);
+    assert.notEqual(rewriteIndex, -1);
   } finally {
     await browser?.close();
     server.kill();
@@ -300,6 +307,7 @@ async function installFolderPickerMock(page: Page): Promise<void> {
 (() => {
     const files = new Map();
     const removed = [];
+    const operations = [];
     let pickerCalls = 0;
     let failAfterPartBytes = null;
 
@@ -316,6 +324,7 @@ async function installFolderPickerMock(page: Page): Promise<void> {
       }
 
       async createWritable(options) {
+        operations.push("createWritable:" + this.name + ":" + (options?.keepExistingData ? "keep" : "reset"));
         if (!options?.keepExistingData) files.set(this.name, new Uint8Array());
         let position = files.get(this.name)?.byteLength ?? 0;
         return {
@@ -323,6 +332,7 @@ async function installFolderPickerMock(page: Page): Promise<void> {
             if (value && typeof value === "object" && "type" in value) {
               const command = value;
               if (command.type === "truncate" && typeof command.size === "number") {
+                operations.push("truncate:" + this.name + ":" + command.size);
                 const current = files.get(this.name) ?? new Uint8Array();
                 const next = new Uint8Array(command.size);
                 next.set(current.subarray(0, Math.min(current.byteLength, command.size)));
@@ -331,11 +341,13 @@ async function installFolderPickerMock(page: Page): Promise<void> {
                 return;
               }
               if (command.type === "seek" && typeof command.position === "number") {
+                operations.push("seek:" + this.name + ":" + command.position);
                 position = command.position;
                 return;
               }
             }
             const source = value instanceof Uint8Array ? value : value instanceof ArrayBuffer ? new Uint8Array(value) : new Uint8Array(await value.arrayBuffer());
+            operations.push("write:" + this.name + ":" + position + ":" + source.byteLength);
             const current = files.get(this.name) ?? new Uint8Array();
             const next = new Uint8Array(Math.max(current.byteLength, position + source.byteLength));
             next.set(current);
@@ -386,11 +398,20 @@ async function installFolderPickerMock(page: Page): Promise<void> {
             byteLengths: Object.fromEntries(fileEntries.map(([name, bytes]) => [name, bytes.byteLength])),
             partFiles: fileEntries.map(([name]) => name).filter((name) => name.endsWith(".part")),
             removed: [...removed],
+            operations: [...operations],
             pickerCalls
           };
         },
         setFailAfterPartBytes: (bytes) => {
           failAfterPartBytes = bytes;
+        },
+        corruptPartFile: (name) => {
+          const current = files.get(name);
+          if (!current || !name.endsWith(".part") || current.byteLength < 1) throw new Error("mock partial is missing");
+          const next = new Uint8Array(current);
+          next[0] = next[0] ^ 0xff;
+          files.set(name, next);
+          operations.push("corrupt:" + name);
         }
       }
     });
@@ -399,7 +420,7 @@ async function installFolderPickerMock(page: Page): Promise<void> {
   });
 }
 
-type FolderSnapshot = { files: Record<string, string>; byteLengths: Record<string, number>; partFiles: string[]; removed: string[]; pickerCalls: number };
+type FolderSnapshot = { files: Record<string, string>; byteLengths: Record<string, number>; partFiles: string[]; removed: string[]; operations: string[]; pickerCalls: number };
 
 function folderPickerSnapshot(page: Page): Promise<FolderSnapshot> {
   return page.evaluate(() => (window as unknown as { __ffTestFs: { snapshot: () => FolderSnapshot } }).__ffTestFs.snapshot());
@@ -409,6 +430,12 @@ function setFolderMockFailure(page: Page, bytes: number | null): Promise<void> {
   return page.evaluate((value) => {
     (window as unknown as { __ffTestFs: { setFailAfterPartBytes: (bytes: number | null) => void } }).__ffTestFs.setFailAfterPartBytes(value);
   }, bytes);
+}
+
+function corruptFolderPartFile(page: Page, name: string): Promise<void> {
+  return page.evaluate((partName) => {
+    (window as unknown as { __ffTestFs: { corruptPartFile: (name: string) => void } }).__ffTestFs.corruptPartFile(partName);
+  }, name);
 }
 
 function folderPickerProbe(page: Page): Promise<{ hasMock: boolean; pickerType: string; hasGetFileHandle: boolean }> {

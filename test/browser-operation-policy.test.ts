@@ -269,6 +269,10 @@ test("browser receive resume is explicit and limited to saved opaque folder part
   assert.match(browserInteropTest, /hash: "SHA-1"/);
   assert.match(browserInteropTest, /browserResumeRegistry\(page\), null/);
   assert.match(browserInteropTest, /browserResumeLookupKeyAlgorithm\(page\), \{ name: "HMAC", hash: "SHA-256", length: 256 \}/);
+  assert.match(browserInteropTest, /browser folder receiver restarts after a corrupted saved partial/);
+  assert.match(browserInteropTest, /corruptFolderPartFile\(page, partial\.partFiles\[0\]!\)/);
+  assert.match(browserInteropTest, /operation === `createWritable:\$\{partial\.partFiles\[0\]\}:reset`/);
+  assert.match(browserInteropTest, /operation\.startsWith\(`write:\$\{partial\.partFiles\[0\]\}:0:`\)/);
   assert.match(webSource, /pruneBrowserResumeRegistry\(\);[\s\S]*const app = document\.querySelector/);
   assert.match(webSource, /function sanitizeBrowserResumeRegistry\(registry: Record<string, unknown>\): Record<string, unknown>/);
   assert.match(webSource, /if \(!BROWSER_RESUME_STORAGE_ENTRY_KEY\.test\(entryKey\)\) \{[\s\S]*changed = true;[\s\S]*continue;/);
