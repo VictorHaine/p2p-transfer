@@ -43,8 +43,8 @@ export async function smokeNativeWebRtc() {
 
 async function importNativeWebRtc() {
   try {
-    const mod = await import("@roamhq/wrtc");
-    return mod.default ?? mod;
+    const mod = await import("../dist-node/cli/native-webrtc.js");
+    return mod.nativeWebRtc();
   } catch {
     throw new Error("Native WebRTC package could not be loaded.");
   }

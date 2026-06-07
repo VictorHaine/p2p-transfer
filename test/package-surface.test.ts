@@ -217,12 +217,12 @@ test("package publishing config keeps provenance and reproducible dependency pin
 });
 
 test("native WebRTC smoke negotiates local session descriptions", () => {
-  assert.match(securityPolicy, /native WebRTC smoke must import `@roamhq\/wrtc` inside the controlled smoke path, instantiate PeerConnections, create a DataChannel, and complete local offer\/answer SDP negotiation/);
+  assert.match(securityPolicy, /native WebRTC smoke must load WebRTC through the built CLI `nativeWebRtc\(\)` guard, instantiate PeerConnections, create a DataChannel, and complete local offer\/answer SDP negotiation/);
   assert.match(nativeSmokeScript, /async function importNativeWebRtc\(\)/);
-  assert.match(nativeSmokeScript, /const mod = await import\("@roamhq\/wrtc"\)/);
-  assert.match(nativeSmokeScript, /return mod\.default \?\? mod/);
+  assert.match(nativeSmokeScript, /const mod = await import\("\.\.\/dist-node\/cli\/native-webrtc\.js"\)/);
+  assert.match(nativeSmokeScript, /return mod\.nativeWebRtc\(\)/);
   assert.match(nativeSmokeScript, /throw new Error\("Native WebRTC package could not be loaded\."\)/);
-  assert.doesNotMatch(nativeSmokeScript, /import wrtc from "@roamhq\/wrtc"/);
+  assert.doesNotMatch(nativeSmokeScript, /@roamhq\/wrtc|import wrtc from "@roamhq\/wrtc"/);
   assert.match(nativeSmokeScript, /requiredConstructor\(wrtc\.RTCPeerConnection, "RTCPeerConnection"\)/);
   assert.match(nativeSmokeScript, /requiredConstructor\(wrtc\.RTCDataChannel, "RTCDataChannel"\)/);
   assert.match(nativeSmokeScript, /requiredConstructor\(wrtc\.RTCIceCandidate, "RTCIceCandidate"\)/);
@@ -233,7 +233,7 @@ test("native WebRTC smoke negotiates local session descriptions", () => {
   assert.match(nativeSmokeScript, /assertDescription\(right\.remoteDescription, "offer", "right remote description"\)/);
   assert.match(nativeSmokeScript, /description\.sdp\.includes\("m=application"\)/);
   assert.match(nativeSmokeScript, /realpathSync\(process\.argv\[1\]\) === realpathSync\(fileURLToPath\(import\.meta\.url\)\)/);
-  assert.match(securityPolicy, /native WebRTC smoke must import `@roamhq\/wrtc` inside the controlled smoke path/);
+  assert.match(securityPolicy, /bypassed runtime attestation, or wrapper\/prebuilt mismatch cannot pass by import alone/);
   assert.doesNotMatch(packageJson.scripts?.["smoke:native"] ?? "", /node -e/);
 });
 
@@ -1082,7 +1082,7 @@ test("native WebRTC dependency identity and install surface stay reviewed", () =
   }
   assert.match(pnpmLock, new RegExp(`^  domexception@4\\.0\\.0:\\n    resolution: \\{integrity: ${escapeRegExp(reviewedDomexceptionIntegrity)}\\}`, "m"));
   assert.match(pnpmLock, new RegExp(`^  webidl-conversions@7\\.0\\.0:\\n    resolution: \\{integrity: ${escapeRegExp(reviewedWebidlConversionsIntegrity)}\\}`, "m"));
-  assert.match(nativeSmokeScript, /const mod = await import\("@roamhq\/wrtc"\)/);
+  assert.match(nativeSmokeScript, /const mod = await import\("\.\.\/dist-node\/cli\/native-webrtc\.js"\)/);
   assert.match(nativeSmokeScript, /requiredConstructor\(wrtc\.RTCPeerConnection, "RTCPeerConnection"\)/);
   assert.match(nativeSmokeScript, /requiredConstructor\(wrtc\.RTCDataChannel, "RTCDataChannel"\)/);
   assert.match(nativeSmokeScript, /requiredConstructor\(wrtc\.RTCIceCandidate, "RTCIceCandidate"\)/);

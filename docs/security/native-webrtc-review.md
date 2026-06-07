@@ -27,7 +27,7 @@ If it is compromised or if a platform prebuilt drifts, the CLI can load hostile 
 
 - Import surface used by this project: dynamic package root import `@roamhq/wrtc`, using the default export when present.
 - Runtime constructors required by the smoke gate: `RTCPeerConnection`, `RTCDataChannel`, and `RTCIceCandidate`.
-- Runtime behavior required by the smoke gate: instantiate two local peer connections, create an ordered DataChannel, complete local offer/answer SDP negotiation, and prove the SDP contains an application media section.
+- Runtime behavior required by the smoke gate: load WebRTC through the built CLI `nativeWebRtc()` guard, instantiate two local peer connections, create an ordered DataChannel, complete local offer/answer SDP negotiation, and prove the SDP contains an application media section.
 - Published files reviewed in installed metadata: `AUTHORS`, `CHANGELOG.md`, `lib`, and `types`.
 - Entrypoints reviewed in installed metadata: `main` is `lib/index.js`, `types` is `types/index.d.ts`, and `browser` is `lib/browser.js`.
 - Module metadata reviewed in installed metadata: `type`, `exports`, `sideEffects`, and direct `dependencies` are absent.
