@@ -414,6 +414,8 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(githubReleaseScript, /await readArtifactFile\("release-artifacts\/SBOM\.cdx\.json", MAX_SBOM_BYTES, "release SBOM"\)/);
   assert.match(githubReleaseScript, /assetNames\.filter\(\(name\) => name\.endsWith\("\.tgz"\)\)\.length !== 1/);
   assert.match(githubReleaseScript, /!assetNames\.includes\("SHA256SUMS"\) \|\| !assetNames\.includes\("SBOM\.cdx\.json"\)/);
+  assert.match(githubReleaseScript, /assertReleaseAssetChecksums\(assets\)/);
+  assert.match(githubReleaseScript, /function assertReleaseAssetChecksums\(assets\) \{[\s\S]*SHA256SUMS[\s\S]*SBOM\.cdx\.json[\s\S]*sha256Hex\(tarball\.bytes\)[\s\S]*sha256Hex\(sbom\.bytes\)/);
   assert.doesNotMatch(releaseWorkflow, /--notes-file CHANGELOG\.md/);
   assert.doesNotMatch(releaseWorkflow, /tgz="\$\(node scripts\/verify-release-artifact\.mjs --print-tarball\)"|printf 'tarball=%s\\n'|test -f "\$tgz"|PACKED_SMOKE_TARBALL="\$tgz" node scripts\/smoke-packed\.mjs|pnpm publish "\$tgz"|gh release create "\$GITHUB_REF_NAME"/);
   const publishJob = releaseWorkflow.slice(releaseWorkflow.indexOf("  publish:"));

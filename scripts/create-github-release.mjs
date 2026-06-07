@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { constants, realpathSync } from "node:fs";
 import { lstat, mkdir, mkdtemp, open, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -137,6 +138,7 @@ export async function createGitHubRelease(token, repository, tag, expectedSha, n
   if (new Set(assetNames).size !== assets.length || assetNames.filter((name) => name.endsWith(".tgz")).length !== 1 || !assetNames.includes("SHA256SUMS") || !assetNames.includes("SBOM.cdx.json")) {
     throw new Error("release assets are invalid.");
   }
+  assertReleaseAssetChecksums(assets);
 
   if ((await githubReleaseTagCommitSha(token, repository, tag)) !== expectedSha) throw new Error("GitHub tag ref does not match the release workflow commit.");
   const release = await github(token, "POST", `/repos/${repository}/releases`, {
@@ -156,6 +158,30 @@ export async function createGitHubRelease(token, repository, tag, expectedSha, n
     throw error;
   }
   await github(token, "PATCH", `/repos/${repository}/releases/${id}`, { draft: false });
+}
+
+function assertReleaseAssetChecksums(assets) {
+  const byName = new Map(assets.map((asset) => [asset.name, asset]));
+  const tarball = assets.find((asset) => asset.name.endsWith(".tgz"));
+  const checksums = byName.get("SHA256SUMS");
+  const sbom = byName.get("SBOM.cdx.json");
+  if (!tarball || !checksums || !sbom) throw new Error("release assets are invalid.");
+
+  let text;
+  try {
+    text = UTF8.decode(checksums.bytes);
+  } catch {
+    throw new Error("release asset checksums are invalid.");
+  }
+  const match = /^([a-f0-9]{64})  ([A-Za-z0-9._-]+\.tgz)\n([a-f0-9]{64})  (SBOM\.cdx\.json)\n$/.exec(text);
+  if (!match || match[2] !== tarball.name || match[4] !== sbom.name) throw new Error("release asset checksums are invalid.");
+  if (sha256Hex(tarball.bytes) !== match[1] || sha256Hex(sbom.bytes) !== match[3]) {
+    throw new Error("release asset checksums are invalid.");
+  }
+}
+
+function sha256Hex(bytes) {
+  return createHash("sha256").update(bytes).digest("hex");
 }
 
 async function githubReleaseTagCommitSha(token, repository, tag) {

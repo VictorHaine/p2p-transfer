@@ -943,6 +943,8 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(githubReleaseScript, /await readArtifactFile\("release-artifacts\/SBOM\.cdx\.json", MAX_SBOM_BYTES, "release SBOM"\)/);
   assert.match(githubReleaseScript, /assetNames\.filter\(\(name\) => name\.endsWith\("\.tgz"\)\)\.length !== 1/);
   assert.match(githubReleaseScript, /!assetNames\.includes\("SHA256SUMS"\) \|\| !assetNames\.includes\("SBOM\.cdx\.json"\)/);
+  assert.match(githubReleaseScript, /assertReleaseAssetChecksums\(assets\)/);
+  assert.match(githubReleaseScript, /function assertReleaseAssetChecksums\(assets\) \{[\s\S]*SHA256SUMS[\s\S]*SBOM\.cdx\.json[\s\S]*sha256Hex\(tarball\.bytes\)[\s\S]*sha256Hex\(sbom\.bytes\)/);
   assert.match(githubReleaseScript, /timeoutError = new Error\("GitHub Release subprocess timed out\."\);\s*child\.kill\("SIGTERM"\);\s*killTimer = setTimeout\(\(\) => child\.kill\("SIGKILL"\), 5_000\);/s);
   assert.match(githubReleaseScript, /child\.on\("exit", \(code, signal\) => \{[\s\S]*if \(killTimer\) clearTimeout\(killTimer\);[\s\S]*if \(timeoutError\) \{[\s\S]*rejectOnce\(timeoutError\);[\s\S]*return;[\s\S]*\}/);
   assert.match(githubReleaseScript, /GitHub Release subprocess failed with \$\{childExitStatus\(code, signal\)\}\./);

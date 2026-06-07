@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import path from "node:path";
@@ -202,11 +203,10 @@ test("GitHub release API verifies the tag and uploads exact release assets", asy
       return json(500, {});
     };
 
-    await createGitHubRelease("token-that-must-not-be-printed", "VictorHaine/p2p-transfer", "v0.1.0", RELEASE_TEST_SHA, "scoped release notes", [
-      { name: "p2p-transfer-0.1.0.tgz", bytes: Buffer.from("tarball-bytes") },
-      { name: "SHA256SUMS", bytes: Buffer.from("checksum-bytes") },
-      { name: "SBOM.cdx.json", bytes: Buffer.from("{}") }
-    ]);
+    const assets = releaseAssets();
+    const checksumBody = assets.find((asset) => asset.name === "SHA256SUMS")?.bytes.toString("utf8");
+    assert.ok(checksumBody);
+    await createGitHubRelease("token-that-must-not-be-printed", "VictorHaine/p2p-transfer", "v0.1.0", RELEASE_TEST_SHA, "scoped release notes", assets);
 
     assert.deepEqual(requests.map((request) => `${request.method} ${request.url}`), [
       "GET https://api.github.com/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0",
@@ -218,7 +218,7 @@ test("GitHub release API verifies the tag and uploads exact release assets", asy
     ]);
     assert.deepEqual(uploads, [
       { name: "p2p-transfer-0.1.0.tgz", body: "tarball-bytes", type: "application/gzip" },
-      { name: "SHA256SUMS", body: "checksum-bytes", type: "text/plain; charset=utf-8" },
+      { name: "SHA256SUMS", body: checksumBody, type: "text/plain; charset=utf-8" },
       { name: "SBOM.cdx.json", body: "{}", type: "application/json" }
     ]);
     assert.doesNotMatch(JSON.stringify(requests), /token-that-must-not-be-printed/);
@@ -238,11 +238,7 @@ test("GitHub release API errors do not echo remote bodies or tokens", async () =
       });
 
     await assert.rejects(
-      createGitHubRelease("token-that-must-not-be-printed", "VictorHaine/p2p-transfer", "v0.1.0", RELEASE_TEST_SHA, "scoped release notes", [
-        { name: "p2p-transfer-0.1.0.tgz", bytes: Buffer.from("tarball-bytes") },
-        { name: "SHA256SUMS", bytes: Buffer.from("checksum-bytes") },
-        { name: "SBOM.cdx.json", bytes: Buffer.from("{}") }
-      ]),
+      createGitHubRelease("token-that-must-not-be-printed", "VictorHaine/p2p-transfer", "v0.1.0", RELEASE_TEST_SHA, "scoped release notes", releaseAssets()),
       (error) => {
         assert.ok(error instanceof Error);
         assert.equal(error.message, "GitHub API request failed with HTTP status 422.");
@@ -272,11 +268,7 @@ test("GitHub release API rejects tags that no longer point at the workflow commi
     };
 
     await assert.rejects(
-      createGitHubRelease("token-that-must-not-be-printed", "VictorHaine/p2p-transfer", "v0.1.0", RELEASE_TEST_SHA, "scoped release notes", [
-        { name: "p2p-transfer-0.1.0.tgz", bytes: Buffer.from("tarball-bytes") },
-        { name: "SHA256SUMS", bytes: Buffer.from("checksum-bytes") },
-        { name: "SBOM.cdx.json", bytes: Buffer.from("{}") }
-      ]),
+      createGitHubRelease("token-that-must-not-be-printed", "VictorHaine/p2p-transfer", "v0.1.0", RELEASE_TEST_SHA, "scoped release notes", releaseAssets()),
       /GitHub tag ref does not match the release workflow commit\./
     );
     assert.deepEqual(requests, ["GET https://api.github.com/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0"]);
@@ -302,6 +294,30 @@ test("GitHub release API rejects incomplete release asset sets before network", 
         { name: "SHA256SUMS", bytes: Buffer.from("checksum-bytes") }
       ]),
       /release assets are invalid\./
+    );
+    assert.equal(fetched, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("GitHub release API rejects checksum-mismatched release assets before network", async () => {
+  const { createGitHubRelease } = await import(`../scripts/create-github-release.mjs?release-checksums=${Date.now()}`);
+  const originalFetch = globalThis.fetch;
+  let fetched = false;
+  try {
+    globalThis.fetch = async () => {
+      fetched = true;
+      return new Response("{}", { status: 500 });
+    };
+    const assets = releaseAssets();
+    const mismatched = assets.map((asset) =>
+      asset.name === "p2p-transfer-0.1.0.tgz" ? { ...asset, bytes: Buffer.from("mutated-tarball-bytes") } : asset
+    );
+
+    await assert.rejects(
+      createGitHubRelease("token-that-must-not-be-printed", "VictorHaine/p2p-transfer", "v0.1.0", RELEASE_TEST_SHA, "scoped release notes", mismatched),
+      /release asset checksums are invalid\./
     );
     assert.equal(fetched, false);
   } finally {
@@ -335,11 +351,7 @@ test("GitHub release API deletes draft releases when asset upload fails", async 
     };
 
     await assert.rejects(
-      createGitHubRelease("token-that-must-not-be-printed", "VictorHaine/p2p-transfer", "v0.1.0", RELEASE_TEST_SHA, "scoped release notes", [
-        { name: "p2p-transfer-0.1.0.tgz", bytes: Buffer.from("tarball-bytes") },
-        { name: "SHA256SUMS", bytes: Buffer.from("checksum-bytes") },
-        { name: "SBOM.cdx.json", bytes: Buffer.from("{}") }
-      ]),
+      createGitHubRelease("token-that-must-not-be-printed", "VictorHaine/p2p-transfer", "v0.1.0", RELEASE_TEST_SHA, "scoped release notes", releaseAssets()),
       /GitHub API request failed with HTTP status 500\./
     );
     assert.deepEqual(requests, [
@@ -1201,4 +1213,21 @@ function runScriptWithNodeArgs(script: string, env: Record<string, string>, args
 
 function releaseTagEnv(tag: string): Record<string, string> {
   return { GITHUB_REF_NAME: tag, GITHUB_REF_TYPE: "tag", GITHUB_REF: `refs/tags/${tag}`, GITHUB_SHA: RELEASE_TEST_SHA };
+}
+
+function releaseAssets() {
+  const tarball = Buffer.from("tarball-bytes");
+  const sbom = Buffer.from("{}");
+  return [
+    { name: "p2p-transfer-0.1.0.tgz", bytes: tarball },
+    {
+      name: "SHA256SUMS",
+      bytes: Buffer.from(`${sha256Hex(tarball)}  p2p-transfer-0.1.0.tgz\n${sha256Hex(sbom)}  SBOM.cdx.json\n`)
+    },
+    { name: "SBOM.cdx.json", bytes: sbom }
+  ];
+}
+
+function sha256Hex(bytes: Buffer) {
+  return createHash("sha256").update(bytes).digest("hex");
 }
