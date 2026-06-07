@@ -84,8 +84,8 @@ function envString(name, required) {
     if (required) throw new Error(`${name} is required.`);
     return undefined;
   }
-  if (typeof descriptor.value !== "string" || descriptor.value.includes("\0") || utf8ByteLengthExceeds(descriptor.value, MAX_ENV_VALUE_BYTES)) {
-    throw new Error(`${name} must be a NUL-free string under ${MAX_ENV_VALUE_BYTES} UTF-8 bytes.`);
+  if (typeof descriptor.value !== "string" || /[\p{Cc}\p{Cf}]/u.test(descriptor.value) || utf8ByteLengthExceeds(descriptor.value, MAX_ENV_VALUE_BYTES)) {
+    throw new Error(`${name} must be a control-free string under ${MAX_ENV_VALUE_BYTES} UTF-8 bytes.`);
   }
   return descriptor.value;
 }

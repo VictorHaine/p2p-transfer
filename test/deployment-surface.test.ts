@@ -795,11 +795,13 @@ test("documented release gates require a hardened Docker runtime smoke, not just
 
 test("Docker HTTP probes are bounded and timeout protected", () => {
   assert.match(securityPolicy, /Docker image healthchecks must use the checked HTTP probe script instead of inline fetch snippets/);
-  assert.match(securityPolicy, /Docker runtime HTTP probes must use the checked probe script with a symlink-safe realpath entrypoint check, validated response byte caps, request environment byte caps, an abort deadline, disabled redirects, deterministic URL\/origin parse failures, probe-owned top-level failure reporting that does not echo raw probe URLs or stack traces, fatal UTF-8 response decoding, and fail-closed URL validation that rejects credential-bearing, query-bearing, or fragment-bearing probe URLs/);
+  assert.match(securityPolicy, /Docker runtime HTTP probes must use the checked probe script with a symlink-safe realpath entrypoint check, validated response byte caps, control-free request environment byte caps, an abort deadline, disabled redirects, deterministic URL\/origin parse failures, probe-owned top-level failure reporting that does not echo raw probe URLs or stack traces, fatal UTF-8 response decoding, and fail-closed URL validation that rejects credential-bearing, query-bearing, or fragment-bearing probe URLs/);
   assert.match(httpProbeScript, /const PROBE_TIMEOUT_MS = 10_000/);
   assert.match(httpProbeScript, /const MAX_RESPONSE_BYTES = 1_048_576/);
   assert.match(httpProbeScript, /const MAX_ENV_VALUE_BYTES = 2_048/);
   assert.match(httpProbeScript, /function utf8ByteLengthExceeds/);
+  assert.match(httpProbeScript, /\/\[\\p\{Cc\}\\p\{Cf\}\]\/u\.test\(descriptor\.value\)/);
+  assert.match(httpProbeScript, /\$\{name\} must be a control-free string under \$\{MAX_ENV_VALUE_BYTES\} UTF-8 bytes\./);
   assert.match(httpProbeScript, /utf8ByteLengthExceeds\(descriptor\.value, MAX_ENV_VALUE_BYTES\)/);
   assert.match(httpProbeScript, /realpathSync\(process\.argv\[1\]\) === realpathSync\(fileURLToPath\(import\.meta\.url\)\)/);
   assert.match(httpProbeScript, /const controller = new AbortController\(\)/);

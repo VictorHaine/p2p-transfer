@@ -36,7 +36,18 @@ test("HTTP probe bounds every environment value before field parsing", async () 
   });
 
   assert.notEqual(result.code, 0);
-  assert.match(result.stderr, /PROBE_STATUS must be a NUL-free string under 2048 UTF-8 bytes\./);
+  assert.match(result.stderr, /PROBE_STATUS must be a control-free string under 2048 UTF-8 bytes\./);
+});
+
+test("HTTP probe rejects control-bearing environment values before field parsing", async () => {
+  const result = await runProbe({
+    PROBE_URL: "http://127.0.0.1:1/healthz",
+    PROBE_STATUS: "200\nwith-control"
+  });
+
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr, /PROBE_STATUS must be a control-free string under 2048 UTF-8 bytes\./);
+  assert.doesNotMatch(result.stderr, /with-control|healthz|probe-http\.mjs\s*:/);
 });
 
 test("HTTP probe runtime failures do not echo raw probe URLs or stack traces", async () => {
