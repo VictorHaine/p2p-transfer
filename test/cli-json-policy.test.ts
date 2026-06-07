@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const cliSource = fs.readFileSync(new URL("../src/cli/index.ts", import.meta.url), "utf8");
 const distCliSource = fs.readFileSync(new URL("../dist-node/cli/index.js", import.meta.url), "utf8");
@@ -8,6 +12,7 @@ const cliFilesSource = fs.readFileSync(new URL("../src/cli/files.ts", import.met
 const distCliFilesSource = fs.readFileSync(new URL("../dist-node/cli/files.js", import.meta.url), "utf8");
 const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
 const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
+const cliEntrypoint = fileURLToPath(new URL("../dist-node/cli/index.js", import.meta.url));
 
 test("CLI json mode emits structured sanitized error events instead of plain stderr", () => {
   assert.match(cliSource, /return runWithExit\(\(\) => recv\(merged\), merged\)/);
@@ -40,6 +45,20 @@ test("CLI redacted output mode removes file metadata from JSON and progress even
     assert.match(redactedError, /Command failed\. Re-run without --redact-output for details\./);
     assert.doesNotMatch(redactedError, /safeErrorMessage|error|message|path|file|label|formatBytes/);
   }
+});
+
+test("CLI redacted JSON errors do not render local file metadata", () => {
+  const secretPath = path.join(os.tmpdir(), `ff-secret-${Date.now()}-private-name.txt`);
+  const result = spawnSync(process.execPath, [cliEntrypoint, "--json", "--redact-output", "send", "12345678-apple-anchor", secretPath], {
+    encoding: "utf8"
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.equal(result.stdout, "");
+  assert.doesNotMatch(result.stderr, /private-name|ff-secret|12345678-apple-anchor|apple-anchor/);
+  const event = JSON.parse(result.stderr.trim()) as { event?: unknown; message?: unknown };
+  assert.equal(event.event, "error");
+  assert.equal(event.message, "Command failed. Re-run without --redact-output for details.");
 });
 
 test("CLI exit handling does not truncate piped output with direct process.exit", () => {
@@ -141,6 +160,27 @@ test("CLI private receive-code inputs are not echoed back into local telemetry",
   assert.match(readme, /The warnings never include the code or paths/);
   assert.match(securityPolicy, /CLI environment-sourced codes must be documented as protection from argv and shell-history capture only/);
   assert.doesNotMatch(readme, /printf '%s(?:\\n%s\\n)?' '<code>'/);
+});
+
+test("CLI recv code-env errors do not echo supplied receive codes", async () => {
+  const tmp = await fs.promises.mkdtemp(path.join(os.tmpdir(), "ff-recv-code-env-"));
+  const outputFile = path.join(tmp, "not-a-directory");
+  await fs.promises.writeFile(outputFile, "");
+  try {
+    const result = spawnSync(process.execPath, [cliEntrypoint, "--json", "recv", "--code-env", "FF_PRIVATE_RECEIVE_CODE", "--out", outputFile], {
+      encoding: "utf8",
+      env: { ...process.env, FF_PRIVATE_RECEIVE_CODE: "12345678-apple-anchor" }
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.doesNotMatch(result.stderr, /12345678-apple-anchor|apple-anchor/);
+    const event = JSON.parse(result.stderr.trim()) as { event?: unknown; message?: unknown };
+    assert.equal(event.event, "error");
+    assert.equal(event.message, "EEXIST: file already exists, mkdir '[path]'");
+  } finally {
+    await fs.promises.rm(tmp, { force: true, recursive: true });
+  }
 });
 
 test("CLI path setup errors do not echo raw local paths", () => {
