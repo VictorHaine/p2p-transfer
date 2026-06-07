@@ -127,13 +127,13 @@ function requiredRepository(value) {
 function requiredEnvString(name) {
   const descriptor = Object.getOwnPropertyDescriptor(process.env, name);
   if (!descriptor || !("value" in descriptor) || !isSafeEnvValue(descriptor.value)) {
-    throw new Error(`${name} must be a non-empty NUL-free environment value under ${MAX_ENV_VALUE_BYTES} UTF-8 bytes.`);
+    throw new Error(`${name} must be a non-empty control-free environment value under ${MAX_ENV_VALUE_BYTES} UTF-8 bytes.`);
   }
   return descriptor.value;
 }
 
 function isSafeEnvValue(value) {
-  return typeof value === "string" && value.length > 0 && !value.includes("\0") && !utf8ByteLengthExceeds(value, MAX_ENV_VALUE_BYTES);
+  return typeof value === "string" && value.length > 0 && !/[\p{Cc}\p{Cf}]/u.test(value) && !utf8ByteLengthExceeds(value, MAX_ENV_VALUE_BYTES);
 }
 
 function utf8ByteLengthExceeds(value, limit) {

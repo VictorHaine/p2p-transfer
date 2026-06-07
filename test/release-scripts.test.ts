@@ -35,7 +35,7 @@ test("release publish script rejects static npm tokens before artifact work", ()
 
 test("GitHub release script rejects malformed tags before artifact or gh work", () => {
   const result = runScript("scripts/create-github-release.mjs", {
-    GITHUB_REF_NAME: "bad-tag\nwith-control",
+    GITHUB_REF_NAME: "bad-tag",
     GITHUB_REPOSITORY: "VictorHaine/p2p-transfer",
     GH_TOKEN: "token-that-must-not-be-used"
   });
@@ -43,7 +43,31 @@ test("GitHub release script rejects malformed tags before artifact or gh work", 
   assert.notEqual(result.status, 0);
   assert.equal(result.stdout, "");
   assert.match(result.stderr, /GitHub Release creation failed:\n- GITHUB_REF_NAME must be an exact release tag\./);
-  assert.doesNotMatch(result.stderr, /bad-tag|with-control|release artifact directory|gh:|token-that-must-not-be-used|Error:/);
+  assert.doesNotMatch(result.stderr, /bad-tag|release artifact directory|gh:|token-that-must-not-be-used|Error:/);
+});
+
+test("release publish script rejects control-bearing env before artifact work", () => {
+  const result = runScript("scripts/publish-release-artifact.mjs", {
+    GITHUB_REF_NAME: "v0.1.0\nwith-control"
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.equal(result.stdout, "");
+  assert.match(result.stderr, /Release publish failed:\n- GITHUB_REF_NAME must be a non-empty control-free environment value under 8192 UTF-8 bytes\./);
+  assert.doesNotMatch(result.stderr, /with-control|release artifact directory|pnpm publish|Error:/);
+});
+
+test("GitHub release script rejects control-bearing env before artifact or gh work", () => {
+  const result = runScript("scripts/create-github-release.mjs", {
+    GITHUB_REF_NAME: "v0.1.0\nwith-control",
+    GITHUB_REPOSITORY: "VictorHaine/p2p-transfer",
+    GH_TOKEN: "token-that-must-not-be-used"
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.equal(result.stdout, "");
+  assert.match(result.stderr, /GitHub Release creation failed:\n- GITHUB_REF_NAME must be a non-empty control-free environment value under 8192 UTF-8 bytes\./);
+  assert.doesNotMatch(result.stderr, /with-control|release artifact directory|gh:|token-that-must-not-be-used|Error:/);
 });
 
 test("GitHub release script rejects malformed repositories before artifact or gh work", () => {

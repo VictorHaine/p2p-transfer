@@ -740,6 +740,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseWorkflow, /id-token: write/);
   assert.match(securityPolicy, /release publishing must pass the verifier-emitted tarball path to packed smoke and `pnpm publish` instead of rediscovering the artifact with `find` or a shell glob after verification/);
   assert.match(securityPolicy, /release publishing and GitHub Release creation must run through checked Node scripts/);
+  assert.match(securityPolicy, /descriptor-read, non-empty, control-free, byte-capped allowlisted environments/);
   assert.match(securityPolicy, /private 0700 package-manager homes\/userconfig paths/);
   assert.match(securityPolicy, /release publishing and GitHub Release creation subprocess timeouts must signal the child, arm a bounded `SIGKILL` fallback, and reject only after the subprocess exits/);
   assert.match(securityPolicy, /nonzero release subprocess exits must report only the exit status or signal and must not embed captured child stdout or stderr in release logs/);
@@ -748,6 +749,8 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releasePublishScript, /STATIC_NPM_TOKEN_ENV = \["NODE_AUTH_TOKEN", "NPM_TOKEN"\]/);
   assert.match(releasePublishScript, /ACTIONS_ID_TOKEN_REQUEST_TOKEN/);
   assert.match(releasePublishScript, /GITHUB_ACTIONS must be true for trusted publishing/);
+  assert.match(releasePublishScript, /\/\[\\p\{Cc\}\\p\{Cf\}\]\/u\.test\(value\)/);
+  assert.match(releasePublishScript, /\$\{name\} must be a non-empty control-free environment value under \$\{MAX_ENV_VALUE_BYTES\} UTF-8 bytes\./);
   assert.match(releasePublishScript, /isolatedChildEnv\(privateHome\)/);
   assert.match(releasePublishScript, /await mkdir\(privateHome, \{ recursive: true, mode: 0o700 \}\)/);
   assert.match(releasePublishScript, /await mkdir\(env\.XDG_CONFIG_HOME, \{ recursive: true, mode: 0o700 \}\)/);
@@ -765,6 +768,8 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseWorkflow, /github-release:[\s\S]*needs:\n      - publish[\s\S]*permissions:\n      contents: write[\s\S]*node scripts\/create-github-release\.mjs/);
   assert.match(githubReleaseScript, /requiredReleaseTag\(requiredEnvString\("GITHUB_REF_NAME"\)\)/);
   assert.match(githubReleaseScript, /requiredRepository\(requiredEnvString\("GITHUB_REPOSITORY"\)\)/);
+  assert.match(githubReleaseScript, /\/\[\\p\{Cc\}\\p\{Cf\}\]\/u\.test\(value\)/);
+  assert.match(githubReleaseScript, /\$\{name\} must be a non-empty control-free environment value under \$\{MAX_ENV_VALUE_BYTES\} UTF-8 bytes\./);
   assert.match(githubReleaseScript, /await mkdir\(privateHome, \{ recursive: true, mode: 0o700 \}\)/);
   assert.match(githubReleaseScript, /await mkdir\(env\.XDG_CONFIG_HOME, \{ recursive: true, mode: 0o700 \}\)/);
   assert.match(githubReleaseScript, /await mkdir\(env\.PNPM_HOME, \{ recursive: true, mode: 0o700 \}\)/);
