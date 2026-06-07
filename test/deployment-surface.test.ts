@@ -221,9 +221,9 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releaseTagScript, /await open\(file, constants\.O_RDONLY \| \(constants\.O_NOFOLLOW \?\? 0\)\)/);
   assert.match(releaseTagScript, /Object\.getOwnPropertyDescriptor\(process\.env, name\)/);
   assert.match(releaseTagScript, /release tag does not match package version\./);
-  assert.match(securityPolicy, /release tag commit must be reachable from protected `main` before release artifact packaging, attestation, npm publish, or GitHub Release creation/);
+  assert.match(securityPolicy, /release tag commit must exactly match protected `main` before release artifact packaging, attestation, npm publish, or GitHub Release creation/);
   assert.match(releaseWorkflow, /fetch-depth: 0/);
-  assert.match(securityPolicy, /release tag main-reachability matching must use the checked release main verifier/);
+  assert.match(securityPolicy, /release tag current-main matching must use the checked release main verifier/);
   assert.match(releaseWorkflow, /Verify release tag is on main[\s\S]*run: node scripts\/check-release-main\.mjs[\s\S]*Release controls preflight/);
   assert.doesNotMatch(releaseWorkflow, /git fetch --no-tags|git merge-base --is-ancestor "\$GITHUB_SHA"/);
   assert.match(releaseMainScript, /const MAX_RELEASE_ENV_VALUE_BYTES = 256/);
@@ -237,8 +237,9 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.doesNotMatch(releaseMainScript, /spawnSync|maxBuffer|encoding: "utf8"|stdio: \["ignore", "pipe", "pipe"\]/);
   assert.match(releaseMainScript, /\["fetch", "--no-tags", "--prune", "origin", "\+refs\/heads\/main:refs\/remotes\/origin\/main"\]/);
   assert.match(releaseMainScript, /\["merge-base", "--is-ancestor", sha, "origin\/main"\]/);
-  assert.match(releaseMainScript, /release tag commit is not reachable from main\./);
-  assert.match(securityPolicy, /release main reachability checks must signal timed-out Git subprocesses, arm a bounded `SIGKILL` fallback, and reject only after the child exits/);
+  assert.match(releaseMainScript, /\["merge-base", "--is-ancestor", "origin\/main", sha\]/);
+  assert.match(releaseMainScript, /release tag commit does not match current main\./);
+  assert.match(securityPolicy, /release main checks must signal timed-out Git subprocesses, arm a bounded `SIGKILL` fallback, and reject only after the child exits/);
   assert.match(releaseWorkflow, /Release controls preflight[\s\S]*GITHUB_TOKEN: \$\{\{ secrets\.RELEASE_PREFLIGHT_TOKEN \}\}[\s\S]*run: node scripts\/check-release-readiness\.mjs[\s\S]*Install/);
   const ciVerifyJob = workflowJob(ciWorkflow, "verify");
   const ciBrowserInteropJob = workflowJob(ciWorkflow, "browser-interop");

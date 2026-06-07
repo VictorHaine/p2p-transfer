@@ -26,10 +26,15 @@ async function verifyReleaseMain() {
   assertEntrypoint();
   const sha = requiredGitSha(envString("GITHUB_SHA"));
   await runGit(["fetch", "--no-tags", "--prune", "origin", "+refs/heads/main:refs/remotes/origin/main"], "remote main branch could not be fetched.");
-  const result = await runGit(["merge-base", "--is-ancestor", sha, "origin/main"], "release tag reachability check failed.", { allowFailure: true });
+  await assertSameCommit(["merge-base", "--is-ancestor", sha, "origin/main"]);
+  await assertSameCommit(["merge-base", "--is-ancestor", "origin/main", sha]);
+}
+
+async function assertSameCommit(args) {
+  const result = await runGit(args, "release tag current-main check failed.", { allowFailure: true });
   if (result.status === 0) return;
-  if (result.status === 1) throw new Error("release tag commit is not reachable from main.");
-  throw new Error("release tag reachability check failed.");
+  if (result.status === 1) throw new Error("release tag commit does not match current main.");
+  throw new Error("release tag current-main check failed.");
 }
 
 function assertNoArgs(args) {

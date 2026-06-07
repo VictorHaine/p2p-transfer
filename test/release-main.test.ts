@@ -22,6 +22,9 @@ async function createGitFixture() {
   await fs.writeFile(path.join(root, "tracked.txt"), "main\n");
   await runGit(["add", "."], root);
   await runGit(["commit", "--no-gpg-sign", "--no-verify", "-m", "main"], root);
+  const oldMainSha = gitOutput(["rev-parse", "HEAD"], root);
+  await fs.writeFile(path.join(root, "tracked.txt"), "current main\n");
+  await runGit(["commit", "--no-gpg-sign", "--no-verify", "-am", "current main"], root);
   await runGit(["remote", "add", "origin", origin], root);
   await runGit(["push", "-u", "origin", "main"], root);
   const mainSha = gitOutput(["rev-parse", "HEAD"], root);
@@ -29,10 +32,10 @@ async function createGitFixture() {
   await fs.writeFile(path.join(root, "tracked.txt"), "side\n");
   await runGit(["commit", "--no-gpg-sign", "--no-verify", "-am", "side"], root);
   const sideSha = gitOutput(["rev-parse", "HEAD"], root);
-  return { root, script: path.join(root, "scripts", "check-release-main.mjs"), mainSha, sideSha };
+  return { root, script: path.join(root, "scripts", "check-release-main.mjs"), mainSha, oldMainSha, sideSha };
 }
 
-test("release main verifier accepts a tag commit reachable from origin main", async () => {
+test("release main verifier accepts a tag commit that exactly matches origin main", async () => {
   const fixture = await createGitFixture();
   try {
     const result = runVerifier(fixture.script, fixture.mainSha);
@@ -44,14 +47,27 @@ test("release main verifier accepts a tag commit reachable from origin main", as
   }
 });
 
-test("release main verifier rejects commits that are not reachable from origin main", async () => {
+test("release main verifier rejects commits outside origin main", async () => {
   const fixture = await createGitFixture();
   try {
     const result = runVerifier(fixture.script, fixture.sideSha);
     assert.equal(result.status, 1);
     assert.equal(result.stdout, "");
-    assert.match(result.stderr, /Release main reachability check failed:\n- release tag commit is not reachable from main\./);
+    assert.match(result.stderr, /Release main reachability check failed:\n- release tag commit does not match current main\./);
     assert.doesNotMatch(result.stderr, new RegExp(`${fixture.sideSha}|${escapeRegExp(fixture.root)}|origin\\.git|at async`));
+  } finally {
+    await fs.rm(path.dirname(fixture.root), { force: true, recursive: true });
+  }
+});
+
+test("release main verifier rejects stale origin main ancestors", async () => {
+  const fixture = await createGitFixture();
+  try {
+    const result = runVerifier(fixture.script, fixture.oldMainSha);
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Release main reachability check failed:\n- release tag commit does not match current main\./);
+    assert.doesNotMatch(result.stderr, new RegExp(`${fixture.oldMainSha}|${escapeRegExp(fixture.root)}|origin\\.git|at async`));
   } finally {
     await fs.rm(path.dirname(fixture.root), { force: true, recursive: true });
   }

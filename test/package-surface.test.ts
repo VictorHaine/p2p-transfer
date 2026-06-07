@@ -509,7 +509,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseTagScript, /\$\{name\} must be a non-empty NUL-free string under \$\{MAX_RELEASE_ENV_VALUE_BYTES\} UTF-8 bytes\./);
   assert.match(releaseTagScript, /release tag does not match package version\./);
   assert.doesNotMatch(releaseTagScript, /process\.env\.GITHUB_REF_NAME|readFile\(file, "utf8"\)|String\(error\)|error\.stack|release tag \$\{value\} does not match/);
-  assert.match(securityPolicy, /release tag commit must be reachable from protected `main` before release artifact packaging, attestation, npm publish, or GitHub Release creation/);
+  assert.match(securityPolicy, /release tag commit must exactly match protected `main` before release artifact packaging, attestation, npm publish, or GitHub Release creation/);
   assert.match(releaseWorkflow, /fetch-depth: 0/);
   assert.match(releaseWorkflow, /Verify release tag is on main[\s\S]*run: node scripts\/check-release-main\.mjs[\s\S]*Release controls preflight/);
   assert.doesNotMatch(releaseWorkflow, /git fetch --no-tags|git merge-base --is-ancestor "\$GITHUB_SHA"/);
@@ -527,10 +527,11 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.doesNotMatch(releaseMainScript, /spawnSync|maxBuffer|encoding: "utf8"|stdio: \["ignore", "pipe", "pipe"\]/);
   assert.match(releaseMainScript, /\["fetch", "--no-tags", "--prune", "origin", "\+refs\/heads\/main:refs\/remotes\/origin\/main"\]/);
   assert.match(releaseMainScript, /\["merge-base", "--is-ancestor", sha, "origin\/main"\]/);
-  assert.match(releaseMainScript, /release tag commit is not reachable from main\./);
+  assert.match(releaseMainScript, /\["merge-base", "--is-ancestor", "origin\/main", sha\]/);
+  assert.match(releaseMainScript, /release tag commit does not match current main\./);
   assert.doesNotMatch(releaseMainScript, /process\.env\.GITHUB_SHA|String\(error\)|error\.stack|\.\.\.process\.env/);
-  assert.match(securityPolicy, /release tag main-reachability matching must use the checked release main verifier with byte-capped `GITHUB_SHA`, a minimal Git child environment, ignored Git output/);
-  assert.match(securityPolicy, /release main reachability checks must signal timed-out Git subprocesses, arm a bounded `SIGKILL` fallback, and reject only after the child exits/);
+  assert.match(securityPolicy, /release tag current-main matching must use the checked release main verifier with byte-capped `GITHUB_SHA`, a minimal Git child environment, ignored Git output, bidirectional ancestry checks/);
+  assert.match(securityPolicy, /release main checks must signal timed-out Git subprocesses, arm a bounded `SIGKILL` fallback, and reject only after the child exits/);
   assert.match(releaseWorkflow, /pnpm install --frozen-lockfile/);
   assert.match(packageJson.scripts?.["verify:release"] ?? "", /pnpm smoke:packed && pnpm smoke:release-artifact && pnpm test:e2e/);
   assert.match(releaseArtifactSmokeScript, /const pnpm = process\.platform === "win32" \? "pnpm\.cmd" : "pnpm"/);
