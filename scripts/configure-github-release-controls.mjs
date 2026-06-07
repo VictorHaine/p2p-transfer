@@ -58,7 +58,7 @@ async function main() {
     throw error;
   });
   const existingRulesets = await github(token, "GET", `/repos/${options.repository}/rulesets?includes_parents=false`);
-  const existingByName = new Map(Array.isArray(existingRulesets) ? existingRulesets.map((ruleset) => [ruleset?.name, ruleset]) : []);
+  const existingByName = existingRulesetsByName(existingRulesets);
 
   if (!options.apply) {
     console.log(JSON.stringify({ repository: options.repository, mode: "dry-run", rulesets: desired, environment: environmentStatus(environment), desiredEnvironment }, null, 2));
@@ -135,6 +135,19 @@ function tagRuleset() {
       { type: "non_fast_forward" }
     ]
   };
+}
+
+function existingRulesetsByName(rulesets) {
+  if (!Array.isArray(rulesets)) throw new Error("GitHub rulesets response was invalid.");
+  const byName = new Map();
+  for (const ruleset of rulesets) {
+    if (!ruleset || typeof ruleset !== "object" || typeof ruleset.name !== "string" || typeof ruleset.id !== "number") {
+      throw new Error("GitHub rulesets response was invalid.");
+    }
+    if (byName.has(ruleset.name)) throw new Error("GitHub rulesets response contained duplicate names.");
+    byName.set(ruleset.name, ruleset);
+  }
+  return byName;
 }
 
 async function requireRemoteMain(token, repository) {

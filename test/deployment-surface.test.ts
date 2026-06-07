@@ -289,6 +289,12 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(githubReleaseControlsScript, /realpathSync\(process\.argv\[1\]\) === realpathSync\(fileURLToPath\(import\.meta\.url\)\)/);
   assert.doesNotMatch(githubReleaseControlsScript, /endsWith\("\/configure-github-release-controls\.mjs"\)/);
   assert.match(githubReleaseControlsScript, /"PUT", `\/repos\/\$\{options\.repository\}\/rulesets\/\$\{existing\.id\}`/);
+  assert.match(githubReleaseControlsScript, /const existingByName = existingRulesetsByName\(existingRulesets\)/);
+  assert.match(githubReleaseControlsScript, /function existingRulesetsByName\(rulesets\)/);
+  assert.match(githubReleaseControlsScript, /if \(!Array\.isArray\(rulesets\)\) throw new Error\("GitHub rulesets response was invalid\."\)/);
+  assert.match(githubReleaseControlsScript, /typeof ruleset\.name !== "string" \|\| typeof ruleset\.id !== "number"/);
+  assert.match(githubReleaseControlsScript, /if \(byName\.has\(ruleset\.name\)\) throw new Error\("GitHub rulesets response contained duplicate names\."\)/);
+  assert.doesNotMatch(githubReleaseControlsScript, /new Map\(Array\.isArray\(existingRulesets\) \? existingRulesets\.map/);
   assert.match(githubReleaseControlsScript, /"PUT", `\/repos\/\$\{options\.repository\}\/environments\/\$\{encodeURIComponent\(NPM_ENVIRONMENT\)\}`/);
   assert.match(githubReleaseControlsScript, /reviewers: await Promise\.all\(options\.npmReviewers\.map\(async \(login\) => \(\{ type: "User", id: await userId\(token, login\) \}\)\)\)/);
   assert.match(githubReleaseControlsScript, /prevent_self_review: true/);
@@ -346,6 +352,7 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(securityPolicy, /must not expose an option that writes `prevent_self_review: false`/);
   assert.match(securityPolicy, /setup script must[\s\S]*fail before mutating repository rulesets when the `npm` environment is missing required-reviewer protection/);
   assert.match(securityPolicy, /GitHub release setup and release preflight scripts must read token and repository environment variables through own data descriptors[\s\S]*send GitHub API requests with an abort deadline/);
+  assert.match(securityPolicy, /release setup must reject malformed or duplicate GitHub rulesets list entries before deciding whether to create or update rulesets/);
   assert.match(githubReleaseControlsScript, /const GITHUB_API_TIMEOUT_MS = 30_000/);
   assert.match(githubReleaseControlsScript, /const controller = new AbortController\(\)/);
   assert.match(githubReleaseControlsScript, /const timer = setTimeout\(\(\) => controller\.abort\(\), GITHUB_API_TIMEOUT_MS\)/);
