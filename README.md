@@ -51,7 +51,9 @@ ff-server
 Build from source:
 
 ```sh
-pnpm install
+corepack enable
+corepack prepare pnpm@11.1.3 --activate
+pnpm install --frozen-lockfile
 pnpm build
 pnpm test
 ```

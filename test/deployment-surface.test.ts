@@ -769,12 +769,15 @@ test("dependency review blocks vulnerable dependency introductions", () => {
 
 test("documented release gates require a hardened Docker runtime smoke, not just image build", () => {
   for (const document of [readme, securityPolicy]) {
-    assert.match(document, /pnpm install --frozen-lockfile\npnpm exec playwright install --with-deps chromium\npnpm verify:local/);
-    assert.match(document, /pnpm install --frozen-lockfile\npnpm exec playwright install --with-deps chromium\npnpm verify:release/);
+    assert.match(document, /corepack enable\ncorepack prepare pnpm@11\.1\.3 --activate\npnpm install --frozen-lockfile\npnpm exec playwright install --with-deps chromium\npnpm verify:local/);
+    assert.match(document, /corepack enable\ncorepack prepare pnpm@11\.1\.3 --activate\npnpm install --frozen-lockfile\npnpm exec playwright install --with-deps chromium\npnpm verify:release/);
     assert.match(document, /pnpm smoke:docker-policy/);
     assert.match(document, /read-only filesystem, dropped Linux capabilities,[^.\n]+`no-new-privileges`/);
     assert.match(document, /refuses to start without `ALLOWED_ORIGINS` and without `SIGNALING_TOPOLOGY`/);
   }
+  assert.match(readme, /Build from source:[\s\S]*corepack enable\ncorepack prepare pnpm@11\.1\.3 --activate\npnpm install --frozen-lockfile\npnpm build\npnpm test/);
+  assert.doesNotMatch(readme, /Build from source:[\s\S]*```sh\npnpm install\n/);
+  assert.match(contributing, /## Local Setup[\s\S]*corepack enable\ncorepack prepare pnpm@11\.1\.3 --activate\npnpm install --frozen-lockfile\npnpm exec playwright install --with-deps chromium\npnpm verify:local/);
   assert.match(contributing, /For release-sensitive or protocol-sensitive changes, also run:[\s\S]*pnpm smoke:release-artifact[\s\S]*pnpm smoke:docker-policy[\s\S]*pnpm test:e2e[\s\S]*pnpm test:browser[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures/);
   assert.match(securityPolicy, /packed-install checks on Linux, macOS, and Windows for every supported Node major/);
   assert.match(securityPolicy, /packs the verified npm tarball with lifecycle scripts disabled after the explicit verified build/);

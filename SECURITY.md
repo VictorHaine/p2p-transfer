@@ -307,6 +307,8 @@ The project is expected to preserve these invariants:
 For the local gate subset, first prove dependency resolution from the lockfile, then run:
 
 ```sh
+corepack enable
+corepack prepare pnpm@11.1.3 --activate
 pnpm install --frozen-lockfile
 pnpm exec playwright install --with-deps chromium
 pnpm verify:local
@@ -315,6 +317,8 @@ pnpm verify:local
 Before release, run:
 
 ```sh
+corepack enable
+corepack prepare pnpm@11.1.3 --activate
 pnpm install --frozen-lockfile
 pnpm exec playwright install --with-deps chromium
 pnpm verify:release
