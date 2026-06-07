@@ -438,6 +438,34 @@ test("reserveOutputFile uses opaque deterministic CLI resume partial names", asy
   }
 });
 
+test("reserveOutputFile rejects hardlinked CLI resume partial files", { skip: process.platform === "win32" ? "hardlink behavior differs on Windows." : false }, async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-reserve-resume-hardlink-"));
+  const first = await reserveOutputFile(dir, "private-name.txt", { resume: true, size: "partial".length });
+  try {
+    await first.handle.writeFile(Buffer.from("partial"));
+  } finally {
+    await first.handle.close();
+  }
+
+  const linkedPath = path.join(dir, "linked-target");
+  await fs.link(first.partPath, linkedPath);
+
+  await assert.rejects(() => reserveOutputFile(dir, "private-name.txt", { resume: true, size: "partial".length }), /Resume partial has multiple hard links/);
+  assert.equal(await fs.readFile(linkedPath, "utf8"), "partial");
+});
+
+test("CLI resume partial hardlink policy is documented and enforced", () => {
+  assert.match(securityPolicy, /resumable partial files must reject multiple hard links before hashing, truncation, or restart truncation/);
+  for (const source of [sourceFiles, distFiles]) {
+    assert.match(source, /function assertSingleLink\(stat/);
+    assert.match(source, /Resume partial"\)/);
+    assert.match(source, /multiple hard links/);
+  }
+  for (const source of [sourceTransfer, distTransfer]) {
+    assert.match(source, /assertSingleLink\(stat, "Resume partial"\)/);
+  }
+});
+
 test("reserveOutputFile keeps the CLI resume secret private and fixed size", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-reserve-secret-"));
   const reserved = await reserveOutputFile(dir, "secret-name.txt", { resume: true, size: 1 });

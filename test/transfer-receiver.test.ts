@@ -113,6 +113,32 @@ test("CLI receiver truncates a stale resume partial when the sender requests res
   await assert.rejects(() => fs.stat(partial.partPath), { code: "ENOENT" });
 });
 
+test("CLI receiver rejects hardlinked resume partials before restart truncation", { skip: process.platform === "win32" ? "hardlink behavior differs on Windows." : false }, async () => {
+  const { senderKeys, receiverKeys } = await makeKeys("resume-receive-restart-hardlink");
+  const outDir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-recv-resume-hardlink-restart-"));
+  const stalePrefix = Buffer.alloc(CHUNK_SIZE, 1);
+  const payload = Buffer.concat([Buffer.alloc(CHUNK_SIZE, 2), new TextEncoder().encode("fresh-tail")]);
+  const partial = await reserveOutputFile(outDir, "resume.bin", { resume: true, size: payload.byteLength });
+  await partial.handle.writeFile(stalePrefix);
+  await partial.handle.close();
+  const control = fakeChannel();
+  const bulk = fakeChannel();
+  const acceptedManifest = { fileCount: 1, totalBytes: payload.byteLength, files: [{ id: 0, name: "resume.bin", size: payload.byteLength }] };
+  const receive = receiveFiles(control, bulk, receiverKeys, outDir, false, true, undefined, acceptedManifest, true);
+
+  await control.emit(await seal(senderKeys, { t: "manifest", files: [{ id: 0, name: "resume.bin", size: payload.byteLength }], totalBytes: payload.byteLength }));
+  await control.emit(await seal(senderKeys, { t: "file-begin", id: 0, name: "resume.bin", size: payload.byteLength }));
+  const staleReady = await firstSealedControl(control, senderKeys, "ready");
+  assert.deepEqual(staleReady, { t: "ready", id: 0, offset: CHUNK_SIZE, prefixSha256: sha256Hex(stalePrefix) });
+
+  const linkedPath = path.join(outDir, "linked-target");
+  await fs.link(partial.partPath, linkedPath);
+  await control.emit(await seal(senderKeys, { t: "restart", id: 0 }));
+
+  await assert.rejects(receive, /Resume partial has multiple hard links/);
+  assert.equal((await fs.stat(linkedPath)).size, CHUNK_SIZE);
+});
+
 test("CLI receiver tolerates all-done before bulk chunks drain across DataChannels", async () => {
   const { senderKeys, receiverKeys } = await makeKeys("cross-channel-order");
   const outDir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-recv-cross-channel-"));
