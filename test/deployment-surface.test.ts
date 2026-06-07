@@ -275,7 +275,9 @@ test("CI and release workflows keep minimal token permissions", () => {
   const releaseVerifyJob = workflowJob(releaseWorkflow, "verify");
   assert.match(releaseVerifyJob, /pnpm check:install-state[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed[\s\S]*pnpm test:e2e[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures/);
   assert.doesNotMatch(releaseVerifyJob, /pnpm test:unit[\s\S]*pnpm build[\s\S]*pnpm smoke:native/);
-  assert.match(releaseWorkflow, /pack release artifact[\s\S]*pnpm --config\.ignore-scripts=true pack --pack-destination release-artifacts[\s\S]*node scripts\/write-release-checksum\.mjs/);
+  assert.match(securityPolicy, /release workflow artifact packaging must use `scripts\/smoke-release-artifact\.mjs --keep-artifacts`/);
+  assert.match(releaseWorkflow, /pack release artifact[\s\S]*node scripts\/smoke-release-artifact\.mjs --keep-artifacts/);
+  assert.doesNotMatch(releaseWorkflow, /pack release artifact[\s\S]*(rm -rf release-artifacts|mkdir -p release-artifacts|pnpm --config\.ignore-scripts=true pack --pack-destination release-artifacts|node scripts\/write-release-checksum\.mjs)/);
   assert.match(releaseWorkflow, /Verify release notes[\s\S]*node scripts\/write-release-notes\.mjs --check[\s\S]*pack release artifact/);
   assert.match(releaseChecksumScript, /return `\$\{packedPackageName\(name\)\}-\$\{version\}\.tgz`[\s\S]*const expectedTarballName = expectedTarballNameFor\(packageJson\)[\s\S]*entries\.length !== 1 \|\| !entries\[0\]\?\.isFile\(\) \|\| entries\[0\]\.name !== expectedTarballName[\s\S]*createHash\("sha256"\)[\s\S]*writeFile\(path\.join\(artifactDir, "SHA256SUMS"\), `\$\{checksum\}  \$\{expectedTarballName\}\\n`, \{ flag: "wx" \}\)/);
   assert.match(releaseChecksumScript, /async function verifiedArtifactDir\(\)/);
@@ -636,7 +638,7 @@ test("release artifact verification is bounded and exact", () => {
   assert.match(releaseWorkflow, /verify downloaded release artifact[\s\S]*node scripts\/verify-release-artifact\.mjs/);
   assert.doesNotMatch(releaseWorkflow, /verify release artifact checksum[\s\S]*sha256sum -c SHA256SUMS/);
   assert.doesNotMatch(releaseWorkflow, /node --input-type=module <<'NODE'/);
-  assert.match(releaseWorkflow, /pack release artifact[\s\S]*node scripts\/write-release-checksum\.mjs/);
+  assert.match(releaseWorkflow, /pack release artifact[\s\S]*node scripts\/smoke-release-artifact\.mjs --keep-artifacts/);
   assert.match(releaseChecksumScript, /fileURLToPath\(import\.meta\.url\)/);
   assert.match(releaseChecksumScript, /realpathSync\(process\.argv\[1\]\) === realpathSync\(scriptPath\)/);
   assert.match(releaseChecksumScript, /async function verifiedArtifactDir\(\)/);

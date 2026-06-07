@@ -489,6 +489,9 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseArtifactSmokeScript, /"scripts\/write-release-checksum\.mjs"/);
   assert.match(releaseArtifactSmokeScript, /"scripts\/verify-release-artifact\.mjs"/);
   assert.match(releaseArtifactSmokeScript, /GITHUB_REF_NAME: `v\$\{version\}`/);
+  assert.match(releaseArtifactSmokeScript, /const options = parseArgs\(process\.argv\.slice\(2\)\)/);
+  assert.match(releaseArtifactSmokeScript, /args\.length === 1 && args\[0\] === "--keep-artifacts"/);
+  assert.match(releaseArtifactSmokeScript, /if \(!options\.keepArtifacts\) await rm\(artifactDir, \{ recursive: true, force: true \}\)/);
   assert.match(releaseArtifactSmokeScript, /import \{ safeChildEnv \} from "\.\/smoke-packed\.mjs"/);
   assert.match(releaseArtifactSmokeScript, /env: \{ \.\.\.safeChildEnv\(\), \.\.\.env \}/);
   assert.doesNotMatch(releaseArtifactSmokeScript, /env: \{ \.\.\.process\.env/);
@@ -503,9 +506,8 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseWorkflow, /DOCKER_SMOKE_TAG=p2p-transfer:release pnpm smoke:docker-policy/);
   assert.match(releaseWorkflow, /release docker policy[\s\S]*actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3[\s\S]*corepack prepare pnpm@11\.1\.3 --activate[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:release pnpm smoke:docker-policy/);
   assert.match(releaseWorkflow, /pnpm check:install-state[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed[\s\S]*pnpm test:e2e[\s\S]*pnpm test:browser[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures/);
-  assert.match(releaseWorkflow, /Verify release notes[\s\S]*node scripts\/write-release-notes\.mjs --check[\s\S]*pack release artifact/);
-  assert.match(releaseWorkflow, /pnpm --config\.ignore-scripts=true pack --pack-destination release-artifacts/);
-  assert.match(releaseWorkflow, /node scripts\/write-release-checksum\.mjs/);
+  assert.match(releaseWorkflow, /Verify release notes[\s\S]*node scripts\/write-release-notes\.mjs --check[\s\S]*pack release artifact[\s\S]*node scripts\/smoke-release-artifact\.mjs --keep-artifacts/);
+  assert.doesNotMatch(releaseWorkflow, /pack release artifact[\s\S]*(rm -rf release-artifacts|mkdir -p release-artifacts|pnpm --config\.ignore-scripts=true pack --pack-destination release-artifacts|node scripts\/write-release-checksum\.mjs)/);
   assert.match(releaseChecksumScript, /return `\$\{packedPackageName\(name\)\}-\$\{version\}\.tgz`[\s\S]*const expectedTarballName = expectedTarballNameFor\(packageJson\)[\s\S]*entries\.length !== 1 \|\| !entries\[0\]\?\.isFile\(\) \|\| entries\[0\]\.name !== expectedTarballName[\s\S]*createHash\("sha256"\)[\s\S]*writeFile\(path\.join\(artifactDir, "SHA256SUMS"\), `\$\{checksum\}  \$\{expectedTarballName\}\\n`, \{ flag: "wx" \}\)/);
   assert.match(releaseChecksumScript, /async function verifiedArtifactDir\(\)/);
   assert.match(releaseChecksumScript, /const artifactDir = await verifiedArtifactDir\(\)/);

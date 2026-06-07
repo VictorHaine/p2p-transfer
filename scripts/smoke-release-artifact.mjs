@@ -22,6 +22,7 @@ if (isMain()) {
 }
 
 async function main() {
+  const options = parseArgs(process.argv.slice(2));
   const packageJson = parsePackageMetadata(await readBoundedRegularFile(path.join(root, "package.json"), MAX_PACKAGE_JSON_BYTES, "package metadata"));
   const version = requiredVersion(packageJson.version);
   await rm(artifactDir, { recursive: true, force: true });
@@ -30,8 +31,14 @@ async function main() {
     run(process.execPath, ["scripts/write-release-checksum.mjs"], {});
     run(process.execPath, ["scripts/verify-release-artifact.mjs"], { GITHUB_REF_NAME: `v${version}` });
   } finally {
-    await rm(artifactDir, { recursive: true, force: true }).catch(() => undefined);
+    if (!options.keepArtifacts) await rm(artifactDir, { recursive: true, force: true }).catch(() => undefined);
   }
+}
+
+function parseArgs(args) {
+  if (args.length === 0) return { keepArtifacts: false };
+  if (args.length === 1 && args[0] === "--keep-artifacts") return { keepArtifacts: true };
+  throw new Error("Unsupported release artifact smoke arguments.");
 }
 
 function noFollowReadFlags() {

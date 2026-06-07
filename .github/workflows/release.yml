@@ -63,11 +63,7 @@ jobs:
       - name: Verify release notes
         run: node scripts/write-release-notes.mjs --check
       - name: pack release artifact
-        run: |
-          rm -rf release-artifacts
-          mkdir -p release-artifacts
-          pnpm --config.ignore-scripts=true pack --pack-destination release-artifacts
-          node scripts/write-release-checksum.mjs
+        run: node scripts/smoke-release-artifact.mjs --keep-artifacts
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: npm-tarball
