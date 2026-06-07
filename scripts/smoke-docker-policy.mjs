@@ -11,6 +11,7 @@ const CONTAINER_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/;
 const COMMAND_TIMEOUT_MS = 120_000;
 const BUILD_TIMEOUT_MS = 600_000;
 const PROBE_ATTEMPTS = 10;
+const MAX_CHILD_ENV_VALUE_BYTES = 8_192;
 const PRODUCTION_ORIGIN = "https://files.example.com";
 const BAD_ORIGIN = "https://evil.example";
 const VERBOSE_ENV = "DOCKER_SMOKE_VERBOSE";
@@ -125,7 +126,7 @@ function run(command, args, label, timeout, options = {}) {
   const result = spawnSync(command, args, {
     cwd: root,
     encoding: "utf8",
-    env: { ...process.env, ...(options.env ?? {}) },
+    env: { ...safeChildEnv(), ...(options.env ?? {}) },
     stdio: verboseEnabled() && !options.allowFailure ? "inherit" : "pipe",
     timeout
   });
@@ -135,7 +136,40 @@ function run(command, args, label, timeout, options = {}) {
 }
 
 function verboseEnabled() {
-  return process.env[VERBOSE_ENV] === "1";
+  const descriptor = Object.getOwnPropertyDescriptor(process.env, VERBOSE_ENV);
+  return Boolean(descriptor && "value" in descriptor && descriptor.value === "1");
+}
+
+export function safeChildEnv() {
+  const allowed = [
+    ["PATH", true],
+    ["TMPDIR", false],
+    ["TMP", false],
+    ["TEMP", false],
+    ["SystemRoot", false],
+    ["SYSTEMROOT", false],
+    ["COMSPEC", false],
+    ["PATHEXT", false],
+    ["DOCKER_HOST", false],
+    ["DOCKER_CONTEXT", false],
+    ["DOCKER_BUILDKIT", false],
+    ["BUILDKIT_PROGRESS", false],
+    [VERBOSE_ENV, false]
+  ];
+  const env = {};
+  for (const [name, required] of allowed) {
+    const descriptor = Object.getOwnPropertyDescriptor(process.env, name);
+    if (descriptor && "value" in descriptor && isSafeChildEnvValue(descriptor.value)) {
+      env[name] = descriptor.value;
+    } else if (required) {
+      throw new Error(`${name} must be a non-empty NUL-free child environment value under ${MAX_CHILD_ENV_VALUE_BYTES} UTF-8 bytes.`);
+    }
+  }
+  return env;
+}
+
+function isSafeChildEnvValue(value) {
+  return typeof value === "string" && value.length > 0 && !value.includes("\0") && !utf8ByteLengthExceeds(value, MAX_CHILD_ENV_VALUE_BYTES);
 }
 
 function combinedOutput(result) {
@@ -160,6 +194,30 @@ function smokeErrorMessage(error) {
     return "docker policy smoke failed with an internal error.";
   }
   return error.message;
+}
+
+function utf8ByteLengthExceeds(value, maxBytes) {
+  let bytes = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code < 0x80) {
+      bytes += 1;
+    } else if (code < 0x800) {
+      bytes += 2;
+    } else if (code >= 0xd800 && code <= 0xdbff && index + 1 < value.length) {
+      const next = value.charCodeAt(index + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        bytes += 4;
+        index += 1;
+      } else {
+        bytes += 3;
+      }
+    } else {
+      bytes += 3;
+    }
+    if (bytes > maxBytes) return true;
+  }
+  return false;
 }
 
 function isMain() {

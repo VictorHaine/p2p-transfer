@@ -370,6 +370,14 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.match(dockerPolicySmokeScript, /"-p",\n\s+"127\.0\.0\.1::8787"/);
   assert.match(dockerPolicySmokeScript, /probe\(`http:\/\/127\.0\.0\.1:\$\{port\}\/v1\/ice`, "403", \{ origin: BAD_ORIGIN \}\)/);
   assert.match(dockerPolicySmokeScript, /Set \$\{VERBOSE_ENV\}=1 to print command output/);
+  assert.match(dockerPolicySmokeScript, /export function safeChildEnv\(\)/);
+  assert.match(dockerPolicySmokeScript, /\["PATH", true\]/);
+  assert.match(dockerPolicySmokeScript, /\["DOCKER_HOST", false\]/);
+  assert.match(dockerPolicySmokeScript, /\["DOCKER_CONTEXT", false\]/);
+  assert.match(dockerPolicySmokeScript, /Object\.getOwnPropertyDescriptor\(process\.env, name\)/);
+  assert.match(dockerPolicySmokeScript, /MAX_CHILD_ENV_VALUE_BYTES = 8_192/);
+  assert.doesNotMatch(dockerPolicySmokeScript, /env: \{ \.\.\.process\.env/);
+  assert.match(securityPolicy, /Docker policy smoke subprocesses must run with a minimal allowlisted environment/);
   assert.doesNotMatch(ciWorkflow, /\bnpm\s+(?:install|ci|publish)\b|npx\b/);
 });
 
