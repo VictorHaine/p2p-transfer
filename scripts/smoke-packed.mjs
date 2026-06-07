@@ -221,7 +221,7 @@ async function smokeInstalledTransfer(consumerDir, childEnv, port, tmp) {
   await writeFile(source, expected);
   const serverUrl = `ws://127.0.0.1:${port}/v1/ws`;
   const code = "12345678-apple-anchor";
-  const receiver = spawn(pnpm, ["exec", "ff", "--server", serverUrl, "--json", "recv", "--code-stdin", "--yes", "--out", out], {
+  const receiver = spawn(pnpm, ["exec", "ff", "--server", serverUrl, "--json", "--require-private-input", "recv", "--code-stdin", "--yes", "--out", out], {
     cwd: consumerDir,
     env: childEnv,
     stdio: ["pipe", "pipe", "pipe"]
@@ -230,7 +230,7 @@ async function smokeInstalledTransfer(consumerDir, childEnv, port, tmp) {
   const receiverOutput = captureChildOutput(receiver);
   try {
     await waitForOutput(receiver, /"registered"/, 30_000);
-    const sender = await run(pnpm, ["exec", "ff", "--server", serverUrl, "--json", "send", "--code-stdin", "--files-stdin"], {
+    const sender = await run(pnpm, ["exec", "ff", "--server", serverUrl, "--json", "--require-private-input", "send", "--code-stdin", "--files-stdin"], {
       cwd: consumerDir,
       timeoutMs: 90_000,
       env: childEnv,
