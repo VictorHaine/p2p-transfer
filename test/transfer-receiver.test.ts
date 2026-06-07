@@ -75,6 +75,44 @@ test("CLI receiver resumes from a chunk-aligned partial when resume is enabled",
   await assert.rejects(() => fs.stat(partial.partPath), { code: "ENOENT" });
 });
 
+test("CLI receiver truncates a stale resume partial when the sender requests restart", async () => {
+  const { senderKeys, receiverKeys } = await makeKeys("resume-receive-restart");
+  const outDir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-recv-resume-restart-"));
+  const stalePrefix = Buffer.alloc(CHUNK_SIZE, 1);
+  const prefix = Buffer.alloc(CHUNK_SIZE, 2);
+  const suffix = new TextEncoder().encode("fresh-tail");
+  const payload = Buffer.concat([prefix, suffix]);
+  const partial = await reserveOutputFile(outDir, "resume.bin", { resume: true, size: payload.byteLength });
+  await partial.handle.writeFile(stalePrefix);
+  await partial.handle.close();
+  const hash = createSha256();
+  hash.update(payload);
+  const control = fakeChannel();
+  const bulk = fakeChannel();
+  const acceptedManifest = { fileCount: 1, totalBytes: payload.byteLength, files: [{ id: 0, name: "resume.bin", size: payload.byteLength }] };
+  const receive = receiveFiles(control, bulk, receiverKeys, outDir, false, true, undefined, acceptedManifest, true);
+
+  await control.emit(await seal(senderKeys, { t: "manifest", files: [{ id: 0, name: "resume.bin", size: payload.byteLength }], totalBytes: payload.byteLength }));
+  await control.emit(await seal(senderKeys, { t: "file-begin", id: 0, name: "resume.bin", size: payload.byteLength }));
+  const staleReady = await firstSealedControl(control, senderKeys, "ready");
+  assert.deepEqual(staleReady, { t: "ready", id: 0, offset: CHUNK_SIZE, prefixSha256: sha256Hex(stalePrefix) });
+
+  const sentBeforeRestart = control.sent.length;
+  await control.emit(await seal(senderKeys, { t: "restart", id: 0 }));
+  const freshReady = await firstSealedControlAfter(control, senderKeys, "ready", sentBeforeRestart);
+  assert.deepEqual(freshReady, { t: "ready", id: 0 });
+  assert.equal((await fs.stat(partial.partPath)).size, 0);
+
+  await bulk.emit(encodeChunk(0, 0, await sealBulk(senderKeys, 0, 0, prefix)));
+  await bulk.emit(encodeChunk(0, 1, await sealBulk(senderKeys, 0, 1, suffix)));
+  await control.emit(await seal(senderKeys, { t: "file-end", id: 0, sha256: digestHex(hash) }));
+  await control.emit(await seal(senderKeys, { t: "all-done" }));
+
+  await receive;
+  assert.deepEqual(await fs.readFile(path.join(outDir, "resume.bin")), payload);
+  await assert.rejects(() => fs.stat(partial.partPath), { code: "ENOENT" });
+});
+
 test("CLI receiver tolerates all-done before bulk chunks drain across DataChannels", async () => {
   const { senderKeys, receiverKeys } = await makeKeys("cross-channel-order");
   const outDir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-recv-cross-channel-"));
@@ -509,6 +547,18 @@ async function firstSealedControl(control: FakeChannel, keys: SessionKeys, type:
     }
   }
   throw new Error(`Missing sealed ${type} control message.`);
+}
+
+async function firstSealedControlAfter(control: FakeChannel, keys: SessionKeys, type: ControlMessage["t"], startIndex: number): Promise<ControlMessage> {
+  for (const sent of control.sent.slice(startIndex)) {
+    try {
+      const message = await openControl<ControlMessage>(keys, String(sent));
+      if (message.t === type) return message;
+    } catch {
+      // Ignore non-control or peer-key messages in the fake channel log.
+    }
+  }
+  throw new Error(`Missing sealed ${type} control message after index ${startIndex}.`);
 }
 
 async function findSingleCliPartPath(dir: string, finalName: string): Promise<string> {
