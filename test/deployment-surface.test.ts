@@ -653,6 +653,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(securityPolicy, /the `RELEASE_PREFLIGHT_TOKEN` repository secret is missing/);
   assert.match(securityPolicy, /GitHub `npm` environment lacks required reviewers, lacks a non-self user reviewer with write, maintain, or admin repository permission, allows self-review, allows admin bypass, allows branch deployments, lacks the exact `v\*\.\*\.\*` tag deployment policy, or has the authenticated release operator or release tag pusher as its sole required reviewer/);
   assert.match(securityPolicy, /first-time npm package bootstrap must use the checked bootstrap script, publish only the minimal temporary `0\.0\.0-bootstrap\.0` package from a private temporary directory under the non-default `bootstrap` dist-tag/);
+  assert.match(securityPolicy, /re-read npm registry metadata after publish and fail unless the bootstrap version exists, the `bootstrap` dist-tag points to it, and `latest` does not point to it/);
   assert.match(securityPolicy, /require `--apply` plus either an explicit `NPM_BOOTSTRAP_TOKEN` or bounded `--token-stdin` input/);
   assert.match(securityPolicy, /reject interactive terminal stdin for `--token-stdin`/);
   assert.match(securityPolicy, /reject ambiguous stdin-plus-environment token input, reject malformed stdin tokens before package reads, registry requests, npm config, or publish work/);
@@ -669,6 +670,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(readme, /pnpm bootstrap:npm --dry-run/);
   assert.match(readme, /read -rs NPM_BOOTSTRAP_TOKEN\nprintf %s "\$NPM_BOOTSTRAP_TOKEN" \| pnpm bootstrap:npm --apply --token-stdin\nunset NPM_BOOTSTRAP_TOKEN/);
   assert.match(readme, /The helper publishes only a minimal temporary `0\.0\.0-bootstrap\.0` package from a private temp directory under the non-default `bootstrap` dist-tag/);
+  assert.match(readme, /then re-reads npm registry metadata and fails unless that version exists, the `bootstrap` dist-tag points to it, and `latest` does not/);
   assert.match(readme, /accepts the one-time token through bounded piped stdin with `--token-stdin`/);
   assert.match(readme, /rejects interactive terminal stdin instead of waiting for a typed token/);
   assert.match(readme, /does not publish the placeholder as `latest`/);
@@ -698,6 +700,11 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(npmBootstrapScript, /await writeBootstrapPackage\(packageDir, workspace\)/);
   assert.match(npmBootstrapScript, /publishConfig: \{\n      access: "public",\n      tag: BOOTSTRAP_DIST_TAG\n    \}/);
   assert.match(npmBootstrapScript, /\["--config\.ignore-scripts=true", "publish", "--access", "public", "--no-git-checks", "--registry", NPM_REGISTRY, "--tag", BOOTSTRAP_DIST_TAG\]/);
+  assert.match(npmBootstrapScript, /await assertBootstrapPublished\(workspace\.name\)/);
+  assert.match(npmBootstrapScript, /function assertBootstrapPublished\(name\)/);
+  assert.match(npmBootstrapScript, /distTags\[BOOTSTRAP_DIST_TAG\] !== BOOTSTRAP_VERSION/);
+  assert.match(npmBootstrapScript, /distTags\.latest === BOOTSTRAP_VERSION/);
+  assert.match(npmBootstrapScript, /npm bootstrap publish unexpectedly set the bootstrap version as latest\./);
   assert.doesNotMatch(npmBootstrapScript, /BOOTSTRAP_DIST_TAG = "latest"|"--tag", "latest"/);
   assert.doesNotMatch(npmBootstrapScript, /writeFile\(path\.join\(root, "package\.json"\)|pnpm, \["publish"\], \{ cwd: root/);
   assert.match(releaseReadinessScript, /const REQUIRED_OAUTH_SCOPES = \["repo", "workflow"\]/);

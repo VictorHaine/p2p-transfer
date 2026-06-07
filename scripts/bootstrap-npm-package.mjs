@@ -60,6 +60,7 @@ async function main() {
       ["--config.ignore-scripts=true", "publish", "--access", "public", "--no-git-checks", "--registry", NPM_REGISTRY, "--tag", BOOTSTRAP_DIST_TAG],
       { cwd: packageDir, env: childEnv, timeoutMs: CHILD_TIMEOUT_MS, label: "npm bootstrap publish" }
     );
+    await assertBootstrapPublished(workspace.name);
     console.log(JSON.stringify({ package: workspace.name, version: BOOTSTRAP_VERSION, apply: true, ok: true }, null, 2));
   } finally {
     await rm(tmp, { recursive: true, force: true }).catch(() => undefined);
@@ -122,6 +123,26 @@ async function privateChildEnv(homeDir, token) {
 }
 
 async function npmPackageExists(name) {
+  return (await npmPackageMetadata(name)) !== undefined;
+}
+
+async function assertBootstrapPublished(name) {
+  const metadata = await npmPackageMetadata(name);
+  if (!metadata) throw new Error("npm bootstrap publish did not create the package.");
+  const versions = metadata.versions;
+  const distTags = metadata["dist-tags"];
+  if (!versions || typeof versions !== "object" || Array.isArray(versions) || !Object.hasOwn(versions, BOOTSTRAP_VERSION)) {
+    throw new Error("npm bootstrap publish did not persist the bootstrap version.");
+  }
+  if (!distTags || typeof distTags !== "object" || Array.isArray(distTags) || distTags[BOOTSTRAP_DIST_TAG] !== BOOTSTRAP_VERSION) {
+    throw new Error("npm bootstrap publish did not persist the bootstrap dist-tag.");
+  }
+  if (distTags.latest === BOOTSTRAP_VERSION) {
+    throw new Error("npm bootstrap publish unexpectedly set the bootstrap version as latest.");
+  }
+}
+
+async function npmPackageMetadata(name) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), NPM_TIMEOUT_MS);
   let response;
@@ -136,10 +157,14 @@ async function npmPackageExists(name) {
   } finally {
     clearTimeout(timer);
   }
-  if (response.status === 404) return false;
+  if (response.status === 404) return undefined;
   if (!response.ok) throw new Error("npm registry returned an unexpected status.");
-  await boundedResponseText(response);
-  return true;
+  const text = await boundedResponseText(response);
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error("npm registry response was not valid JSON.");
+  }
 }
 
 async function readText(file, maxBytes, label) {
