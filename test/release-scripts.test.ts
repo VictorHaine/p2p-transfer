@@ -527,6 +527,7 @@ test("Docker publish script rejects non-file package metadata before env, smoke,
     await fs.mkdir(scripts);
     await fs.mkdir(path.join(tmp, "package.json"));
     await fs.copyFile(path.join(root, "scripts", "publish-docker-image.mjs"), path.join(scripts, "publish-docker-image.mjs"));
+    await fs.copyFile(path.join(root, "scripts", "docker-config.mjs"), path.join(scripts, "docker-config.mjs"));
     await fs.copyFile(path.join(root, "scripts", "smoke-packed.mjs"), path.join(scripts, "smoke-packed.mjs"));
     await fs.copyFile(path.join(root, "scripts", "verify-live-release-ref.mjs"), path.join(scripts, "verify-live-release-ref.mjs"));
 

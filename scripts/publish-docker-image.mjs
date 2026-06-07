@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
 import { lstat, open, rm } from "node:fs/promises";
-import { chmodSync, constants, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { constants } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createIsolatedDockerConfig } from "./docker-config.mjs";
 import { safeChildEnv } from "./smoke-packed.mjs";
 import { assertLiveReleaseRefFromEnv } from "./verify-live-release-ref.mjs";
 
@@ -42,7 +42,7 @@ async function main() {
   const image = `${REGISTRY}/${repository.toLowerCase()}`;
   const versionRef = `${image}:${tag}`;
   const plainVersionRef = `${image}:${version}`;
-  const dockerConfigDir = createIsolatedDockerConfig();
+  const dockerConfigDir = createIsolatedDockerConfig("p2p-transfer-docker-release-");
   const dockerEnv = { DOCKER_CONFIG: dockerConfigDir };
 
   try {
@@ -137,13 +137,6 @@ function pushedDigest(output) {
   const matches = [...output.matchAll(/\bdigest:\s+(sha256:[a-f0-9]{64})\b/gu)].map((match) => match[1]);
   if (matches.length !== 1) throw new Error("docker push did not emit exactly one image digest.");
   return matches[0];
-}
-
-function createIsolatedDockerConfig() {
-  const dir = mkdtempSync(path.join(tmpdir(), "p2p-transfer-docker-release-"));
-  chmodSync(dir, 0o700);
-  writeFileSync(path.join(dir, "config.json"), JSON.stringify({ auths: {} }), { mode: 0o600 });
-  return dir;
 }
 
 async function writeGithubOutput(values) {

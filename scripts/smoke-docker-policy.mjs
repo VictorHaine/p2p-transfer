@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { chmodSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { realpathSync, rmSync } from "node:fs";
 import { connect as connectTcp } from "node:net";
-import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { createIsolatedDockerConfig } from "./docker-config.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DEFAULT_IMAGE_TAG = "p2p-transfer:docker-policy";
@@ -95,13 +95,6 @@ async function main() {
   } finally {
     rmSync(dockerConfigDir, { recursive: true, force: true });
   }
-}
-
-function createIsolatedDockerConfig() {
-  const dir = mkdtempSync(path.join(tmpdir(), "p2p-transfer-docker-"));
-  chmodSync(dir, 0o700);
-  writeFileSync(path.join(dir, "config.json"), JSON.stringify({ auths: {} }), { mode: 0o600 });
-  return dir;
 }
 
 function imageTagFromEnv(value) {

@@ -34,6 +34,7 @@ const npmBootstrapScript = fs.readFileSync(new URL("../scripts/bootstrap-npm-pac
 const checkedPnpmScript = fs.readFileSync(new URL("../scripts/prepare-checked-pnpm.mjs", import.meta.url), "utf8");
 const dockerPolicySmokeScript = fs.readFileSync(new URL("../scripts/smoke-docker-policy.mjs", import.meta.url), "utf8");
 const dockerPublishScript = fs.readFileSync(new URL("../scripts/publish-docker-image.mjs", import.meta.url), "utf8");
+const dockerConfigScript = fs.readFileSync(new URL("../scripts/docker-config.mjs", import.meta.url), "utf8");
 const dependabotConfig = fs.readFileSync(new URL("../.github/dependabot.yml", import.meta.url), "utf8");
 const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
 const contributing = fs.readFileSync(new URL("../CONTRIBUTING.md", import.meta.url), "utf8");
@@ -376,8 +377,12 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(dockerPublishScript, /await run\("docker", \["push", plainVersionRef\]/);
   assert.match(dockerPublishScript, /if \(aliasDigest !== digest\) throw new Error\("docker release tag aliases resolved to different digests\."\)/);
   assert.match(dockerPublishScript, /writeGithubOutput\(\{ image, digest, tag: versionRef, alias: plainVersionRef \}\)/);
-  assert.match(dockerPublishScript, /createIsolatedDockerConfig\(\)/);
-  assert.match(dockerPublishScript, /writeFileSync\(path\.join\(dir, "config\.json"\), JSON\.stringify\(\{ auths: \{\} \}\), \{ mode: 0o600 \}\)/);
+  assert.match(dockerPublishScript, /import \{ createIsolatedDockerConfig \} from "\.\/docker-config\.mjs"/);
+  assert.match(dockerPublishScript, /createIsolatedDockerConfig\("p2p-transfer-docker-release-"\)/);
+  assert.match(dockerConfigScript, /JSON\.stringify\(config\), \{ mode: 0o600 \}/);
+  assert.match(dockerConfigScript, /currentContext: localContext\.name/);
+  assert.match(dockerConfigScript, /function isLocalDockerHost\(host\)/);
+  assert.match(dockerConfigScript, /path\.isAbsolute\(host\.slice\("unix:\/\/"\.length\)\)/);
   assert.match(securityPolicy, /release Docker publishing must read package metadata through no-follow regular-file opens with exact-size handle reads and pre\/post-read identity checks/);
   assert.match(securityPolicy, /emit the digest through checked `GITHUB_OUTPUT` no-follow regular-file appends with size and identity checks/);
   assert.match(dockerPublishScript, /const MAX_GITHUB_OUTPUT_BYTES = 1024 \* 1024/);
