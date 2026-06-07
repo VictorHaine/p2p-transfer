@@ -54,6 +54,7 @@ test("CLI exit handling does not truncate piped output with direct process.exit"
 
 test("CLI receive validates supplied codes before filesystem or signaling side effects", () => {
   assert.match(securityPolicy, /CLI receive codes supplied with `recv --code` must be validated before output-directory creation or signaling connection setup/);
+  assert.match(securityPolicy, /interactive receive flows must emit a generic no-values warning to human stderr when `recv --code` accepts a supplied receive code from argv unless JSON or quiet output is selected/);
   for (const source of [cliSource, distCliSource]) {
     const recvBody = extractFunctionBody(source, "recv");
     assert.match(recvBody, /const suppliedCode = await resolveRecvCode\(options\)/);
@@ -62,6 +63,7 @@ test("CLI receive validates supplied codes before filesystem or signaling side e
     assert.match(recvBody, /registerReceiver\(signaling, suppliedCode\)/);
 
     assert.match(source, /function resolveRecvCode/);
+    assert.match(source, /if \(options\.code !== undefined\)\s+warnSensitiveRecvArgv\(options\);/);
     assert.match(source, /parseRequiredCode\(normalizeCode\(code\)\)/);
     assert.match(source, /supplied: true/);
     assert.match(source, /function registerReceiver[\s\S]*const parsedCode = suppliedCode\?\.parsedCode \?\? parseRequiredCode\(normalizeCode\(generateCode\(\)\)\)/);
@@ -73,6 +75,7 @@ test("CLI receive validates supplied codes before filesystem or signaling side e
 test("CLI send supports non-argv code and file path input", () => {
   assert.match(securityPolicy, /CLI senders must support piped stdin or environment-variable receive-code input and newline-delimited stdin file lists/);
   assert.match(securityPolicy, /interactive send flows must emit a generic no-values warning to human stderr whenever a receive code or local file path is still accepted from argv unless JSON or quiet output is selected/);
+  assert.match(securityPolicy, /interactive receive flows must emit a generic no-values warning to human stderr when `recv --code` accepts a supplied receive code from argv unless JSON or quiet output is selected/);
   for (const source of [cliSource, distCliSource]) {
     assert.match(source, /process\.title = "ff"/);
     assert.match(source, /\.option\("--out <dir>", "output directory"\)/);
@@ -85,12 +88,17 @@ test("CLI send supports non-argv code and file path input", () => {
     assert.match(source, /const ENV_NAME_PATTERN = \/\^\[A-Za-z_\]/);
     assert.match(source, /function resolveSendInputs/);
     assert.match(source, /const SEND_ARGV_TELEMETRY_WARNING = "Warning: receiver codes or local file paths passed as arguments can be captured by shell history, process lists, or endpoint telemetry\. Use --code-stdin\/--code-env and --files-stdin for private input\."/);
+    assert.match(source, /const RECV_ARGV_TELEMETRY_WARNING = "Warning: receive codes passed as arguments can be captured by shell history, process lists, or endpoint telemetry\. Use --code-stdin\/--code-env for private input\."/);
     assert.match(source, /warnSensitiveSendArgv\(options\);[\s\S]*return \{ code, files \};/);
     assert.match(source, /if \(\(code !== undefined && code !== "-"\) \|\| \(!options\.filesStdin && resolvedFiles\.length > 0\)\)\s+warnSensitiveSendArgv\(options\);/);
     const warningBody = extractFunctionBody(source, "warnSensitiveSendArgv");
     assert.match(warningBody, /options\.json \|\| options\.quiet \|\| stderr\.isTTY !== true/);
     assert.match(warningBody, /console\.error\(sanitizeDisplayText\(SEND_ARGV_TELEMETRY_WARNING\)\)/);
     assert.doesNotMatch(warningBody, /\bcode\b|\bfiles\b|process\.argv|safeErrorMessage|formatBytes/);
+    const recvWarningBody = extractFunctionBody(source, "warnSensitiveRecvArgv");
+    assert.match(recvWarningBody, /options\.json \|\| options\.quiet \|\| stderr\.isTTY !== true/);
+    assert.match(recvWarningBody, /console\.error\(sanitizeDisplayText\(RECV_ARGV_TELEMETRY_WARNING\)\)/);
+    assert.doesNotMatch(recvWarningBody, /\bcode\b|\bfiles\b|process\.argv|safeErrorMessage|formatBytes/);
     assert.match(source, /function readCodeEnv/);
     assert.match(source, /function readBoundedStdin/);
     assert.match(source, /function redactLocalPathEvidence/);
@@ -119,7 +127,8 @@ test("CLI private receive-code inputs are not echoed back into local telemetry",
   assert.match(readme, /FF_RECEIVE_CODE="\$FF_RECEIVE_CODE" node dist-node\/cli\/index\.js send --code-env FF_RECEIVE_CODE --files-stdin/);
   assert.match(readme, /`--code-env` only avoids argv and shell-history exposure/);
   assert.match(readme, /Interactive send commands print a generic warning on stderr whenever the receive code or local file paths are still accepted from argv/);
-  assert.match(readme, /The warning never includes the code or paths/);
+  assert.match(readme, /`recv --code` prints the same kind of generic warning for supplied receive codes in argv/);
+  assert.match(readme, /The warnings never include the code or paths/);
   assert.match(securityPolicy, /CLI environment-sourced codes must be documented as protection from argv and shell-history capture only/);
   assert.doesNotMatch(readme, /printf '%s(?:\\n%s\\n)?' '<code>'/);
 });

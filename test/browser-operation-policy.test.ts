@@ -14,8 +14,23 @@ test("browser UI prevents overlapping send and receive operations from one tab",
   assert.match(webSource, /if \(operationBusy\(\)\) return;[\s\S]*receiveBusy = true;[\s\S]*\.finally\(\(\) => \{[\s\S]*receiveBusy = false;/);
   assert.match(webSource, /function operationBusy\(\): boolean \{[\s\S]*return sendBusy \|\| receiveBusy;/);
   assert.match(webSource, /const busy = operationBusy\(\);[\s\S]*serverUrl\.disabled = busy;/);
+  assert.match(webSource, /serverIce\.disabled = busy;/);
+  assert.match(webSource, /relayOnly\.disabled = busy;/);
   assert.match(webSource, /sendButton\.disabled = busy;/);
   assert.match(webSource, /receiveButton\.disabled = busy;/);
+});
+
+test("browser exposes relay-only ICE parity with the CLI", () => {
+  assert.match(securityPolicy, /CLI and browser docs must describe relay-only ICE as the TURN-backed mitigation for direct ICE candidate endpoint exposure/);
+  assert.match(securityPolicy, /browser send and receive flows must pass `iceTransportPolicy: "relay"` when the browser relay-only control is selected/);
+  assert.match(readme, /The browser client has matching ICE controls in the header/);
+  assert.match(readme, /`Relay only` sets WebRTC `iceTransportPolicy` to `relay`/);
+  assert.match(webSource, /<input id="relayOnly" type="checkbox" \/>/);
+  assert.match(webSource, /<span>Relay only<\/span>/);
+  assert.match(webSource, /const relayOnly = byId<HTMLInputElement>\("relayOnly"\);/);
+  assert.match(webSource, /function shouldUseBrowserRelayOnly\(\): boolean \{[\s\S]*return relayOnly\.checked;/);
+  assert.match(webSource, /function browserRtcConfiguration\(iceServers: RTCIceServer\[\]\): RTCConfiguration \{[\s\S]*return \{ iceServers, iceTransportPolicy: shouldUseBrowserRelayOnly\(\) \? "relay" : "all" \};/);
+  assert.equal(webSource.match(/new RTCPeerConnection\(browserRtcConfiguration\(iceServers\)\)/g)?.length, 2);
 });
 
 test("browser bootstrap HTML uses the named Trusted Types policy", () => {
@@ -33,7 +48,7 @@ test("browser sender revalidates transfer manifests at the send boundary", () =>
   assert.match(webSource, /assertTransferManifestWithinLimits\(manifest\);/);
   assert.match(
     webSource,
-    /const sendPlan = await buildBrowserSendPlan\(files\);[\s\S]*const manifest = browserSendPlanManifest\(sendPlan\);[\s\S]*const sealedManifest = await sealManifest\(keys, manifest\);[\s\S]*signaling\.send\(\{ type: "pair-request", sid: joined\.sid, manifest: redactManifest\(manifest\), sealedManifest \}\)/
+    /const sendPlan = await buildBrowserSendPlan\(files\);[\s\S]*const manifest = browserSendPlanManifest\(sendPlan\);[\s\S]*keys = await establishBrowserKeys\(signaling, joined\.sid, "sender", parsedCode\.handle\);[\s\S]*setLog\(sendLog, `SAS \$\{keys\.sas\}`\);[\s\S]*const sealedManifest = await sealManifest\(keys, manifest\);[\s\S]*signaling\.send\(\{ type: "pair-request", sid: joined\.sid, manifest: redactManifest\(manifest\), sealedManifest \}\)/
   );
   assert.match(
     webSource,

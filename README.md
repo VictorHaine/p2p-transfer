@@ -117,7 +117,7 @@ unset FF_RECEIVE_CODE
 ```
 
 `--code-env` only avoids argv and shell-history exposure. Environment variables are not a secrecy boundary against process-environment telemetry, same-user inspection windows, privileged endpoint tools, or MDM/EDR.
-Interactive send commands print a generic warning on stderr whenever the receive code or local file paths are still accepted from argv. The warning never includes the code or paths, and it is suppressed for `--json`, `--quiet`, and non-TTY stderr.
+Interactive send commands print a generic warning on stderr whenever the receive code or local file paths are still accepted from argv. `recv --code` prints the same kind of generic warning for supplied receive codes in argv. The warnings never include the code or paths, and they are suppressed for `--json`, `--quiet`, and non-TTY stderr.
 
 Useful CLI flags:
 
@@ -134,6 +134,8 @@ Useful CLI flags:
 - `recv --code <code>`: use a supplied code like `12345678-two-words` instead of generating one.
 - `recv --code-stdin` / `recv --code-env <name>`: provide that supplied receive code without putting it directly in argv. Supplied receive codes are not reprinted in the CLI registered event or human output.
 - `recv --resume`: keep failed CLI partials and resume a later attempt from the last verified chunk boundary. The final SHA-256 still has to match before publish.
+
+The browser client has matching ICE controls in the header. `Relay only` sets WebRTC `iceTransportPolicy` to `relay`, which requires TURN and may reduce connectivity, but avoids exposing direct host/server-reflexive ICE candidates to the peer.
 
 Exit codes:
 

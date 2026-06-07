@@ -69,6 +69,7 @@ const ICE_CONFIG_GRACE_MS = 1_000;
 const CLI_STDIN_MAX_BYTES = 512 * 1024;
 const ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const SEND_ARGV_TELEMETRY_WARNING = "Warning: receiver codes or local file paths passed as arguments can be captured by shell history, process lists, or endpoint telemetry. Use --code-stdin/--code-env and --files-stdin for private input.";
+const RECV_ARGV_TELEMETRY_WARNING = "Warning: receive codes passed as arguments can be captured by shell history, process lists, or endpoint telemetry. Use --code-stdin/--code-env for private input.";
 
 process.title = "ff";
 
@@ -371,6 +372,7 @@ async function resolveRecvCode(options: RecvOptions): Promise<ResolvedRecvCode |
   const sourceCount = Number(options.code !== undefined) + Number(Boolean(options.codeStdin)) + Number(options.codeEnv !== undefined);
   if (sourceCount === 0) return undefined;
   if (sourceCount > 1) throw new Error("Use only one receive code input source.");
+  if (options.code !== undefined) warnSensitiveRecvArgv(options);
   const code = options.codeStdin ? await readCodeFromStdin("Receive code") : options.codeEnv !== undefined ? readCodeEnv(options.codeEnv) : options.code;
   return { parsedCode: parseRequiredCode(normalizeCode(code)), supplied: true };
 }
@@ -793,6 +795,11 @@ function human(options: CommonOptions, message: string): void {
 function warnSensitiveSendArgv(options: CommonOptions): void {
   if (options.json || options.quiet || stderr.isTTY !== true) return;
   console.error(sanitizeDisplayText(SEND_ARGV_TELEMETRY_WARNING));
+}
+
+function warnSensitiveRecvArgv(options: CommonOptions): void {
+  if (options.json || options.quiet || stderr.isTTY !== true) return;
+  console.error(sanitizeDisplayText(RECV_ARGV_TELEMETRY_WARNING));
 }
 
 async function runWithExit(fn: () => Promise<void>, options: CommonOptions): Promise<void> {
