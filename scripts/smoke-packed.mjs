@@ -489,10 +489,11 @@ function waitForOutput(child, pattern, timeoutMs) {
     let stderr = "";
     let settled = false;
     let killTimer;
+    let timeoutError;
     const timer = setTimeout(() => {
+      timeoutError = new Error(`Timed out waiting for ${pattern}\nstdout:\n${stdout}\nstderr:\n${stderr}`);
       child.kill("SIGTERM");
       killTimer = setTimeout(() => child.kill("SIGKILL"), CHILD_KILL_GRACE_MS);
-      rejectOnce(new Error(`Timed out waiting for ${pattern}\nstdout:\n${stdout}\nstderr:\n${stderr}`), true);
     }, timeoutMs);
     const onStdout = (chunk) => {
       stdout = appendBoundedOutput(stdout, chunk);
@@ -504,6 +505,10 @@ function waitForOutput(child, pattern, timeoutMs) {
     };
     const onExit = (code) => {
       if (killTimer) clearTimeout(killTimer);
+      if (timeoutError) {
+        rejectOnce(timeoutError);
+        return;
+      }
       rejectOnce(new Error(`Process exited before ${pattern}: ${code}\nstdout:\n${stdout}\nstderr:\n${stderr}`));
     };
     const done = () => {

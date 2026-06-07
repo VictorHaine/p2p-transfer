@@ -269,7 +269,7 @@ test("packed package smoke installs and executes published bins", () => {
   assert.match(securityPolicy, /packed-install smoke options and subprocesses must run with descriptor-read, non-empty, NUL-free, byte-capped environment values/);
   assert.match(securityPolicy, /packed-install smoke must use a symlink-safe realpath entrypoint check and smoke-owned top-level failure reporting that does not print stack traces or raw path-sensitive evidence, strip terminal control and format characters from captured subprocess output and rendered command labels, reject non-string command label parts and non-Buffer child output chunks before coercion, bound that sanitized output, and force-kill timed-out subprocesses/);
   assert.match(securityPolicy, /packed-install smoke command timeouts must reject only after the timed-out subprocess exits/);
-  assert.match(securityPolicy, /packed-install smoke startup waits must clean up listeners and terminate timed-out server subprocesses/);
+  assert.match(securityPolicy, /packed-install smoke startup waits must clean up listeners, terminate timed-out server subprocesses, and reject only after the server subprocess exits/);
   assert.match(securityPolicy, /packed-install smoke must byte-cap server health and web UI response bodies/);
   assert.match(securityPolicy, /packed-install smoke HTTP probes must use an abort deadline that covers both headers and response body reads/);
   assert.match(securityPolicy, /packed-install smoke must fatal-UTF-8-decode project metadata and HTTP probe responses, parse project metadata and health response JSON with smoke-owned deterministic errors, and reject invalid health bodies without echoing response content/);
@@ -323,7 +323,10 @@ test("packed package smoke installs and executes published bins", () => {
   assert.match(packedSmokeScript, /fetchBoundedResponseText\(`http:\/\/127\.0\.0\.1:\$\{port\}\/healthz`, MAX_HEALTH_RESPONSE_BYTES\)/);
   assert.match(packedSmokeScript, /fetchBoundedResponseText\(`http:\/\/127\.0\.0\.1:\$\{port\}\/`, MAX_WEB_RESPONSE_BYTES\)/);
   assert.equal(packedSmokeScript.match(/child\.kill\("SIGKILL"\)/g)?.length, 2);
-  assert.match(packedSmokeScript, /function waitForOutput\(child, pattern, timeoutMs\)[\s\S]*let settled = false[\s\S]*child\.kill\("SIGTERM"\)[\s\S]*rejectOnce/);
+  assert.match(packedSmokeScript, /function waitForOutput\(child, pattern, timeoutMs\)[\s\S]*let timeoutError[\s\S]*timeoutError = new Error\(`Timed out waiting for \$\{pattern\}/);
+  assert.match(packedSmokeScript, /function waitForOutput\(child, pattern, timeoutMs\)[\s\S]*child\.kill\("SIGTERM"\)[\s\S]*killTimer = setTimeout\(\(\) => child\.kill\("SIGKILL"\), CHILD_KILL_GRACE_MS\)/);
+  assert.match(packedSmokeScript, /const onExit = \(code\) => \{[\s\S]*if \(killTimer\) clearTimeout\(killTimer\);[\s\S]*if \(timeoutError\) \{[\s\S]*rejectOnce\(timeoutError\);[\s\S]*return;[\s\S]*\}/);
+  assert.doesNotMatch(packedSmokeScript, /rejectOnce\(new Error\(`Timed out waiting for \$\{pattern\}/);
   assert.match(packedSmokeScript, /function waitForOutput\(child, pattern, timeoutMs\)[\s\S]*child\.stdout\.off\("data", onStdout\)[\s\S]*child\.stderr\.off\("data", onStderr\)[\s\S]*child\.off\("exit", onExit\)/);
   assert.match(packedSmokeScript, /const packageManager = requiredPackageManager\(packageJson\.packageManager\)/);
   assert.match(packedSmokeScript, /function requiredPackageManager\(value\)/);
