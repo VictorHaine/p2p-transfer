@@ -378,6 +378,42 @@ globalThis.fetch = async (url, init = {}) => {
   }
 });
 
+test("live release ref verifier classifies Error-shaped aborts as timeouts", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-live-release-ref-timeout-"));
+  const mock = path.join(tmp, "mock-live-release-ref-timeout.mjs");
+  try {
+    await fs.writeFile(
+      mock,
+      `
+globalThis.fetch = async () => {
+  const error = new Error("token-that-must-not-be-printed api.github.com slow path");
+  error.name = "AbortError";
+  throw error;
+};
+`,
+      "utf8"
+    );
+
+    const result = runScriptWithNodeArgs(
+      "scripts/verify-live-release-ref.mjs",
+      {
+        GITHUB_REPOSITORY: "VictorHaine/p2p-transfer",
+        GITHUB_TOKEN: "token-that-must-not-be-printed",
+        ...releaseTagEnv("v0.1.0")
+      },
+      [],
+      ["--import", mock]
+    );
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Live release ref verification failed:\n- GitHub API request timed out\./);
+    assert.doesNotMatch(result.stderr, /token-that-must-not-be-printed|api\.github|slow path|Error:/);
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
 test("release publish script rejects branch refs before artifact work", () => {
   const result = runScript("scripts/publish-release-artifact.mjs", {
     ...releaseTagEnv("v0.1.0"),

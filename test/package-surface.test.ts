@@ -951,6 +951,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(liveReleaseRefScript, /export async function assertLiveReleaseRefFromEnv\(\)/);
   assert.match(liveReleaseRefScript, /\/repos\/\$\{repository\}\/git\/ref\/tags\/\$\{tag\}/);
   assert.match(liveReleaseRefScript, /\/repos\/\$\{repository\}\/git\/ref\/heads\/main/);
+  assert.match(liveReleaseRefScript, /return error instanceof Error && error\.name === "AbortError"/);
   assert.match(securityPolicy, /last-mile live release-ref verifier must re-check the GitHub tag ref or annotated tag object and GitHub `main` ref against `GITHUB_SHA` through bounded GitHub API calls immediately before release artifact attestation, before npm publish, and before Docker smoke or GHCR push/);
   assert.match(releaseWorkflow, /release docker image[\s\S]*run: node scripts\/publish-docker-image\.mjs/);
   assert.match(dockerPolicySmokeScript, /"--read-only"/);

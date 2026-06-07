@@ -137,7 +137,7 @@ function optionalEnvString(name) {
 }
 
 function isAbortError(error) {
-  return error instanceof DOMException && error.name === "AbortError";
+  return error instanceof Error && error.name === "AbortError";
 }
 
 function liveReleaseRefErrorMessage(error) {
