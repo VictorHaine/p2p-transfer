@@ -54,7 +54,7 @@ if (isMain()) {
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   if (options.apply && !options.requireMain) throw new Error("--allow-missing-main is only allowed with --dry-run.");
-  const token = githubToken();
+  const token = await githubToken(options);
   const authenticatedLogin = requiredAuthenticatedLogin(await github(token, "GET", "/user"));
 
   const repo = await github(token, "GET", `/repos/${options.repository}`);
@@ -640,7 +640,7 @@ function githubApiErrorMessage(status) {
 }
 
 function parseArgs(args) {
-  const options = { apply: false, repository: repositoryInput(envString("GITHUB_REPOSITORY") || DEFAULT_REPOSITORY), requireMain: true, npmReviewers: [], npmReviewerKeys: new Set() };
+  const options = { apply: false, repository: repositoryInput(envString("GITHUB_REPOSITORY") || DEFAULT_REPOSITORY), requireMain: true, tokenStdin: false, npmReviewers: [], npmReviewerKeys: new Set() };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === "--apply") {
@@ -652,6 +652,8 @@ function parseArgs(args) {
     } else if (arg === "--repo") {
       const value = args[++index];
       options.repository = repositoryInput(value);
+    } else if (arg === "--token-stdin") {
+      options.tokenStdin = true;
     } else if (arg === "--npm-reviewer") {
       const value = args[++index];
       if (!value || !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(value)) throw new Error("Npm environment reviewer must be a GitHub username.");
@@ -665,17 +667,45 @@ function parseArgs(args) {
     } else if (arg === "--allow-self-review") {
       throw new Error("GitHub npm environment self-review must stay disabled.");
     } else {
-      throw new Error("Usage: node scripts/configure-github-release-controls.mjs [--dry-run|--apply] [--repo owner/name] [--dry-run --allow-missing-main] [--npm-reviewer login] [--prevent-self-review]");
+      throw new Error("Usage: node scripts/configure-github-release-controls.mjs [--dry-run|--apply] [--repo owner/name] [--dry-run --allow-missing-main] [--npm-reviewer login] [--prevent-self-review] [--token-stdin]");
     }
   }
   delete options.npmReviewerKeys;
   return options;
 }
 
-function githubToken() {
+async function githubToken(options) {
+  if (options.tokenStdin) {
+    if (envString("GITHUB_TOKEN") || envString("GH_TOKEN")) throw new Error("Do not set GITHUB_TOKEN or GH_TOKEN when using --token-stdin.");
+    return readStdinToken();
+  }
   const token = envString("GITHUB_TOKEN") || envString("GH_TOKEN");
-  if (!token) throw new Error("Set GITHUB_TOKEN or GH_TOKEN with repository administration permission.");
+  if (!token) throw new Error("Set GITHUB_TOKEN or GH_TOKEN, or pipe a token with --token-stdin, with repository administration permission.");
   return token;
+}
+
+async function readStdinToken() {
+  if (process.stdin.isTTY === true) throw new Error("Pipe GitHub token stdin; interactive terminal stdin is not accepted for --token-stdin.");
+  const chunks = [];
+  let total = 0;
+  for await (const chunk of process.stdin) {
+    if (!Buffer.isBuffer(chunk) && !(chunk instanceof Uint8Array)) throw new Error("GitHub token stdin was invalid.");
+    total += chunk.byteLength;
+    if (total > MAX_ENV_VALUE_BYTES + 2) throw new Error(`GitHub token stdin must be a non-empty control-free value under ${MAX_ENV_VALUE_BYTES} UTF-8 bytes.`);
+    chunks.push(Buffer.from(chunk));
+  }
+  let value;
+  try {
+    value = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks, total));
+  } catch {
+    throw new Error("GitHub token stdin must be valid UTF-8.");
+  }
+  if (value.endsWith("\r\n")) value = value.slice(0, -2);
+  else if (value.endsWith("\n")) value = value.slice(0, -1);
+  if (value.length < 1 || hasUnsafeEnvText(value) || utf8ByteLengthExceeds(value, MAX_ENV_VALUE_BYTES)) {
+    throw new Error(`GitHub token stdin must be a non-empty control-free value under ${MAX_ENV_VALUE_BYTES} UTF-8 bytes.`);
+  }
+  return value;
 }
 
 function repositoryInput(value) {

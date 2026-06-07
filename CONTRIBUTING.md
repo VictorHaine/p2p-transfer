@@ -51,7 +51,7 @@ pnpm install --frozen-lockfile
 pnpm exec playwright install --with-deps chromium
 DOCKER_SMOKE_TAG=p2p-transfer:test pnpm verify:release:docker
 gh auth refresh -h github.com -s workflow
-GITHUB_TOKEN="$(gh auth token)" pnpm release:preflight
+gh auth token | pnpm release:preflight --token-stdin
 ```
 
 ## Security Rules

@@ -76,7 +76,7 @@ if (isMain()) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
-  const token = githubToken();
+  const token = await githubToken(options);
   const runningInGitHubActions = envString("GITHUB_ACTIONS") === "true";
   assertReleaseWorkflowTokenClass(token, runningInGitHubActions);
   const releaseActorLogin = runningInGitHubActions ? githubActor() : undefined;
@@ -738,23 +738,53 @@ function githubApiErrorMessage(status) {
 }
 
 function parseArgs(args) {
-  const options = { repository: repositoryInput(envString("GITHUB_REPOSITORY") || DEFAULT_REPOSITORY) };
+  const options = { repository: repositoryInput(envString("GITHUB_REPOSITORY") || DEFAULT_REPOSITORY), tokenStdin: false };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === "--repo") {
       const value = args[++index];
       options.repository = repositoryInput(value);
+    } else if (arg === "--token-stdin") {
+      options.tokenStdin = true;
     } else {
-      throw new Error("Usage: node scripts/check-release-readiness.mjs [--repo owner/name]");
+      throw new Error("Usage: node scripts/check-release-readiness.mjs [--repo owner/name] [--token-stdin]");
     }
   }
   return options;
 }
 
-function githubToken() {
+async function githubToken(options) {
+  if (options.tokenStdin) {
+    if (envString("GITHUB_TOKEN") || envString("GH_TOKEN")) throw new Error("Do not set GITHUB_TOKEN or GH_TOKEN when using --token-stdin.");
+    return readStdinToken();
+  }
   const token = envString("GITHUB_TOKEN") || envString("GH_TOKEN");
-  if (!token) throw new Error("Set GITHUB_TOKEN or GH_TOKEN before running release preflight.");
+  if (!token) throw new Error("Set GITHUB_TOKEN or GH_TOKEN, or pipe a token with --token-stdin, before running release preflight.");
   return token;
+}
+
+async function readStdinToken() {
+  if (process.stdin.isTTY === true) throw new Error("Pipe GitHub token stdin; interactive terminal stdin is not accepted for --token-stdin.");
+  const chunks = [];
+  let total = 0;
+  for await (const chunk of process.stdin) {
+    if (!Buffer.isBuffer(chunk) && !(chunk instanceof Uint8Array)) throw new Error("GitHub token stdin was invalid.");
+    total += chunk.byteLength;
+    if (total > MAX_ENV_VALUE_BYTES + 2) throw new Error(`GitHub token stdin must be a non-empty control-free value under ${MAX_ENV_VALUE_BYTES} UTF-8 bytes.`);
+    chunks.push(Buffer.from(chunk));
+  }
+  let value;
+  try {
+    value = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks, total));
+  } catch {
+    throw new Error("GitHub token stdin must be valid UTF-8.");
+  }
+  if (value.endsWith("\r\n")) value = value.slice(0, -2);
+  else if (value.endsWith("\n")) value = value.slice(0, -1);
+  if (value.length < 1 || hasUnsafeEnvText(value) || utf8ByteLengthExceeds(value, MAX_ENV_VALUE_BYTES)) {
+    throw new Error(`GitHub token stdin must be a non-empty control-free value under ${MAX_ENV_VALUE_BYTES} UTF-8 bytes.`);
+  }
+  return value;
 }
 
 function repositoryInput(value) {

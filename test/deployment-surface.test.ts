@@ -495,7 +495,11 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(releaseReadinessScript, /const GITHUB_ACTIONS_INTEGRATION_ID = 15368/);
   assert.match(githubReleaseControlsScript, /const MAX_NPM_ENVIRONMENT_REVIEWERS = 6/);
   assert.match(githubReleaseControlsScript, /const MAX_ENV_VALUE_BYTES = 4_096/);
-  assert.match(githubReleaseControlsScript, /function githubToken\(\)/);
+  assert.match(githubReleaseControlsScript, /async function githubToken\(options\)/);
+  assert.match(githubReleaseControlsScript, /--token-stdin/);
+  assert.match(githubReleaseControlsScript, /function readStdinToken\(\)/);
+  assert.match(githubReleaseControlsScript, /Pipe GitHub token stdin; interactive terminal stdin is not accepted for --token-stdin\./);
+  assert.match(githubReleaseControlsScript, /Do not set GITHUB_TOKEN or GH_TOKEN when using --token-stdin\./);
   assert.match(githubReleaseControlsScript, /Object\.getOwnPropertyDescriptor\(process\.env, name\)/);
   assert.match(githubReleaseControlsScript, /\$\{name\} must be a non-empty control-free string under/);
   assert.doesNotMatch(githubReleaseControlsScript, /process\.env\.GITHUB_TOKEN|process\.env\.GH_TOKEN|process\.env\.GITHUB_REPOSITORY/);
@@ -663,7 +667,8 @@ test("checked GitHub release controls setup matches the protected release surfac
 
   assert.match(readme, /use the checked release-control setup script below to create or update the `npm` environment[\s\S]*required reviewers with self-review prevention/);
   assert.match(readme, /reviewer with write, maintain, or admin repository permission/);
-  assert.match(readme, /scripts\/configure-github-release-controls\.mjs --apply --npm-reviewer <release-approver-login>/);
+  assert.match(readme, /gh auth token \| node scripts\/configure-github-release-controls\.mjs --token-stdin --apply --npm-reviewer <release-approver-login>/);
+  assert.doesNotMatch(readme, /GITHUB_TOKEN=<admin-token> node scripts\/configure-github-release-controls\.mjs/);
   assert.match(readme, /creates\/updates the `npm` environment approval gate with self-review prevention, admin bypass disabled, and `v\*\.\*\.\*` tag-only deployment/);
   assert.match(readme, /release tags with no bypass actors/);
   assert.match(readme, /refuses read-only or unknown reviewers/);
@@ -682,14 +687,14 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(securityPolicy, /release setup must re-read the persisted repository security controls, dependency vulnerability alerts, `npm` environment, plus persisted reviewer permissions and fail before mutating deployment policies or repository rulesets when repository secret scanning, secret scanning push protection, Dependabot security updates, or dependency vulnerability alerts are not enabled or Dependabot security updates are paused/);
   assert.match(securityPolicy, /release setup must re-read the persisted deployment tag policy and fail before mutating repository rulesets when the `npm` environment lacks the exact release-tag deployment policy/);
   assert.match(securityPolicy, /release setup must re-read persisted repository ruleset details after writes and fail before reporting success when GitHub drops, broadens, weakens, bypass-enables, or otherwise normalizes branch\/tag rulesets away from the exact protected surface/);
-  assert.match(securityPolicy, /GitHub release setup and release preflight scripts must read token, repository, GitHub Actions mode, and release actor environment variables through own data descriptors[\s\S]*send GitHub API requests with an abort deadline/);
+  assert.match(securityPolicy, /GitHub release setup and release preflight scripts must read token, repository, GitHub Actions mode, and release actor environment variables through own data descriptors[\s\S]*local release setup and preflight must also accept bounded `--token-stdin` input[\s\S]*send GitHub API requests with an abort deadline/);
   assert.match(securityPolicy, /reject wrong-repository contexts before token use, package reads, npm registry requests, GitHub API requests, or repository mutation/);
   assert.match(githubReleaseControlsScript, /if \(value !== DEFAULT_REPOSITORY\) throw new Error\("Repository must match the release repository\."\)/);
   assert.match(securityPolicy, /release preflight must also reject malformed GitHub token, `GITHUB_ACTIONS`, or Actions-only `GITHUB_ACTOR` values before package reads, npm registry requests, or GitHub API requests/);
   assert.match(releaseReadinessScript, /if \(value !== DEFAULT_REPOSITORY\) throw new Error\("Repository must match the release repository\."\)/);
   assert.match(securityPolicy, /byte-cap and fatal-UTF-8\/JSON-decode GitHub API responses with setup-owned deterministic errors/);
   assert.match(securityPolicy, /avoid echoing token, malformed environment values, remote response messages, or raw API response bodies in errors/);
-  assert.match(releaseReadinessScript, /const token = githubToken\(\);[\s\S]*const runningInGitHubActions = envString\("GITHUB_ACTIONS"\) === "true";[\s\S]*assertReleaseWorkflowTokenClass\(token, runningInGitHubActions\);[\s\S]*const releaseActorLogin = runningInGitHubActions \? githubActor\(\) : undefined;[\s\S]*const failures = \[\];[\s\S]*readPackageMetadata\(\)/);
+  assert.match(releaseReadinessScript, /const token = await githubToken\(options\);[\s\S]*const runningInGitHubActions = envString\("GITHUB_ACTIONS"\) === "true";[\s\S]*assertReleaseWorkflowTokenClass\(token, runningInGitHubActions\);[\s\S]*const releaseActorLogin = runningInGitHubActions \? githubActor\(\) : undefined;[\s\S]*const failures = \[\];[\s\S]*readPackageMetadata\(\)/);
   assert.doesNotMatch(releaseReadinessScript, /collectReadinessValue\(failures, \(\) => githubToken\(\)\)/);
   assert.match(securityPolicy, /release setup must reject malformed, unexpected, wrong-target, duplicate, or bypass-enabled GitHub rulesets list entries before deciding whether to create or update rulesets/);
   assert.match(githubReleaseControlsScript, /const GITHUB_API_TIMEOUT_MS = 30_000/);
@@ -730,8 +735,11 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(readme, /verifies private vulnerability reporting is enabled/);
   assert.match(readme, /The checked repository ruleset for `v\*\.\*\.\*` tags must be active before the first release/);
   assert.doesNotMatch(readme, /create branch protection for `main`|tag protection rule or repository ruleset/);
-  assert.match(readme, /GITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
-  assert.match(contributing, /node scripts\/prepare-checked-pnpm\.mjs\npnpm install --frozen-lockfile\npnpm exec playwright install --with-deps chromium\nDOCKER_SMOKE_TAG=p2p-transfer:test pnpm verify:release:docker\ngh auth refresh -h github\.com -s workflow\nGITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
+  assert.match(readme, /gh auth token \| pnpm release:preflight --token-stdin/);
+  assert.doesNotMatch(readme, /GITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
+  assert.match(securityPolicy, /gh auth token \| pnpm release:preflight --token-stdin/);
+  assert.doesNotMatch(securityPolicy, /GITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
+  assert.match(contributing, /node scripts\/prepare-checked-pnpm\.mjs\npnpm install --frozen-lockfile\npnpm exec playwright install --with-deps chromium\nDOCKER_SMOKE_TAG=p2p-transfer:test pnpm verify:release:docker\ngh auth refresh -h github\.com -s workflow\ngh auth token \| pnpm release:preflight --token-stdin/);
   assert.match(contributing, /make sure `main` already exists on\nGitHub, then run the full release gate/);
   assert.match(securityPolicy, /local release preflight must fail before tagging when the npm package is missing, the target npm version already exists, the bootstrap placeholder exists without the exact `bootstrap` dist-tag or with `latest` pointing to it, private vulnerability reporting is disabled, dependency vulnerability alerts are disabled or hidden from the release token/);
   assert.match(securityPolicy, /GitHub repository `security_and_analysis` is missing or reports disabled secret scanning, disabled secret scanning push protection, disabled Dependabot security updates, or paused Dependabot security updates from the dedicated `automated-security-fixes` endpoint/);
@@ -811,7 +819,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /const RELEASE_PREFLIGHT_SECRET = "RELEASE_PREFLIGHT_TOKEN"/);
   assert.match(releaseReadinessScript, /const REQUIRED_SUCCESSFUL_MAIN_WORKFLOWS = \[[\s\S]*\{ file: "codeql\.yml", name: "codeql" \}[\s\S]*\{ file: "scorecard\.yml", name: "scorecard" \}[\s\S]*\{ file: "dependency-integrity\.yml", name: "dependency-integrity" \}[\s\S]*\]/);
   assert.match(releaseReadinessScript, /class ReleaseReadinessFailure extends Error/);
-  assert.match(releaseReadinessScript, /const token = githubToken\(\);[\s\S]*const runningInGitHubActions = envString\("GITHUB_ACTIONS"\) === "true";[\s\S]*assertReleaseWorkflowTokenClass\(token, runningInGitHubActions\);[\s\S]*const releaseActorLogin = runningInGitHubActions \? githubActor\(\) : undefined;[\s\S]*const failures = \[\]/);
+  assert.match(releaseReadinessScript, /const token = await githubToken\(options\);[\s\S]*const runningInGitHubActions = envString\("GITHUB_ACTIONS"\) === "true";[\s\S]*assertReleaseWorkflowTokenClass\(token, runningInGitHubActions\);[\s\S]*const releaseActorLogin = runningInGitHubActions \? githubActor\(\) : undefined;[\s\S]*const failures = \[\]/);
   assert.match(releaseReadinessScript, /function githubActor\(\)/);
   assert.match(releaseReadinessScript, /GITHUB_ACTOR must be a GitHub username in the release workflow\./);
   assert.match(releaseReadinessScript, /await collectReadinessFailure\(failures, async \(\) => \{/);
@@ -845,7 +853,11 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /npm registry response exceeded the byte limit/);
   assert.match(releaseReadinessScript, /npm registry response was not valid UTF-8/);
   assert.match(releaseReadinessScript, /const MAX_ENV_VALUE_BYTES = 4_096/);
-  assert.match(releaseReadinessScript, /function githubToken\(\)/);
+  assert.match(releaseReadinessScript, /async function githubToken\(options\)/);
+  assert.match(releaseReadinessScript, /--token-stdin/);
+  assert.match(releaseReadinessScript, /function readStdinToken\(\)/);
+  assert.match(releaseReadinessScript, /Pipe GitHub token stdin; interactive terminal stdin is not accepted for --token-stdin\./);
+  assert.match(releaseReadinessScript, /Do not set GITHUB_TOKEN or GH_TOKEN when using --token-stdin\./);
   assert.match(releaseReadinessScript, /Object\.getOwnPropertyDescriptor\(process\.env, name\)/);
   assert.match(releaseReadinessScript, /\$\{name\} must be a non-empty control-free string under/);
   assert.match(releaseReadinessScript, /const GITHUB_API_TIMEOUT_MS = 30_000/);
@@ -1090,7 +1102,7 @@ test("documented release gates require a hardened Docker runtime smoke, not just
     assert.match(document, /read-only filesystem, dropped Linux capabilities,[^.\n]+`no-new-privileges`/);
     assert.match(document, /refuses to start without `ALLOWED_ORIGINS` and without `SIGNALING_TOPOLOGY`/);
   }
-  assert.match(securityPolicy, /node scripts\/prepare-checked-pnpm\.mjs\npnpm install --frozen-lockfile\npnpm exec playwright install --with-deps chromium\nDOCKER_SMOKE_TAG=p2p-transfer:test pnpm verify:release:docker\ngh auth refresh -h github\.com -s workflow\nGITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
+  assert.match(securityPolicy, /local release setup and preflight must also accept bounded `--token-stdin` input, reject interactive terminal stdin, reject ambiguous stdin-plus-environment token input, and reject malformed stdin tokens before package reads, npm registry requests, GitHub API requests, or repository mutation/);
   assert.match(securityPolicy, /CI, release, Docker, and documented source builds must prepare pnpm through `scripts\/prepare-checked-pnpm\.mjs`, which byte-caps and no-follow-opens `package\.json` with pre\/post-read identity and mutation-metadata checks/);
   assert.match(securityPolicy, /runs Corepack and tar with a private package-manager home plus a minimal allowlisted child environment/);
   assert.match(readme, /Build from source:[\s\S]*node scripts\/prepare-checked-pnpm\.mjs\npnpm install --frozen-lockfile\npnpm build\npnpm test/);
