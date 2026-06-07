@@ -37,6 +37,7 @@ type CommonOptions = {
   serverIce?: boolean;
   quiet?: boolean;
   redactOutput?: boolean;
+  requirePrivateInput?: boolean;
   noColor?: boolean;
 };
 
@@ -100,6 +101,7 @@ program
   .option("--json", "emit machine-readable events")
   .option("--quiet", "suppress human-readable progress output")
   .option("--redact-output", "redact transfer codes, SAS, file metadata, and byte counts from CLI output, JSON events, and error text")
+  .option("--require-private-input", "reject receive codes and send code/file paths supplied through argv")
   .option("--no-color", "disable color output")
   .option("--verbose", "show debug details");
 
@@ -429,7 +431,10 @@ async function resolveRecvCode(options: RecvOptions): Promise<ResolvedRecvCode |
   const sourceCount = Number(options.code !== undefined) + Number(Boolean(options.codeStdin)) + Number(options.codeEnv !== undefined);
   if (sourceCount === 0) return undefined;
   if (sourceCount > 1) throw new Error("Use only one receive code input source.");
-  if (options.code !== undefined) warnSensitiveRecvArgv(options);
+  if (options.code !== undefined) {
+    rejectSensitiveRecvArgv(options);
+    warnSensitiveRecvArgv(options);
+  }
   const code = options.codeStdin ? await readCodeFromStdin("Receive code") : options.codeEnv !== undefined ? readCodeEnv(options.codeEnv) : options.code;
   return { parsedCode: parseRequiredCode(normalizeCode(code)), supplied: true };
 }
@@ -440,6 +445,7 @@ async function resolveSendInputs(code: string | undefined, files: string[], opti
   if (!options.codeStdin && options.codeEnv === undefined && !options.filesStdin) {
     if (!code) throw new Error("Receiver code is required.");
     if (files.length === 0) throw new Error("Choose at least one file.");
+    rejectSensitiveSendArgv(options, true, true);
     warnSensitiveSendArgv(options);
     return { code, files };
   }
@@ -475,7 +481,12 @@ async function resolveSendInputs(code: string | undefined, files: string[], opti
 
   if (!resolvedCode) throw new Error("Receiver code is required.");
   if (resolvedFiles.length === 0) throw new Error("Choose at least one file.");
-  if ((code !== undefined && code !== "-") || (!options.filesStdin && resolvedFiles.length > 0)) warnSensitiveSendArgv(options);
+  const codeFromArgv = !options.codeStdin && options.codeEnv === undefined && code !== undefined && code !== "-";
+  const filesFromArgv = !options.filesStdin && resolvedFiles.length > 0;
+  if (codeFromArgv || filesFromArgv) {
+    rejectSensitiveSendArgv(options, codeFromArgv, filesFromArgv);
+    warnSensitiveSendArgv(options);
+  }
   return { code: resolvedCode, files: resolvedFiles };
 }
 
@@ -864,6 +875,17 @@ function warnSensitiveSendArgv(options: CommonOptions): void {
 function warnSensitiveRecvArgv(options: CommonOptions): void {
   if (options.json || options.quiet || stderr.isTTY !== true) return;
   console.error(sanitizeDisplayText(RECV_ARGV_TELEMETRY_WARNING));
+}
+
+function rejectSensitiveSendArgv(options: CommonOptions, codeFromArgv: boolean, filesFromArgv: boolean): void {
+  if (!options.requirePrivateInput) return;
+  if (codeFromArgv && filesFromArgv) throw new Error("Receiver code and file path argv are disabled by --require-private-input. Use --code-stdin/--code-env and --files-stdin.");
+  if (codeFromArgv) throw new Error("Receiver code argv is disabled by --require-private-input. Use --code-stdin or --code-env.");
+  if (filesFromArgv) throw new Error("File path argv is disabled by --require-private-input. Use --files-stdin.");
+}
+
+function rejectSensitiveRecvArgv(options: CommonOptions): void {
+  if (options.requirePrivateInput) throw new Error("Receive code argv is disabled by --require-private-input. Use --code-stdin or --code-env.");
 }
 
 async function runWithExit(fn: () => Promise<void>, options: CommonOptions): Promise<void> {

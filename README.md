@@ -144,6 +144,7 @@ unset FF_RECEIVE_CODE
 
 `--code-env` only avoids argv and shell-history exposure. Environment variables are not a secrecy boundary against process-environment telemetry, same-user inspection windows, privileged endpoint tools, or MDM/EDR.
 Interactive send commands print a generic warning on stderr whenever the receive code or local file paths are still accepted from argv. `recv --code` prints the same kind of generic warning for supplied receive codes in argv. The warnings never include the code or paths, and they are suppressed for `--json`, `--quiet`, and non-TTY stderr.
+Use `--require-private-input` in automation that must fail closed instead of accepting receive codes or send code/file paths from argv.
 
 Useful CLI flags:
 
@@ -151,6 +152,7 @@ Useful CLI flags:
 - `--json`: emit machine-readable events.
 - `--quiet`: suppress human-readable progress.
 - `--redact-output`: redact transfer codes, SAS, file names, MIME types, file counts, byte counts, and per-file placeholders from local CLI output, JSON events, and error text for log-collected automation. It does not hide signaling/server metadata, peer-visible metadata, endpoint telemetry, ICE candidates, timing, or traffic shape.
+- `--require-private-input`: reject `recv --code`, `send <code>`, and send file paths supplied through argv; use `--code-stdin`/`--code-env` plus `--files-stdin` instead.
 - `--relay`: force relay-only ICE when TURN is configured, reducing local and public endpoint candidate exposure to peers and signaling logs.
 - `--no-server-ice`: ignore signaling-provided STUN/TURN endpoints and use only the built-in public STUN defaults. This reduces trust in the rendezvous operator's ICE configuration, but disables that server's TURN fallback.
 - `send --code-stdin`: read the receive code from piped stdin instead of argv.
@@ -372,6 +374,7 @@ MIT. See `LICENSE`.
 - Environment variables are local process metadata. `--code-env` deletes the variable after capture, but local process telemetry or privileged observers may still see it briefly; use `--code-stdin` when you need to avoid both argv and environment exposure.
 - CLI output is metadata-bearing by default for consent, progress, and detailed failures. Use `--redact-output` for log-collected automation; it redacts local CLI output only and does not hide metadata from the signaling server, peer, endpoint telemetry, ICE candidates, timing, or the network.
 - `--files-stdin` protects the `ff` process argv only. The command that produces the file list can still leak local paths through its own argv, shell history, terminal logs, or endpoint telemetry; use operational controls around the producer command when that matters.
+- `--require-private-input` makes argv fallback a command error, but it does not hide paths from the command that enumerates them or from local file-open telemetry.
 - Browsers without File System Access support can only receive transfers up to the 128 MiB Blob fallback cap. The Blob fallback keeps browser-managed plaintext buffers until the browser has completed or revoked the download URL; use `Folder only` for sensitive receives.
 - Browser folder receives cannot get CLI-style exclusive create from File System Access, so every browser-created folder entry must carry an unguessable `ff-<128-bit>` reservation token; data streams to opaque tokenized `.part` entries and publishes a final tokenized name only after hash verification. `Folder only` protects streaming behavior and partial-overwrite handling. Use browser `Opaque names` as well when final browser output names must not include the sanitized original basename.
 - Browser receive resume is exposed only through the explicit `Resume in folder` accept action. It preserves opaque tokenized `.part` files on failure and can resume a later matching manifest only when the same browser profile still has a fresh saved opaque partial record and browser-held lookup key, and the user selects a folder containing that entry. Browser startup and registry reads scrub expired or legacy metadata-bearing resume records so saved records do not retain plaintext filenames, MIME types, or sizes. Without that saved browser state, or when using the Blob download fallback, browser receive starts fresh. This is intentionally narrower than CLI `recv --resume` because File System Access does not provide CLI-style path identity and atomic publish primitives.

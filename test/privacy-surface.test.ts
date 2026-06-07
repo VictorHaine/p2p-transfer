@@ -120,6 +120,8 @@ test("README documents endpoint-visible local path and browser filename limits",
   const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
   assert.match(readme, /`--files-stdin` protects the `ff` process argv only/);
   assert.match(readme, /command that produces the file list can still leak local paths/);
+  assert.match(readme, /`--require-private-input` makes argv fallback a command error/);
+  assert.match(readme, /does not hide paths from the command that enumerates them or from local file-open telemetry/);
   assert.match(readme, /`Folder only` protects streaming behavior and partial-overwrite handling/);
   assert.match(readme, /Use browser `Opaque names` as well when final browser output names must not include the sanitized original basename/);
   assert.match(readme, /browser DOM previews, browser download behavior, final output names/);
