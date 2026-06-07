@@ -266,8 +266,12 @@ test("packed package smoke installs and executes published bins", () => {
   assert.doesNotMatch(packedSmokeScript, /version\.stdout\.includes/);
   assert.match(packedSmokeScript, /pnpm.*exec", "ff-server"/);
   assert.match(packedSmokeScript, /async function smokeInstalledTransfer\(consumerDir, childEnv, port, tmp\)/);
-  assert.match(packedSmokeScript, /"exec", "ff", "--server", serverUrl, "--json", "recv", "--code", code, "--yes", "--out", out/);
-  assert.match(packedSmokeScript, /"exec", "ff", "--server", serverUrl, "--json", "send", code, source/);
+  assert.match(packedSmokeScript, /"exec", "ff", "--server", serverUrl, "--json", "recv", "--code-stdin", "--yes", "--out", out/);
+  assert.match(packedSmokeScript, /receiver\.stdin\.end\(checkedChildStdin\(`\$\{code\}\\n`\)\)/);
+  assert.match(packedSmokeScript, /"exec", "ff", "--server", serverUrl, "--json", "send", "--code-stdin", "--files-stdin"/);
+  assert.match(packedSmokeScript, /stdin: `\$\{code\}\\n\$\{source\}\\n`/);
+  assert.match(packedSmokeScript, /function checkedChildStdin\(value\)/);
+  assert.match(packedSmokeScript, /const MAX_CHILD_STDIN_BYTES = 8_192/);
   assert.match(packedSmokeScript, /Packed installed CLI transfer changed file bytes\./);
   assert.match(packedSmokeScript, /strictDepBuilds: true/);
   assert.match(packedSmokeScript, /onlyBuiltDependencies:/);
@@ -283,7 +287,7 @@ test("packed package smoke installs and executes published bins", () => {
   assert.match(securityPolicy, /packed-install smoke HTTP probes must use an abort deadline that covers both headers and response body reads/);
   assert.match(securityPolicy, /packed-install smoke must fatal-UTF-8-decode project metadata and HTTP probe responses, parse project metadata and health response JSON with smoke-owned deterministic errors, and reject invalid health bodies without echoing response content/);
   assert.match(securityPolicy, /packed-install smoke must require exact `ff --version` stdout and empty stderr/);
-  assert.match(securityPolicy, /packed-install smoke must run an actual installed `ff recv` and `ff send` transfer through the installed `ff-server` and compare received bytes/);
+  assert.match(securityPolicy, /packed-install smoke must run an actual installed `ff recv` and `ff send` transfer through the installed `ff-server` using private stdin receive-code and file-list inputs, then compare received bytes/);
   assert.match(securityPolicy, /packed-install smoke must validate the project package name and `version`, derive the exact expected npm tarball name from that metadata before installing a self-packed workspace, and reject any pack output that is not exactly that single tarball/);
   assert.match(securityPolicy, /packed-install smoke must validate the project `packageManager` is an exact `pnpm@\d+\.\d+\.\d+` pin/);
   assert.match(securityPolicy, /provided tarball paths must reject terminal control\/format characters and staging\/open failures must not echo raw tarball paths/);
@@ -332,7 +336,9 @@ test("packed package smoke installs and executes published bins", () => {
   assert.doesNotMatch(packedSmokeScript, /rejectOnce\(new Error\(`\$\{command\} \$\{args\.join\(" "\)\} timed out/);
   assert.match(packedSmokeScript, /fetchBoundedResponseText\(`http:\/\/127\.0\.0\.1:\$\{port\}\/healthz`, MAX_HEALTH_RESPONSE_BYTES\)/);
   assert.match(packedSmokeScript, /fetchBoundedResponseText\(`http:\/\/127\.0\.0\.1:\$\{port\}\/`, MAX_WEB_RESPONSE_BYTES\)/);
-  assert.equal(packedSmokeScript.match(/child\.kill\("SIGKILL"\)/g)?.length, 3);
+  assert.equal(packedSmokeScript.match(/child\.kill\("SIGKILL"\)/g)?.length, 4);
+  assert.match(packedSmokeScript, /child\.stdin\.end\(checkedChildStdin\(options\.stdin\)\)/);
+  assert.match(packedSmokeScript, /function run\(command, args, options\)[\s\S]*catch \(error\) \{[\s\S]*child\.kill\("SIGTERM"\)[\s\S]*killTimer = setTimeout\(\(\) => child\.kill\("SIGKILL"\), CHILD_KILL_GRACE_MS\)[\s\S]*rejectOnce\(error, true\)/);
   assert.match(packedSmokeScript, /function waitForOutput\(child, pattern, timeoutMs\)[\s\S]*let timeoutError[\s\S]*timeoutError = new Error\(`Timed out waiting for \$\{pattern\}/);
   assert.match(packedSmokeScript, /function waitForOutput\(child, pattern, timeoutMs\)[\s\S]*child\.kill\("SIGTERM"\)[\s\S]*killTimer = setTimeout\(\(\) => child\.kill\("SIGKILL"\), CHILD_KILL_GRACE_MS\)/);
   assert.match(packedSmokeScript, /const onExit = \(code\) => \{[\s\S]*if \(killTimer\) clearTimeout\(killTimer\);[\s\S]*if \(timeoutError\) \{[\s\S]*rejectOnce\(timeoutError\);[\s\S]*return;[\s\S]*\}/);

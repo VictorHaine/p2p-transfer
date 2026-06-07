@@ -3,6 +3,7 @@ export function optionalEnvString(name: string): string | undefined;
 export function isolatedChildEnv(privateHome: string): Record<string, string>;
 export function parseJsonEvidence(text: string, label: string): unknown;
 export function appendBoundedOutput(current: string, chunk: Buffer): string;
+export function checkedChildStdin(value: string): string;
 export function renderCommandForLog(command: string, args: string[]): string;
 export function expectedPackedTarballName(packageName: string, packageVersion: string): string;
 export function optionalProvidedTarball(): string | undefined;

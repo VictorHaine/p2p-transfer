@@ -13,6 +13,7 @@ const MAX_PROJECT_PACKAGE_JSON_BYTES = 128 * 1024;
 const MAX_CONFORMANCE_JSON_BYTES = 128 * 1024;
 const MAX_CHILD_OUTPUT_CHARS = 200_000;
 const MAX_CHILD_ENV_VALUE_BYTES = 8_192;
+const MAX_CHILD_STDIN_BYTES = 8_192;
 const MAX_HEALTH_RESPONSE_BYTES = 8_192;
 const MAX_WEB_RESPONSE_BYTES = 1_048_576;
 const MAX_FETCH_RESPONSE_MS = 10_000;
@@ -154,7 +155,7 @@ async function readText(file, maxBytes) {
 
 function run(command, args, options) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd: options.cwd, env: options.env ?? safeChildEnv(), stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(command, args, { cwd: options.cwd, env: options.env ?? safeChildEnv(), stdio: [options.stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"] });
     const commandLabel = renderCommandForLog(command, args);
     let stdout = "";
     let stderr = "";
@@ -172,6 +173,15 @@ function run(command, args, options) {
     child.stderr.on("data", (chunk) => {
       stderr = appendBoundedOutput(stderr, chunk);
     });
+    if (options.stdin !== undefined) {
+      try {
+        child.stdin.end(checkedChildStdin(options.stdin));
+      } catch (error) {
+        child.kill("SIGTERM");
+        killTimer = setTimeout(() => child.kill("SIGKILL"), CHILD_KILL_GRACE_MS);
+        rejectOnce(error, true);
+      }
+    }
     child.on("error", (error) => {
       rejectOnce(error);
     });
@@ -211,15 +221,21 @@ async function smokeInstalledTransfer(consumerDir, childEnv, port, tmp) {
   await writeFile(source, expected);
   const serverUrl = `ws://127.0.0.1:${port}/v1/ws`;
   const code = "12345678-apple-anchor";
-  const receiver = spawn(pnpm, ["exec", "ff", "--server", serverUrl, "--json", "recv", "--code", code, "--yes", "--out", out], {
+  const receiver = spawn(pnpm, ["exec", "ff", "--server", serverUrl, "--json", "recv", "--code-stdin", "--yes", "--out", out], {
     cwd: consumerDir,
     env: childEnv,
-    stdio: ["ignore", "pipe", "pipe"]
+    stdio: ["pipe", "pipe", "pipe"]
   });
+  receiver.stdin.end(checkedChildStdin(`${code}\n`));
   const receiverOutput = captureChildOutput(receiver);
   try {
     await waitForOutput(receiver, /"registered"/, 30_000);
-    const sender = await run(pnpm, ["exec", "ff", "--server", serverUrl, "--json", "send", code, source], { cwd: consumerDir, timeoutMs: 90_000, env: childEnv });
+    const sender = await run(pnpm, ["exec", "ff", "--server", serverUrl, "--json", "send", "--code-stdin", "--files-stdin"], {
+      cwd: consumerDir,
+      timeoutMs: 90_000,
+      env: childEnv,
+      stdin: `${code}\n${source}\n`
+    });
     const receiverResult = await waitForExitWithOutput(receiver, 90_000, receiverOutput);
     if (sender.stderr.length > 0 || !sender.stdout.includes('"sent"')) throw new Error("Packed installed ff send did not complete a transfer.");
     if (receiverResult.code !== 0 || receiverResult.stderr.length > 0 || !receiverResult.stdout.includes('"received"')) throw new Error("Packed installed ff recv did not complete a transfer.");
@@ -231,6 +247,13 @@ async function smokeInstalledTransfer(consumerDir, childEnv, port, tmp) {
       await waitForExit(receiver, 5_000).catch(() => receiver.kill("SIGKILL"));
     }
   }
+}
+
+export function checkedChildStdin(value) {
+  if (typeof value !== "string" || value.length < 1 || /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u.test(value) || utf8ByteLengthExceeds(value, MAX_CHILD_STDIN_BYTES)) {
+    throw new Error(`Packed smoke child stdin must be a non-empty control-free value under ${MAX_CHILD_STDIN_BYTES} UTF-8 bytes.`);
+  }
+  return value;
 }
 
 export function safeChildEnv() {

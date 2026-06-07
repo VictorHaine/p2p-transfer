@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { appendBoundedOutput, expectedPackedTarballName, isolatedChildEnv, optionalEnvString, optionalProvidedTarball, parseJsonEvidence, readBoundedResponseText, renderCommandForLog, safeChildEnv, stageVerifiedTarball } from "../scripts/smoke-packed.mjs";
+import { appendBoundedOutput, checkedChildStdin, expectedPackedTarballName, isolatedChildEnv, optionalEnvString, optionalProvidedTarball, parseJsonEvidence, readBoundedResponseText, renderCommandForLog, safeChildEnv, stageVerifiedTarball } from "../scripts/smoke-packed.mjs";
 
 const packedSmokeSource = await readFile(new URL("../scripts/smoke-packed.mjs", import.meta.url), "utf8");
 
@@ -131,6 +131,14 @@ test("packed smoke command labels reject non-string and accessor-backed parts", 
   assert.throws(() => renderCommandForLog("pnpm", [1] as never), /command label is invalid/);
   assert.throws(() => renderCommandForLog("pnpm", accessorArgs), /command label is invalid/);
   assert.equal(getterCalled, false);
+});
+
+test("packed smoke child stdin is bounded and control-free", () => {
+  assert.equal(checkedChildStdin("12345678-apple-anchor\nfile.txt\n"), "12345678-apple-anchor\nfile.txt\n");
+  assert.throws(() => checkedChildStdin("" as never), /child stdin/);
+  assert.throws(() => checkedChildStdin("12345678-apple-anchor\u001b\nfile.txt\n"), /child stdin/);
+  assert.throws(() => checkedChildStdin("x".repeat(8_193)), /child stdin/);
+  assert.throws(() => checkedChildStdin({ toString: () => "12345678-apple-anchor\n" } as never), /child stdin/);
 });
 
 test("packed smoke child environment drops unsafe optional inherited values", () => {
