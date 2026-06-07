@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { constants, realpathSync } from "node:fs";
-import { lstat, open, writeFile } from "node:fs/promises";
+import { lstat, open, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -93,6 +93,38 @@ async function readBoundedRegularText(filePath, maxBytes, description) {
   }
 }
 
+async function verifiedArtifactDir() {
+  const artifactDir = path.join(projectRoot, "release-artifacts");
+  let info;
+  try {
+    info = await lstat(artifactDir);
+  } catch {
+    throw new Error("release artifact directory could not be read.");
+  }
+  if (!info.isDirectory()) {
+    throw new Error("release artifact directory must be a real directory.");
+  }
+  const realProjectRoot = await realpathStrict(projectRoot, "project root");
+  const realArtifactDir = await realpathStrict(artifactDir, "release artifact directory");
+  if (!isPathInside(realProjectRoot, realArtifactDir)) {
+    throw new Error("release artifact directory must stay inside the project root.");
+  }
+  return realArtifactDir;
+}
+
+async function realpathStrict(targetPath, description) {
+  try {
+    return await realpath(targetPath);
+  } catch {
+    throw new Error(`${description} could not be verified.`);
+  }
+}
+
+function isPathInside(parent, child) {
+  const relative = path.relative(parent, child);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
 async function readVerifiedHandleBytes(handle, size, description) {
   const buffer = Buffer.alloc(size);
   let offset = 0;
@@ -163,7 +195,7 @@ async function writeReleaseNotes() {
   const changelog = await readBoundedRegularText(path.join(projectRoot, "CHANGELOG.md"), MAX_CHANGELOG_BYTES, "changelog");
   const notes = extractReleaseNotes(changelog, version);
   if (options.check) return;
-  await writeFile(path.join(projectRoot, "release-artifacts", "RELEASE_NOTES.md"), notes, { flag: "wx" });
+  await writeFile(path.join(await verifiedArtifactDir(), "RELEASE_NOTES.md"), notes, { flag: "wx" });
 }
 
 if (isDirectEntrypoint) {

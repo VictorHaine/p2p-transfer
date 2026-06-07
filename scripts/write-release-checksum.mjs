@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
 import { constants, realpathSync } from "node:fs";
-import { lstat, open, readdir, writeFile } from "node:fs/promises";
+import { lstat, open, readdir, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -103,6 +103,38 @@ function sameFile(left, right) {
   return left.dev === right.dev && left.ino === right.ino && left.size === right.size;
 }
 
+async function verifiedArtifactDir() {
+  const artifactDir = path.join(projectRoot, "release-artifacts");
+  let info;
+  try {
+    info = await lstat(artifactDir);
+  } catch {
+    throw new Error("release artifact directory could not be read.");
+  }
+  if (!info.isDirectory()) {
+    throw new Error("release artifact directory must be a real directory.");
+  }
+  const realProjectRoot = await realpathStrict(projectRoot, "project root");
+  const realArtifactDir = await realpathStrict(artifactDir, "release artifact directory");
+  if (!isPathInside(realProjectRoot, realArtifactDir)) {
+    throw new Error("release artifact directory must stay inside the project root.");
+  }
+  return realArtifactDir;
+}
+
+async function realpathStrict(targetPath, description) {
+  try {
+    return await realpath(targetPath);
+  } catch {
+    throw new Error(`${description} could not be verified.`);
+  }
+}
+
+function isPathInside(parent, child) {
+  const relative = path.relative(parent, child);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
 function containsAbsolutePathText(value) {
   return /(^|[\s("'=])(?:\/|[A-Za-z]:[\\/])/.test(value);
 }
@@ -149,7 +181,7 @@ async function writeReleaseChecksum() {
     await readBoundedRegularFile(path.join(projectRoot, "package.json"), MAX_PACKAGE_JSON_BYTES, "package metadata"),
   );
   const expectedTarballName = expectedTarballNameFor(packageJson);
-  const artifactDir = path.join(projectRoot, "release-artifacts");
+  const artifactDir = await verifiedArtifactDir();
   const entries = await readdir(artifactDir, { withFileTypes: true });
 
   if (entries.length !== 1 || !entries[0]?.isFile() || entries[0].name !== expectedTarballName) {

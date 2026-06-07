@@ -122,3 +122,22 @@ test("release notes writer refuses to overwrite an existing notes file", async (
     await fs.rm(root, { force: true, recursive: true });
   }
 });
+
+test("release notes writer rejects symlinked artifact directories without writing outside the project", { skip: process.platform === "win32" ? "directory symlink behavior differs on Windows." : false }, async () => {
+  const { artifactDir, root, script } = await createFixture();
+  const outsideDir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-notes-outside-"));
+  try {
+    await fs.rm(artifactDir, { force: true, recursive: true });
+    await fs.symlink(outsideDir, artifactDir, "dir");
+
+    const result = spawnSync(process.execPath, [script], { encoding: "utf8" });
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Release notes generation failed:\nrelease artifact directory must be a real directory\./);
+    assert.doesNotMatch(result.stderr, /ff-release-notes-|ff-release-notes-outside-|at async|release-artifacts/);
+    await assert.rejects(() => fs.readFile(path.join(outsideDir, "RELEASE_NOTES.md"), "utf8"), { code: "ENOENT" });
+  } finally {
+    await fs.rm(root, { force: true, recursive: true });
+    await fs.rm(outsideDir, { force: true, recursive: true });
+  }
+});

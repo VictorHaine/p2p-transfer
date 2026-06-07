@@ -259,10 +259,14 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releaseWorkflow, /pack release artifact[\s\S]*pnpm --config\.ignore-scripts=true pack --pack-destination release-artifacts[\s\S]*node scripts\/write-release-checksum\.mjs/);
   assert.match(releaseWorkflow, /Verify release notes[\s\S]*node scripts\/write-release-notes\.mjs --check[\s\S]*pack release artifact/);
   assert.match(releaseChecksumScript, /return `\$\{packedPackageName\(name\)\}-\$\{version\}\.tgz`[\s\S]*const expectedTarballName = expectedTarballNameFor\(packageJson\)[\s\S]*entries\.length !== 1 \|\| !entries\[0\]\?\.isFile\(\) \|\| entries\[0\]\.name !== expectedTarballName[\s\S]*createHash\("sha256"\)[\s\S]*writeFile\(path\.join\(artifactDir, "SHA256SUMS"\), `\$\{checksum\}  \$\{expectedTarballName\}\\n`, \{ flag: "wx" \}\)/);
+  assert.match(releaseChecksumScript, /async function verifiedArtifactDir\(\)/);
+  assert.match(releaseChecksumScript, /const artifactDir = await verifiedArtifactDir\(\)/);
   assert.match(releaseNotesScript, /const headingPattern = \/\^##\\s\+\(\?:\\\[\(\?<bracketVersion>/);
   assert.match(releaseNotesScript, /if \(args\.length === 1 && args\[0\] === "--check"\) return \{ check: true \}/);
   assert.match(releaseNotesScript, /if \(options\.check\) return/);
-  assert.match(releaseNotesScript, /writeFile\(path\.join\(projectRoot, "release-artifacts", "RELEASE_NOTES\.md"\), notes, \{ flag: "wx" \}\)/);
+  assert.match(releaseNotesScript, /async function verifiedArtifactDir\(\)/);
+  assert.match(releaseNotesScript, /writeFile\(path\.join\(await verifiedArtifactDir\(\), "RELEASE_NOTES\.md"\), notes, \{ flag: "wx" \}\)/);
+  assert.match(securityPolicy, /release checksum and release-notes writers must verify `release-artifacts` is a real directory inside the project root/);
   assert.doesNotMatch(releaseWorkflow, /pack release artifact[\s\S]*(find release-artifacts|basename "\$tgz"|sha256sum)/);
   assert.match(releaseWorkflow, /DOCKER_SMOKE_TAG=p2p-transfer:release pnpm smoke:docker-policy/);
   assert.match(releaseDockerJob, /actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3/);
@@ -602,6 +606,8 @@ test("release artifact verification is bounded and exact", () => {
   assert.match(releaseWorkflow, /pack release artifact[\s\S]*node scripts\/write-release-checksum\.mjs/);
   assert.match(releaseChecksumScript, /fileURLToPath\(import\.meta\.url\)/);
   assert.match(releaseChecksumScript, /realpathSync\(process\.argv\[1\]\) === realpathSync\(scriptPath\)/);
+  assert.match(releaseChecksumScript, /async function verifiedArtifactDir\(\)/);
+  assert.match(releaseChecksumScript, /release artifact directory must be a real directory/);
   assert.match(releaseChecksumScript, /const MAX_TARBALL_BYTES = 50 \* 1024 \* 1024/);
   assert.match(releaseChecksumScript, /constants\.O_NOFOLLOW/);
   assert.match(releaseChecksumScript, /await lstat\(filePath\)[\s\S]*await open\(filePath, noFollowReadFlags\(\)\)[\s\S]*if \(!sameFile\(info, stat\)\)[\s\S]*readVerifiedHandleBytes\(handle, stat\.size, description\)[\s\S]*if \(opened\.size !== stat\.size \|\| !sameFile\(stat, opened\)\)/);

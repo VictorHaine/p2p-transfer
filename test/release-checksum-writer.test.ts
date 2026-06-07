@@ -64,3 +64,23 @@ test("release checksum writer does not leak raw filesystem paths on missing evid
     await fs.rm(root, { force: true, recursive: true });
   }
 });
+
+test("release checksum writer rejects symlinked artifact directories without writing outside the project", { skip: process.platform === "win32" ? "directory symlink behavior differs on Windows." : false }, async () => {
+  const { artifactDir, root, script } = await createFixture();
+  const outsideDir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-checksum-outside-"));
+  try {
+    await fs.rm(artifactDir, { force: true, recursive: true });
+    await fs.writeFile(path.join(outsideDir, "victorhaine-p2p-transfer-1.2.3.tgz"), Buffer.from("outside bytes"));
+    await fs.symlink(outsideDir, artifactDir, "dir");
+
+    const result = spawnSync(process.execPath, [script], { encoding: "utf8" });
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Release checksum generation failed:\nrelease artifact directory must be a real directory\./);
+    assert.doesNotMatch(result.stderr, /ff-release-checksum-|ff-release-checksum-outside-|at async|release-artifacts|victorhaine-p2p-transfer-1\.2\.3\.tgz/);
+    await assert.rejects(() => fs.readFile(path.join(outsideDir, "SHA256SUMS"), "utf8"), { code: "ENOENT" });
+  } finally {
+    await fs.rm(root, { force: true, recursive: true });
+    await fs.rm(outsideDir, { force: true, recursive: true });
+  }
+});

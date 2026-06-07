@@ -40,6 +40,7 @@ const nativeSmokeScript = fs.readFileSync(new URL("../scripts/smoke-native.mjs",
 const installStateScript = fs.readFileSync(new URL("../scripts/check-install-state.mjs", import.meta.url), "utf8");
 const releaseArtifactScript = fs.readFileSync(new URL("../scripts/verify-release-artifact.mjs", import.meta.url), "utf8");
 const releaseChecksumScript = fs.readFileSync(new URL("../scripts/write-release-checksum.mjs", import.meta.url), "utf8");
+const releaseNotesScript = fs.readFileSync(new URL("../scripts/write-release-notes.mjs", import.meta.url), "utf8");
 const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
 const cpaceReview = fs.readFileSync(new URL("../docs/security/cpace-review.md", import.meta.url), "utf8");
 const cpaceVectorTest = fs.readFileSync(new URL("./cpace-vectors.test.ts", import.meta.url), "utf8");
@@ -472,6 +473,11 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseWorkflow, /pnpm --config\.ignore-scripts=true pack --pack-destination release-artifacts/);
   assert.match(releaseWorkflow, /node scripts\/write-release-checksum\.mjs/);
   assert.match(releaseChecksumScript, /return `\$\{packedPackageName\(name\)\}-\$\{version\}\.tgz`[\s\S]*const expectedTarballName = expectedTarballNameFor\(packageJson\)[\s\S]*entries\.length !== 1 \|\| !entries\[0\]\?\.isFile\(\) \|\| entries\[0\]\.name !== expectedTarballName[\s\S]*createHash\("sha256"\)[\s\S]*writeFile\(path\.join\(artifactDir, "SHA256SUMS"\), `\$\{checksum\}  \$\{expectedTarballName\}\\n`, \{ flag: "wx" \}\)/);
+  assert.match(releaseChecksumScript, /async function verifiedArtifactDir\(\)/);
+  assert.match(releaseChecksumScript, /const artifactDir = await verifiedArtifactDir\(\)/);
+  assert.match(releaseNotesScript, /async function verifiedArtifactDir\(\)/);
+  assert.match(releaseNotesScript, /writeFile\(path\.join\(await verifiedArtifactDir\(\), "RELEASE_NOTES\.md"\), notes, \{ flag: "wx" \}\)/);
+  assert.match(securityPolicy, /release checksum and release-notes writers must verify `release-artifacts` is a real directory inside the project root/);
   assert.match(releaseChecksumScript, /fileURLToPath\(import\.meta\.url\)/);
   assert.match(releaseChecksumScript, /const MAX_TARBALL_BYTES = 50 \* 1024 \* 1024/);
   assert.match(releaseChecksumScript, /constants\.O_NOFOLLOW/);
