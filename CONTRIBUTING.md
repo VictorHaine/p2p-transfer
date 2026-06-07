@@ -28,6 +28,7 @@ For release-sensitive or protocol-sensitive changes, also run:
 
 ```sh
 pnpm smoke:release-artifact
+pnpm smoke:docker-policy
 pnpm test:e2e
 pnpm test:browser
 pnpm security:audit

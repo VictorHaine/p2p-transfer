@@ -32,6 +32,7 @@ const pnpmWorkspace = fs.readFileSync(new URL("../pnpm-workspace.yaml", import.m
 const pnpmLock = fs.readFileSync(new URL("../pnpm-lock.yaml", import.meta.url), "utf8");
 const packedSmokeScript = fs.readFileSync(new URL("../scripts/smoke-packed.mjs", import.meta.url), "utf8");
 const releaseArtifactSmokeScript = fs.readFileSync(new URL("../scripts/smoke-release-artifact.mjs", import.meta.url), "utf8");
+const dockerPolicySmokeScript = fs.readFileSync(new URL("../scripts/smoke-docker-policy.mjs", import.meta.url), "utf8");
 const nativeSmokeScript = fs.readFileSync(new URL("../scripts/smoke-native.mjs", import.meta.url), "utf8");
 const installStateScript = fs.readFileSync(new URL("../scripts/check-install-state.mjs", import.meta.url), "utf8");
 const releaseArtifactScript = fs.readFileSync(new URL("../scripts/verify-release-artifact.mjs", import.meta.url), "utf8");
@@ -361,11 +362,14 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.match(ciWorkflow, /macos-15/);
   assert.match(ciWorkflow, /windows-2025/);
   assert.doesNotMatch(ciWorkflow, /runs-on:\s*[a-z]+-latest|-\s+[a-z]+-latest/);
-  assert.match(ciWorkflow, /docker build -t p2p-transfer:test \./);
-  assert.match(ciWorkflow, /container started without ALLOWED_ORIGINS in production/);
-  assert.match(ciWorkflow, /container started without SIGNALING_TOPOLOGY in production/);
-  assert.match(ciWorkflow, /--read-only --cap-drop=ALL --security-opt no-new-privileges/);
-  assert.match(ciWorkflow, /https:\/\/evil\.example/);
+  assert.equal(packageJson.scripts?.["smoke:docker-policy"], "node scripts/smoke-docker-policy.mjs");
+  assert.match(ciWorkflow, /DOCKER_SMOKE_TAG=p2p-transfer:test pnpm smoke:docker-policy/);
+  assert.match(dockerPolicySmokeScript, /\["build", "-t", imageTag, "\."\]/);
+  assert.match(dockerPolicySmokeScript, /"run", "--rm", "--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "-e", "SIGNALING_TOPOLOGY=single-instance", imageTag/);
+  assert.match(dockerPolicySmokeScript, /"run", "--rm", "--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "-e", `ALLOWED_ORIGINS=\$\{PRODUCTION_ORIGIN\}`, imageTag/);
+  assert.match(dockerPolicySmokeScript, /"-p",\n\s+"127\.0\.0\.1::8787"/);
+  assert.match(dockerPolicySmokeScript, /probe\(`http:\/\/127\.0\.0\.1:\$\{port\}\/v1\/ice`, "403", \{ origin: BAD_ORIGIN \}\)/);
+  assert.match(dockerPolicySmokeScript, /Set \$\{VERBOSE_ENV\}=1 to print command output/);
   assert.doesNotMatch(ciWorkflow, /\bnpm\s+(?:install|ci|publish)\b|npx\b/);
 });
 
@@ -390,6 +394,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseArtifactSmokeScript, /await rm\(artifactDir, \{ recursive: true, force: true \}\)/);
   assert.match(releaseArtifactSmokeScript, /Release artifact smoke failed:/);
   assert.match(releaseArtifactSmokeScript, /realpathSync\(process\.argv\[1\]\) === realpathSync\(fileURLToPath\(import\.meta\.url\)\)/);
+  assert.match(releaseWorkflow, /DOCKER_SMOKE_TAG=p2p-transfer:release pnpm smoke:docker-policy/);
   assert.match(releaseWorkflow, /pnpm check:install-state[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed[\s\S]*pnpm test:e2e[\s\S]*pnpm test:browser[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures/);
   assert.match(releaseWorkflow, /pnpm --config\.ignore-scripts=true pack --pack-destination release-artifacts/);
   assert.match(releaseWorkflow, /node scripts\/write-release-checksum\.mjs/);
@@ -537,10 +542,10 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.doesNotMatch(releaseWorkflow, /publish npm package[\s\S]*find release-artifacts/);
   assert.doesNotMatch(releaseWorkflow, /sha256sum -c SHA256SUMS|execFileSync\('tar'/);
   assert.match(releaseWorkflow, /smoke downloaded release artifact[\s\S]*tgz="\$\{\{ steps\.verify_artifact\.outputs\.tarball \}\}"[\s\S]*test -f "\$tgz"[\s\S]*PACKED_SMOKE_TARBALL="\$tgz" node scripts\/smoke-packed\.mjs[\s\S]*publish npm package/);
-  assert.match(releaseWorkflow, /docker build -t p2p-transfer:release \./);
-  assert.match(releaseWorkflow, /container started without ALLOWED_ORIGINS in production/);
-  assert.match(releaseWorkflow, /container started without SIGNALING_TOPOLOGY in production/);
-  assert.match(releaseWorkflow, /--read-only --cap-drop=ALL --security-opt no-new-privileges/);
+  assert.match(releaseWorkflow, /DOCKER_SMOKE_TAG=p2p-transfer:release pnpm smoke:docker-policy/);
+  assert.match(dockerPolicySmokeScript, /"--read-only"/);
+  assert.match(dockerPolicySmokeScript, /"--cap-drop=ALL"/);
+  assert.match(dockerPolicySmokeScript, /"no-new-privileges"/);
   assert.match(releaseWorkflow, /ubuntu-24\.04/);
   assert.match(releaseWorkflow, /macos-15/);
   assert.match(releaseWorkflow, /windows-2025/);

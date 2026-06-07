@@ -23,6 +23,7 @@ const releaseChecksumScript = fs.readFileSync(new URL("../scripts/write-release-
 const releaseNotesScript = fs.readFileSync(new URL("../scripts/write-release-notes.mjs", import.meta.url), "utf8");
 const githubReleaseControlsScript = fs.readFileSync(new URL("../scripts/configure-github-release-controls.mjs", import.meta.url), "utf8");
 const releaseReadinessScript = fs.readFileSync(new URL("../scripts/check-release-readiness.mjs", import.meta.url), "utf8");
+const dockerPolicySmokeScript = fs.readFileSync(new URL("../scripts/smoke-docker-policy.mjs", import.meta.url), "utf8");
 const dependabotConfig = fs.readFileSync(new URL("../.github/dependabot.yml", import.meta.url), "utf8");
 const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
 const contributing = fs.readFileSync(new URL("../CONTRIBUTING.md", import.meta.url), "utf8");
@@ -225,12 +226,14 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.doesNotMatch(releasePlatformSmokeJob, /pnpm test:unit[\s\S]*pnpm build[\s\S]*pnpm smoke:native/);
   assert.match(ciWorkflow, /pnpm smoke:packed/);
   assert.match(ciWorkflow, /dependency audit[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures/);
-  assert.match(ciWorkflow, /verify production origin policy is required[\s\S]*docker run --rm --read-only --cap-drop=ALL --security-opt no-new-privileges -e SIGNALING_TOPOLOGY=single-instance p2p-transfer:test[\s\S]*container started without ALLOWED_ORIGINS in production/);
-  assert.match(ciWorkflow, /verify signaling topology policy is required[\s\S]*docker run --rm --read-only --cap-drop=ALL --security-opt no-new-privileges -e ALLOWED_ORIGINS=https:\/\/files\.example\.com p2p-transfer:test[\s\S]*container started without SIGNALING_TOPOLOGY in production/);
-  assert.match(ciWorkflow, /docker run -d --name p2p-transfer-test[\s\S]*--read-only[\s\S]*--cap-drop=ALL[\s\S]*--security-opt no-new-privileges[\s\S]*-e SIGNALING_TOPOLOGY=single-instance/);
-  assert.match(ciWorkflow, /PROBE_URL=http:\/\/127\.0\.0\.1:8787\/healthz PROBE_STATUS=200 node scripts\/probe-http\.mjs/);
-  assert.match(ciWorkflow, /verify bundled web UI[\s\S]*PROBE_URL=http:\/\/127\.0\.0\.1:8787\/ PROBE_STATUS=200 PROBE_CONTAINS='ff transfer' PROBE_MAX_BYTES=1048576 node scripts\/probe-http\.mjs/);
-  assert.match(ciWorkflow, /verify origin policy[\s\S]*PROBE_URL=http:\/\/127\.0\.0\.1:8787\/v1\/ice PROBE_STATUS=403 PROBE_ORIGIN=https:\/\/evil\.example node scripts\/probe-http\.mjs/);
+  assert.match(ciWorkflow, /DOCKER_SMOKE_TAG=p2p-transfer:test pnpm smoke:docker-policy/);
+  assert.match(dockerPolicySmokeScript, /\["build", "-t", imageTag, "\."\]/);
+  assert.match(dockerPolicySmokeScript, /"run", "--rm", "--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "-e", "SIGNALING_TOPOLOGY=single-instance", imageTag/);
+  assert.match(dockerPolicySmokeScript, /"run", "--rm", "--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "-e", `ALLOWED_ORIGINS=\$\{PRODUCTION_ORIGIN\}`, imageTag/);
+  assert.match(dockerPolicySmokeScript, /"127\.0\.0\.1::8787"/);
+  assert.match(dockerPolicySmokeScript, /waitForProbe\(`http:\/\/127\.0\.0\.1:\$\{port\}\/healthz`, "200"\)/);
+  assert.match(dockerPolicySmokeScript, /probe\(`http:\/\/127\.0\.0\.1:\$\{port\}\/`, "200", \{ contains: "ff transfer", maxBytes: "1048576" \}\)/);
+  assert.match(dockerPolicySmokeScript, /probe\(`http:\/\/127\.0\.0\.1:\$\{port\}\/v1\/ice`, "403", \{ origin: BAD_ORIGIN \}\)/);
   assert.doesNotMatch(ciWorkflow, /fetch\('http:\/\/127\.0\.0\.1:8787|body\.includes\('ff transfer'\)/);
   assert.doesNotMatch(ciWorkflow, /ALLOW_ANY_ORIGIN/);
   const releaseVerifyJob = workflowJob(releaseWorkflow, "verify");
@@ -241,12 +244,7 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releaseNotesScript, /const headingPattern = \/\^##\\s\+\(\?:\\\[\(\?<bracketVersion>/);
   assert.match(releaseNotesScript, /writeFile\(path\.join\(projectRoot, "release-artifacts", "RELEASE_NOTES\.md"\), notes, \{ flag: "wx" \}\)/);
   assert.doesNotMatch(releaseWorkflow, /pack release artifact[\s\S]*(find release-artifacts|basename "\$tgz"|sha256sum)/);
-  assert.match(releaseWorkflow, /verify production origin policy is required[\s\S]*docker run --rm --read-only --cap-drop=ALL --security-opt no-new-privileges -e SIGNALING_TOPOLOGY=single-instance p2p-transfer:release[\s\S]*container started without ALLOWED_ORIGINS in production/);
-  assert.match(releaseWorkflow, /verify signaling topology policy is required[\s\S]*docker run --rm --read-only --cap-drop=ALL --security-opt no-new-privileges -e ALLOWED_ORIGINS=https:\/\/files\.example\.com p2p-transfer:release[\s\S]*container started without SIGNALING_TOPOLOGY in production/);
-  assert.match(releaseWorkflow, /docker run -d --name p2p-transfer-release[\s\S]*--read-only[\s\S]*--cap-drop=ALL[\s\S]*--security-opt no-new-privileges[\s\S]*-e SIGNALING_TOPOLOGY=single-instance/);
-  assert.match(releaseWorkflow, /PROBE_URL=http:\/\/127\.0\.0\.1:8787\/healthz PROBE_STATUS=200 node scripts\/probe-http\.mjs/);
-  assert.match(releaseWorkflow, /verify bundled web UI[\s\S]*PROBE_URL=http:\/\/127\.0\.0\.1:8787\/ PROBE_STATUS=200 PROBE_CONTAINS='ff transfer' PROBE_MAX_BYTES=1048576 node scripts\/probe-http\.mjs/);
-  assert.match(releaseWorkflow, /verify origin policy[\s\S]*PROBE_URL=http:\/\/127\.0\.0\.1:8787\/v1\/ice PROBE_STATUS=403 PROBE_ORIGIN=https:\/\/evil\.example node scripts\/probe-http\.mjs/);
+  assert.match(releaseWorkflow, /DOCKER_SMOKE_TAG=p2p-transfer:release pnpm smoke:docker-policy/);
   assert.doesNotMatch(releaseWorkflow, /fetch\('http:\/\/127\.0\.0\.1:8787|body\.includes\('ff transfer'\)/);
   assert.doesNotMatch(releaseWorkflow, /ALLOW_ANY_ORIGIN/);
   assert.equal(releaseWorkflow.match(/id-token:\s*write/g)?.length, 2);
@@ -421,15 +419,11 @@ test("documented release gates require a hardened Docker runtime smoke, not just
   for (const document of [readme, securityPolicy]) {
     assert.match(document, /pnpm install --frozen-lockfile\npnpm verify:local/);
     assert.match(document, /pnpm install --frozen-lockfile\npnpm verify:release/);
-    assert.match(document, /docker build -t p2p-transfer:test \./);
-    assert.match(document, /docker run --rm --read-only --cap-drop=ALL --security-opt no-new-privileges -e SIGNALING_TOPOLOGY=single-instance p2p-transfer:test/);
-    assert.match(document, /container started without ALLOWED_ORIGINS in production/);
-    assert.match(document, /docker run --rm --read-only --cap-drop=ALL --security-opt no-new-privileges -e ALLOWED_ORIGINS=https:\/\/files\.example\.com p2p-transfer:test/);
-    assert.match(document, /container started without SIGNALING_TOPOLOGY in production/);
-    assert.match(document, /docker run --rm --read-only --cap-drop=ALL --security-opt no-new-privileges -p 8787:8787 -e ALLOWED_ORIGINS=https:\/\/files\.example\.com -e SIGNALING_TOPOLOGY=single-instance p2p-transfer:test/);
-    assert.doesNotMatch(document, /Required Security Gates[\s\S]*docker build -t p2p-transfer:test \.\n```/);
+    assert.match(document, /pnpm smoke:docker-policy/);
+    assert.match(document, /read-only filesystem, dropped Linux capabilities,[^.\n]+`no-new-privileges`/);
+    assert.match(document, /refuses to start without `ALLOWED_ORIGINS` and without `SIGNALING_TOPOLOGY`/);
   }
-  assert.match(contributing, /For release-sensitive or protocol-sensitive changes, also run:[\s\S]*pnpm smoke:release-artifact[\s\S]*pnpm test:e2e[\s\S]*pnpm test:browser[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures/);
+  assert.match(contributing, /For release-sensitive or protocol-sensitive changes, also run:[\s\S]*pnpm smoke:release-artifact[\s\S]*pnpm smoke:docker-policy[\s\S]*pnpm test:e2e[\s\S]*pnpm test:browser[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures/);
   assert.match(securityPolicy, /packed-install checks on Linux, macOS, and Windows for every supported Node major/);
   assert.match(securityPolicy, /packs the verified npm tarball with lifecycle scripts disabled after the explicit verified build/);
   assert.match(securityPolicy, /derives the expected packed tarball name from the checked package name and exact semver version before writing `SHA256SUMS`/);
@@ -453,7 +447,7 @@ test("documented release gates require a hardened Docker runtime smoke, not just
   assert.match(readme, /runs the packed-install smoke against a no-follow-verified staged copy of that downloaded tarball/);
   assert.match(securityPolicy, /trusted publishing from the GitHub `npm` environment/);
   assert.match(securityPolicy, /must not use static npm tokens/);
-  assert.match(securityPolicy, /proves the production Docker image independently refuses to start without `ALLOWED_ORIGINS` and without `SIGNALING_TOPOLOGY`/);
+  assert.match(securityPolicy, /checked Docker policy smoke script that proves the production Docker image independently refuses to start without `ALLOWED_ORIGINS` and without `SIGNALING_TOPOLOGY`/);
   assert.match(securityPolicy, /verifies `\/healthz`, origin policy, and the bundled web UI from that running container/);
   assert.match(securityPolicy, /explicit signaling topology/);
 });

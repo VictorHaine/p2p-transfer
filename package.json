@@ -36,6 +36,7 @@
     "smoke:native": "node scripts/smoke-native.mjs",
     "smoke:packed": "node scripts/smoke-packed.mjs",
     "smoke:release-artifact": "node scripts/smoke-release-artifact.mjs",
+    "smoke:docker-policy": "node scripts/smoke-docker-policy.mjs",
     "release:preflight": "node scripts/check-release-readiness.mjs",
     "verify:local": "pnpm check:install-state && pnpm build && pnpm check && pnpm test:unit && pnpm smoke:native && pnpm smoke:packed",
     "verify:release": "pnpm check:install-state && pnpm build && pnpm check && pnpm test:unit && pnpm smoke:native && pnpm smoke:packed && pnpm smoke:release-artifact && pnpm test:e2e && pnpm test:browser && pnpm security:audit && pnpm security:signatures",

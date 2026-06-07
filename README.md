@@ -225,22 +225,13 @@ Full release verification:
 ```sh
 pnpm install --frozen-lockfile
 pnpm verify:release
-docker build -t p2p-transfer:test .
-if docker run --rm --read-only --cap-drop=ALL --security-opt no-new-privileges -e SIGNALING_TOPOLOGY=single-instance p2p-transfer:test; then
-  echo "container started without ALLOWED_ORIGINS in production"
-  exit 1
-fi
-if docker run --rm --read-only --cap-drop=ALL --security-opt no-new-privileges -e ALLOWED_ORIGINS=https://files.example.com p2p-transfer:test; then
-  echo "container started without SIGNALING_TOPOLOGY in production"
-  exit 1
-fi
-docker run --rm --read-only --cap-drop=ALL --security-opt no-new-privileges -p 8787:8787 -e ALLOWED_ORIGINS=https://files.example.com -e SIGNALING_TOPOLOGY=single-instance p2p-transfer:test
+DOCKER_SMOKE_TAG=p2p-transfer:test pnpm smoke:docker-policy
 ```
 
 `pnpm test` runs the production build, unit crypto/protocol tests, built CLI end-to-end transfer test, and browser/CLI interop tests.
 `pnpm test:browser` verifies browser sender to CLI receiver and CLI sender to browser receiver with Playwright. It requires Chromium; set `PLAYWRIGHT_CHROMIUM=/path/to/chromium` if auto-detection fails.
 `pnpm smoke:native` loads the native `@roamhq/wrtc` binding inside its controlled smoke path, creates a DataChannel, and completes local offer/answer SDP negotiation. `pnpm smoke:packed` packs the verified workspace, installs that tarball into a fresh consumer project with native dependency build scripts enabled only for the reviewed native packages, verifies the published `ff` bin reports the expected protocol/version, then boots the published `ff-server` bin and checks both `/healthz` and the bundled web UI. `pnpm smoke:release-artifact` runs real `pnpm pack`, writes `SHA256SUMS`, and runs the release artifact verifier against that tarball so local release verification exercises the same artifact shape used by the release workflow.
-CI also proves the production Docker image independently refuses to start without `ALLOWED_ORIGINS` and without `SIGNALING_TOPOLOGY`, then boots it with both policies explicit, a read-only filesystem, dropped Linux capabilities, and `no-new-privileges`, and checks `/healthz`, origin policy, and the bundled web UI; a build-only Docker pass is not treated as enough for release. Platform smoke runs the packed-install check on Linux, macOS, and Windows for each supported Node major because the CLI depends on native WebRTC bindings. Workflows use explicit hosted runner generations (`ubuntu-24.04`, `macos-15`, `windows-2025`) rather than floating `*-latest` labels.
+`pnpm smoke:docker-policy` proves the production Docker image refuses to start without `ALLOWED_ORIGINS` and without `SIGNALING_TOPOLOGY`, then boots it with both policies explicit, a loopback-only random host port, a read-only filesystem, dropped Linux capabilities, and `no-new-privileges`, and checks `/healthz`, origin policy, and the bundled web UI; a build-only Docker pass is not treated as enough for release. CI and release run the same checked script. Platform smoke runs the packed-install check on Linux, macOS, and Windows for each supported Node major because the CLI depends on native WebRTC bindings. Workflows use explicit hosted runner generations (`ubuntu-24.04`, `macos-15`, `windows-2025`) rather than floating `*-latest` labels.
 The release workflow is tag-only. Release artifacts, npm publishes, and GitHub Releases are produced only from `v*` tags that match `package.json` version and point to commits already reachable from `main`, not from manual workflow dispatches, branch-built artifacts, or off-main tag commits.
 Before publishing, the release workflow downloads the exact npm tarball artifact, verifies its checksum and package metadata, then runs the packed-install smoke against a no-follow-verified staged copy of that downloaded tarball rather than trusting a different tarball produced earlier in the job.
 The same verified tarball is attested with GitHub artifact attestations before publish; the attestation job downloads and verifies the artifact but does not reinstall, rebuild, repack, or rediscover release contents.
