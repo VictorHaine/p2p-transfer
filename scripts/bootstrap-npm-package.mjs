@@ -307,6 +307,7 @@ async function bootstrapToken(options) {
 }
 
 async function readStdinToken() {
+  if (process.stdin.isTTY === true) throw new Error("Pipe npm bootstrap token stdin; interactive terminal stdin is not accepted for --token-stdin.");
   const chunks = [];
   let total = 0;
   for await (const chunk of process.stdin) {

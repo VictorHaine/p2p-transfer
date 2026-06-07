@@ -636,6 +636,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(securityPolicy, /GitHub `npm` environment lacks required reviewers, allows self-review, allows admin bypass, allows branch deployments, lacks the exact `v\*\.\*\.\*` tag deployment policy, or has the authenticated release operator as its sole required reviewer/);
   assert.match(securityPolicy, /first-time npm package bootstrap must use the checked bootstrap script, publish only the minimal temporary `0\.0\.0-bootstrap\.0` package from a private temporary directory under the non-default `bootstrap` dist-tag/);
   assert.match(securityPolicy, /require `--apply` plus either an explicit `NPM_BOOTSTRAP_TOKEN` or bounded `--token-stdin` input/);
+  assert.match(securityPolicy, /reject interactive terminal stdin for `--token-stdin`/);
   assert.match(securityPolicy, /reject ambiguous stdin-plus-environment token input, reject malformed stdin tokens before package reads, registry requests, npm config, or publish work/);
   assert.match(securityPolicy, /must not mutate workspace package metadata, publish the real release artifact, publish a placeholder as `latest`, or appear in the trusted release workflow/);
   assert.match(securityPolicy, /reject and clear control-bearing or over-budget bootstrap token environment values/);
@@ -649,7 +650,8 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(readme, /pnpm bootstrap:npm --dry-run/);
   assert.match(readme, /read -rs NPM_BOOTSTRAP_TOKEN\nprintf %s "\$NPM_BOOTSTRAP_TOKEN" \| pnpm bootstrap:npm --apply --token-stdin\nunset NPM_BOOTSTRAP_TOKEN/);
   assert.match(readme, /The helper publishes only a minimal temporary `0\.0\.0-bootstrap\.0` package from a private temp directory under the non-default `bootstrap` dist-tag/);
-  assert.match(readme, /accepts the one-time token through bounded stdin with `--token-stdin`/);
+  assert.match(readme, /accepts the one-time token through bounded piped stdin with `--token-stdin`/);
+  assert.match(readme, /rejects interactive terminal stdin instead of waiting for a typed token/);
   assert.match(readme, /does not publish the placeholder as `latest`/);
   assert.match(readme, /ensure the `npm` environment has at least one reviewer with write, maintain, or admin repository permission other than the person or token owner that will push the release tag/);
   assert.doesNotMatch(releaseWorkflow, /bootstrap-npm-package|bootstrap:npm|NPM_BOOTSTRAP_TOKEN/);
@@ -663,6 +665,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(npmBootstrapScript, /args\.length === 2 && args\.includes\("--apply"\) && args\.includes\("--token-stdin"\)/);
   assert.match(npmBootstrapScript, /function readStdinToken\(\)/);
   assert.match(npmBootstrapScript, /if \(envString\("NPM_BOOTSTRAP_TOKEN"\)\) throw new Error\("Do not set NPM_BOOTSTRAP_TOKEN when using --token-stdin\."\)/);
+  assert.match(npmBootstrapScript, /if \(process\.stdin\.isTTY === true\) throw new Error\("Pipe npm bootstrap token stdin; interactive terminal stdin is not accepted for --token-stdin\."\)/);
   assert.match(npmBootstrapScript, /npm bootstrap token stdin must be a non-empty control-free value under \$\{MAX_ENV_VALUE_BYTES\} UTF-8 bytes\./);
   assert.match(npmBootstrapScript, /\/\[\\p\{Cc\}\\p\{Cf\}\]\/u\.test\(descriptor\.value\)/);
   assert.match(npmBootstrapScript, /\$\{name\} must be a non-empty control-free environment value under \$\{MAX_ENV_VALUE_BYTES\} UTF-8 bytes\./);
