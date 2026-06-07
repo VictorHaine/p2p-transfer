@@ -716,13 +716,28 @@ test("native WebRTC dependency identity and install surface stay reviewed", () =
   assert.equal(wrtcPackageJson.main, "lib/index.js");
   assert.equal(wrtcPackageJson.types, "types/index.d.ts");
   assert.equal(wrtcPackageJson.browser, "lib/browser.js");
+  assert.equal(wrtcPackageJson.type, undefined);
+  assert.equal(wrtcPackageJson.exports, undefined);
+  assert.equal(wrtcPackageJson.sideEffects, undefined);
+  assert.equal(wrtcPackageJson.dependencies, undefined);
   assert.deepEqual(wrtcPackageJson.files, ["AUTHORS", "CHANGELOG.md", "lib", "types"]);
+  const wrtcScripts: Record<string, string> | undefined = wrtcPackageJson.scripts;
+  const expectedWrtcScripts: Record<string, string> = {
+    patch: "patch-package --error-on-warn",
+    build: "node scripts/build-from-source.js",
+    "make-prebuilt": "node scripts/make-prebuilt.js",
+    "install-example": "node scripts/install-example.js",
+    lint: "eslint lib/*.js lib/**/*.js test/*.js test/**/*.js scripts/*.js",
+    test: "node --expose-gc test/all.js",
+    prepare: "husky"
+  };
   for (const lifecycle of ["preinstall", "install", "postinstall", "prepublish", "prepublishOnly"]) {
-    assert.equal(wrtcPackageJson.scripts?.[lifecycle], undefined);
+    assert.equal(wrtcScripts?.[lifecycle], undefined);
   }
-  assert.equal(wrtcPackageJson.scripts?.prepare, "husky");
-  assert.equal(wrtcPackageJson.scripts?.build, "node scripts/build-from-source.js");
-  assert.equal(wrtcPackageJson.scripts?.["make-prebuilt"], "node scripts/make-prebuilt.js");
+  assert.equal(wrtcScripts?.prepare, "husky");
+  assert.equal(wrtcScripts?.build, "node scripts/build-from-source.js");
+  assert.equal(wrtcScripts?.["make-prebuilt"], "node scripts/make-prebuilt.js");
+  assert.deepEqual(wrtcScripts, expectedWrtcScripts);
   assert.deepEqual(
     Object.fromEntries(Object.entries(wrtcPackageJson.optionalDependencies ?? {}).filter(([name]) => name.startsWith("@roamhq/wrtc-"))),
     Object.fromEntries(reviewedWrtcPrebuiltPackages.map((name) => [name, wrtcPin]))
@@ -753,6 +768,8 @@ test("native WebRTC dependency identity and install surface stay reviewed", () =
   assert.match(nativeWebrtcReview, /Homepage: `https:\/\/github\.com\/WonderInventions\/node-webrtc`/);
   assert.match(nativeWebrtcReview, /Issue tracker: `https:\/\/github\.com\/WonderInventions\/node-webrtc\/issues`/);
   assert.match(nativeWebrtcReview, /`RTCPeerConnection`, `RTCDataChannel`, and `RTCIceCandidate`/);
+  assert.match(nativeWebrtcReview, /Module metadata reviewed in installed metadata: `type`, `exports`, `sideEffects`, and direct `dependencies` are absent/);
+  assert.match(nativeWebrtcReview, /Package script surface reviewed in installed metadata: only `patch`, `build`, `make-prebuilt`, `install-example`, `lint`, `test`, and `prepare` are present/);
   assert.match(nativeWebrtcReview, /Consumer install lifecycle hooks reviewed: `preinstall`, `install`, and `postinstall` are absent/);
   assert.match(nativeWebrtcReview, /`prepare` is present upstream but is not run during registry consumer installs/);
   assert.match(nativeWebrtcReview, /Optional platform prebuilt packages reviewed: `@roamhq\/wrtc-darwin-arm64@0\.10\.0`, `@roamhq\/wrtc-darwin-x64@0\.10\.0`, `@roamhq\/wrtc-linux-arm64@0\.10\.0`, `@roamhq\/wrtc-linux-x64@0\.10\.0`, and `@roamhq\/wrtc-win32-x64@0\.10\.0`/);

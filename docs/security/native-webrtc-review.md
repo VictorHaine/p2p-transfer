@@ -30,6 +30,8 @@ If it is compromised or if a platform prebuilt drifts, the CLI can load hostile 
 - Runtime behavior required by the smoke gate: instantiate two local peer connections, create an ordered DataChannel, complete local offer/answer SDP negotiation, and prove the SDP contains an application media section.
 - Published files reviewed in installed metadata: `AUTHORS`, `CHANGELOG.md`, `lib`, and `types`.
 - Entrypoints reviewed in installed metadata: `main` is `lib/index.js`, `types` is `types/index.d.ts`, and `browser` is `lib/browser.js`.
+- Module metadata reviewed in installed metadata: `type`, `exports`, `sideEffects`, and direct `dependencies` are absent.
+- Package script surface reviewed in installed metadata: only `patch`, `build`, `make-prebuilt`, `install-example`, `lint`, `test`, and `prepare` are present.
 - Consumer install lifecycle hooks reviewed: `preinstall`, `install`, and `postinstall` are absent. `prepare` is present upstream but is not run during registry consumer installs.
 - Build policy reviewed: `pnpm-workspace.yaml` has `strictDepBuilds: true`; `@roamhq/wrtc` is in `allowBuilds` because this native dependency is the only production package allowed to run reviewed dependency build tooling.
 - Optional platform prebuilt packages reviewed: `@roamhq/wrtc-darwin-arm64@0.10.0`, `@roamhq/wrtc-darwin-x64@0.10.0`, `@roamhq/wrtc-linux-arm64@0.10.0`, `@roamhq/wrtc-linux-x64@0.10.0`, and `@roamhq/wrtc-win32-x64@0.10.0`.
