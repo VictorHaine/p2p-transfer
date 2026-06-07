@@ -331,7 +331,7 @@ test("package publishing config keeps provenance and reproducible dependency pin
   assert.equal(packageJson.scripts?.["verify:local"], "pnpm check:install-state && pnpm security:dependencies && pnpm build && pnpm check && pnpm test:unit && pnpm smoke:native && pnpm smoke:packed");
   assert.equal(
     packageJson.scripts?.["verify:release"],
-    "pnpm check:install-state && pnpm security:dependencies && pnpm build && pnpm check && pnpm test:unit && pnpm smoke:native && pnpm smoke:packed && pnpm smoke:release-artifact && pnpm test:e2e && pnpm test:browser && pnpm security:audit && pnpm security:signatures"
+    "pnpm check:install-state && pnpm security:dependencies && pnpm build && pnpm check && pnpm test:unit && pnpm smoke:native && pnpm smoke:packed && pnpm smoke:release-artifact && node scripts/write-release-notes.mjs --check && pnpm test:e2e && pnpm test:browser && pnpm security:audit && pnpm security:signatures"
   );
   assert.equal(packageJson.scripts?.["verify:release:docker"], "pnpm verify:release && pnpm smoke:docker-policy");
   assert.equal(packageJson.scripts?.test, "pnpm build && pnpm test:unit && pnpm test:e2e && pnpm test:browser");
@@ -719,7 +719,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(securityPolicy, /release tag current-main matching must use the checked release main verifier with control-free byte-capped `GITHUB_SHA`, a control-free minimal Git child environment that ignores global and system Git config and disables terminal prompts, ignored Git output, bidirectional ancestry checks/);
   assert.match(securityPolicy, /release main checks must signal timed-out Git subprocesses, arm a bounded `SIGKILL` fallback, and reject only after the child exits/);
   assert.match(releaseWorkflow, /pnpm install --frozen-lockfile/);
-  assert.match(packageJson.scripts?.["verify:release"] ?? "", /pnpm smoke:packed && pnpm smoke:release-artifact && pnpm test:e2e/);
+  assert.match(packageJson.scripts?.["verify:release"] ?? "", /pnpm smoke:packed && pnpm smoke:release-artifact && node scripts\/write-release-notes\.mjs --check && pnpm test:e2e/);
   assert.equal(packageJson.scripts?.["verify:release:docker"], "pnpm verify:release && pnpm smoke:docker-policy");
   assert.match(releaseArtifactSmokeScript, /const pnpm = process\.platform === "win32" \? "pnpm\.cmd" : "pnpm"/);
   assert.match(releaseArtifactSmokeScript, /import \{ spawn \} from "node:child_process"/);

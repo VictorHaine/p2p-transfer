@@ -58,6 +58,39 @@ test("CLI transfers a file through the built signaling server with secure sessio
   }
 });
 
+test("CLI supplied receive code is redacted from registered JSON output", async () => {
+  const root = process.cwd();
+  const port = 18_000 + randomInt(1_000);
+  const origin = `http://127.0.0.1:${port}`;
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-e2e-registered-redaction-"));
+  const out = path.join(tmp, "out");
+  const childEnv = { ...testChildEnv(tmp), FF_PRIVATE_RECEIVE_CODE: "12345678-apple-anchor" };
+  const server = spawn(process.execPath, ["dist-node/server/index.js"], {
+    cwd: root,
+    env: { ...childEnv, PORT: String(port), HOST: "127.0.0.1", NODE_ENV: "production", ALLOWED_ORIGINS: origin, SIGNALING_TOPOLOGY: "single-instance", ALLOW_INSECURE_ORIGINS: "true" }
+  });
+
+  try {
+    await fs.mkdir(out);
+    await waitForOutput(server, /listening/);
+    const serverUrl = `ws://127.0.0.1:${port}/v1/ws`;
+    const receiver = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "recv", "--code-env", "FF_PRIVATE_RECEIVE_CODE", "--yes", "--out", out], { cwd: root, env: childEnv });
+    const receiverDone = waitForExitWithOutput(receiver, "receiver", CHILD_EXIT_TIMEOUT_MS);
+    await waitForOutput(receiver, /"registered"/);
+    terminateChild(receiver);
+    const receiverResult = await receiverDone;
+    const registered = receiverResult.stdout
+      .split(/\n/)
+      .filter((line) => line.trim().length > 0)
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+      .find((event) => event.event === "registered");
+    assert.deepEqual(registered, { event: "registered", codeSupplied: true, rendezvousRedacted: true, expiresInSec: 600 });
+    assert.doesNotMatch(receiverResult.stdout, /12345678|apple-anchor/);
+  } finally {
+    server.kill();
+  }
+});
+
 function testChildEnv(tmp: string): NodeJS.ProcessEnv {
   const pathValue = requiredEnv("PATH");
   const env: NodeJS.ProcessEnv = {

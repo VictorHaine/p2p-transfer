@@ -79,6 +79,12 @@ test("browser sender resumes into CLI receiver partials", browserTestOptions, as
   });
 
   let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  let firstReceiver: ChildProcessWithoutNullStreams | undefined;
+  let firstReceiverDone: Promise<{ code: number | null; stdout: string; stderr: string }> | undefined;
+  let secondReceiver: ChildProcessWithoutNullStreams | undefined;
+  let secondReceiverDone: Promise<{ code: number | null; stdout: string; stderr: string }> | undefined;
+  let firstPage: Page | undefined;
+  let secondPage: Page | undefined;
   try {
     await waitForOutput(server, /listening/);
     const source = path.join(tmp, "resume-from-browser.txt");
@@ -90,11 +96,11 @@ test("browser sender resumes into CLI receiver partials", browserTestOptions, as
     const serverUrl = `ws://127.0.0.1:${port}/v1/ws`;
     browser = await chromium.launch(chromiumLaunchOptions());
 
-    const firstReceiver = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "recv", "--resume", "--code", "12345678-apple-anchor", "--yes", "--out", out], { cwd: root, env: childEnv });
-    const firstReceiverDone = collectExit(firstReceiver);
+    firstReceiver = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "recv", "--resume", "--code", "12345678-apple-anchor", "--yes", "--out", out], { cwd: root, env: childEnv });
+    firstReceiverDone = collectExit(firstReceiver);
     await waitForOutput(firstReceiver, /"registered"/);
 
-    const firstPage = await browser.newPage();
+    firstPage = await browser.newPage();
     await firstPage.goto(`http://127.0.0.1:${port}/`);
     await firstPage.locator("#serverUrl").fill(serverUrl);
     await firstPage.locator("#sendCode").fill("12345678-apple-anchor");
@@ -103,14 +109,16 @@ test("browser sender resumes into CLI receiver partials", browserTestOptions, as
     let partial = await waitForCliResumePartial(out);
     firstReceiver.kill("SIGTERM");
     await firstReceiverDone;
+    firstReceiver = undefined;
     partial = { path: partial.path, size: (await fs.stat(partial.path)).size };
     await firstPage.close();
+    firstPage = undefined;
 
-    const secondReceiver = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "recv", "--resume", "--code", "12345679-apple-anchor", "--yes", "--out", out], { cwd: root, env: childEnv });
-    const secondReceiverDone = collectExit(secondReceiver);
+    secondReceiver = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "recv", "--resume", "--code", "12345679-apple-anchor", "--yes", "--out", out], { cwd: root, env: childEnv });
+    secondReceiverDone = collectExit(secondReceiver);
     await waitForOutput(secondReceiver, /"registered"/);
 
-    const secondPage = await browser.newPage();
+    secondPage = await browser.newPage();
     await secondPage.goto(`http://127.0.0.1:${port}/`);
     await secondPage.locator("#serverUrl").fill(serverUrl);
     await secondPage.locator("#sendCode").fill("12345679-apple-anchor");
@@ -119,6 +127,7 @@ test("browser sender resumes into CLI receiver partials", browserTestOptions, as
     await expectText(secondPage.locator("#sendStatus"), "Done");
 
     const secondReceiverResult = await secondReceiverDone;
+    secondReceiver = undefined;
     assert.equal(secondReceiverResult.code, 0, secondReceiverResult.stderr);
     assert.match(secondReceiverResult.stdout, /"secure_session"/);
     const receivedEvents = parseJsonEvents(secondReceiverResult.stdout).filter((event): event is { event: "received"; bytes: number; totalBytes: number } => {
@@ -129,6 +138,12 @@ test("browser sender resumes into CLI receiver partials", browserTestOptions, as
     assert.deepEqual(await fs.readFile(path.join(out, "resume-from-browser.txt")), payload);
     await assert.rejects(() => fs.stat(partial.path), { code: "ENOENT" });
   } finally {
+    await ignoreSettled(firstPage?.close());
+    await ignoreSettled(secondPage?.close());
+    terminateChild(firstReceiver);
+    terminateChild(secondReceiver);
+    await ignoreSettled(firstReceiverDone);
+    await ignoreSettled(secondReceiverDone);
     await browser?.close();
     server.kill();
   }
@@ -689,6 +704,16 @@ function collectExit(child: ChildProcessWithoutNullStreams): Promise<{ code: num
     });
     child.on("exit", (code) => resolve({ code, stdout, stderr }));
   });
+}
+
+function terminateChild(child: ChildProcessWithoutNullStreams | undefined): void {
+  if (!child || child.exitCode !== null || child.signalCode !== null) return;
+  child.kill("SIGTERM");
+}
+
+async function ignoreSettled(promise: Promise<unknown> | undefined): Promise<void> {
+  if (!promise) return;
+  await Promise.race([promise.catch(() => {}), new Promise<void>((resolve) => setTimeout(resolve, 1_000))]);
 }
 
 async function waitForCliResumePartial(dir: string): Promise<{ path: string; size: number }> {

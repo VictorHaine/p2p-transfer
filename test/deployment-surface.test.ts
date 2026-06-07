@@ -342,7 +342,8 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releasePublishJob, /timeout-minutes: 20/);
   assert.match(releaseGitHubReleaseJob, /timeout-minutes: 10/);
   assert.match(packageJson.scripts?.["verify:release"] ?? "", /pnpm check:install-state && pnpm security:dependencies && pnpm build/);
-  assert.match(readme, /`pnpm verify:release` runs the full non-Docker local release gate and runs `pnpm security:dependencies` before the build/);
+  assert.match(packageJson.scripts?.["verify:release"] ?? "", /pnpm smoke:release-artifact && node scripts\/write-release-notes\.mjs --check && pnpm test:e2e/);
+  assert.match(readme, /`pnpm verify:release` runs the full non-Docker local release gate, checks version-scoped release notes, and runs `pnpm security:dependencies` before the build/);
   assert.match(readme, /`pnpm verify:release:docker` runs that same gate plus the hardened Docker policy smoke/);
   assert.match(releaseVerifyJob, /pnpm check:install-state[\s\S]*pnpm security:dependencies[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed[\s\S]*pnpm test:e2e[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures/);
   assert.doesNotMatch(releaseVerifyJob, /pnpm test:unit[\s\S]*pnpm build[\s\S]*pnpm smoke:native/);
@@ -710,7 +711,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.equal(packageJson.scripts?.["bootstrap:npm"], "node scripts/bootstrap-npm-package.mjs");
   assert.equal(packageJson.scripts?.["verify:release:docker"], "pnpm verify:release && pnpm smoke:docker-policy");
   assert.match(readme, /gh auth refresh -h github\.com -s workflow/);
-  assert.match(readme, /DOCKER_SMOKE_TAG=p2p-transfer:test pnpm verify:release:docker\nnode scripts\/write-release-notes\.mjs --check/);
+  assert.doesNotMatch(readme, /DOCKER_SMOKE_TAG=p2p-transfer:test pnpm verify:release:docker\nnode scripts\/write-release-notes\.mjs --check/);
   assert.match(readme, /First remote bootstrap:[\s\S]*gh auth refresh -h github\.com -s workflow\ngit push -u origin main/);
   assert.match(readme, /git fetch origin main\ngit tag v0\.1\.0 origin\/main/);
   assert.match(readme, /`main` must exist remotely before `pnpm release:preflight` can pass/);
@@ -728,7 +729,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(readme, /The checked repository ruleset for `v\*\.\*\.\*` tags must be active before the first release/);
   assert.doesNotMatch(readme, /create branch protection for `main`|tag protection rule or repository ruleset/);
   assert.match(readme, /GITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
-  assert.match(contributing, /pnpm exec playwright install --with-deps chromium\nDOCKER_SMOKE_TAG=p2p-transfer:test pnpm verify:release:docker\nnode scripts\/write-release-notes\.mjs --check\ngh auth refresh -h github\.com -s workflow\nGITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
+  assert.match(contributing, /pnpm exec playwright install --with-deps chromium\nDOCKER_SMOKE_TAG=p2p-transfer:test pnpm verify:release:docker\ngh auth refresh -h github\.com -s workflow\nGITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
   assert.match(contributing, /make sure `main` already exists on\nGitHub, then run the full release gate/);
   assert.match(securityPolicy, /local release preflight must fail before tagging when the npm package is missing, the target npm version already exists, the bootstrap placeholder exists without the exact `bootstrap` dist-tag or with `latest` pointing to it, private vulnerability reporting is disabled, dependency vulnerability alerts are disabled or hidden from the release token/);
   assert.match(securityPolicy, /GitHub repository `security_and_analysis` is missing or reports disabled secret scanning, disabled secret scanning push protection, disabled Dependabot security updates, or paused Dependabot security updates from the dedicated `automated-security-fixes` endpoint/);

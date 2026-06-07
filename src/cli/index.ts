@@ -169,8 +169,9 @@ async function reviewedCliRuntime(): Promise<ReviewedCliRuntime> {
 }
 
 async function recv(options: RecvOptions): Promise<void> {
-  const outputDirInput = resolveRecvOutputDir(options);
+  rejectSensitiveRecvArgvInputs(options);
   const suppliedCode = await resolveRecvCode(options);
+  const outputDirInput = resolveRecvOutputDir(options);
   const runtime = await reviewedCliRuntime();
   const outDir = await ensureOutputDir(outputDirInput);
 
@@ -305,7 +306,7 @@ function printRegisteredReceiver(options: RecvOptions, handle: string, registere
     return;
   }
   if (supplied) {
-    print(options, { event: "registered", codeSupplied: true, rendezvous: registered.code, expiresInSec: registered.expiresInSec });
+    print(options, { event: "registered", codeSupplied: true, rendezvousRedacted: true, expiresInSec: registered.expiresInSec });
     human(options, "Ready to receive with the supplied code.");
     return;
   }
@@ -469,6 +470,7 @@ function resolveRecvOutputDir(options: RecvOptions): string {
 
 async function resolveSendInputs(code: string | undefined, files: string[], options: SendOptions): Promise<{ code: string; files: string[] }> {
   if (options.codeStdin && options.codeEnv !== undefined) throw new Error("Use only one receiver code input source.");
+  rejectSensitiveSendArgvInputs(code, files, options);
 
   if (!options.codeStdin && options.codeEnv === undefined && !options.filesStdin) {
     if (!code) throw new Error("Receiver code is required.");
@@ -517,6 +519,19 @@ async function resolveSendInputs(code: string | undefined, files: string[], opti
     warnSensitiveSendArgv(options);
   }
   return { code: resolvedCode, files: resolvedFiles };
+}
+
+function rejectSensitiveSendArgvInputs(code: string | undefined, files: string[], options: SendOptions): void {
+  if (!options.requirePrivateInput) return;
+  const codeFromArgv = !options.codeStdin && options.codeEnv === undefined && code !== undefined && code !== "-";
+  const filesFromArgv = files.length > 0 || ((options.codeStdin || options.codeEnv !== undefined) && code !== undefined && code !== "-");
+  rejectSensitiveSendArgv(options, codeFromArgv, filesFromArgv);
+}
+
+function rejectSensitiveRecvArgvInputs(options: RecvOptions): void {
+  if (!options.requirePrivateInput) return;
+  if (options.code !== undefined) rejectSensitiveRecvArgv(options);
+  if (options.outFromArgv) rejectSensitiveRecvOutputArgv(options);
 }
 
 async function readCodeFromStdin(label: string): Promise<string> {

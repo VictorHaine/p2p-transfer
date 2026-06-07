@@ -184,8 +184,10 @@ test("CLI private receive-code inputs are not echoed back into local telemetry",
     assert.match(source, /function printRegisteredReceiver/);
     assert.match(source, /codeSupplied: true/);
     assert.match(source, /codeRedacted: true/);
+    assert.match(source, /codeSupplied: true, rendezvousRedacted: true/);
     assert.match(source, /Ready to receive with the supplied code/);
     assert.match(source, /printRegisteredReceiver\(options, parsedCode\.handle, registered, registeredCode\.supplied\)/);
+    assert.doesNotMatch(source, /codeSupplied: true, rendezvous: registered\.code/);
     assert.doesNotMatch(source, /code: parsedCode\.handle, rendezvous: registered\.code, expiresInSec: registered\.expiresInSec \}\);[\s\S]*Ready to receive\. Share this code/);
     assert.match(source, /codeInputUtf8ByteLengthExceeds/);
     assert.match(source, /const value = descriptor\.value;[\s\S]*delete process\.env\[name\];[\s\S]*codeInputUtf8ByteLengthExceeds\(value\)/);
@@ -277,6 +279,30 @@ test("CLI require-private-input rejects argv secrets and paths", async () => {
   assert.match(sendPathArgv.stderr, /File path argv is disabled by --require-private-input/);
   assert.doesNotMatch(sendPathArgv.stderr, /12345678-apple-anchor|ff-private-input-secret/);
 
+  const sendPathArgvWithoutStdin = spawnSync(process.execPath, [cliEntrypoint, "--json", "--require-private-input", "send", "--code-stdin", secretPath], {
+    encoding: "utf8"
+  });
+  assert.notEqual(sendPathArgvWithoutStdin.status, 0);
+  assert.equal(sendPathArgvWithoutStdin.stdout, "");
+  assert.match(sendPathArgvWithoutStdin.stderr, /File path argv is disabled by --require-private-input/);
+  assert.doesNotMatch(sendPathArgvWithoutStdin.stderr, /Receiver code is required|ff-private-input-secret/);
+
+  const sendCodeArgvWithoutFiles = spawnSync(process.execPath, [cliEntrypoint, "--json", "--require-private-input", "send", "12345678-apple-anchor"], {
+    encoding: "utf8"
+  });
+  assert.notEqual(sendCodeArgvWithoutFiles.status, 0);
+  assert.equal(sendCodeArgvWithoutFiles.stdout, "");
+  assert.match(sendCodeArgvWithoutFiles.stderr, /Receiver code argv is disabled by --require-private-input/);
+  assert.doesNotMatch(sendCodeArgvWithoutFiles.stderr, /Choose at least one file|12345678-apple-anchor/);
+
+  const sendCodeArgvWithFilesStdin = spawnSync(process.execPath, [cliEntrypoint, "--json", "--require-private-input", "send", "--files-stdin", "12345678-apple-anchor"], {
+    encoding: "utf8"
+  });
+  assert.notEqual(sendCodeArgvWithFilesStdin.status, 0);
+  assert.equal(sendCodeArgvWithFilesStdin.stdout, "");
+  assert.match(sendCodeArgvWithFilesStdin.stderr, /Receiver code argv is disabled by --require-private-input/);
+  assert.doesNotMatch(sendCodeArgvWithFilesStdin.stderr, /Choose at least one file|12345678-apple-anchor/);
+
   const recvArgv = spawnSync(process.execPath, [cliEntrypoint, "--json", "--require-private-input", "recv", "--code", "12345678-apple-anchor"], {
     encoding: "utf8"
   });
@@ -293,6 +319,14 @@ test("CLI require-private-input rejects argv secrets and paths", async () => {
   assert.equal(recvOutArgv.stdout, "");
   assert.match(recvOutArgv.stderr, /Output directory argv is disabled by --require-private-input/);
   assert.doesNotMatch(recvOutArgv.stderr, /12345678-apple-anchor|ff-private-output/);
+
+  const recvCodeArgvWithMissingOutEnv = spawnSync(process.execPath, [cliEntrypoint, "--json", "--require-private-input", "recv", "--code", "12345678-apple-anchor", "--out-env", "FF_MISSING_PRIVATE_OUT"], {
+    encoding: "utf8"
+  });
+  assert.notEqual(recvCodeArgvWithMissingOutEnv.status, 0);
+  assert.equal(recvCodeArgvWithMissingOutEnv.stdout, "");
+  assert.match(recvCodeArgvWithMissingOutEnv.stderr, /Receive code argv is disabled by --require-private-input/);
+  assert.doesNotMatch(recvCodeArgvWithMissingOutEnv.stderr, /Environment variable FF_MISSING_PRIVATE_OUT|12345678-apple-anchor/);
 });
 
 test("CLI code-env rejects oversized receive codes without echoing them", async () => {

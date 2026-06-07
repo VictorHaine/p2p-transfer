@@ -47,7 +47,6 @@ preflight:
 ```sh
 pnpm exec playwright install --with-deps chromium
 DOCKER_SMOKE_TAG=p2p-transfer:test pnpm verify:release:docker
-node scripts/write-release-notes.mjs --check
 gh auth refresh -h github.com -s workflow
 GITHUB_TOKEN="$(gh auth token)" pnpm release:preflight
 ```
