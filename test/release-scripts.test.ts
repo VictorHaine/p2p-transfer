@@ -207,6 +207,79 @@ globalThis.fetch = async (url, init = {}) => {
   }
 });
 
+test("release preflight aggregates remote failures without leaking API bodies", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-preflight-"));
+  const mock = path.join(tmp, "mock-release-preflight-fetch.mjs");
+  const log = path.join(tmp, "requests.log");
+  try {
+    await fs.writeFile(
+      mock,
+      `
+import { appendFileSync } from "node:fs";
+
+const log = process.env.FF_MOCK_PREFLIGHT_LOG;
+
+function record(method, origin, path) {
+  appendFileSync(log, method + " " + origin + path + "\\n", "utf8");
+}
+
+globalThis.fetch = async (url, init = {}) => {
+  const parsed = new URL(url);
+  const method = init.method ?? "GET";
+  const path = parsed.pathname + parsed.search;
+  record(method, parsed.origin, path);
+  const json = (status, body, headers = {}) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
+  if (parsed.origin === "https://registry.npmjs.org" && method === "GET" && path === "/%40victorhaine%2Fp2p-transfer") {
+    return json(404, { message: "raw npm package name must not be echoed" });
+  }
+  if (parsed.origin !== "https://api.github.com") return json(500, { message: "unexpected origin" });
+  if (method === "GET" && path === "/user") return json(200, { login: "operator" }, { "x-oauth-scopes": "repo" });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer") return json(200, { id: 1 });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/branches/main") return json(404, { message: "raw main branch API body" });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/actions/secrets/RELEASE_PREFLIGHT_TOKEN") return json(404, { message: "raw secret API body" });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/rulesets?includes_parents=false") return json(200, []);
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/environments/npm") return json(200, {
+    can_admins_bypass: false,
+    protection_rules: [{ type: "required_reviewers", prevent_self_review: true, reviewers: [] }],
+    deployment_branch_policy: { protected_branches: false, custom_branch_policies: true }
+  });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/environments/npm/deployment-branch-policies?per_page=100") return json(200, { total_count: 0, branch_policies: [] });
+  return json(500, { message: "unexpected mock route" });
+};
+`,
+      "utf8"
+    );
+
+    const result = runScriptWithNodeArgs(
+      "scripts/check-release-readiness.mjs",
+      {
+        FF_MOCK_PREFLIGHT_LOG: log,
+        GITHUB_TOKEN: "token-that-must-not-be-printed"
+      },
+      [],
+      ["--import", mock]
+    );
+    const requests = await fs.readFile(log, "utf8");
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Release readiness check failed:/);
+    assert.match(result.stderr, /npm package is missing; bootstrap a lower throwaway version before trusted publishing\./);
+    assert.match(result.stderr, /GitHub token is missing workflow scope\. Run `gh auth refresh -h github\.com -s workflow`, then rerun release preflight\./);
+    assert.match(result.stderr, /Remote main branch is missing\. Push main before releasing\./);
+    assert.match(result.stderr, /GitHub Actions secret RELEASE_PREFLIGHT_TOKEN is missing\./);
+    assert.match(result.stderr, /GitHub rulesets response contained unexpected or missing rulesets\./);
+    assert.match(result.stderr, /GitHub npm environment required reviewers rule has no reviewers\./);
+    assert.match(result.stderr, /GitHub npm environment deployment policy is not exact\./);
+    assert.doesNotMatch(result.stderr, /token-that-must-not-be-printed|raw npm package name|raw main branch|raw secret|unexpected mock route|api\.github|registry\.npmjs|Error:/);
+    assert.match(requests, /^GET https:\/\/registry\.npmjs\.org\/%40victorhaine%2Fp2p-transfer\nGET https:\/\/api\.github\.com\/user\n/);
+    assert.match(requests, /GET https:\/\/api\.github\.com\/repos\/VictorHaine\/p2p-transfer\/actions\/secrets\/RELEASE_PREFLIGHT_TOKEN\n/);
+    assert.match(requests, /GET https:\/\/api\.github\.com\/repos\/VictorHaine\/p2p-transfer\/environments\/npm\/deployment-branch-policies\?per_page=100\n/);
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
 function runScript(script: string, env: Record<string, string>, args: string[] = []) {
   return runScriptWithNodeArgs(script, env, args, []);
 }
