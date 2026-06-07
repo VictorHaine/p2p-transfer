@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { appendFile, readFile, rm } from "node:fs/promises";
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { appendFile, lstat, open, rm } from "node:fs/promises";
+import { chmodSync, constants, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -67,8 +67,29 @@ async function main() {
 
 async function readPackageJson() {
   const file = path.join(root, "package.json");
-  const bytes = await readFile(file);
-  if (bytes.length > MAX_PACKAGE_JSON_BYTES) throw new Error("package metadata is too large.");
+  const info = await lstat(file);
+  if (!info.isFile()) throw new Error("package metadata must be a regular file.");
+  if (info.size < 1 || info.size > MAX_PACKAGE_JSON_BYTES) throw new Error("package metadata is too large.");
+  const handle = await open(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  let bytes;
+  try {
+    const opened = await handle.stat();
+    if (!opened.isFile()) throw new Error("package metadata must be a regular file.");
+    if (opened.size < 1 || opened.size > MAX_PACKAGE_JSON_BYTES) throw new Error("package metadata is too large.");
+    if (!sameFile(info, opened)) throw new Error("package metadata changed before verification.");
+    bytes = Buffer.alloc(opened.size);
+    let offset = 0;
+    while (offset < opened.size) {
+      const { bytesRead } = await handle.read(bytes, offset, opened.size - offset, offset);
+      if (bytesRead === 0) break;
+      offset += bytesRead;
+    }
+    if (offset !== opened.size) throw new Error("package metadata changed while being read.");
+    const afterRead = await handle.stat();
+    if (!sameFile(opened, afterRead)) throw new Error("package metadata changed while being read.");
+  } finally {
+    await handle.close();
+  }
   let decoded;
   try {
     decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
@@ -80,6 +101,10 @@ async function readPackageJson() {
   } catch {
     throw new Error("package metadata is not valid JSON.");
   }
+}
+
+function sameFile(left, right) {
+  return left.dev === right.dev && left.ino === right.ino && left.size === right.size;
 }
 
 function packageVersion(value) {

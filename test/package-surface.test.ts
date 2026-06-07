@@ -703,8 +703,13 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(dockerPublishScript, /await run\("docker", \["push", plainVersionRef\]/);
   assert.match(dockerPublishScript, /if \(aliasDigest !== digest\) throw new Error\("docker release tag aliases resolved to different digests\."\)/);
   assert.match(dockerPublishScript, /writeGithubOutput\(\{ image, digest, tag: versionRef, alias: plainVersionRef \}\)/);
+  assert.match(securityPolicy, /release Docker publishing must read package metadata through no-follow regular-file opens with exact-size handle reads and pre\/post-read identity checks/);
   assert.match(dockerPublishScript, /package version is not an exact release semver/);
   assert.match(dockerPublishScript, /release tag is not an exact release tag/);
+  assert.match(dockerPublishScript, /await lstat\(file\)/);
+  assert.match(dockerPublishScript, /await open\(file, constants\.O_RDONLY \| \(constants\.O_NOFOLLOW \?\? 0\)\)/);
+  assert.match(dockerPublishScript, /if \(!sameFile\(info, opened\)\) throw new Error\("package metadata changed before verification\."\)/);
+  assert.match(dockerPublishScript, /const afterRead = await handle\.stat\(\);[\s\S]*if \(!sameFile\(opened, afterRead\)\) throw new Error\("package metadata changed while being read\."\)/);
   assert.match(dockerPublishScript, /\^\(\?:0\|\[1-9\]\\d\*\)\\\.\(\?:0\|\[1-9\]\\d\*\)\\\.\(\?:0\|\[1-9\]\\d\*\)\$/);
   assert.match(dockerPublishScript, /import \{ safeChildEnv \} from "\.\/smoke-packed\.mjs"/);
   assert.match(dockerPublishScript, /env: \{ \.\.\.safeChildEnv\(\), \.\.\.\(options\.env \?\? \{\}\) \}/);
