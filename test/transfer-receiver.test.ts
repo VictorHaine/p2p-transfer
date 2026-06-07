@@ -5,7 +5,7 @@ import fsSync from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { encodeChunk } from "../src/shared/chunks.js";
-import { CHUNK_SIZE } from "../src/shared/constants.js";
+import { CHUNK_SIZE, RECEIVE_QUEUE_MAX_MESSAGES } from "../src/shared/constants.js";
 import { createSha256, digestHex } from "../src/shared/hash.js";
 import { finishPake, openControl, ownPakeShareB64, sealBulk, sealControl, startPake, type SessionKeys } from "../src/shared/security.js";
 import type { ControlMessage } from "../src/shared/transfer.js";
@@ -221,6 +221,24 @@ test("CLI receiver rejects empty bulk chunks before they can spin a transfer", a
   assert.equal(bulk.closed, true);
 });
 
+test("CLI receiver caps queued inbound DataChannel messages", async () => {
+  const { receiverKeys } = await makeKeys("queued-inbound-cap");
+  const outDir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-recv-queue-cap-"));
+  const control = fakeChannel();
+  const bulk = fakeChannel();
+  const receive = receiveFiles(control, bulk, receiverKeys, outDir, false, true);
+  const handler = bulk.onmessage;
+  assert.ok(handler);
+
+  for (let index = 0; index <= RECEIVE_QUEUE_MAX_MESSAGES; index += 1) {
+    handler.call(bulk, { data: new Uint8Array([0]) } as MessageEvent);
+  }
+
+  await assert.rejects(receive, /Receive queue backpressure exceeded\./);
+  assert.equal(control.onmessage, null);
+  assert.equal(bulk.onmessage, null);
+});
+
 test("CLI receiver rejects non-canonical DataChannel binary views before accessor reads", async () => {
   const { senderKeys, receiverKeys } = await makeKeys("hostile-binary-view");
   const outDir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-recv-hostile-view-"));
@@ -251,7 +269,7 @@ test("CLI receiver rejects non-canonical DataChannel binary views before accesso
   await control.emit(await seal(senderKeys, { t: "file-begin", id: 0, name: "x.txt", size: 1 }));
   await bulk.emit(new HostileDataView(new ArrayBuffer(9)));
 
-  await assert.rejects(receive, /Unsupported binary chunk type/);
+  await assert.rejects(receive, /Receive queue backpressure exceeded\./);
   assert.equal(getterInvoked, false);
   assert.equal(bulk.closed, true);
 });

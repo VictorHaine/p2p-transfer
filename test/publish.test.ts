@@ -31,6 +31,18 @@ test("publishPartFile atomically refuses to overwrite an existing file", async (
   assert.equal(await fs.readFile(partPath, "utf8"), "new");
 });
 
+test("publish cleanup quarantines verified paths before removal", () => {
+  assert.match(securityPolicy, /CLI receive and publish cleanup must quarantine same-directory verified paths before removal/);
+  for (const source of [sourceTransfer, distTransfer]) {
+    assert.match(source, /MAX_CLEANUP_QUARANTINE_ATTEMPTS/);
+    assert.match(source, /cleanupQuarantinePath/);
+    assert.match(source, /rename\(\w+, \w+\)/);
+    assert.match(source, /lstat\(\w+\)[\s\S]*if \(!\w+\(\w+\)\)[\s\S]*Cleanup target changed before removal/);
+    assert.doesNotMatch(source, /if \(sameFileIdentity\([^)]*\)\) await fs\.promises\.rm\(filePath/);
+    assert.doesNotMatch(source, /if \(samePathIdentity\([^)]*\)\) await fs\.promises\.rm\(filePath/);
+  }
+});
+
 test("publishPartFile publishes a completed part file and removes the part path", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-publish-ok-"));
   const partPath = path.join(dir, "file.txt.part");

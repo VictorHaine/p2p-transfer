@@ -25,3 +25,8 @@
 /test/release-artifact-verifier.test.ts @VictorHaine
 /test/release-checksum-writer.test.ts @VictorHaine
 /test/release-notes-writer.test.ts @VictorHaine
+/test/release-*.test.ts @VictorHaine
+/test/*install-state*.test.ts @VictorHaine
+/test/smoke-packed.test.ts @VictorHaine
+/test/crypto-dependencies.test.ts @VictorHaine
+/test/cpace-vectors.test.ts @VictorHaine

@@ -390,6 +390,7 @@ test("checked GitHub release controls setup matches the protected release surfac
   for (const check of [
     "verify",
     "browser interop",
+    "codeql analyze",
     "dependency review",
     "production docker policy",
     "platform smoke / ubuntu-24.04 / node 22.22.3",
@@ -574,6 +575,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /assertBoolean\(pullRequestParameters\.require_last_push_approval, true/);
   assert.match(releaseReadinessScript, /pullRequestParameters\.required_approving_review_count !== 1/);
   assert.match(releaseReadinessScript, /assertStatusContexts\(statusParameters\.required_status_checks, REQUIRED_CI_CHECKS, MAIN_RULESET_NAME\)/);
+  assert.match(releaseReadinessScript, /"codeql analyze"/);
   assert.match(releaseReadinessScript, /"dependency review"/);
   assert.match(releaseReadinessScript, /function assertTagRuleset\(ruleset\)/);
   assert.match(releaseReadinessScript, /assertRulesetBase\(ruleset, TAG_RULESET_NAME, "tag", "refs\/tags\/v\*"\)/);
@@ -604,7 +606,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
 
 test("security-sensitive surfaces require code owner review", () => {
   assert.match(securityPolicy, /security-sensitive crypto, protocol, release, dependency, dependency-review artifacts, Docker, server, and file-publish surfaces must be covered by `\.github\/CODEOWNERS`/);
-  assert.match(readme, /branch protection for `main` requiring CI and CODEOWNERS review/);
+  assert.match(readme, /branch protection for `main` requiring CI, CodeQL, dependency review, platform smoke, Docker smoke, and CODEOWNERS review/);
   for (const path of [
     "/.github/",
     "/Dockerfile",
@@ -629,10 +631,15 @@ test("security-sensitive surfaces require code owner review", () => {
     "/test/security.test.ts",
     "/test/package-surface.test.ts",
     "/test/deployment-surface.test.ts",
-    "/test/release-artifact-verifier.test.ts",
-    "/test/release-checksum-writer.test.ts",
-    "/test/release-notes-writer.test.ts"
-  ]) {
+	    "/test/release-artifact-verifier.test.ts",
+	    "/test/release-checksum-writer.test.ts",
+	    "/test/release-notes-writer.test.ts",
+	    "/test/release-*.test.ts",
+	    "/test/*install-state*.test.ts",
+	    "/test/smoke-packed.test.ts",
+	    "/test/crypto-dependencies.test.ts",
+	    "/test/cpace-vectors.test.ts"
+	  ]) {
     assert.match(codeowners, new RegExp(`^${escapeRegExp(path)}\\s+@VictorHaine$`, "m"), `${path} must be owned`);
   }
 });
@@ -645,7 +652,7 @@ test("CodeQL code scanning is pinned and least-privilege", () => {
   assert.match(codeqlWorkflow, /^on:\n  pull_request:\n  push:\n    branches:\n      - main\n  schedule:\n    - cron: "17 3 \* \* 2"$/m);
   assert.match(codeqlWorkflow, /^permissions:\n  contents: read\n  security-events: write$/m);
   assert.match(codeqlWorkflow, /^concurrency:\n  group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}\n  cancel-in-progress: true$/m);
-  assert.match(workflowJob(codeqlWorkflow, "analyze"), /timeout-minutes: 20/);
+  assert.match(workflowJob(codeqlWorkflow, "analyze"), /name: codeql analyze[\s\S]*timeout-minutes: 20/);
   assert.match(codeqlWorkflow, /uses: actions\/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4\.2\.2[\s\S]*persist-credentials: false/);
   assert.match(codeqlWorkflow, /uses: github\/codeql-action\/init@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4\.36\.2[\s\S]*languages: javascript-typescript/);
   assert.match(codeqlWorkflow, /uses: github\/codeql-action\/analyze@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4\.36\.2[\s\S]*category: "\/language:javascript-typescript"/);

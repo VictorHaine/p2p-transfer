@@ -145,7 +145,7 @@ Useful CLI flags:
 - `--quiet`: suppress human-readable progress.
 - `--redact-output`: redact file names, MIME types, and byte counts from CLI output, JSON events, and error text for log-collected automation.
 - `--relay`: force relay-only ICE when TURN is configured, reducing local and public endpoint candidate exposure to peers and signaling logs.
-- `--no-server-ice`: ignore signaling-provided STUN/TURN endpoints and use the built-in public STUN defaults. This reduces trust in the rendezvous operator's ICE configuration, but disables that server's TURN fallback.
+- `--no-server-ice`: ignore signaling-provided STUN/TURN endpoints and use only the built-in public STUN defaults. This reduces trust in the rendezvous operator's ICE configuration, but disables that server's TURN fallback.
 - `send --code-stdin`: read the receive code from piped stdin instead of argv.
 - `send --code-env <name>`: read the receive code from an environment variable instead of argv.
 - `send --files-stdin`: read newline-delimited file paths from stdin instead of argv.
@@ -179,7 +179,7 @@ Metadata privacy is intentionally limited and should be understood before using 
 
 | Observer | Can learn | Should not learn |
 | --- | --- | --- |
-| Signaling server | client IPs, public rendezvous prefix, roles, session timing, accept/reject/teardown events, total transfer bytes, file count, signaling frame sizes, PAKE public shares/tags, authenticated SDP/ICE contents, and whether clients accept its ICE endpoint hints | two secret words, PAKE output, plaintext file names, MIME types, file bytes, DataChannel control plaintext, true per-file size distribution |
+| Signaling server | client IPs, public rendezvous prefix, roles, session timing, accept/reject/teardown events, authenticated pair-reject reason values currently fixed to `user_declined` by bundled clients, total transfer bytes, file count, signaling frame sizes, PAKE public shares/tags, authenticated SDP/ICE contents, and whether clients accept its ICE endpoint hints | two secret words, PAKE output, plaintext file names, MIME types, file bytes, DataChannel control plaintext, true per-file size distribution |
 | STUN server | client public IP/port and ICE timing | code, manifest, file names, file bytes |
 | TURN server | client IPs, relay allocation timing, packet sizes, traffic volume/duration | file bytes or DataChannel plaintext |
 | Network observer | endpoints, DNS/SNI where applicable, timing, traffic volume, peer IPs for direct WebRTC, TURN use when relayed | file bytes or DataChannel plaintext when using `wss://` and WebRTC |
@@ -188,6 +188,7 @@ Metadata privacy is intentionally limited and should be understood before using 
 Per-file sizes in the server-visible pair request are synthetic placeholders that sum to the real total. The encrypted manifest still gives the receiver the real names, sizes, and MIME types before consent.
 
 If you do not trust the rendezvous operator's ICE endpoint choices, use CLI `--no-server-ice` or clear the browser `Server ICE/TURN` checkbox. The signaling server will still see authenticated SDP/ICE signaling metadata, but it cannot make the client use operator-supplied STUN/TURN endpoints. Direct connection reliability may drop because server-provided TURN fallback is skipped.
+When server ICE/TURN is enabled, clients still fall back to the built-in public STUN servers if no post-accept `ice-config` arrives within about one second while signaling remains open; disable server ICE/TURN when public STUN fallback is the only acceptable endpoint policy.
 
 Because rendezvous state is in memory, production and non-loopback deployments must set `SIGNALING_TOPOLOGY=single-instance` or `SIGNALING_TOPOLOGY=sticky-sessions`. Do not put multiple random replicas behind a load balancer unless every receiver/sender WebSocket pair for a rendezvous is pinned to the same process or you replace the in-memory rendezvous map with shared state.
 
@@ -254,6 +255,8 @@ docker run --rm -p 8787:8787 \
 Fast local verification:
 
 ```sh
+corepack enable
+corepack prepare pnpm@11.1.3 --activate
 pnpm install --frozen-lockfile
 pnpm exec playwright install --with-deps chromium
 pnpm verify:local
@@ -262,6 +265,8 @@ pnpm verify:local
 Full release verification:
 
 ```sh
+corepack enable
+corepack prepare pnpm@11.1.3 --activate
 pnpm install --frozen-lockfile
 pnpm exec playwright install --with-deps chromium
 pnpm verify:release
@@ -270,7 +275,7 @@ DOCKER_SMOKE_TAG=p2p-transfer:test pnpm smoke:docker-policy
 
 `pnpm test` runs the production build, unit crypto/protocol tests, built CLI end-to-end transfer test, and browser/CLI interop tests.
 `pnpm test:browser` verifies browser sender to CLI receiver, CLI sender to browser download receiver, CLI sender to browser folder-only receiver, browser resume-key replacement, browser resume-registry metadata scrubbing, and browser folder restart after a corrupted saved partial with Playwright. Install Chromium with `pnpm exec playwright install --with-deps chromium`; set `PLAYWRIGHT_CHROMIUM=/path/to/chromium` only when using an existing local browser binary. Missing Chromium is a hard test failure unless `FF_ALLOW_BROWSER_TEST_SKIP=true` is set explicitly; do not set that variable for release verification.
-`pnpm smoke:native` loads the native `@roamhq/wrtc` binding inside its controlled smoke path, creates a DataChannel, and completes local offer/answer SDP negotiation. `pnpm smoke:packed` packs the verified workspace, installs that tarball into a fresh consumer project with native dependency build scripts enabled only for the reviewed native packages, verifies the published `ff` bin reports the expected protocol/version, then boots the published `ff-server` bin and checks both `/healthz` and the bundled web UI. `pnpm smoke:release-artifact` runs real `pnpm pack`, writes the CycloneDX `SBOM.cdx.json`, writes `SHA256SUMS` for both release evidence files, and runs the release artifact verifier against that complete artifact set so local release verification exercises the same artifact shape used by the release workflow.
+`pnpm smoke:native` loads the native `@roamhq/wrtc` binding inside its controlled smoke path, creates a DataChannel, and completes local offer/answer SDP negotiation. `pnpm smoke:packed` packs the verified workspace, installs that tarball into a fresh consumer project with native dependency build scripts enabled only for the reviewed native packages, verifies the published `ff` bin reports the expected protocol/version, boots the published `ff-server` bin, checks both `/healthz` and the bundled web UI, then transfers a file through installed `ff recv` and `ff send` and compares received bytes. `pnpm smoke:release-artifact` runs real `pnpm pack`, writes the CycloneDX `SBOM.cdx.json`, writes `SHA256SUMS` for both release evidence files, and runs the release artifact verifier against that complete artifact set so local release verification exercises the same artifact shape used by the release workflow.
 `pnpm smoke:docker-policy` proves the production Docker image refuses to start without `ALLOWED_ORIGINS` and without `SIGNALING_TOPOLOGY`, then boots it with both policies explicit, a loopback-only random host port, a read-only filesystem, dropped Linux capabilities, and `no-new-privileges`, and checks `/healthz`, origin policy, and the bundled web UI; a build-only Docker pass is not treated as enough for release. CI and release run the same checked script. Platform smoke runs the packed-install check on Linux, macOS, and Windows for each supported Node major because the CLI depends on native WebRTC bindings. Workflows use explicit hosted runner generations (`ubuntu-24.04`, `macos-15`, `windows-2025`) rather than floating `*-latest` labels.
 The release workflow is tag-only. Release artifacts, npm publishes, and GitHub Releases are produced only from `v*` tags that match `package.json` version and point to commits already reachable from `main`, not from manual workflow dispatches, branch-built artifacts, or off-main tag commits.
 Before publishing, the release workflow downloads the exact npm tarball artifact, verifies its checksum and package metadata, then runs the packed-install smoke against a no-follow-verified staged copy of that downloaded tarball rather than trusting a different tarball produced earlier in the job.
@@ -295,7 +300,7 @@ In GitHub:
 - create the `npm` environment used by `.github/workflows/release.yml` and add required reviewers with self-review prevention before publishing
 - ensure the `npm` environment has at least one reviewer other than the person or token owner that will push the release tag; a sole self-reviewer deadlocks the publish job
 - enable private vulnerability reporting
-- create branch protection for `main` requiring CI and CODEOWNERS review
+- create branch protection for `main` requiring CI, CodeQL, dependency review, platform smoke, Docker smoke, and CODEOWNERS review
 - create a tag protection rule or repository ruleset for `v*` release tags so only maintainers can create or update release tags
 - after `main` exists remotely, apply the checked release controls with `GITHUB_TOKEN=<admin-token> node scripts/configure-github-release-controls.mjs --apply --npm-reviewer <release-approver-login>`; this creates/updates the `npm` environment approval gate with self-review prevention plus the branch and release-tag rulesets, refuses to create a sole-reviewer self-approval deadlock, and refuses to mutate repository rulesets if the `npm` environment still has no required-reviewer protection or still has the authenticated setup operator as its sole required reviewer
 - enable code scanning alerts; `.github/workflows/codeql.yml` runs pinned CodeQL analysis on pull requests, pushes to `main`, and a weekly schedule
@@ -321,6 +326,8 @@ NPM_BOOTSTRAP_TOKEN=<one-time-npm-token> pnpm bootstrap:npm --apply
 Release:
 
 ```sh
+corepack enable
+corepack prepare pnpm@11.1.3 --activate
 pnpm install --frozen-lockfile
 pnpm exec playwright install --with-deps chromium
 pnpm verify:release

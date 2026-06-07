@@ -11,6 +11,7 @@ const artifactDir = path.join(root, "release-artifacts");
 const MAX_PROJECT_PACKAGE_JSON_BYTES = 128 * 1024;
 const MAX_TARBALL_BYTES = 50 * 1024 * 1024;
 const MAX_PACKED_PACKAGE_JSON_BYTES = 64 * 1024;
+const MAX_LOCKFILE_BYTES = 10 * 1024 * 1024;
 const MAX_CHECKSUM_FILE_BYTES = 512;
 const MAX_SBOM_BYTES = 1024 * 1024;
 const MAX_ARTIFACT_ENTRY_NAME_BYTES = 255;
@@ -37,6 +38,7 @@ async function main() {
   const expected = parseJson(await readText(path.join(root, "package.json"), MAX_PROJECT_PACKAGE_JSON_BYTES), "package.json");
   const expectedName = requiredPackageName(expected.name);
   const expectedVersion = requiredPackageVersion(expected.version);
+  const expectedSbom = await expectedProductionSbom(expected, expectedName, expectedVersion);
   const tag = requiredReleaseTag(envString("GITHUB_REF_NAME"), expectedVersion);
   const releaseArtifactDir = await verifiedArtifactDir();
   const tarball = await singleReleaseTarball(releaseArtifactDir, expectedName, expectedVersion);
@@ -44,7 +46,7 @@ async function main() {
 
   try {
     await verifyChecksumFile(releaseArtifactDir, tarball, sbom);
-    await verifySbomFile(sbom, expectedName, expectedVersion);
+    await verifySbomFile(sbom, expectedName, expectedVersion, expectedSbom);
     const packed = await verifyPackedFileContents(tarball, expected);
     assertPackedPackageMetadataMatchesWorkspace(expected, packed);
     const packedName = requiredPackageName(packed.name, "package/package.json name");
@@ -509,7 +511,7 @@ async function verifyChecksumFile(releaseArtifactDir, tarball, sbom) {
   }
 }
 
-async function verifySbomFile(sbom, packageName, packageVersion) {
+async function verifySbomFile(sbom, packageName, packageVersion, expectedSbom) {
   const document = parseJson(await readHandleText(sbom.handle, sbom.size, "release SBOM"), "release SBOM");
   if (!isPlainRecord(document)) throw new Error("release SBOM must be a plain JSON object.");
   if (ownValue(document, "bomFormat") !== "CycloneDX") throw new Error("release SBOM must be CycloneDX.");
@@ -532,6 +534,239 @@ async function verifySbomFile(sbom, packageName, packageVersion) {
   if (!Array.isArray(components) || components.length < 1 || components.length > 4096) {
     throw new Error("release SBOM components are outside the allowed range.");
   }
+  verifySbomProductionInventory(document, expectedSbom);
+}
+
+async function expectedProductionSbom(packageJson, packageName, packageVersion) {
+  const dependencies = canonicalStringRecord(requiredPlainRecord(packageJson, "dependencies", "package.json"), "package.json dependencies");
+  const lockfile = parsePnpmLockfile(await readText(path.join(root, "pnpm-lock.yaml"), MAX_LOCKFILE_BYTES));
+  const packages = new Map();
+  const graph = new Map();
+  const directPackageKeys = [];
+  const rootDependsOn = [];
+
+  for (const name of Object.keys(dependencies).sort()) {
+    const version = requiredPackageVersion(dependencies[name], "package.json dependencies");
+    if (!isSupportedPackageName(name)) throw new Error("package.json dependencies contains an invalid package name.");
+    const locked = lockfile.importerDependencies.get(name);
+    if (!locked || locked.specifier !== version || normalizeLockVersion(locked.version) !== version) throwSbomInventoryMismatch();
+    const key = lockPackageKey(name, version);
+    if (!lockfile.packageKeys.has(key) || !lockfile.snapshots.has(key)) throwSbomInventoryMismatch();
+    directPackageKeys.push(key);
+    rootDependsOn.push(packagePurl(name, version));
+  }
+
+  const stack = [...directPackageKeys];
+  while (stack.length > 0) {
+    const key = stack.pop();
+    if (!key) continue;
+    const parsed = parseLockPackageKey(key);
+    const purl = packagePurl(parsed.name, parsed.version);
+    if (packages.has(purl)) continue;
+    const snapshot = lockfile.snapshots.get(key);
+    if (!snapshot) throwSbomInventoryMismatch();
+    const dependsOn = [];
+    packages.set(purl, { name: parsed.name, version: parsed.version, dependsOn });
+
+    const snapshotDependencies = [...snapshot.dependencies, ...snapshot.optionalDependencies].sort(([left], [right]) => left.localeCompare(right));
+    for (const [dependencyName, rawDependencyVersion] of snapshotDependencies) {
+      const dependencyVersion = normalizeLockVersion(rawDependencyVersion);
+      const dependencyKey = findLockPackageKey(lockfile, dependencyName, dependencyVersion);
+      const dependencyPurl = packagePurl(dependencyName, dependencyVersion);
+      dependsOn.push(dependencyPurl);
+      stack.push(dependencyKey);
+    }
+    dependsOn.sort();
+  }
+
+  const rootPurl = packagePurl(packageName, packageVersion);
+  graph.set(rootPurl, rootDependsOn.sort());
+  for (const [packagePurlValue, packageEvidence] of packages) {
+    graph.set(packagePurlValue, packageEvidence.dependsOn);
+  }
+  return { rootPurl, packages, graph };
+}
+
+function verifySbomProductionInventory(document, expected) {
+  const components = ownValue(document, "components");
+  const seenComponents = new Set();
+  for (const component of components) {
+    if (!isPlainRecord(component)) throwSbomInventoryMismatch();
+    if (ownValue(component, "type") !== "library") throwSbomInventoryMismatch();
+    const purl = ownValue(component, "purl");
+    if (typeof purl !== "string" || ownValue(component, "bom-ref") !== purl || seenComponents.has(purl)) throwSbomInventoryMismatch();
+    const expectedComponent = expected.packages.get(purl);
+    if (!expectedComponent) throwSbomInventoryMismatch();
+    if (ownValue(component, "name") !== packageLocalName(expectedComponent.name) || ownValue(component, "version") !== expectedComponent.version) throwSbomInventoryMismatch();
+    const expectedGroup = packageGroup(expectedComponent.name);
+    const group = optionalOwnValue(component, "group");
+    if (expectedGroup === undefined ? group !== undefined : group !== expectedGroup) throwSbomInventoryMismatch();
+    seenComponents.add(purl);
+  }
+  if (seenComponents.size !== expected.packages.size) throwSbomInventoryMismatch();
+
+  const dependencies = ownValue(document, "dependencies");
+  if (!Array.isArray(dependencies) || dependencies.length !== expected.graph.size) throwSbomInventoryMismatch();
+  const seenRefs = new Set();
+  const allowedRefs = new Set(expected.graph.keys());
+  for (const dependency of dependencies) {
+    if (!isPlainRecord(dependency)) throwSbomInventoryMismatch();
+    const ref = ownValue(dependency, "ref");
+    if (typeof ref !== "string" || seenRefs.has(ref) || !expected.graph.has(ref)) throwSbomInventoryMismatch();
+    const dependsOn = ownValue(dependency, "dependsOn");
+    if (!Array.isArray(dependsOn)) throwSbomInventoryMismatch();
+    const actual = canonicalSbomRefArray(dependsOn);
+    if (actual.some((value) => !allowedRefs.has(value))) throwSbomInventoryMismatch();
+    if (ref === expected.rootPurl && JSON.stringify(actual) !== JSON.stringify(expected.graph.get(ref))) throwSbomInventoryMismatch();
+    seenRefs.add(ref);
+  }
+  if (seenRefs.size !== expected.graph.size || !seenRefs.has(expected.rootPurl)) throwSbomInventoryMismatch();
+}
+
+function parsePnpmLockfile(text) {
+  const importerDependencies = new Map();
+  const packageKeys = new Set();
+  const snapshots = new Map();
+  let section = "";
+  let inRootImporter = false;
+  let inRootDependencies = false;
+  let currentImporterDependency;
+  let currentSnapshotKey;
+  let currentSnapshotDependencyKind;
+
+  for (const rawLine of text.replace(/\r\n/g, "\n").split("\n")) {
+    if (rawLine.trim().length === 0 || rawLine.trimStart().startsWith("#")) continue;
+    const indent = rawLine.match(/^ */)?.[0].length ?? 0;
+    const line = rawLine.trimEnd();
+    const trimmed = line.trim();
+    if (indent === 0) {
+      if (trimmed === "importers:" || trimmed === "packages:" || trimmed === "snapshots:") section = trimmed.slice(0, -1);
+      inRootImporter = false;
+      inRootDependencies = false;
+      currentImporterDependency = undefined;
+      currentSnapshotKey = undefined;
+      currentSnapshotDependencyKind = undefined;
+      continue;
+    }
+
+    if (section === "importers") {
+      if (indent === 2) {
+        inRootImporter = yamlMappingEntry(trimmed)?.key === ".";
+        inRootDependencies = false;
+        currentImporterDependency = undefined;
+      } else if (inRootImporter && indent === 4) {
+        inRootDependencies = trimmed === "dependencies:";
+        currentImporterDependency = undefined;
+      } else if (inRootImporter && inRootDependencies && indent === 6) {
+        const entry = yamlMappingEntry(trimmed);
+        currentImporterDependency = entry?.value === "" ? entry.key : undefined;
+        if (currentImporterDependency && !isSupportedPackageName(currentImporterDependency)) throwSbomInventoryMismatch();
+        if (currentImporterDependency && !importerDependencies.has(currentImporterDependency)) importerDependencies.set(currentImporterDependency, {});
+      } else if (inRootImporter && inRootDependencies && currentImporterDependency && indent === 8) {
+        const entry = yamlMappingEntry(trimmed);
+        if (entry?.key === "specifier" || entry?.key === "version") {
+          importerDependencies.get(currentImporterDependency)[entry.key] = entry.value;
+        }
+      }
+      continue;
+    }
+
+    if (section === "packages") {
+      if (indent === 2) {
+        const entry = yamlMappingEntry(trimmed);
+        if (entry) packageKeys.add(entry.key);
+      }
+      continue;
+    }
+
+    if (section === "snapshots") {
+      if (indent === 2) {
+        const entry = yamlMappingEntry(trimmed);
+        currentSnapshotKey = entry?.key;
+        currentSnapshotDependencyKind = undefined;
+        if (currentSnapshotKey && !snapshots.has(currentSnapshotKey)) {
+          snapshots.set(currentSnapshotKey, { dependencies: new Map(), optionalDependencies: new Map() });
+        }
+      } else if (currentSnapshotKey && indent === 4) {
+        if (trimmed === "dependencies:" || trimmed === "optionalDependencies:") {
+          currentSnapshotDependencyKind = trimmed.slice(0, -1);
+        } else {
+          currentSnapshotDependencyKind = undefined;
+        }
+      } else if (currentSnapshotKey && currentSnapshotDependencyKind && indent === 6) {
+        const entry = yamlMappingEntry(trimmed);
+        if (!entry || !isSupportedPackageName(entry.key)) throwSbomInventoryMismatch();
+        snapshots.get(currentSnapshotKey)[currentSnapshotDependencyKind].set(entry.key, entry.value);
+      }
+    }
+  }
+
+  if (importerDependencies.size < 1 || packageKeys.size < 1 || snapshots.size < 1) throwSbomInventoryMismatch();
+  return { importerDependencies, packageKeys, snapshots };
+}
+
+function yamlMappingEntry(trimmed) {
+  const colon = trimmed.indexOf(":");
+  if (colon < 0) return undefined;
+  return {
+    key: yamlScalar(trimmed.slice(0, colon).trim()),
+    value: yamlScalar(trimmed.slice(colon + 1).trim())
+  };
+}
+
+function yamlScalar(value) {
+  if (value.startsWith("'") && value.endsWith("'") && value.length >= 2) return value.slice(1, -1).replace(/''/g, "'");
+  if (value.startsWith('"') && value.endsWith('"') && value.length >= 2) return value.slice(1, -1);
+  return value;
+}
+
+function normalizeLockVersion(value) {
+  if (typeof value !== "string") throwSbomInventoryMismatch();
+  const version = value.split("(")[0];
+  if (!/^\d+\.\d+\.\d+$/.test(version)) throwSbomInventoryMismatch();
+  return version;
+}
+
+function lockPackageKey(name, version) {
+  return `${name}@${version}`;
+}
+
+function parseLockPackageKey(key) {
+  if (typeof key !== "string") throwSbomInventoryMismatch();
+  const separator = key.lastIndexOf("@");
+  if (separator <= 0) throwSbomInventoryMismatch();
+  const name = key.slice(0, separator);
+  const version = normalizeLockVersion(key.slice(separator + 1));
+  if (!isSupportedPackageName(name)) throwSbomInventoryMismatch();
+  return { name, version };
+}
+
+function findLockPackageKey(lockfile, name, version) {
+  const exact = lockPackageKey(name, version);
+  if (lockfile.snapshots.has(exact)) return exact;
+  const matches = [];
+  for (const key of lockfile.snapshots.keys()) {
+    const parsed = parseLockPackageKey(key);
+    if (parsed.name === name && parsed.version === version) matches.push(key);
+  }
+  if (matches.length !== 1) throwSbomInventoryMismatch();
+  return matches[0];
+}
+
+function canonicalSbomRefArray(values) {
+  const out = [];
+  const seen = new Set();
+  for (let index = 0; index < values.length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(values, String(index));
+    if (!descriptor || !("value" in descriptor) || typeof descriptor.value !== "string" || seen.has(descriptor.value)) throwSbomInventoryMismatch();
+    out.push(descriptor.value);
+    seen.add(descriptor.value);
+  }
+  return out.sort();
+}
+
+function throwSbomInventoryMismatch() {
+  throw new Error("release SBOM production dependency inventory does not match package.json and pnpm-lock.yaml.");
 }
 
 async function packedPackageJson(tarball) {

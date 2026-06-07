@@ -265,6 +265,10 @@ test("packed package smoke installs and executes published bins", () => {
   assert.match(packedSmokeScript, /version\.stdout\.trimEnd\(\) !== expectedVersion \|\| version\.stderr\.length > 0/);
   assert.doesNotMatch(packedSmokeScript, /version\.stdout\.includes/);
   assert.match(packedSmokeScript, /pnpm.*exec", "ff-server"/);
+  assert.match(packedSmokeScript, /async function smokeInstalledTransfer\(consumerDir, childEnv, port, tmp\)/);
+  assert.match(packedSmokeScript, /"exec", "ff", "--server", serverUrl, "--json", "recv", "--code", code, "--yes", "--out", out/);
+  assert.match(packedSmokeScript, /"exec", "ff", "--server", serverUrl, "--json", "send", code, source/);
+  assert.match(packedSmokeScript, /Packed installed CLI transfer changed file bytes\./);
   assert.match(packedSmokeScript, /strictDepBuilds: true/);
   assert.match(packedSmokeScript, /onlyBuiltDependencies:/);
   assert.match(packedSmokeScript, /@roamhq\/wrtc/);
@@ -279,6 +283,7 @@ test("packed package smoke installs and executes published bins", () => {
   assert.match(securityPolicy, /packed-install smoke HTTP probes must use an abort deadline that covers both headers and response body reads/);
   assert.match(securityPolicy, /packed-install smoke must fatal-UTF-8-decode project metadata and HTTP probe responses, parse project metadata and health response JSON with smoke-owned deterministic errors, and reject invalid health bodies without echoing response content/);
   assert.match(securityPolicy, /packed-install smoke must require exact `ff --version` stdout and empty stderr/);
+  assert.match(securityPolicy, /packed-install smoke must run an actual installed `ff recv` and `ff send` transfer through the installed `ff-server` and compare received bytes/);
   assert.match(securityPolicy, /packed-install smoke must validate the project package name and `version`, derive the exact expected npm tarball name from that metadata before installing a self-packed workspace, and reject any pack output that is not exactly that single tarball/);
   assert.match(securityPolicy, /packed-install smoke must validate the project `packageManager` is an exact `pnpm@\d+\.\d+\.\d+` pin/);
   assert.match(securityPolicy, /provided tarball paths must reject terminal control\/format characters and staging\/open failures must not echo raw tarball paths/);
@@ -658,7 +663,9 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseArtifactScript, /assertExactArtifactEntries\(entries, expectedBasename\)/);
   assert.match(releaseArtifactScript, /release-artifacts must contain only/);
   assert.match(releaseArtifactScript, /await verifyChecksumFile\(releaseArtifactDir, tarball, sbom\)/);
-  assert.match(releaseArtifactScript, /await verifySbomFile\(sbom, expectedName, expectedVersion\)/);
+  assert.match(releaseArtifactScript, /const expectedSbom = await expectedProductionSbom\(expected, expectedName, expectedVersion\)/);
+  assert.match(releaseArtifactScript, /await verifySbomFile\(sbom, expectedName, expectedVersion, expectedSbom\)/);
+  assert.match(releaseArtifactScript, /release SBOM production dependency inventory does not match package\.json and pnpm-lock\.yaml/);
   assert.match(releaseArtifactScript, /SHA256SUMS is not a regular file/);
   assert.match(releaseArtifactScript, /info\.size < 1 \|\| info\.size > MAX_CHECKSUM_FILE_BYTES/);
   assert.match(releaseArtifactScript, /const handle = await open\(checksumFile, constants\.O_RDONLY \| \(constants\.O_NOFOLLOW \?\? 0\)\)/);

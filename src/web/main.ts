@@ -9,6 +9,8 @@ import {
   MAX_BUFFERED_SIGNAL_MESSAGES,
   MAX_FILE_BYTES,
   MAX_FILES_PER_SESSION,
+  RECEIVE_QUEUE_MAX_BYTES,
+  RECEIVE_QUEUE_MAX_MESSAGES,
   SIGNALING_MAX_BUFFERED_BYTES,
   MAX_QUEUED_ICE_CANDIDATES,
   PAIR_TIMEOUT_MS,
@@ -830,8 +832,26 @@ async function receiveBrowserFiles(
   };
 
   let receiveQueue: Promise<void> = Promise.resolve();
-  const enqueueReceiveTask = (task: () => Promise<void>): Promise<void> => {
-    receiveQueue = receiveQueue.then(task, task);
+  let queuedReceiveBytes = 0;
+  let queuedReceiveMessages = 0;
+  const enqueueReceiveTask = (data: unknown, task: () => Promise<void>): Promise<void> => {
+    if (failed || completed) return receiveQueue;
+    const byteLength = receiveQueueByteLength(data);
+    if (queuedReceiveBytes + byteLength > RECEIVE_QUEUE_MAX_BYTES || queuedReceiveMessages + 1 > RECEIVE_QUEUE_MAX_MESSAGES) {
+      void failTransfer(new Error("Receive queue backpressure exceeded."));
+      return receiveQueue;
+    }
+    queuedReceiveBytes += byteLength;
+    queuedReceiveMessages += 1;
+    const runTask = async () => {
+      try {
+        await task();
+      } finally {
+        queuedReceiveBytes -= byteLength;
+        queuedReceiveMessages -= 1;
+      }
+    };
+    receiveQueue = receiveQueue.then(runTask, runTask);
     receiveQueue.catch(() => {});
     return receiveQueue;
   };
@@ -924,7 +944,7 @@ async function receiveBrowserFiles(
     }
   };
 
-  control.onmessage = (event) => enqueueReceiveTask(() => handleControlMessage(event.data));
+  control.onmessage = (event) => enqueueReceiveTask(event.data, () => handleControlMessage(event.data));
 
   const handleBulkMessage = async (data: unknown) => {
     if (failed || completed) return;
@@ -966,7 +986,7 @@ async function receiveBrowserFiles(
     }
   };
 
-  bulk.onmessage = (event) => enqueueReceiveTask(() => handleBulkMessage(event.data));
+  bulk.onmessage = (event) => enqueueReceiveTask(event.data, () => handleBulkMessage(event.data));
 
   let doneError: unknown;
   try {
@@ -2024,6 +2044,14 @@ async function waitBackpressure(channel: RTCDataChannel): Promise<void> {
 
 async function sendControl(channel: RTCDataChannel, keys: SessionKeys, message: ControlMessage): Promise<void> {
   channel.send(await sealControl(keys, message));
+}
+
+function receiveQueueByteLength(data: unknown): number {
+  if (typeof data === "string") return new TextEncoder().encode(data).byteLength;
+  if (data instanceof ArrayBuffer && Object.getPrototypeOf(data) === ArrayBuffer.prototype) return data.byteLength;
+  if (data instanceof Uint8Array && isCanonicalDataChannelBytes(data)) return TYPED_ARRAY_BYTE_LENGTH_GETTER?.call(data) ?? RECEIVE_QUEUE_MAX_BYTES + 1;
+  if (typeof Blob !== "undefined" && data instanceof Blob) return Number.isFinite(data.size) ? data.size : RECEIVE_QUEUE_MAX_BYTES + 1;
+  return RECEIVE_QUEUE_MAX_BYTES + 1;
 }
 
 function safeBrowserSend(signaling: BrowserSignaling | undefined, message: Parameters<BrowserSignaling["send"]>[0]): void {

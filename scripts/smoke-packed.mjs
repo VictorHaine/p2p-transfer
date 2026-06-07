@@ -2,7 +2,7 @@
 import { spawn } from "node:child_process";
 import { constants } from "node:fs";
 import { realpathSync } from "node:fs";
-import { lstat, mkdtemp, mkdir, open, readdir, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, mkdir, open, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -107,6 +107,7 @@ async function main() {
       const { response: web, text: html } = await fetchBoundedResponseText(`http://127.0.0.1:${port}/`, MAX_WEB_RESPONSE_BYTES);
       if (!web.ok) throw new Error(`Packed ff-server web UI check failed with HTTP ${web.status}.`);
       if (!html.includes("ff transfer")) throw new Error("Packed ff-server did not serve the bundled web UI.");
+      await smokeInstalledTransfer(consumerDir, childEnv, port, tmp);
     } finally {
       server.kill("SIGTERM");
       await waitForExit(server, 5_000).catch(() => server.kill("SIGKILL"));
@@ -200,6 +201,36 @@ function run(command, args, options) {
       if (!keepKillTimer && killTimer) clearTimeout(killTimer);
     }
   });
+}
+
+async function smokeInstalledTransfer(consumerDir, childEnv, port, tmp) {
+  const source = path.join(tmp, "transfer-source.txt");
+  const out = path.join(tmp, "received");
+  const expected = Buffer.from("packed installed cli transfer\n", "utf8");
+  await mkdir(out);
+  await writeFile(source, expected);
+  const serverUrl = `ws://127.0.0.1:${port}/v1/ws`;
+  const code = "12345678-apple-anchor";
+  const receiver = spawn(pnpm, ["exec", "ff", "--server", serverUrl, "--json", "recv", "--code", code, "--yes", "--out", out], {
+    cwd: consumerDir,
+    env: childEnv,
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  const receiverOutput = captureChildOutput(receiver);
+  try {
+    await waitForOutput(receiver, /"registered"/, 30_000);
+    const sender = await run(pnpm, ["exec", "ff", "--server", serverUrl, "--json", "send", code, source], { cwd: consumerDir, timeoutMs: 90_000, env: childEnv });
+    const receiverResult = await waitForExitWithOutput(receiver, 90_000, receiverOutput);
+    if (sender.stderr.length > 0 || !sender.stdout.includes('"sent"')) throw new Error("Packed installed ff send did not complete a transfer.");
+    if (receiverResult.code !== 0 || receiverResult.stderr.length > 0 || !receiverResult.stdout.includes('"received"')) throw new Error("Packed installed ff recv did not complete a transfer.");
+    const actual = await readFile(path.join(out, "transfer-source.txt"));
+    if (!Buffer.from(actual).equals(expected)) throw new Error("Packed installed CLI transfer changed file bytes.");
+  } finally {
+    if (receiver.exitCode === null) {
+      receiver.kill("SIGTERM");
+      await waitForExit(receiver, 5_000).catch(() => receiver.kill("SIGKILL"));
+    }
+  }
 }
 
 export function safeChildEnv() {
@@ -536,6 +567,35 @@ function waitForOutput(child, pattern, timeoutMs) {
     child.stdout.on("data", onStdout);
     child.stderr.on("data", onStderr);
     child.once("exit", onExit);
+  });
+}
+
+function captureChildOutput(child) {
+  const output = { stdout: "", stderr: "" };
+  child.stdout.on("data", (chunk) => {
+    output.stdout = appendBoundedOutput(output.stdout, chunk);
+  });
+  child.stderr.on("data", (chunk) => {
+    output.stderr = appendBoundedOutput(output.stderr, chunk);
+  });
+  return output;
+}
+
+function waitForExitWithOutput(child, timeoutMs, output) {
+  if (child.exitCode !== null) return Promise.resolve({ code: child.exitCode, stdout: output.stdout, stderr: output.stderr });
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      child.kill("SIGTERM");
+      reject(new Error("Timed out waiting for packed transfer command."));
+    }, timeoutMs);
+    child.once("exit", (code) => {
+      clearTimeout(timer);
+      resolve({ code, stdout: output.stdout, stderr: output.stderr });
+    });
+    child.once("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
   });
 }
 

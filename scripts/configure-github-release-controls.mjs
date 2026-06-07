@@ -17,6 +17,7 @@ const REPOSITORY_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const REQUIRED_CI_CHECKS = [
   "verify",
   "browser interop",
+  "codeql analyze",
   "dependency review",
   "production docker policy",
   "platform smoke / ubuntu-24.04 / node 22.22.3",

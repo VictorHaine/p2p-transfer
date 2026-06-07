@@ -11,11 +11,31 @@ const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url
 test("receiver transfer handlers serialize async control and bulk DataChannel work on one transfer queue", () => {
   for (const source of [cliTransferSource, webSource]) {
     assert.match(source, /let receiveQueue: Promise<void> = Promise\.resolve\(\)/);
-    assert.match(source, /receiveQueue = receiveQueue\.then\(task, task\)/);
-    assert.match(source, /control\.onmessage = \(event\) => enqueueReceiveTask\(\(\) => handleControlMessage\(event\.data\)\)/);
-    assert.match(source, /bulk\.onmessage = \(event\) => enqueueReceiveTask\(\(\) => handleBulkMessage\(event\.data\)\)/);
+    assert.match(source, /let queuedReceiveBytes = 0;/);
+    assert.match(source, /let queuedReceiveMessages = 0;/);
+    assert.match(source, /queuedReceiveBytes \+ byteLength > RECEIVE_QUEUE_MAX_BYTES \|\| queuedReceiveMessages \+ 1 > RECEIVE_QUEUE_MAX_MESSAGES/);
+    assert.match(source, /new Error\("Receive queue backpressure exceeded\."\)/);
+    assert.match(source, /receiveQueue = receiveQueue\.then\(runTask, runTask\)/);
+    assert.match(source, /queuedReceiveBytes -= byteLength;/);
+    assert.match(source, /queuedReceiveMessages -= 1;/);
+    assert.match(source, /control\.onmessage = \(event\) => enqueueReceiveTask\(event\.data, \(\) => handleControlMessage\(event\.data\)\)/);
+    assert.match(source, /bulk\.onmessage = \(event\) => enqueueReceiveTask\(event\.data, \(\) => handleBulkMessage\(event\.data\)\)/);
     assert.doesNotMatch(source, /let controlQueue: Promise<void>/);
     assert.doesNotMatch(source, /let bulkQueue: Promise<void>/);
+  }
+});
+
+test("receiver transfer queue admission accounts for queued bytes and unsupported payloads", () => {
+  assert.match(securityPolicy, /queued receiver DataChannel handlers must cap queued message count and queued byte length before entering the async transfer queue/);
+  assert.match(cliTransferSource, /typeof data === "string"[\s\S]*Buffer\.byteLength\(data, "utf8"\)/);
+  assert.match(webSource, /typeof data === "string"[\s\S]*new TextEncoder\(\)\.encode\(data\)\.byteLength/);
+  for (const source of [cliTransferSource, webSource]) {
+    assert.match(source, /function receiveQueueByteLength\(data: unknown\): number/);
+    assert.match(source, /data instanceof ArrayBuffer && Object\.getPrototypeOf\(data\) === ArrayBuffer\.prototype[\s\S]*return data\.byteLength/);
+    assert.match(source, /data instanceof Uint8Array && isCanonicalDataChannelBytes\(data\)[\s\S]*TYPED_ARRAY_BYTE_LENGTH_GETTER\?\.call\(data\)/);
+    assert.doesNotMatch(source, /ArrayBuffer\.isView\(data\)/);
+    assert.match(source, /data instanceof Blob[\s\S]*Number\.isFinite\(data\.size\) \? data\.size : RECEIVE_QUEUE_MAX_BYTES \+ 1/);
+    assert.match(source, /return RECEIVE_QUEUE_MAX_BYTES \+ 1;/);
   }
 });
 

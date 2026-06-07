@@ -37,6 +37,66 @@ test("release artifact verifier rejects checksummed SBOMs for the wrong package"
   assert.doesNotMatch(result.stderr, /9\.9\.9|victorhaine/);
 });
 
+test("release artifact verifier rejects SBOMs missing reviewed native WebRTC", async () => {
+  const sbom = cloneJson(fixtureSbom("@victorhaine/p2p-transfer", "1.2.3"));
+  sbom.components = sbom.components.filter((component: { purl: string }) => component.purl !== "pkg:npm/%40roamhq/wrtc@0.10.0");
+
+  const result = await runVerifierInFixture({
+    packageName: "@victorhaine/p2p-transfer",
+    version: "1.2.3",
+    sbom: Buffer.from(`${JSON.stringify(sbom)}\n`, "utf8"),
+    tarBlocks: packageJsonTarBlocks("@victorhaine/p2p-transfer", "1.2.3", {
+      endBlocks: 2
+    })
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /release SBOM production dependency inventory does not match package\.json and pnpm-lock\.yaml\./);
+  assert.doesNotMatch(result.stderr, /roamhq|wrtc/);
+});
+
+test("release artifact verifier rejects SBOMs with tampered PAKE dependency identity", async () => {
+  const sbom = cloneJson(fixtureSbom("@victorhaine/p2p-transfer", "1.2.3"));
+  const component = sbom.components.find((entry: { purl: string }) => entry.purl === "pkg:npm/%40cipherman/pake-js@0.1.1");
+  assert.ok(component);
+  component.version = "9.9.9";
+  component.purl = "pkg:npm/%40cipherman/pake-js@9.9.9";
+  component["bom-ref"] = "pkg:npm/%40cipherman/pake-js@9.9.9";
+
+  const result = await runVerifierInFixture({
+    packageName: "@victorhaine/p2p-transfer",
+    version: "1.2.3",
+    sbom: Buffer.from(`${JSON.stringify(sbom)}\n`, "utf8"),
+    tarBlocks: packageJsonTarBlocks("@victorhaine/p2p-transfer", "1.2.3", {
+      endBlocks: 2
+    })
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /release SBOM production dependency inventory does not match package\.json and pnpm-lock\.yaml\./);
+  assert.doesNotMatch(result.stderr, /cipherman|pake|9\.9\.9/);
+});
+
+test("release artifact verifier rejects SBOMs that disconnect direct WebSocket dependency edges", async () => {
+  const sbom = cloneJson(fixtureSbom("@victorhaine/p2p-transfer", "1.2.3"));
+  const root = sbom.dependencies.find((entry: { ref: string }) => entry.ref === "pkg:npm/%40victorhaine/p2p-transfer@1.2.3");
+  assert.ok(root);
+  root.dependsOn = root.dependsOn.filter((ref: string) => ref !== "pkg:npm/ws@8.20.1");
+
+  const result = await runVerifierInFixture({
+    packageName: "@victorhaine/p2p-transfer",
+    version: "1.2.3",
+    sbom: Buffer.from(`${JSON.stringify(sbom)}\n`, "utf8"),
+    tarBlocks: packageJsonTarBlocks("@victorhaine/p2p-transfer", "1.2.3", {
+      endBlocks: 2
+    })
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /release SBOM production dependency inventory does not match package\.json and pnpm-lock\.yaml\./);
+  assert.doesNotMatch(result.stderr, /ws@8\.20\.1|WebSocket/);
+});
+
 test("release artifact verifier prints the verified tarball path on request", async () => {
   const result = await runVerifierInFixture({
     packageName: "@victorhaine/p2p-transfer",
@@ -411,6 +471,7 @@ async function runVerifierInFixture(options: {
     await fs.mkdir(artifactDir);
   }
   await fs.writeFile(path.join(root, "package.json"), options.packageJson ?? `${JSON.stringify(fixturePackageJson(options.packageName, options.version))}\n`);
+  await fs.writeFile(path.join(root, "pnpm-lock.yaml"), fixtureLockfile(options.packageName, options.version));
   await fs.writeFile(path.join(scriptsDir, "verify-release-artifact.mjs"), verifierSource, { mode: 0o755 });
   await writeFixtureWorkspaceFiles(root);
   await writeExtraWorkspaceFiles(root, options.extraWorkspaceFiles ?? {});
@@ -475,6 +536,7 @@ function packageGroup(packageName: string): string | undefined {
 }
 
 function fixtureSbom(packageName: string, version: string) {
+  const graph = fixtureProductionGraph(packageName, version);
   return {
     bomFormat: "CycloneDX",
     specVersion: "1.7",
@@ -488,16 +550,139 @@ function fixtureSbom(packageName: string, version: string) {
         ...(packageGroup(packageName) ? { group: packageGroup(packageName) } : {})
       }
     },
-    components: [
-      {
+    components: graph.packages.map((component) => ({
         type: "library",
-        name: "ws",
-        version: "8.20.1",
-        purl: "pkg:npm/ws@8.20.1",
-        "bom-ref": "pkg:npm/ws@8.20.1"
-      }
-    ]
+        name: packageLocalName(component.name),
+        version: component.version,
+        purl: packagePurl(component.name, component.version),
+        "bom-ref": packagePurl(component.name, component.version),
+        ...(packageGroup(component.name) ? { group: packageGroup(component.name) } : {})
+      })),
+    dependencies: graph.dependencies.map(([ref, dependsOn]) => ({ ref, dependsOn }))
   };
+}
+
+function fixtureProductionGraph(packageName: string, version: string) {
+  const rootPurl = packagePurl(packageName, version);
+  const directDependencies = Object.entries(fixturePackageJson(packageName, version).dependencies).sort(([left], [right]) => left.localeCompare(right));
+  const snapshotDependencies: Record<string, { dependencies?: Record<string, string>; optionalDependencies?: Record<string, string> }> = {
+    "@cipherman/pake-js@0.1.1": { dependencies: { "@noble/curves": "1.9.7" } },
+    "@noble/curves@1.9.7": { dependencies: { "@noble/hashes": "1.8.0" } },
+    "@noble/hashes@1.8.0": {},
+    "@noble/hashes@2.2.0": {},
+    "@roamhq/wrtc@0.10.0": {
+      optionalDependencies: {
+        "@roamhq/wrtc-darwin-arm64": "0.10.0",
+        "@roamhq/wrtc-darwin-x64": "0.10.0",
+        "@roamhq/wrtc-linux-arm64": "0.10.0",
+        "@roamhq/wrtc-linux-x64": "0.10.0",
+        "@roamhq/wrtc-win32-x64": "0.10.0",
+        domexception: "4.0.0"
+      }
+    },
+    "@roamhq/wrtc-darwin-arm64@0.10.0": {},
+    "@roamhq/wrtc-darwin-x64@0.10.0": {},
+    "@roamhq/wrtc-linux-arm64@0.10.0": {},
+    "@roamhq/wrtc-linux-x64@0.10.0": {},
+    "@roamhq/wrtc-win32-x64@0.10.0": {},
+    "@scure/bip39@2.2.0": { dependencies: { "@scure/base": "2.2.0" } },
+    "@scure/base@2.2.0": {},
+    commander: {},
+    "commander@14.0.3": {},
+    "domexception@4.0.0": { dependencies: { "webidl-conversions": "7.0.0" } },
+    "nanoid@5.1.11": {},
+    "webidl-conversions@7.0.0": {},
+    "ws@8.20.1": {}
+  };
+  delete snapshotDependencies.commander;
+
+  const packages = new Map<string, { name: string; version: string; dependsOn: string[] }>();
+  const dependencies = new Map<string, string[]>([[rootPurl, directDependencies.map(([name, dependencyVersion]) => packagePurl(name, dependencyVersion)).sort()]]);
+  const stack = directDependencies.map(([name, dependencyVersion]) => `${name}@${dependencyVersion}`);
+  while (stack.length > 0) {
+    const key = stack.pop();
+    assert.ok(key);
+    const parsed = parseFixturePackageKey(key);
+    const purl = packagePurl(parsed.name, parsed.version);
+    if (packages.has(purl)) continue;
+    const snapshot = snapshotDependencies[key];
+    assert.ok(snapshot, `missing fixture snapshot for ${key}`);
+    const dependsOn: string[] = [];
+    packages.set(purl, { name: parsed.name, version: parsed.version, dependsOn });
+    for (const [dependencyName, dependencyVersion] of Object.entries({ ...(snapshot.dependencies ?? {}), ...(snapshot.optionalDependencies ?? {}) }).sort(([left], [right]) => left.localeCompare(right))) {
+      dependsOn.push(packagePurl(dependencyName, dependencyVersion));
+      stack.push(`${dependencyName}@${dependencyVersion}`);
+    }
+    dependencies.set(purl, dependsOn.sort());
+  }
+  return { packages: [...packages.values()].sort((left, right) => packagePurl(left.name, left.version).localeCompare(packagePurl(right.name, right.version))), dependencies: [...dependencies.entries()].sort(([left], [right]) => left.localeCompare(right)) };
+}
+
+function fixtureLockfile(packageName: string, version: string): string {
+  const packageJson = fixturePackageJson(packageName, version);
+  const graph = fixtureProductionGraph(packageName, version);
+  const lines = [
+    "lockfileVersion: '9.0'",
+    "",
+    "settings:",
+    "  autoInstallPeers: false",
+    "  excludeLinksFromLockfile: false",
+    "",
+    "importers:",
+    "",
+    "  .:",
+    "    dependencies:"
+  ];
+  for (const [name, dependencyVersion] of Object.entries(packageJson.dependencies).sort(([left], [right]) => left.localeCompare(right))) {
+    lines.push(`      ${fixtureYamlKey(name)}:`, `        specifier: ${dependencyVersion}`, `        version: ${dependencyVersion}`);
+  }
+  lines.push("", "packages:", "");
+  for (const component of graph.packages) {
+    lines.push(`  ${fixtureYamlKey(`${component.name}@${component.version}`)}:`, "    resolution: {integrity: sha512-fixture}", "");
+  }
+  lines.push("snapshots:", "");
+  const dependencies = new Map(graph.dependencies);
+  for (const component of graph.packages) {
+    const key = `${component.name}@${component.version}`;
+    lines.push(`  ${fixtureYamlKey(key)}:`);
+    const dependsOn = dependencies.get(packagePurl(component.name, component.version)) ?? [];
+    if (dependsOn.length > 0) {
+      const field = component.name === "@roamhq/wrtc" ? "optionalDependencies" : "dependencies";
+      lines.push(`    ${field}:`);
+      for (const ref of dependsOn) {
+        const dependency = parseFixturePurl(ref);
+        lines.push(`      ${fixtureYamlKey(dependency.name)}: ${dependency.version}`);
+      }
+    } else {
+      lines.push("    optional: false");
+    }
+    lines.push("");
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+function parseFixturePurl(purl: string) {
+  const match = /^pkg:npm\/(?:%40([^/]+)\/)?([^@]+)@(\d+\.\d+\.\d+)$/.exec(purl);
+  assert.ok(match);
+  const localName = match[2];
+  const version = match[3];
+  assert.ok(localName);
+  assert.ok(version);
+  return { name: match[1] ? `@${match[1]}/${localName}` : localName, version };
+}
+
+function parseFixturePackageKey(key: string) {
+  const index = key.lastIndexOf("@");
+  assert.ok(index > 0);
+  return { name: key.slice(0, index), version: key.slice(index + 1) };
+}
+
+function fixtureYamlKey(value: string): string {
+  return /^[A-Za-z0-9._~-]+$/.test(value) ? value : `'${value.replace(/'/g, "''")}'`;
+}
+
+function cloneJson<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
 }
 
 function packageTarBlocks(
@@ -549,6 +734,7 @@ function fixturePackageJson(packageName: string, version: string) {
     },
     dependencies: {
       "@cipherman/pake-js": "0.1.1",
+      "@noble/curves": "1.9.7",
       "@noble/hashes": "2.2.0",
       "@roamhq/wrtc": "0.10.0",
       "@scure/bip39": "2.2.0",

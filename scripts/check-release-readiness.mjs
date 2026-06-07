@@ -15,6 +15,7 @@ const REQUIRED_OAUTH_SCOPES = ["repo", "workflow"];
 const REQUIRED_CI_CHECKS = [
   "verify",
   "browser interop",
+  "codeql analyze",
   "dependency review",
   "production docker policy",
   "platform smoke / ubuntu-24.04 / node 22.22.3",

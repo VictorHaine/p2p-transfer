@@ -1,6 +1,7 @@
 import fs from "node:fs";
+import { randomBytes } from "node:crypto";
 import path from "node:path";
-import { CHUNK_SIZE, DATA_CHANNEL_BUFFER_HIGH, MAX_FILE_BYTES, MAX_FILES_PER_SESSION, TRANSFER_CONTROL_TIMEOUT_MS } from "../shared/constants.js";
+import { CHUNK_SIZE, DATA_CHANNEL_BUFFER_HIGH, MAX_FILE_BYTES, MAX_FILES_PER_SESSION, RECEIVE_QUEUE_MAX_BYTES, RECEIVE_QUEUE_MAX_MESSAGES, TRANSFER_CONTROL_TIMEOUT_MS } from "../shared/constants.js";
 import { ControlAckWaiter } from "../shared/control-waiter.js";
 import { decodeChunk, encodeChunk } from "../shared/chunks.js";
 import { formatBytes, formatRate } from "../shared/format.js";
@@ -434,8 +435,26 @@ export async function receiveFiles(
   };
 
   let receiveQueue: Promise<void> = Promise.resolve();
-  const enqueueReceiveTask = (task: () => Promise<void>): Promise<void> => {
-    receiveQueue = receiveQueue.then(task, task);
+  let queuedReceiveBytes = 0;
+  let queuedReceiveMessages = 0;
+  const enqueueReceiveTask = (data: unknown, task: () => Promise<void>): Promise<void> => {
+    if (failed || completed) return receiveQueue;
+    const byteLength = receiveQueueByteLength(data);
+    if (queuedReceiveBytes + byteLength > RECEIVE_QUEUE_MAX_BYTES || queuedReceiveMessages + 1 > RECEIVE_QUEUE_MAX_MESSAGES) {
+      void failTransfer(new Error("Receive queue backpressure exceeded."));
+      return receiveQueue;
+    }
+    queuedReceiveBytes += byteLength;
+    queuedReceiveMessages += 1;
+    const runTask = async () => {
+      try {
+        await task();
+      } finally {
+        queuedReceiveBytes -= byteLength;
+        queuedReceiveMessages -= 1;
+      }
+    };
+    receiveQueue = receiveQueue.then(runTask, runTask);
     receiveQueue.catch(() => {});
     return receiveQueue;
   };
@@ -525,7 +544,7 @@ export async function receiveFiles(
     }
   };
 
-  control.onmessage = (event) => enqueueReceiveTask(() => handleControlMessage(event.data));
+  control.onmessage = (event) => enqueueReceiveTask(event.data, () => handleControlMessage(event.data));
 
   const handleBulkMessage = async (data: unknown) => {
     if (failed || completed) return;
@@ -557,7 +576,7 @@ export async function receiveFiles(
     }
   };
 
-  bulk.onmessage = (event) => enqueueReceiveTask(() => handleBulkMessage(event.data));
+  bulk.onmessage = (event) => enqueueReceiveTask(event.data, () => handleBulkMessage(event.data));
 
   let doneError: unknown;
   try {
@@ -585,6 +604,14 @@ export async function receiveFiles(
 
 async function sendControl(channel: RTCDataChannel, keys: SessionKeys, message: ControlMessage): Promise<void> {
   channel.send(await sealControl(keys, message));
+}
+
+function receiveQueueByteLength(data: unknown): number {
+  if (typeof data === "string") return Buffer.byteLength(data, "utf8");
+  if (data instanceof ArrayBuffer && Object.getPrototypeOf(data) === ArrayBuffer.prototype) return data.byteLength;
+  if (data instanceof Uint8Array && isCanonicalDataChannelBytes(data)) return TYPED_ARRAY_BYTE_LENGTH_GETTER?.call(data) ?? RECEIVE_QUEUE_MAX_BYTES + 1;
+  if (typeof Blob !== "undefined" && data instanceof Blob) return Number.isFinite(data.size) ? data.size : RECEIVE_QUEUE_MAX_BYTES + 1;
+  return RECEIVE_QUEUE_MAX_BYTES + 1;
 }
 
 async function restartReceiveState(state: ReceiveState): Promise<void> {
@@ -793,6 +820,7 @@ async function linkPartFileExclusive(partPath: string, finalPath: string, expect
 const NOFOLLOW_READ_FLAGS = fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK;
 const NOFOLLOW_WRITE_FLAGS = fs.constants.O_RDWR | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK;
 const MAX_PUBLISH_PATH_BYTES = 4096;
+const MAX_CLEANUP_QUARANTINE_ATTEMPTS = 16;
 const UNSAFE_PUBLISH_PATH_CHARS = /[\p{Cc}\p{Cf}]/u;
 
 async function copyPartFileExclusive(partPath: string, finalPath: string, expected: FileIdentity, expectedSize?: number): Promise<FileIdentity> {
@@ -913,21 +941,36 @@ function pathIdentity(stat: fs.Stats): PathIdentity {
 }
 
 async function removePathIfIdentity(filePath: string, expected: FileIdentity): Promise<void> {
-  try {
-    const stat = await fs.promises.lstat(filePath);
-    if (sameFileIdentity(stat, expected)) await fs.promises.rm(filePath, { force: true });
-  } catch (error) {
-    if (nodeErrorCode(error) !== "ENOENT") throw error;
-  }
+  await quarantineRemovePathIfIdentity(filePath, (stat) => sameFileIdentity(stat, expected));
 }
 
 async function removePathIfPathIdentity(filePath: string, expected: PathIdentity): Promise<void> {
-  try {
-    const stat = await fs.promises.lstat(filePath);
-    if (samePathIdentity(stat, expected)) await fs.promises.rm(filePath, { force: true });
-  } catch (error) {
-    if (nodeErrorCode(error) !== "ENOENT") throw error;
+  await quarantineRemovePathIfIdentity(filePath, (stat) => samePathIdentity(stat, expected));
+}
+
+async function quarantineRemovePathIfIdentity(filePath: string, matchesExpected: (stat: fs.Stats) => boolean): Promise<void> {
+  for (let attempt = 0; attempt < MAX_CLEANUP_QUARANTINE_ATTEMPTS; attempt += 1) {
+    const quarantinePath = cleanupQuarantinePath(filePath);
+    try {
+      const stat = await fs.promises.lstat(filePath);
+      if (!matchesExpected(stat)) return;
+      await fs.promises.rename(filePath, quarantinePath);
+      const quarantined = await fs.promises.lstat(quarantinePath);
+      if (!matchesExpected(quarantined)) throw new Error("Cleanup target changed before removal.");
+      await fs.promises.rm(quarantinePath, { force: true });
+      return;
+    } catch (error) {
+      const code = nodeErrorCode(error);
+      if (code === "ENOENT") return;
+      if (code === "EEXIST") continue;
+      throw error;
+    }
   }
+  throw new Error("Could not reserve a cleanup quarantine path.");
+}
+
+function cleanupQuarantinePath(filePath: string): string {
+  return path.join(path.dirname(filePath), `.ff-delete-${process.pid}-${randomBytes(8).toString("hex")}.tmp`);
 }
 
 function sameFileIdentity(stat: fs.Stats, expected: FileIdentity): boolean {
