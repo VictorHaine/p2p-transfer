@@ -25,16 +25,20 @@ test("installed-state verifier import has no filesystem verification side effect
     rootLockfile: Buffer.from("lockfileVersion: '9.0'\n"),
     installedLockfile: Buffer.from("lockfileVersion: '9.0'\n")
   });
-  const script = path.join(root, "scripts", "check-install-state.mjs");
-  const result = spawnSync(process.execPath, ["--input-type=module", "--eval", `await import(${JSON.stringify(pathToFileURL(script).href)});`], {
-    cwd: root,
-    encoding: "utf8",
-    timeout: 10_000
-  });
+  try {
+    const script = path.join(root, "scripts", "check-install-state.mjs");
+    const result = spawnSync(process.execPath, ["--input-type=module", "--eval", `await import(${JSON.stringify(pathToFileURL(script).href)});`], {
+      cwd: root,
+      encoding: "utf8",
+      timeout: 10_000
+    });
 
-  assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.stderr, "");
-  assert.equal(result.stdout, "");
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stderr, "");
+    assert.equal(result.stdout, "");
+  } finally {
+    await removeTestTemp(root);
+  }
 });
 
 test("installed-state verifier rejects invalid utf-8 package and lockfile evidence", async () => {
@@ -182,12 +186,16 @@ async function runVerifierFixture(fixture: {
   installedPackages?: Record<string, { name: string; version: string }>;
 }) {
   const root = await writeVerifierFixture(fixture);
-  const result = spawnSync(process.execPath, [path.join(root, "scripts", "check-install-state.mjs")], {
-    cwd: root,
-    encoding: "utf8",
-    timeout: 10_000
-  });
-  return { ...result, root };
+  try {
+    const result = spawnSync(process.execPath, [path.join(root, "scripts", "check-install-state.mjs")], {
+      cwd: root,
+      encoding: "utf8",
+      timeout: 10_000
+    });
+    return { ...result, root };
+  } finally {
+    await removeTestTemp(root);
+  }
 }
 
 async function writeVerifierFixture(fixture: {
@@ -211,6 +219,10 @@ async function writeVerifierFixture(fixture: {
     await fs.writeFile(path.join(packageDir, "package.json"), `${JSON.stringify(packageJson)}\n`);
   }
   return root;
+}
+
+async function removeTestTemp(dir: string): Promise<void> {
+  await fs.rm(dir, { recursive: true, force: true });
 }
 
 function escapeRegExp(value: string): string {

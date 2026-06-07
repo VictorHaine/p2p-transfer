@@ -71,6 +71,7 @@ test("built signaling server rejects unredacted pair requests without forwarding
     sender?.terminate();
     server.kill();
     await serverOutput.done;
+    await removeTestTemp(tmp);
   }
 
   assert.doesNotMatch(serverOutput.text(), /taxes\.pdf|sender-share|receiver-share|12345678/);
@@ -137,6 +138,7 @@ test("built signaling server exhausts receive codes after invalid pre-pair sende
     for (const sender of senders) sender.terminate();
     server.kill();
     await serverOutput.done;
+    await removeTestTemp(tmp);
   }
 
   assert.doesNotMatch(serverOutput.text(), /12345679|Receive code expired after too many invalid pairing attempts|pair-accept/);
@@ -188,6 +190,7 @@ test("built signaling server sanitizes peer-controlled bye reasons before forwar
     sender?.terminate();
     server.kill();
     await serverOutput.done;
+    await removeTestTemp(tmp);
   }
 
   assert.doesNotMatch(serverOutput.text(), /12345680|secret-token-from-local-path/);
@@ -258,6 +261,7 @@ test("built signaling server sanitizes paired bye reasons before forwarding", as
     sender?.terminate();
     server.kill();
     await serverOutput.done;
+    await removeTestTemp(tmp);
   }
 
   assert.doesNotMatch(serverOutput.text(), /12345681|secret-token-after-accept/);
@@ -305,6 +309,7 @@ test("built signaling server ignores late frames after a close decision", async 
     peer?.terminate();
     server.kill();
     await serverOutput.done;
+    await removeTestTemp(tmp);
   }
 
   assert.doesNotMatch(serverOutput.text(), /12345682|bad-version/);
@@ -356,6 +361,7 @@ test("built signaling server fatal listen errors do not print stacks or arbitrar
     firstServer.kill();
     await firstOutput.done;
     await secondOutput?.done;
+    await removeTestTemp(tmp);
   }
 
   const output = secondOutput?.text() ?? "";
@@ -368,43 +374,47 @@ test("built signaling server startup failures do not print stacks or raw configu
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-server-startup-log-"));
   const secretWebRoot = path.join(tmp, "secret-web-root-token");
 
-  const badConfig = spawn(process.execPath, ["dist-node/server/index.js"], {
-    cwd: root,
-    env: {
-      ...testChildEnv(tmp),
-      PORT: "8787",
-      HOST: "127.0.0.1",
-      NODE_ENV: "production",
-      SIGNALING_TOPOLOGY: "single-instance"
-    }
-  });
-  const badConfigOutput = collectOutput(badConfig);
-  assert.equal(await waitForProcessExit(badConfig), 1);
-  await badConfigOutput.done;
-  const configText = badConfigOutput.text();
-  assert.match(configText, /ff signaling server startup failed: configuration/);
-  assert.doesNotMatch(configText, /Error:| at |stack|index\.(?:ts|js):|loadServerConfig|SIGNALING_TOPOLOGY|NODE_ENV/);
+  try {
+    const badConfig = spawn(process.execPath, ["dist-node/server/index.js"], {
+      cwd: root,
+      env: {
+        ...testChildEnv(tmp),
+        PORT: "8787",
+        HOST: "127.0.0.1",
+        NODE_ENV: "production",
+        SIGNALING_TOPOLOGY: "single-instance"
+      }
+    });
+    const badConfigOutput = collectOutput(badConfig);
+    assert.equal(await waitForProcessExit(badConfig), 1);
+    await badConfigOutput.done;
+    const configText = badConfigOutput.text();
+    assert.match(configText, /ff signaling server startup failed: configuration/);
+    assert.doesNotMatch(configText, /Error:| at |stack|index\.(?:ts|js):|loadServerConfig|SIGNALING_TOPOLOGY|NODE_ENV/);
 
-  const badWebRoot = spawn(process.execPath, ["dist-node/server/index.js"], {
-    cwd: root,
-    env: {
-      ...testChildEnv(tmp),
-      PORT: "8787",
-      HOST: "127.0.0.1",
-      NODE_ENV: "production",
-      ALLOWED_ORIGINS: "http://127.0.0.1:8787",
-      SIGNALING_TOPOLOGY: "single-instance",
-      ALLOW_INSECURE_ORIGINS: "true",
-      WEB_ROOT: secretWebRoot
-    }
-  });
-  const badWebRootOutput = collectOutput(badWebRoot);
-  assert.equal(await waitForProcessExit(badWebRoot), 1);
-  await badWebRootOutput.done;
-  const webRootText = badWebRootOutput.text();
-  assert.match(webRootText, /ff signaling server startup failed: web root/);
-  assert.doesNotMatch(webRootText, /Error:| at |stack|index\.(?:ts|js):|realpath|secret-web-root-token/);
-  assert.equal(webRootText.includes(tmp), false);
+    const badWebRoot = spawn(process.execPath, ["dist-node/server/index.js"], {
+      cwd: root,
+      env: {
+        ...testChildEnv(tmp),
+        PORT: "8787",
+        HOST: "127.0.0.1",
+        NODE_ENV: "production",
+        ALLOWED_ORIGINS: "http://127.0.0.1:8787",
+        SIGNALING_TOPOLOGY: "single-instance",
+        ALLOW_INSECURE_ORIGINS: "true",
+        WEB_ROOT: secretWebRoot
+      }
+    });
+    const badWebRootOutput = collectOutput(badWebRoot);
+    assert.equal(await waitForProcessExit(badWebRoot), 1);
+    await badWebRootOutput.done;
+    const webRootText = badWebRootOutput.text();
+    assert.match(webRootText, /ff signaling server startup failed: web root/);
+    assert.doesNotMatch(webRootText, /Error:| at |stack|index\.(?:ts|js):|realpath|secret-web-root-token/);
+    assert.equal(webRootText.includes(tmp), false);
+  } finally {
+    await removeTestTemp(tmp);
+  }
 });
 
 function testChildEnv(tmp: string): NodeJS.ProcessEnv {
@@ -522,6 +532,10 @@ function waitForProcessExit(child: ChildProcessWithoutNullStreams): Promise<numb
       resolve(code);
     });
   });
+}
+
+async function removeTestTemp(dir: string): Promise<void> {
+  await fs.rm(dir, { recursive: true, force: true });
 }
 
 function sendJson(ws: WebSocket, message: unknown): void {

@@ -19,6 +19,8 @@ test("CLI transfers a file through the built signaling server with secure sessio
     cwd: root,
     env: { ...childEnv, PORT: String(port), HOST: "127.0.0.1", NODE_ENV: "production", ALLOWED_ORIGINS: origin, SIGNALING_TOPOLOGY: "single-instance", ALLOW_INSECURE_ORIGINS: "true" }
   });
+  let receiver: ChildProcessWithoutNullStreams | undefined;
+  let sender: ChildProcessWithoutNullStreams | undefined;
 
   try {
     await waitForOutput(server, /listening/);
@@ -37,10 +39,10 @@ test("CLI transfers a file through the built signaling server with secure sessio
     await fs.writeFile(source, "secure e2e transfer\n");
 
     const serverUrl = `ws://127.0.0.1:${port}/v1/ws`;
-    const receiver = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "recv", "--code", "12345678-apple-anchor", "--yes", "--out", out], { cwd: root, env: childEnv });
+    receiver = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "recv", "--code", "12345678-apple-anchor", "--yes", "--out", out], { cwd: root, env: childEnv });
     await waitForOutput(receiver, /"registered"/);
 
-    const sender = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "send", "12345678-apple-anchor", source], { cwd: root, env: childEnv });
+    sender = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "send", "12345678-apple-anchor", source], { cwd: root, env: childEnv });
     const [senderResult, receiverResult] = await Promise.all([
       waitForExitWithOutput(sender, "sender", CHILD_EXIT_TIMEOUT_MS),
       waitForExitWithOutput(receiver, "receiver", CHILD_EXIT_TIMEOUT_MS)
@@ -54,7 +56,10 @@ test("CLI transfers a file through the built signaling server with secure sessio
     assert.match(receiverResult.stdout, /"received"/);
     assert.equal(await fs.readFile(path.join(out, "source.txt"), "utf8"), "secure e2e transfer\n");
   } finally {
-    server.kill();
+    if (sender) await terminateChildAndWait(sender);
+    if (receiver) await terminateChildAndWait(receiver);
+    await terminateChildAndWait(server);
+    await removeTestTemp(tmp);
   }
 });
 
@@ -69,12 +74,13 @@ test("CLI supplied receive code is redacted from registered JSON output", async 
     cwd: root,
     env: { ...childEnv, PORT: String(port), HOST: "127.0.0.1", NODE_ENV: "production", ALLOWED_ORIGINS: origin, SIGNALING_TOPOLOGY: "single-instance", ALLOW_INSECURE_ORIGINS: "true" }
   });
+  let receiver: ChildProcessWithoutNullStreams | undefined;
 
   try {
     await fs.mkdir(out);
     await waitForOutput(server, /listening/);
     const serverUrl = `ws://127.0.0.1:${port}/v1/ws`;
-    const receiver = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "recv", "--code-env", "FF_PRIVATE_RECEIVE_CODE", "--yes", "--out", out], { cwd: root, env: childEnv });
+    receiver = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "recv", "--code-env", "FF_PRIVATE_RECEIVE_CODE", "--yes", "--out", out], { cwd: root, env: childEnv });
     const receiverDone = waitForExitWithOutput(receiver, "receiver", CHILD_EXIT_TIMEOUT_MS);
     await waitForOutput(receiver, /"registered"/);
     terminateChild(receiver);
@@ -87,7 +93,9 @@ test("CLI supplied receive code is redacted from registered JSON output", async 
     assert.deepEqual(registered, { event: "registered", codeSupplied: true, rendezvousRedacted: true, expiresInSec: 600 });
     assert.doesNotMatch(receiverResult.stdout, /12345678|apple-anchor/);
   } finally {
-    server.kill();
+    if (receiver) await terminateChildAndWait(receiver);
+    await terminateChildAndWait(server);
+    await removeTestTemp(tmp);
   }
 });
 
@@ -227,6 +235,40 @@ function terminateChild(child: ChildProcessWithoutNullStreams): void {
   child.kill("SIGTERM");
   const killTimer = setTimeout(() => child.kill("SIGKILL"), CHILD_KILL_GRACE_MS);
   killTimer.unref();
+}
+
+async function terminateChildAndWait(child: ChildProcessWithoutNullStreams): Promise<void> {
+  terminateChild(child);
+  await waitForProcessExit(child, CHILD_KILL_GRACE_MS + 2_000).catch(() => undefined);
+}
+
+function waitForProcessExit(child: ChildProcessWithoutNullStreams, timeoutMs: number): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      clearTimeout(timer);
+      child.off("exit", onExit);
+      child.off("error", onError);
+    };
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error("Timed out waiting for process exit."));
+    }, timeoutMs);
+    const onExit = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+    child.once("exit", onExit);
+    child.once("error", onError);
+  });
+}
+
+async function removeTestTemp(dir: string): Promise<void> {
+  await fs.rm(dir, { recursive: true, force: true });
 }
 
 function exitSummary(result: ChildResult): string {

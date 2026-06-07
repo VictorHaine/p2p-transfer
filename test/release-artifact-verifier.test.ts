@@ -148,7 +148,7 @@ test("release artifact verifier writes the verified tarball path to GitHub outpu
   assert.equal(result.stdout, "");
   assert.equal(result.stderr, "");
   assert.ok(result.githubOutputPath);
-  assert.equal(await fs.readFile(result.githubOutputPath, "utf8"), "tarball=release-artifacts/victorhaine-p2p-transfer-1.2.3.tgz\n");
+  assert.equal(result.githubOutputText, "tarball=release-artifacts/victorhaine-p2p-transfer-1.2.3.tgz\n");
 });
 
 test("release artifact verifier rejects control-bearing GitHub output paths", async () => {
@@ -555,47 +555,52 @@ async function runVerifierInFixture(options: {
   artifactDirSymlinkTarget?: string;
 }) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-verify-"));
-  const scriptsDir = path.join(root, "scripts");
-  const artifactDir = path.join(root, "release-artifacts");
-  await fs.mkdir(scriptsDir);
-  if (options.artifactDirSymlinkTarget) {
-    await fs.symlink(options.artifactDirSymlinkTarget, artifactDir, "dir");
-  } else {
-    await fs.mkdir(artifactDir);
-  }
-  await fs.writeFile(path.join(root, "package.json"), options.packageJson ?? `${JSON.stringify(fixturePackageJson(options.packageName, options.version))}\n`);
-  await fs.writeFile(path.join(root, "pnpm-lock.yaml"), fixtureLockfile(options.packageName, options.version));
-  await fs.writeFile(path.join(scriptsDir, "verify-release-artifact.mjs"), verifierSource, { mode: 0o755 });
-  await writeFixtureWorkspaceFiles(root);
-  await writeExtraWorkspaceFiles(root, options.extraWorkspaceFiles ?? {});
+  try {
+    const scriptsDir = path.join(root, "scripts");
+    const artifactDir = path.join(root, "release-artifacts");
+    await fs.mkdir(scriptsDir);
+    if (options.artifactDirSymlinkTarget) {
+      await fs.symlink(options.artifactDirSymlinkTarget, artifactDir, "dir");
+    } else {
+      await fs.mkdir(artifactDir);
+    }
+    await fs.writeFile(path.join(root, "package.json"), options.packageJson ?? `${JSON.stringify(fixturePackageJson(options.packageName, options.version))}\n`);
+    await fs.writeFile(path.join(root, "pnpm-lock.yaml"), fixtureLockfile(options.packageName, options.version));
+    await fs.writeFile(path.join(scriptsDir, "verify-release-artifact.mjs"), verifierSource, { mode: 0o755 });
+    await writeFixtureWorkspaceFiles(root);
+    await writeExtraWorkspaceFiles(root, options.extraWorkspaceFiles ?? {});
 
-  const tarballName = `${packedPackageName(options.packageName)}-${options.version}.tgz`;
-  const tarball = options.tarball ?? gzipSync(Buffer.concat(options.tarBlocks ?? []));
-  const sbom = options.sbom ?? Buffer.from(`${JSON.stringify(fixtureSbom(options.packageName, options.version))}\n`, "utf8");
-  const digest = createHash("sha256").update(tarball).digest("hex");
-  const sbomDigest = createHash("sha256").update(sbom).digest("hex");
-  await fs.writeFile(path.join(artifactDir, tarballName), tarball);
-  await fs.writeFile(path.join(artifactDir, "SBOM.cdx.json"), sbom);
-  await fs.writeFile(path.join(artifactDir, "SHA256SUMS"), `${digest}  ${tarballName}\n${sbomDigest}  SBOM.cdx.json\n`);
-  for (const entry of options.extraArtifactEntries ?? []) {
-    await fs.writeFile(path.join(artifactDir, entry.name), entry.body ?? Buffer.alloc(0));
-  }
-  const githubOutputPath = options.githubOutputPath ?? (options.githubOutputFileName ? path.join(root, options.githubOutputFileName) : undefined);
-  if (githubOutputPath && !options.githubOutputPath) await fs.writeFile(githubOutputPath, "");
+    const tarballName = `${packedPackageName(options.packageName)}-${options.version}.tgz`;
+    const tarball = options.tarball ?? gzipSync(Buffer.concat(options.tarBlocks ?? []));
+    const sbom = options.sbom ?? Buffer.from(`${JSON.stringify(fixtureSbom(options.packageName, options.version))}\n`, "utf8");
+    const digest = createHash("sha256").update(tarball).digest("hex");
+    const sbomDigest = createHash("sha256").update(sbom).digest("hex");
+    await fs.writeFile(path.join(artifactDir, tarballName), tarball);
+    await fs.writeFile(path.join(artifactDir, "SBOM.cdx.json"), sbom);
+    await fs.writeFile(path.join(artifactDir, "SHA256SUMS"), `${digest}  ${tarballName}\n${sbomDigest}  SBOM.cdx.json\n`);
+    for (const entry of options.extraArtifactEntries ?? []) {
+      await fs.writeFile(path.join(artifactDir, entry.name), entry.body ?? Buffer.alloc(0));
+    }
+    const githubOutputPath = options.githubOutputPath ?? (options.githubOutputFileName ? path.join(root, options.githubOutputFileName) : undefined);
+    if (githubOutputPath && !options.githubOutputPath) await fs.writeFile(githubOutputPath, "");
 
-  const result = spawnSync(process.execPath, [path.join(scriptsDir, "verify-release-artifact.mjs"), ...(options.args ?? [])], {
-    cwd: root,
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      GITHUB_REF_NAME: options.refName ?? `v${options.version}`,
-      GITHUB_REF_TYPE: options.refType ?? "tag",
-      GITHUB_REF: options.ref ?? `refs/tags/${options.refName ?? `v${options.version}`}`,
-      ...(githubOutputPath ? { GITHUB_OUTPUT: githubOutputPath } : {})
-    },
-    timeout: 10_000
-  });
-  return { ...result, root, githubOutputPath };
+    const result = spawnSync(process.execPath, [path.join(scriptsDir, "verify-release-artifact.mjs"), ...(options.args ?? [])], {
+      cwd: root,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        GITHUB_REF_NAME: options.refName ?? `v${options.version}`,
+        GITHUB_REF_TYPE: options.refType ?? "tag",
+        GITHUB_REF: options.ref ?? `refs/tags/${options.refName ?? `v${options.version}`}`,
+        ...(githubOutputPath ? { GITHUB_OUTPUT: githubOutputPath } : {})
+      },
+      timeout: 10_000
+    });
+    const githubOutputText = githubOutputPath && !options.githubOutputPath ? await fs.readFile(githubOutputPath, "utf8").catch(() => undefined) : undefined;
+    return { ...result, root, githubOutputPath, githubOutputText };
+  } finally {
+    await fs.rm(root, { force: true, recursive: true });
+  }
 }
 
 function packageJsonTarBlocks(packageName: string, version: string, options: { body?: Buffer; endBlocks: 1 | 2; trailingBlocks?: Buffer[] }): Buffer[] {
