@@ -32,6 +32,10 @@ const REQUIRED_CI_CHECKS = [
   "platform smoke / windows-2025 / node 22.22.3",
   "platform smoke / windows-2025 / node 24.13.1"
 ];
+const REQUIRED_SUCCESSFUL_MAIN_WORKFLOWS = [
+  { file: "scorecard.yml", name: "scorecard" },
+  { file: "dependency-integrity.yml", name: "dependency-integrity" }
+];
 const MAX_ENV_VALUE_BYTES = 4_096;
 const MAX_PACKAGE_JSON_BYTES = 128 * 1024;
 const MAX_GITHUB_API_RESPONSE_BYTES = 1024 * 1024;
@@ -104,12 +108,18 @@ async function collectGitHubRepositoryReadiness(failures, token, repository, aut
   const repositoryOk = await collectReadinessFailure(failures, () => github(token, "GET", `/repos/${repository}`));
   if (!repositoryOk) return;
 
-  await collectReadinessFailure(failures, async () => {
-    await github(token, "GET", `/repos/${repository}/branches/main`).catch((error) => {
+  const mainBranch = await collectReadinessValue(failures, async () => {
+    return await github(token, "GET", `/repos/${repository}/branches/main`).catch((error) => {
       if (error instanceof GitHubApiError && error.status === 404) throw new Error("Remote main branch is missing. Push main before releasing.");
       throw error;
     });
   });
+  const mainSha = mainBranch ? collectReadinessValueSync(failures, () => requiredBranchSha(mainBranch, "main")) : undefined;
+  if (mainSha) {
+    for (const workflow of REQUIRED_SUCCESSFUL_MAIN_WORKFLOWS) {
+      await collectReadinessFailure(failures, () => assertSuccessfulMainWorkflowRun(token, repository, workflow, mainSha));
+    }
+  }
 
   await collectReadinessFailure(failures, async () => {
     await github(token, "GET", `/repos/${repository}/actions/secrets/${RELEASE_PREFLIGHT_SECRET}`).catch((error) => {
@@ -303,6 +313,22 @@ function requiredAuthenticatedLogin(user) {
   const login = user?.login;
   if (typeof login !== "string" || !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(login)) throw new Error("Authenticated GitHub user response was invalid.");
   return login;
+}
+
+function requiredBranchSha(branch, branchName) {
+  const sha = branch?.commit?.sha;
+  if (typeof sha !== "string" || !/^[0-9a-f]{40}$/.test(sha)) throw new Error(`GitHub ${branchName} branch response was invalid.`);
+  return sha;
+}
+
+async function assertSuccessfulMainWorkflowRun(token, repository, workflow, mainSha) {
+  const runs = await github(token, "GET", `/repos/${repository}/actions/workflows/${encodeURIComponent(workflow.file)}/runs?branch=main&status=success&per_page=1`);
+  if (!runs || typeof runs !== "object" || !Array.isArray(runs.workflow_runs)) throw new Error(`GitHub ${workflow.name} workflow runs response was invalid.`);
+  const run = runs.workflow_runs[0];
+  if (!run || typeof run !== "object") throw new Error(`GitHub ${workflow.name} workflow has no successful main run.`);
+  if (run.status !== "completed" || run.conclusion !== "success" || run.head_branch !== "main" || run.head_sha !== mainSha) {
+    throw new Error(`GitHub ${workflow.name} workflow latest successful main run is not current main.`);
+  }
 }
 
 function collectNpmEnvironmentReadiness(failures, environment, authenticatedLogin) {

@@ -623,13 +623,14 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(readme, /For normal releases, fetch `origin\/main` and tag that exact remote commit after the protected pull request has merged/);
   assert.doesNotMatch(readme, /git push -u origin main\nGITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
   assert.match(readme, /the exact repository rulesets that release preflight requires for `main` and `v\*\.\*\.\*` release tags/);
-  assert.match(readme, /read repository metadata, the `main` branch, Actions secret metadata, repository rulesets including bypass actors, repository environments, and deployment branch policies/);
+  assert.match(readme, /read repository metadata, the `main` branch, Actions secret metadata, Actions workflow run metadata, repository rulesets including bypass actors, repository environments, and deployment branch policies/);
   assert.match(readme, /The checked repository ruleset for `v\*\.\*\.\*` tags must be active before the first release/);
   assert.doesNotMatch(readme, /create branch protection for `main`|tag protection rule or repository ruleset/);
   assert.match(readme, /GITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
   assert.match(contributing, /pnpm exec playwright install --with-deps chromium\npnpm verify:release\nnode scripts\/write-release-notes\.mjs --check\nDOCKER_SMOKE_TAG=p2p-transfer:test pnpm smoke:docker-policy\ngh auth refresh -h github\.com -s workflow\nGITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
   assert.match(contributing, /make sure `main` already exists on\nGitHub, then run the full release gate/);
   assert.match(securityPolicy, /local release preflight must fail before tagging when the npm package is missing, the target npm version already exists, the GitHub token lacks `workflow` scope/);
+  assert.match(securityPolicy, /current `main` commit lacks a successful Scorecard or dependency-integrity workflow run/);
   assert.match(securityPolicy, /the `RELEASE_PREFLIGHT_TOKEN` repository secret is missing/);
   assert.match(securityPolicy, /GitHub `npm` environment lacks required reviewers, allows self-review, allows admin bypass, allows branch deployments, lacks the exact `v\*\.\*\.\*` tag deployment policy, or has the authenticated release operator as its sole required reviewer/);
   assert.match(securityPolicy, /first-time npm package bootstrap must use the checked bootstrap script, publish only the minimal temporary `0\.0\.0-bootstrap\.0` package from a private temporary directory/);
@@ -638,7 +639,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(securityPolicy, /branch\/tag rulesets have ref exclusions, unexpected or duplicate rules, or any bypass actors/);
   assert.match(securityPolicy, /release workflow preflight must run before dependency install through the checked Node script with an explicit `RELEASE_PREFLIGHT_TOKEN` secret/);
   assert.match(securityPolicy, /must reject classic PAT, OAuth, refresh, user, or unknown-prefix token classes in GitHub Actions before package or network work/);
-  assert.match(securityPolicy, /must still verify the npm package exists without the target version, remote `main`, rulesets/);
+  assert.match(securityPolicy, /must still verify the npm package exists without the target version, remote `main`, successful Scorecard and dependency-integrity runs for current `main`, rulesets/);
   assert.match(securityPolicy, /no branch\/tag bypass actors, required status checks, and the npm environment approval\/tag-only deployment gate before packaging/);
   assert.match(readme, /verifies the npm package already exists and the target version has not been published/);
   assert.match(readme, /pnpm bootstrap:npm --dry-run/);
@@ -667,6 +668,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /const REQUIRED_OAUTH_SCOPES = \["repo", "workflow"\]/);
   assert.match(releaseReadinessScript, /const GITHUB_ACTIONS_REQUIRED_OAUTH_SCOPES = \["repo"\]/);
   assert.match(releaseReadinessScript, /const RELEASE_PREFLIGHT_SECRET = "RELEASE_PREFLIGHT_TOKEN"/);
+  assert.match(releaseReadinessScript, /const REQUIRED_SUCCESSFUL_MAIN_WORKFLOWS = \[[\s\S]*\{ file: "scorecard\.yml", name: "scorecard" \}[\s\S]*\{ file: "dependency-integrity\.yml", name: "dependency-integrity" \}[\s\S]*\]/);
   assert.match(releaseReadinessScript, /class ReleaseReadinessFailure extends Error/);
   assert.match(releaseReadinessScript, /const token = githubToken\(\);[\s\S]*const runningInGitHubActions = envString\("GITHUB_ACTIONS"\) === "true";[\s\S]*const failures = \[\]/);
   assert.match(releaseReadinessScript, /await collectReadinessFailure\(failures, async \(\) => \{/);
@@ -728,6 +730,12 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /async function collectGitHubRepositoryReadiness\(failures, token, repository, authenticatedLogin\)/);
   assert.match(releaseReadinessScript, /\/repos\/\$\{repository\}\/branches\/main/);
   assert.match(releaseReadinessScript, /Remote main branch is missing\. Push main before releasing\./);
+  assert.match(releaseReadinessScript, /const mainSha = mainBranch \? collectReadinessValueSync\(failures, \(\) => requiredBranchSha\(mainBranch, "main"\)\) : undefined/);
+  assert.match(releaseReadinessScript, /for \(const workflow of REQUIRED_SUCCESSFUL_MAIN_WORKFLOWS\)/);
+  assert.match(releaseReadinessScript, /assertSuccessfulMainWorkflowRun\(token, repository, workflow, mainSha\)/);
+  assert.match(releaseReadinessScript, /function requiredBranchSha\(branch, branchName\)/);
+  assert.match(releaseReadinessScript, /\/repos\/\$\{repository\}\/actions\/workflows\/\$\{encodeURIComponent\(workflow\.file\)\}\/runs\?branch=main&status=success&per_page=1/);
+  assert.match(releaseReadinessScript, /GitHub \$\{workflow\.name\} workflow latest successful main run is not current main/);
   assert.match(releaseReadinessScript, /\/repos\/\$\{repository\}\/actions\/secrets\/\$\{RELEASE_PREFLIGHT_SECRET\}/);
   assert.match(releaseReadinessScript, /GitHub Actions secret RELEASE_PREFLIGHT_TOKEN is missing\./);
   assert.match(releaseReadinessScript, /const rulesetsByName = collectReadinessValueSync\(failures, \(\) => requiredRulesetsByName\(rulesets\)\)/);
@@ -865,11 +873,12 @@ test("CodeQL code scanning is pinned and least-privilege", () => {
 });
 
 test("OpenSSF Scorecard scanning is pinned and uploads SARIF", () => {
-  assert.match(securityPolicy, /OpenSSF Scorecard must run from a pinned workflow on pushes to `main` and a weekly schedule/);
-  assert.match(securityPolicy, /OpenSSF Scorecard must[\s\S]*set an explicit job timeout/);
+  assert.match(securityPolicy, /OpenSSF Scorecard must run from a pinned workflow on pushes to `main`, manual dispatch, and a weekly schedule/);
+  assert.match(securityPolicy, /OpenSSF Scorecard must[\s\S]*have a successful run for the current `main` commit before release preflight passes/);
   assert.match(readme, /\.github\/workflows\/scorecard\.yml` runs the pinned Scorecard action/);
+  assert.match(readme, /release preflight requires a successful Scorecard run for the exact current `main` commit before tagging/);
   assert.match(scorecardWorkflow, /^name: scorecard$/m);
-  assert.match(scorecardWorkflow, /^on:\n  push:\n    branches:\n      - main\n  schedule:\n    - cron: "29 4 \* \* 3"$/m);
+  assert.match(scorecardWorkflow, /^on:\n  push:\n    branches:\n      - main\n  schedule:\n    - cron: "29 4 \* \* 3"\n  workflow_dispatch:$/m);
   assert.match(scorecardWorkflow, /^permissions:\n  contents: read\n  security-events: write\n  id-token: write$/m);
   assert.match(scorecardWorkflow, /^concurrency:\n  group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}\n  cancel-in-progress: true$/m);
   assert.match(workflowJob(scorecardWorkflow, "analyze"), /timeout-minutes: 15/);
@@ -891,13 +900,15 @@ test("dependency review blocks vulnerable dependency introductions", () => {
   assert.doesNotMatch(dependencyReviewWorkflow, /pull_request_target|workflow_run|contents:\s*write|pull-requests:\s*write|id-token:\s*write|actions:\s*write|packages:\s*write/);
 });
 
-test("scheduled dependency integrity monitor catches new registry risk on unchanged main", () => {
-  assert.match(securityPolicy, /dependency integrity monitoring must run from a pinned scheduled workflow on unchanged `main` with read-only permissions/);
+test("dependency integrity monitor catches new registry risk and gates releases", () => {
+  assert.match(securityPolicy, /dependency integrity monitoring must run from a pinned workflow on pushes to `main`, manual dispatch, and a weekly schedule on unchanged `main` with read-only permissions/);
   assert.match(securityPolicy, /checked pnpm bootstrap, frozen install, installed-state verification, `pnpm security:audit`, and `pnpm security:signatures`/);
-  assert.match(readme, /\.github\/workflows\/dependency-integrity\.yml` runs weekly with read-only permissions/);
+  assert.match(securityPolicy, /release preflight must require a successful dependency-integrity run for the current `main` commit/);
+  assert.match(readme, /\.github\/workflows\/dependency-integrity\.yml` runs on pushes to `main`, manual dispatch, and weekly with read-only permissions/);
   assert.match(readme, /re-checks the frozen install, installed dependency tree, npm advisory audit, and registry package signatures even when `main` has not changed/);
+  assert.match(readme, /release preflight requires a successful dependency-integrity run for the exact current `main` commit before tagging/);
   assert.match(dependencyIntegrityWorkflow, /^name: dependency-integrity$/m);
-  assert.match(dependencyIntegrityWorkflow, /^on:\n  schedule:\n    - cron: "41 5 \* \* 4"$/m);
+  assert.match(dependencyIntegrityWorkflow, /^on:\n  push:\n    branches:\n      - main\n  schedule:\n    - cron: "41 5 \* \* 4"\n  workflow_dispatch:$/m);
   assert.match(dependencyIntegrityWorkflow, /^permissions:\n  contents: read$/m);
   assert.match(dependencyIntegrityWorkflow, /^concurrency:\n  group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}\n  cancel-in-progress: true$/m);
   assert.match(workflowJob(dependencyIntegrityWorkflow, "dependency-integrity"), /name: dependency integrity[\s\S]*runs-on: ubuntu-24\.04[\s\S]*timeout-minutes: 15/);

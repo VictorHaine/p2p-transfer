@@ -1,8 +1,12 @@
 name: dependency-integrity
 
 on:
+  push:
+    branches:
+      - main
   schedule:
     - cron: "41 5 * * 4"
+  workflow_dispatch:
 
 permissions:
   contents: read
