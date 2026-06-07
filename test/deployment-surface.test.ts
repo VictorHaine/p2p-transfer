@@ -749,10 +749,14 @@ test("README reports implemented release capabilities without stale MVP-gap lang
 test("interop tests run the signaling server behind an explicit origin policy", () => {
   const e2eTest = fs.readFileSync(new URL("../test/e2e/cli-transfer.test.ts", import.meta.url), "utf8");
   const browserTest = fs.readFileSync(new URL("../test/browser/browser-cli-send.test.ts", import.meta.url), "utf8");
-  assert.match(readme, /browser sender to CLI receiver, CLI sender to browser download receiver, CLI sender to browser folder-only receiver, browser resume-key replacement, and browser folder restart after a corrupted saved partial/);
+  assert.match(readme, /browser sender to CLI receiver, CLI sender to browser download receiver, CLI sender to browser folder-only receiver, browser resume-key replacement, browser resume-registry metadata scrubbing, and browser folder restart after a corrupted saved partial/);
   assert.match(browserTest, /CLI sender interoperates with browser folder-only receiver/);
   assert.match(browserTest, /browser folder receiver restarts after a corrupted saved partial/);
+  assert.match(browserTest, /browser startup scrubs legacy resume registry metadata/);
   assert.match(browserTest, /installFolderPickerMock\(page\)/);
+  assert.match(browserTest, /seedLegacyBrowserResumeRegistry\(page\)/);
+  assert.match(browserTest, /finalName: "secret-name\.txt"/);
+  assert.match(browserTest, /browserResumeRegistryObject\(page\)/);
   assert.match(browserTest, /setFolderMockFailure\(page, 1\)/);
   assert.match(browserTest, /corruptFolderPartFile\(page, partial\.partFiles\[0\]!\)/);
   assert.match(browserTest, /operation === `createWritable:\$\{partial\.partFiles\[0\]\}:reset`/);

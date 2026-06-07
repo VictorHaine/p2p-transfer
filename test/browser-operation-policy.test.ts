@@ -273,6 +273,11 @@ test("browser receive resume is explicit and limited to saved opaque folder part
   assert.match(browserInteropTest, /corruptFolderPartFile\(page, partial\.partFiles\[0\]!\)/);
   assert.match(browserInteropTest, /operation === `createWritable:\$\{partial\.partFiles\[0\]\}:reset`/);
   assert.match(browserInteropTest, /operation\.startsWith\(`write:\$\{partial\.partFiles\[0\]\}:0:`\)/);
+  assert.match(browserInteropTest, /browser startup scrubs legacy resume registry metadata/);
+  assert.match(browserInteropTest, /seedLegacyBrowserResumeRegistry\(page\)/);
+  assert.match(browserInteropTest, /finalName: "secret-name\.txt"/);
+  assert.match(browserInteropTest, /mime: "text\/plain"/);
+  assert.match(browserInteropTest, /browserResumeRegistryObject\(page\)/);
   assert.match(webSource, /pruneBrowserResumeRegistry\(\);[\s\S]*const app = document\.querySelector/);
   assert.match(webSource, /function sanitizeBrowserResumeRegistry\(registry: Record<string, unknown>\): Record<string, unknown>/);
   assert.match(webSource, /if \(!BROWSER_RESUME_STORAGE_ENTRY_KEY\.test\(entryKey\)\) \{[\s\S]*changed = true;[\s\S]*continue;/);

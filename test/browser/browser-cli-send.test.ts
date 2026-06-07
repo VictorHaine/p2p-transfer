@@ -235,6 +235,39 @@ test("browser folder receiver restarts after a corrupted saved partial", { skip:
   }
 });
 
+test("browser startup scrubs legacy resume registry metadata", { skip: chromiumPath ? false : "No Chromium executable found" }, async () => {
+  const root = process.cwd();
+  const port = 24_000 + randomInt(1_000);
+  const origin = `http://127.0.0.1:${port}`;
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-browser-registry-"));
+  const childEnv = testChildEnv(tmp);
+  const server = spawn(process.execPath, ["dist-node/server/index.js"], {
+    cwd: root,
+    env: { ...childEnv, PORT: String(port), HOST: "127.0.0.1", NODE_ENV: "production", ALLOWED_ORIGINS: origin, SIGNALING_TOPOLOGY: "single-instance", ALLOW_INSECURE_ORIGINS: "true" }
+  });
+
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  try {
+    await waitForOutput(server, /listening/);
+    browser = await chromium.launch(chromiumLaunchOptions());
+    const page = await browser.newPage();
+    await page.goto(`http://127.0.0.1:${port}/healthz`);
+    await seedLegacyBrowserResumeRegistry(page);
+    await page.goto(`http://127.0.0.1:${port}/`);
+
+    const registry = await browserResumeRegistryObject(page);
+    assert.deepEqual(registry, {
+      [`ff.resume.v2:${"c".repeat(64)}`]: { partName: `ff-${"d".repeat(32)}.part`, updatedAt: 7 }
+    });
+    assert.equal(JSON.stringify(registry).includes("secret-name.txt"), false);
+    assert.equal(JSON.stringify(registry).includes("text/plain"), false);
+    assert.equal(JSON.stringify(registry).includes("size"), false);
+  } finally {
+    await browser?.close();
+    server.kill();
+  }
+});
+
 function findChromium(): string | undefined {
   for (const bin of ["chromium", "google-chrome", "chrome"]) {
     const result = spawnSync("which", [bin], { encoding: "utf8" });
@@ -481,6 +514,39 @@ async function seedInvalidBrowserResumeState(page: Page): Promise<void> {
 
 function browserResumeRegistry(page: Page): Promise<string | null> {
   return page.evaluate(() => localStorage.getItem("ff.browserReceiveResume.v1"));
+}
+
+function browserResumeRegistryObject(page: Page): Promise<unknown> {
+  return page.evaluate(() => {
+    const value = localStorage.getItem("ff.browserReceiveResume.v1");
+    return value ? JSON.parse(value) : null;
+  });
+}
+
+function seedLegacyBrowserResumeRegistry(page: Page): Promise<void> {
+  return page.evaluate(() => {
+    localStorage.setItem(
+      "ff.browserReceiveResume.v1",
+      JSON.stringify({
+        [`ff.resume.v2:${"c".repeat(64)}`]: {
+          partName: `ff-${"d".repeat(32)}.part`,
+          updatedAt: 7,
+          finalName: "secret-name.txt",
+          mime: "text/plain",
+          size: 123
+        },
+        [`ff.resume.v2:${"e".repeat(64)}`]: {
+          partName: "../secret-name.txt.part",
+          updatedAt: 8
+        },
+        "legacy-secret-name.txt": {
+          partName: `ff-${"f".repeat(32)}.part`,
+          updatedAt: 9,
+          finalName: "secret-name.txt"
+        }
+      })
+    );
+  });
 }
 
 function browserResumeLookupKeyAlgorithm(page: Page): Promise<{ name: string; hash: string; length: number | undefined }> {
