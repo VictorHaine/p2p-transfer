@@ -369,7 +369,7 @@ test("signaling clients expose defensive ICE server snapshots", () => {
   assert.match(cliSignalingSource, /import \{ cloneIceServers \} from "\.\.\/shared\/ice\.js";/);
   assert.match(cliSignalingSource, /if \(parsed\.type === "ice-config"\) this\.latestIceServers = cloneIceServers\(parsed\.iceServers\)/);
   assert.match(cliSignalingSource, /currentIceServers\(\): RTCIceServer\[\] \| undefined \{[\s\S]*if \(this\.disposed\) return undefined;[\s\S]*return this\.latestIceServers \? cloneIceServers\(this\.latestIceServers\) : undefined;/);
-  assert.match(webSource, /import \{ cloneIceServers \} from "\.\.\/shared\/ice\.js";/);
+  assert.match(webSource, /import \{ cloneIceServers, hasRelayIceServer \} from "\.\.\/shared\/ice\.js";/);
   assert.match(webSource, /if \(parsed\.type === "ice-config"\) this\.latestIceServers = cloneIceServers\(parsed\.iceServers\)/);
   assert.match(webSource, /currentIceServers\(\): RTCIceServer\[\] \| undefined \{[\s\S]*if \(this\.disposed\) return undefined;[\s\S]*return this\.latestIceServers \? cloneIceServers\(this\.latestIceServers\) : undefined;/);
 });

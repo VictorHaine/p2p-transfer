@@ -21,6 +21,13 @@ export function cloneIceServers(servers: readonly IceServerSnapshot[]): RTCIceSe
   return cloned;
 }
 
+export function hasRelayIceServer(servers: readonly IceServerSnapshot[]): boolean {
+  return cloneIceServers(servers).some((server) => {
+    const urls = typeof server.urls === "string" ? [server.urls] : server.urls;
+    return urls.some(isTurnIceUrl) && typeof server.username === "string" && server.username.length > 0 && typeof server.credential === "string" && server.credential.length > 0;
+  });
+}
+
 type IceServerWithCredentialType = RTCIceServer & {
   credentialType?: IceCredentialType;
 };
@@ -64,6 +71,10 @@ function isIceUrl(url: unknown): url is string {
   if (typeof url !== "string" || url.length === 0 || url.length > MAX_CLONED_ICE_URL_CHARS || /[\p{Cc}\p{Cf}\s]/u.test(url)) return false;
   const parsed = /^(?:stun|stuns|turn|turns):([^?]+)(?:\?transport=(?:udp|tcp))?$/i.exec(url);
   return Boolean(parsed?.[1] && isValidAuthority(parsed[1]));
+}
+
+function isTurnIceUrl(url: string): boolean {
+  return /^(?:turn|turns):/i.test(url);
 }
 
 function isSafeBoundedNonEmptyString(value: unknown, maxChars: number): value is string {

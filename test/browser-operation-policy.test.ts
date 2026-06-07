@@ -32,7 +32,7 @@ test("browser exposes relay-only ICE parity with the CLI", () => {
   assert.match(webSource, /<span>Relay only<\/span>/);
   assert.match(webSource, /const relayOnly = byId<HTMLInputElement>\("relayOnly"\);/);
   assert.match(webSource, /function shouldUseBrowserRelayOnly\(\): boolean \{[\s\S]*return relayOnly\.checked;/);
-  assert.match(webSource, /function browserRtcConfiguration\(iceServers: RTCIceServer\[\]\): RTCConfiguration \{[\s\S]*return \{ iceServers, iceTransportPolicy: shouldUseBrowserRelayOnly\(\) \? "relay" : "all" \};/);
+  assert.match(webSource, /function browserRtcConfiguration\(iceServers: RTCIceServer\[\]\): RTCConfiguration \{[\s\S]*const relayOnlySelected = shouldUseBrowserRelayOnly\(\);[\s\S]*if \(relayOnlySelected && !hasRelayIceServer\(iceServers\)\) throw new Error\("Relay-only ICE requires a TURN server\."\);[\s\S]*return \{ iceServers, iceTransportPolicy: relayOnlySelected \? "relay" : "all" \};/);
   assert.equal(webSource.match(/new RTCPeerConnection\(browserRtcConfiguration\(iceServers\)\)/g)?.length, 2);
 });
 

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { cloneIceServers } from "../src/shared/ice.js";
+import { cloneIceServers, hasRelayIceServer } from "../src/shared/ice.js";
 
 const iceSource = fs.readFileSync(new URL("../src/shared/ice.ts", import.meta.url), "utf8");
 const distIceSource = fs.readFileSync(new URL("../dist-node/shared/ice.js", import.meta.url), "utf8");
@@ -71,6 +71,20 @@ test("ICE server cloning is bounded and rejects hostile property accessors", () 
   assert.match(distWebBundle, /ICE server URL/);
   assert.match(distWebBundle, /TURN ICE servers require credentials/);
   assert.match(distWebBundle, /Object\.getOwnPropertyDescriptor/);
+});
+
+test("ICE relay detection requires credentialed TURN servers", () => {
+  assert.equal(hasRelayIceServer([{ urls: "stun:stun.example.test" }]), false);
+  assert.equal(hasRelayIceServer([{ urls: "turn:turn.example.test", username: "u", credential: "p" }]), true);
+  assert.equal(hasRelayIceServer([{ urls: ["stun:stun.example.test", "turns:turn.example.test"], username: "u", credential: "p" }]), true);
+  assert.throws(() => hasRelayIceServer([{ urls: "turn:turn.example.test" }]), /TURN ICE servers require credentials/);
+
+  for (const source of [iceSource, distIceSource]) {
+    assert.match(source, /export function hasRelayIceServer/);
+    assert.match(source, /cloneIceServers\(servers\)\.some/);
+    assert.match(source, /isTurnIceUrl/);
+  }
+  assert.match(distWebBundle, /Relay-only ICE requires a TURN server/);
 });
 
 function readDistWebBundle(): string {

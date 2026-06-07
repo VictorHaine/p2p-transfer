@@ -31,7 +31,7 @@ import { normalizeSignalingServerUrl } from "../shared/server-url.js";
 import { signalingBackpressureExceeded } from "../shared/signaling-backpressure.js";
 import { WebRtcSignalReplayGuard } from "../shared/signal-replay.js";
 import { SignalMessageQueue, type SignalServerMessage } from "../shared/signal-queue.js";
-import { cloneIceServers } from "../shared/ice.js";
+import { cloneIceServers, hasRelayIceServer } from "../shared/ice.js";
 import {
   openBulk,
   openControl,
@@ -1448,7 +1448,9 @@ function canPickBrowserDirectory(): boolean {
 }
 
 function browserRtcConfiguration(iceServers: RTCIceServer[]): RTCConfiguration {
-  return { iceServers, iceTransportPolicy: shouldUseBrowserRelayOnly() ? "relay" : "all" };
+  const relayOnlySelected = shouldUseBrowserRelayOnly();
+  if (relayOnlySelected && !hasRelayIceServer(iceServers)) throw new Error("Relay-only ICE requires a TURN server.");
+  return { iceServers, iceTransportPolicy: relayOnlySelected ? "relay" : "all" };
 }
 
 function connectCode(signaling: BrowserSignaling, code: string) {

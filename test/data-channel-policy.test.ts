@@ -130,6 +130,7 @@ test("CLI createPeer snapshots construction inputs before native PeerConnection 
     assert.match(body, /const \{ target: signalingTarget, send: signalingSend \} = signalingClientInput\(signaling\)/);
     assert.match(body, /const safeRole = peerRoleInput\(role\)/);
     assert.match(body, /const safeForceRelay = forceRelayInput\(forceRelay\)/);
+    assert.match(body, /if \(safeForceRelay && !hasRelayIceServer\(safeIceServers\)\)[\s\S]*throw new Error\("Relay-only ICE requires a TURN server\."\)/);
     assert.match(body, /let authKey = signalAuthKeyInput\(signalAuthKey\)/);
     assert.match(body, /const \{ RTCPeerConnection \} = nativeWebRtc\(\)/);
     assert.match(body, /new RTCPeerConnection\(\{ iceServers: safeIceServers, iceTransportPolicy: safeForceRelay \? "relay" : "all" \}\)/);
@@ -149,11 +150,12 @@ test("CLI createPeer snapshots construction inputs before native PeerConnection 
 
 test("CLI relay option reaches native WebRTC configuration at runtime", () => {
   const validSignaling = { send() {} };
+  const turnServers = [{ urls: "turn:turn.example.test", username: "u", credential: "p" }];
   for (const [factory, expected] of [
     [createPeer, "relay"],
     [distCreatePeer, "relay"]
   ] as const) {
-    const peer = factory("abc123", [], validSignaling as never, new Uint8Array(32), "sender", true);
+    const peer = factory("abc123", turnServers, validSignaling as never, new Uint8Array(32), "sender", true);
     const connected = peer.waitConnected().catch(() => undefined);
     try {
       assert.equal(peer.pc.getConfiguration().iceTransportPolicy, expected);
@@ -161,6 +163,10 @@ test("CLI relay option reaches native WebRTC configuration at runtime", () => {
       peer.close();
       void connected;
     }
+  }
+  for (const factory of [createPeer, distCreatePeer]) {
+    assert.throws(() => factory("abc123", [], validSignaling as never, new Uint8Array(32), "sender", true), /Relay-only ICE requires a TURN server/);
+    assert.throws(() => factory("abc123", [{ urls: "stun:stun.example.test" }], validSignaling as never, new Uint8Array(32), "sender", true), /Relay-only ICE requires a TURN server/);
   }
   for (const factory of [createPeer, distCreatePeer]) {
     const peer = factory("abc123", [], validSignaling as never, new Uint8Array(32), "sender", false);

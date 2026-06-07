@@ -1,5 +1,5 @@
 import { CONNECT_TIMEOUT_MS, DATA_CHANNEL_BUFFER_LOW, TRANSFER_CONTROL_TIMEOUT_MS } from "../shared/constants.js";
-import { cloneIceServers } from "../shared/ice.js";
+import { cloneIceServers, hasRelayIceServer } from "../shared/ice.js";
 import { isServerMessage, type SignalPayload } from "../shared/messages.js";
 import { signalAuthTag, type PakeRole } from "../shared/security.js";
 import { nativeWebRtc } from "./native-webrtc.js";
@@ -33,6 +33,7 @@ export function createPeer(
   const { target: signalingTarget, send: signalingSend } = signalingClientInput(signaling);
   const safeRole = peerRoleInput(role);
   const safeForceRelay = forceRelayInput(forceRelay);
+  if (safeForceRelay && !hasRelayIceServer(safeIceServers)) throw new Error("Relay-only ICE requires a TURN server.");
   let authKey = signalAuthKeyInput(signalAuthKey);
   let closed = false;
   let pc: RTCPeerConnection;
