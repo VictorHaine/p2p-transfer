@@ -259,6 +259,7 @@ test("browser receive resume is explicit and limited to saved opaque folder part
   assert.match(webSource, /const BROWSER_RESUME_STORAGE_KEY = "ff\.browserReceiveResume\.v1";/);
   assert.match(webSource, /const BROWSER_RESUME_KEY_DB = "ff\.browserReceiveResume\.keys\.v1";/);
   assert.match(webSource, /const BROWSER_RESUME_KEY_PREFIX = "ff\.resume\.v2:";/);
+  assert.match(webSource, /const BROWSER_RESUME_RECORD_TTL_MS = 7 \* 24 \* 60 \* 60 \* 1000;/);
   assert.match(resumeKeyBody, /crypto\.subtle\.sign\("HMAC", await browserResumeLookupKey\(\), identity\)/);
   assert.match(resumeKeyBody, /return `\$\{BROWSER_RESUME_KEY_PREFIX\}\$\{hexBytes\(mac\)\}`;/);
   assert.doesNotMatch(resumeKeyBody, /return JSON\.stringify/);
@@ -270,7 +271,7 @@ test("browser receive resume is explicit and limited to saved opaque folder part
   assert.match(lookupKeyBody, /const stored = await readStoredBrowserResumeLookupKey\(db\);[\s\S]*if \(stored\) return stored;[\s\S]*const created = await createBrowserResumeLookupKey\(\);[\s\S]*await storeBrowserResumeLookupKey\(db, created\);[\s\S]*clearBrowserResumeRegistry\(\);[\s\S]*return created;/);
   assert.match(lookupKeyBody, /catch \{[\s\S]*clearBrowserResumeRegistry\(\);[\s\S]*return createBrowserResumeLookupKey\(\);[\s\S]*\}/);
   assert.match(securityPolicy, /browser receive resume registry values must not persist plaintext file names, MIME types, or sizes/);
-  assert.match(securityPolicy, /browser receive resume registry reads must scrub invalid, noncanonical, or legacy metadata-bearing entries, clear stale storage before writing sanitized replacements/);
+  assert.match(securityPolicy, /browser receive resume registry reads must scrub invalid, noncanonical, expired, or legacy metadata-bearing entries, clear stale storage before writing sanitized replacements/);
   assert.match(securityPolicy, /browser receive resume must be explicit and limited to same-browser saved opaque tokenized `.part` records/);
   assert.match(webSource, /type BrowserResumePartialRecord = \{\n  partName: string;\n  updatedAt: number;\n\};/);
   assert.doesNotMatch(webSource, /type BrowserResumePartialRecord = \{(?:(?!\n\};)[\s\S])*finalName:/);
@@ -295,6 +296,8 @@ test("browser receive resume is explicit and limited to saved opaque folder part
   assert.match(webSource, /pruneBrowserResumeRegistry\(\);[\s\S]*const app = document\.querySelector/);
   assert.match(webSource, /function sanitizeBrowserResumeRegistry\(registry: Record<string, unknown>\): Record<string, unknown>/);
   assert.match(webSource, /if \(!BROWSER_RESUME_STORAGE_ENTRY_KEY\.test\(entryKey\)\) \{[\s\S]*changed = true;[\s\S]*continue;/);
+  assert.match(webSource, /if \(!browserResumePartialRecordIsFresh\(record\)\) \{[\s\S]*changed = true;[\s\S]*continue;/);
+  assert.match(webSource, /function browserResumePartialRecordIsFresh\(record: BrowserResumePartialRecord, now = Date\.now\(\)\): boolean \{[\s\S]*record\.updatedAt <= now && now - record\.updatedAt <= BROWSER_RESUME_RECORD_TTL_MS/);
   assert.match(webSource, /if \(!browserResumePartialRecordIsCanonical\(entryValue, record\)\) changed = true;/);
   assert.match(webSource, /if \(changed\) replaceBrowserResumeRegistry\(sanitized\);/);
   assert.match(webSource, /function replaceBrowserResumeRegistry\(registry: Record<string, unknown>\): void \{[\s\S]*clearBrowserResumeRegistry\(\);[\s\S]*writeBrowserResumeRegistry\(registry\);[\s\S]*\}/);

@@ -352,12 +352,15 @@ test("browser startup scrubs legacy resume registry metadata", browserTestOption
     await page.goto(`http://127.0.0.1:${port}/`);
 
     const registry = await browserResumeRegistryObject(page);
-    assert.deepEqual(registry, {
-      [`ff.resume.v2:${"c".repeat(64)}`]: { partName: `ff-${"d".repeat(32)}.part`, updatedAt: 7 }
-    });
+    assert.ok(registry && typeof registry === "object" && !Array.isArray(registry));
+    assert.deepEqual(Object.keys(registry as Record<string, unknown>), [`ff.resume.v2:${"c".repeat(64)}`]);
+    const record = (registry as Record<string, { partName?: unknown; updatedAt?: unknown }>)[`ff.resume.v2:${"c".repeat(64)}`];
+    assert.equal(record?.partName, `ff-${"d".repeat(32)}.part`);
+    assert.equal(typeof record?.updatedAt, "number");
     assert.equal(JSON.stringify(registry).includes("secret-name.txt"), false);
     assert.equal(JSON.stringify(registry).includes("text/plain"), false);
     assert.equal(JSON.stringify(registry).includes("size"), false);
+    assert.equal(JSON.stringify(registry).includes(`ff-${"h".repeat(32)}.part`), false);
   } finally {
     await browser?.close();
     server.kill();
@@ -629,12 +632,13 @@ function browserResumeRegistryObject(page: Page): Promise<unknown> {
 
 function seedLegacyBrowserResumeRegistry(page: Page): Promise<void> {
   return page.evaluate(() => {
+    const now = Date.now();
     localStorage.setItem(
       "ff.browserReceiveResume.v1",
       JSON.stringify({
         [`ff.resume.v2:${"c".repeat(64)}`]: {
           partName: `ff-${"d".repeat(32)}.part`,
-          updatedAt: 7,
+          updatedAt: now,
           finalName: "secret-name.txt",
           mime: "text/plain",
           size: 123
@@ -642,6 +646,10 @@ function seedLegacyBrowserResumeRegistry(page: Page): Promise<void> {
         [`ff.resume.v2:${"e".repeat(64)}`]: {
           partName: "../secret-name.txt.part",
           updatedAt: 8
+        },
+        [`ff.resume.v2:${"g".repeat(64)}`]: {
+          partName: `ff-${"h".repeat(32)}.part`,
+          updatedAt: 1
         },
         "legacy-secret-name.txt": {
           partName: `ff-${"f".repeat(32)}.part`,

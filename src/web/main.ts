@@ -122,6 +122,7 @@ const BROWSER_RESUME_LOOKUP_KEY_ID = "lookup";
 const BROWSER_RESUME_KEY_PREFIX = "ff.resume.v2:";
 const BROWSER_RESUME_STORAGE_ENTRY_KEY = /^ff\.resume\.v2:[a-f0-9]{64}$/;
 const MAX_BROWSER_RESUME_RECORDS = 200;
+const BROWSER_RESUME_RECORD_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const browserResumeText = new TextEncoder();
 let browserResumeLookupKeyPromise: Promise<CryptoKey> | undefined;
 const BROWSER_WAIT_MESSAGE_TYPES = new Set<ServerMessage["type"]>([
@@ -2316,9 +2317,13 @@ function readBrowserResumePartial(key: string): BrowserResumePartialRecord | und
 function rememberBrowserResumePartial(key: string, record: BrowserResumePartialRecord): void {
   const registry = readBrowserResumeRegistry();
   registry[key] = record;
+  const now = Date.now();
   const entries = Object.entries(registry)
     .map(([entryKey, entryValue]) => [entryKey, browserResumePartialRecordInput(entryValue)] as const)
-    .filter((entry): entry is readonly [string, BrowserResumePartialRecord] => Boolean(entry[1]))
+    .filter((entry): entry is readonly [string, BrowserResumePartialRecord] => {
+      const record = entry[1];
+      return record !== undefined && browserResumePartialRecordIsFresh(record, now);
+    })
     .sort((a, b) => b[1].updatedAt - a[1].updatedAt)
     .slice(0, MAX_BROWSER_RESUME_RECORDS);
   writeBrowserResumeRegistry(Object.fromEntries(entries));
@@ -2383,6 +2388,10 @@ function sanitizeBrowserResumeRegistry(registry: Record<string, unknown>): Recor
       changed = true;
       continue;
     }
+    if (!browserResumePartialRecordIsFresh(record)) {
+      changed = true;
+      continue;
+    }
     sanitized[entryKey] = record;
     if (!browserResumePartialRecordIsCanonical(entryValue, record)) changed = true;
   }
@@ -2400,6 +2409,10 @@ function browserResumePartialRecordIsCanonical(value: unknown, record: BrowserRe
   const keys = Object.keys(value);
   if (keys.length !== 2 || !keys.includes("partName") || !keys.includes("updatedAt")) return false;
   return ownDataValue(value, "partName") === record.partName && ownDataValue(value, "updatedAt") === record.updatedAt;
+}
+
+function browserResumePartialRecordIsFresh(record: BrowserResumePartialRecord, now = Date.now()): boolean {
+  return record.updatedAt <= now && now - record.updatedAt <= BROWSER_RESUME_RECORD_TTL_MS;
 }
 
 function browserResumePartialRecordInput(value: unknown): BrowserResumePartialRecord | undefined {
