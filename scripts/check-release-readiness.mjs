@@ -234,10 +234,7 @@ async function readHandleText(handle, size, label) {
 }
 
 function sameFile(left, right) {
-  if (typeof left.dev === "number" && typeof left.ino === "number" && typeof right.dev === "number" && typeof right.ino === "number") {
-    return left.dev === right.dev && left.ino === right.ino;
-  }
-  return left.size === right.size && left.mtimeMs === right.mtimeMs;
+  return left.dev === right.dev && left.ino === right.ino && left.size === right.size && left.mtimeMs === right.mtimeMs && left.ctimeMs === right.ctimeMs;
 }
 
 async function assertNpmPackageReady(packageJson) {

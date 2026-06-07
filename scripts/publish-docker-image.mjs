@@ -105,7 +105,7 @@ async function readPackageJson() {
 }
 
 function sameFile(left, right) {
-  return left.dev === right.dev && left.ino === right.ino && left.size === right.size;
+  return left.dev === right.dev && left.ino === right.ino && left.size === right.size && left.mtimeMs === right.mtimeMs && left.ctimeMs === right.ctimeMs;
 }
 
 function packageVersion(value) {

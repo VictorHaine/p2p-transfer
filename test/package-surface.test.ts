@@ -50,10 +50,25 @@ const releaseMainScript = fs.readFileSync(new URL("../scripts/check-release-main
 const releaseArtifactScript = fs.readFileSync(new URL("../scripts/verify-release-artifact.mjs", import.meta.url), "utf8");
 const releasePublishScript = fs.readFileSync(new URL("../scripts/publish-release-artifact.mjs", import.meta.url), "utf8");
 const githubReleaseScript = fs.readFileSync(new URL("../scripts/create-github-release.mjs", import.meta.url), "utf8");
+const bootstrapNpmScript = fs.readFileSync(new URL("../scripts/bootstrap-npm-package.mjs", import.meta.url), "utf8");
+const releaseReadinessScript = fs.readFileSync(new URL("../scripts/check-release-readiness.mjs", import.meta.url), "utf8");
 const releaseChecksumScript = fs.readFileSync(new URL("../scripts/write-release-checksum.mjs", import.meta.url), "utf8");
 const releaseSbomScript = fs.readFileSync(new URL("../scripts/write-release-sbom.mjs", import.meta.url), "utf8");
 const releaseNotesScript = fs.readFileSync(new URL("../scripts/write-release-notes.mjs", import.meta.url), "utf8");
 const liveReleaseRefScript = fs.readFileSync(new URL("../scripts/verify-live-release-ref.mjs", import.meta.url), "utf8");
+const fileStabilityCheckedScripts = [
+  installStateScript,
+  bootstrapNpmScript,
+  releaseReadinessScript,
+  packedSmokeScript,
+  releaseArtifactSmokeScript,
+  dockerPublishScript,
+  releaseTagScript,
+  releaseArtifactScript,
+  releaseChecksumScript,
+  releaseSbomScript,
+  releaseNotesScript
+];
 const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
 const cpaceReview = fs.readFileSync(new URL("../docs/security/cpace-review.md", import.meta.url), "utf8");
 const cpaceVectorTest = fs.readFileSync(new URL("./cpace-vectors.test.ts", import.meta.url), "utf8");
@@ -304,6 +319,13 @@ test("package publishing config keeps provenance and reproducible dependency pin
   assert.equal(packageJson.scripts?.test, "pnpm build && pnpm test:unit && pnpm test:e2e && pnpm test:browser");
   for (const [name, version] of Object.entries({ ...packageJson.dependencies, ...packageJson.devDependencies })) {
     assert.equal(isExactPackageVersion(version), true, `${name} must use an exact dependency version`);
+  }
+});
+
+test("release file stability helpers compare mutation metadata", () => {
+  for (const source of fileStabilityCheckedScripts) {
+    assert.match(source, /function sameFile\(left, right\)/);
+    assert.match(source, /left\.dev === right\.dev && left\.ino === right\.ino && left\.size === right\.size && left\.mtimeMs === right\.mtimeMs && left\.ctimeMs === right\.ctimeMs/);
   }
 });
 
