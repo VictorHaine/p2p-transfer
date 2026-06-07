@@ -292,6 +292,53 @@ test("CLI sender interoperates with browser folder-only receiver", browserTestOp
   }
 });
 
+test("browser folder receiver does not expose resume for multi-file manifests", browserTestOptions, async () => {
+  const root = process.cwd();
+  const port = 29_000 + randomInt(1_000);
+  const origin = `http://127.0.0.1:${port}`;
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-cli-browser-multi-no-resume-"));
+  const childEnv = testChildEnv(tmp);
+  const server = spawn(process.execPath, ["dist-node/server/index.js"], {
+    cwd: root,
+    env: { ...childEnv, PORT: String(port), HOST: "127.0.0.1", NODE_ENV: "production", ALLOWED_ORIGINS: origin, SIGNALING_TOPOLOGY: "single-instance", ALLOW_INSECURE_ORIGINS: "true" }
+  });
+
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  try {
+    await waitForOutput(server, /listening/);
+    const first = path.join(tmp, "first.txt");
+    const second = path.join(tmp, "second.txt");
+    await fs.writeFile(first, "first browser multi-file transfer\n");
+    await fs.writeFile(second, "second browser multi-file transfer\n");
+
+    const serverUrl = `ws://127.0.0.1:${port}/v1/ws`;
+    browser = await chromium.launch(chromiumLaunchOptions());
+    const page = await browser.newPage();
+    await installFolderPickerMock(page);
+    await page.goto(`http://127.0.0.1:${port}/`);
+    await page.locator("#serverUrl").fill(serverUrl);
+    await page.locator("#folderOnly").check();
+    await page.locator("#receiveButton").click();
+    await page.locator("#codeBox").waitFor({ state: "visible", timeout: 30_000 });
+    const code = (await page.locator("#codeBox").textContent())?.trim();
+    assert.match(code ?? "", /^[0-9]{8}-[a-z]+-[a-z]+$/);
+
+    const sender = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "send", code!, first, second], { cwd: root, env: childEnv });
+    const senderDone = collectExit(sender);
+    await page.locator("#folderButton").waitFor({ state: "visible", timeout: 30_000 });
+    await page.locator("#acceptButton").waitFor({ state: "hidden", timeout: 30_000 });
+    assert.equal(await page.locator("#resumeButton").count(), 0);
+
+    await page.locator("#declineButton").click();
+    const senderResult = await senderDone;
+    assert.notEqual(senderResult.code, 0);
+    assert.match(senderResult.stderr + senderResult.stdout, /Transfer rejected|pair rejected|declined/i);
+  } finally {
+    await browser?.close();
+    server.kill();
+  }
+});
+
 test("CLI sender interoperates with browser opaque-name folder receiver", browserTestOptions, async () => {
   const root = process.cwd();
   const port = 26_000 + randomInt(1_000);

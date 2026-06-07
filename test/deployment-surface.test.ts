@@ -1398,10 +1398,12 @@ test("README reports implemented release capabilities without stale MVP-gap lang
 test("interop tests run the signaling server behind an explicit origin policy", () => {
   const e2eTest = fs.readFileSync(new URL("../test/e2e/cli-transfer.test.ts", import.meta.url), "utf8");
   const browserTest = fs.readFileSync(new URL("../test/browser/browser-cli-send.test.ts", import.meta.url), "utf8");
-  assert.match(readme, /browser sender to CLI receiver, browser sender resume into a CLI receiver partial, CLI sender to browser download receiver, CLI sender to browser opaque-name download receiver, CLI sender to browser folder-only receiver, CLI sender to browser opaque-name folder receiver, valid single-file browser folder resume from a saved partial, invalid resume-key isolation for ordinary folder receives, browser resume-registry metadata scrubbing, and browser folder restart after a corrupted saved partial/);
+  assert.match(readme, /browser sender to CLI receiver, browser sender resume into a CLI receiver partial, CLI sender to browser download receiver, CLI sender to browser opaque-name download receiver, CLI sender to browser folder-only receiver, multi-file browser folder receive without resume exposure, CLI sender to browser opaque-name folder receiver, valid single-file browser folder resume from a saved partial, invalid resume-key isolation for ordinary folder receives, browser resume-registry metadata scrubbing, and browser folder restart after a corrupted saved partial/);
   assert.match(browserTest, /CLI sender interoperates with browser opaque-name download receiver/);
   assert.match(browserTest, /browser sender resumes into CLI receiver partials/);
   assert.match(browserTest, /CLI sender interoperates with browser folder-only receiver/);
+  assert.match(browserTest, /browser folder receiver does not expose resume for multi-file manifests/);
+  assert.match(browserTest, /assert\.equal\(await page\.locator\("#resumeButton"\)\.count\(\), 0\)/);
   assert.match(browserTest, /CLI sender interoperates with browser opaque-name folder receiver/);
   assert.match(browserTest, /browser folder receiver restarts after a corrupted saved partial/);
   assert.match(browserTest, /browser folder receiver resumes from a valid saved partial/);
