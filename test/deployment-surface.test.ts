@@ -651,7 +651,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(securityPolicy, /local release preflight must fail before tagging when the npm package is missing, the target npm version already exists, the GitHub token lacks `workflow` scope/);
   assert.match(securityPolicy, /current `main` commit lacks a successful Scorecard or dependency-integrity workflow run/);
   assert.match(securityPolicy, /the `RELEASE_PREFLIGHT_TOKEN` repository secret is missing/);
-  assert.match(securityPolicy, /GitHub `npm` environment lacks required reviewers, allows self-review, allows admin bypass, allows branch deployments, lacks the exact `v\*\.\*\.\*` tag deployment policy, or has the authenticated release operator or release tag pusher as its sole required reviewer/);
+  assert.match(securityPolicy, /GitHub `npm` environment lacks required reviewers, lacks a non-self user reviewer with write, maintain, or admin repository permission, allows self-review, allows admin bypass, allows branch deployments, lacks the exact `v\*\.\*\.\*` tag deployment policy, or has the authenticated release operator or release tag pusher as its sole required reviewer/);
   assert.match(securityPolicy, /first-time npm package bootstrap must use the checked bootstrap script, publish only the minimal temporary `0\.0\.0-bootstrap\.0` package from a private temporary directory under the non-default `bootstrap` dist-tag/);
   assert.match(securityPolicy, /require `--apply` plus either an explicit `NPM_BOOTSTRAP_TOKEN` or bounded `--token-stdin` input/);
   assert.match(securityPolicy, /reject interactive terminal stdin for `--token-stdin`/);
@@ -827,6 +827,13 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /GitHub npm environment must disable admin bypass\./);
   assert.match(releaseReadinessScript, /GitHub npm environment must restrict deployments to custom policies\./);
   assert.match(releaseReadinessScript, /failures\.push\(new Error\("GitHub npm environment must disable admin bypass\."\)\)/);
+  assert.match(releaseReadinessScript, /assertNpmEnvironmentApproverPermissions\(token, repository, environment, authenticatedLogin, releaseActorLogin\)/);
+  assert.match(releaseReadinessScript, /function assertNpmEnvironmentApproverPermissions\(token, repository, environment, authenticatedLogin, releaseActorLogin\)/);
+  assert.match(releaseReadinessScript, /function npmEnvironmentUserReviewerLogins\(environment\)/);
+  assert.match(releaseReadinessScript, /function assertNpmEnvironmentReviewerCanApprove\(token, repository, login\)/);
+  assert.match(releaseReadinessScript, /\/collaborators\/\$\{encodeURIComponent\(login\)\}\/permission/);
+  assert.match(releaseReadinessScript, /GitHub npm environment user reviewer must have write, maintain, or admin repository permission\./);
+  assert.match(releaseReadinessScript, /GitHub npm environment must include at least one non-self user reviewer with write, maintain, or admin repository permission\./);
   assert.match(releaseReadinessScript, /assertNpmDeploymentPolicies\(await github\(token, "GET", `\/repos\/\$\{repository\}\/environments\/\$\{encodeURIComponent\(NPM_ENVIRONMENT\)\}\/deployment-branch-policies\?per_page=100`\)\)/);
   assert.match(releaseReadinessScript, /function assertNpmDeploymentPolicies\(response\)/);
   assert.match(releaseReadinessScript, /GitHub npm environment deployment policy is not exact\./);

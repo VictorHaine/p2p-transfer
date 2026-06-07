@@ -148,6 +148,9 @@ async function collectGitHubRepositoryReadiness(failures, token, repository, aut
   );
   if (environment && collectNpmEnvironmentReadiness(failures, environment, authenticatedLogin, releaseActorLogin)) {
     await collectReadinessFailure(failures, async () => {
+      await assertNpmEnvironmentApproverPermissions(token, repository, environment, authenticatedLogin, releaseActorLogin);
+    });
+    await collectReadinessFailure(failures, async () => {
       await assertNpmDeploymentPolicies(await github(token, "GET", `/repos/${repository}/environments/${encodeURIComponent(NPM_ENVIRONMENT)}/deployment-branch-policies?per_page=100`));
     });
   }
@@ -367,6 +370,43 @@ function isSelfReviewDeadlockReviewer(reviewer, authenticatedLogin, releaseActor
   if (!reviewer) return false;
   const normalized = reviewer.toLowerCase();
   return normalized === authenticatedLogin.toLowerCase() || (typeof releaseActorLogin === "string" && normalized === releaseActorLogin.toLowerCase());
+}
+
+async function assertNpmEnvironmentApproverPermissions(token, repository, environment, authenticatedLogin, releaseActorLogin) {
+  const reviewers = npmEnvironmentUserReviewerLogins(environment);
+  let eligibleNonSelfReviewers = 0;
+  for (const login of reviewers) {
+    if (isSelfReviewDeadlockReviewer(login, authenticatedLogin, releaseActorLogin)) continue;
+    await assertNpmEnvironmentReviewerCanApprove(token, repository, login);
+    eligibleNonSelfReviewers += 1;
+  }
+  if (eligibleNonSelfReviewers < 1) {
+    throw new Error("GitHub npm environment must include at least one non-self user reviewer with write, maintain, or admin repository permission.");
+  }
+}
+
+function npmEnvironmentUserReviewerLogins(environment) {
+  const requiredReviewers = Array.isArray(environment?.protection_rules) ? environment.protection_rules.find((rule) => rule?.type === "required_reviewers") : undefined;
+  const reviewers = requiredReviewers?.reviewers;
+  if (!Array.isArray(reviewers) || reviewers.length < 1) throw new Error("GitHub npm environment required reviewers rule has no reviewers.");
+  const logins = [];
+  for (const reviewer of reviewers) {
+    const login = reviewerLogin(reviewer);
+    if (login) logins.push(login);
+  }
+  if (logins.length < 1) throw new Error("GitHub npm environment must include at least one user reviewer with write, maintain, or admin repository permission.");
+  return logins;
+}
+
+async function assertNpmEnvironmentReviewerCanApprove(token, repository, login) {
+  const response = await github(token, "GET", `/repos/${repository}/collaborators/${encodeURIComponent(login)}/permission`).catch((error) => {
+    if (error instanceof GitHubApiError && error.status === 404) throw new Error("GitHub npm environment user reviewer must be a repository collaborator with write, maintain, or admin permission.");
+    throw error;
+  });
+  const permission = response?.permission;
+  if (permission !== "admin" && permission !== "maintain" && permission !== "write") {
+    throw new Error("GitHub npm environment user reviewer must have write, maintain, or admin repository permission.");
+  }
 }
 
 function assertNpmDeploymentPolicies(response) {
