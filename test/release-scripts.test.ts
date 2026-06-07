@@ -33,7 +33,7 @@ test("release publish script rejects static npm tokens before artifact work", ()
   assert.doesNotMatch(result.stderr, /release artifact directory|static-token|Error:/);
 });
 
-test("GitHub release script rejects malformed tags before artifact or gh work", () => {
+test("GitHub release script rejects malformed tags before artifact or GitHub API work", () => {
   const result = runScript("scripts/create-github-release.mjs", {
     GITHUB_REF_NAME: "bad-tag",
     GITHUB_REPOSITORY: "VictorHaine/p2p-transfer",
@@ -43,7 +43,7 @@ test("GitHub release script rejects malformed tags before artifact or gh work", 
   assert.notEqual(result.status, 0);
   assert.equal(result.stdout, "");
   assert.match(result.stderr, /GitHub Release creation failed:\n- GITHUB_REF_NAME must be an exact release tag\./);
-  assert.doesNotMatch(result.stderr, /bad-tag|release artifact directory|gh:|token-that-must-not-be-used|Error:/);
+  assert.doesNotMatch(result.stderr, /bad-tag|release artifact directory|api\.github|token-that-must-not-be-used|Error:/);
 });
 
 test("release publish script rejects control-bearing env before artifact work", () => {
@@ -57,7 +57,7 @@ test("release publish script rejects control-bearing env before artifact work", 
   assert.doesNotMatch(result.stderr, /with-control|release artifact directory|pnpm publish|Error:/);
 });
 
-test("GitHub release script rejects control-bearing env before artifact or gh work", () => {
+test("GitHub release script rejects control-bearing env before artifact or GitHub API work", () => {
   const result = runScript("scripts/create-github-release.mjs", {
     GITHUB_REF_NAME: "v0.1.0\nwith-control",
     GITHUB_REPOSITORY: "VictorHaine/p2p-transfer",
@@ -67,10 +67,10 @@ test("GitHub release script rejects control-bearing env before artifact or gh wo
   assert.notEqual(result.status, 0);
   assert.equal(result.stdout, "");
   assert.match(result.stderr, /GitHub Release creation failed:\n- GITHUB_REF_NAME must be a non-empty control-free environment value under 8192 UTF-8 bytes\./);
-  assert.doesNotMatch(result.stderr, /with-control|release artifact directory|gh:|token-that-must-not-be-used|Error:/);
+  assert.doesNotMatch(result.stderr, /with-control|release artifact directory|api\.github|token-that-must-not-be-used|Error:/);
 });
 
-test("GitHub release script rejects malformed repositories before artifact or gh work", () => {
+test("GitHub release script rejects malformed repositories before artifact or GitHub API work", () => {
   const result = runScript("scripts/create-github-release.mjs", {
     ...releaseTagEnv("v0.1.0"),
     GITHUB_REPOSITORY: "not/a/repo/name",
@@ -80,10 +80,10 @@ test("GitHub release script rejects malformed repositories before artifact or gh
   assert.notEqual(result.status, 0);
   assert.equal(result.stdout, "");
   assert.match(result.stderr, /GitHub Release creation failed:\n- GITHUB_REPOSITORY must be an exact owner\/name repository\./);
-  assert.doesNotMatch(result.stderr, /not\/a\/repo|release artifact directory|gh:|token-that-must-not-be-used|Error:/);
+  assert.doesNotMatch(result.stderr, /not\/a\/repo|release artifact directory|api\.github|token-that-must-not-be-used|Error:/);
 });
 
-test("GitHub release script rejects branch refs before artifact or gh work", () => {
+test("GitHub release script rejects branch refs before artifact or GitHub API work", () => {
   const result = runScript("scripts/create-github-release.mjs", {
     ...releaseTagEnv("v0.1.0"),
     GITHUB_REF_TYPE: "branch",
@@ -95,7 +95,100 @@ test("GitHub release script rejects branch refs before artifact or gh work", () 
   assert.notEqual(result.status, 0);
   assert.equal(result.stdout, "");
   assert.match(result.stderr, /GitHub Release creation failed:\n- release workflow ref must be the matching tag ref\./);
-  assert.doesNotMatch(result.stderr, /refs\/heads|release artifact directory|gh:|token-that-must-not-be-used|Error:/);
+  assert.doesNotMatch(result.stderr, /refs\/heads|release artifact directory|api\.github|token-that-must-not-be-used|Error:/);
+});
+
+test("GitHub release script rejects control-bearing tokens before artifact or GitHub API work", () => {
+  const result = runScript("scripts/create-github-release.mjs", {
+    ...releaseTagEnv("v0.1.0"),
+    GITHUB_REPOSITORY: "VictorHaine/p2p-transfer",
+    GH_TOKEN: "token-that-must-not-be-used\nwith-control"
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.equal(result.stdout, "");
+  assert.match(result.stderr, /GitHub Release creation failed:\n- GH_TOKEN must be a non-empty control-free environment value under 8192 UTF-8 bytes\./);
+  assert.doesNotMatch(result.stderr, /with-control|release artifact directory|api\.github|token-that-must-not-be-used|Error:/);
+});
+
+test("GitHub release API verifies the tag and uploads exact release assets", async () => {
+  const { createGitHubRelease } = await import(`../scripts/create-github-release.mjs?release-api=${Date.now()}`);
+  const originalFetch = globalThis.fetch;
+  const requests: Array<{ method: string; url: string; body: string }> = [];
+  const uploads: Array<{ name: string | null; body: string; type: string | null }> = [];
+  try {
+    globalThis.fetch = async (url, init = {}) => {
+      const parsed = new URL(String(url));
+      const method = init.method ?? "GET";
+      const body = init.body instanceof Uint8Array ? Buffer.from(init.body).toString("utf8") : typeof init.body === "string" ? init.body : "";
+      requests.push({ method, url: parsed.origin + parsed.pathname + parsed.search, body });
+      const json = (status: number, value: unknown) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
+      if (parsed.origin === "https://api.github.com" && method === "GET" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0") {
+        return json(200, { ref: "refs/tags/v0.1.0", object: { sha: "abc123" } });
+      }
+      if (parsed.origin === "https://api.github.com" && method === "POST" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/releases") {
+        assert.deepEqual(JSON.parse(body), { tag_name: "v0.1.0", name: "v0.1.0", body: "scoped release notes", draft: false, prerelease: false });
+        return json(201, { tag_name: "v0.1.0", upload_url: "https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets{?name,label}" });
+      }
+      if (parsed.origin === "https://uploads.github.com" && method === "POST" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/releases/99/assets") {
+        const headers = init.headers as Record<string, string> | Headers | undefined;
+        const type = headers instanceof Headers ? headers.get("content-type") : headers?.["content-type"] ?? null;
+        uploads.push({ name: parsed.searchParams.get("name"), body, type });
+        return json(201, { name: parsed.searchParams.get("name") });
+      }
+      return json(500, {});
+    };
+
+    await createGitHubRelease("token-that-must-not-be-printed", "VictorHaine/p2p-transfer", "v0.1.0", "scoped release notes", [
+      { name: "p2p-transfer-0.1.0.tgz", bytes: Buffer.from("tarball-bytes") },
+      { name: "SHA256SUMS", bytes: Buffer.from("checksum-bytes") },
+      { name: "SBOM.cdx.json", bytes: Buffer.from("{}") }
+    ]);
+
+    assert.deepEqual(requests.map((request) => `${request.method} ${request.url}`), [
+      "GET https://api.github.com/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0",
+      "POST https://api.github.com/repos/VictorHaine/p2p-transfer/releases",
+      "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=p2p-transfer-0.1.0.tgz",
+      "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=SHA256SUMS",
+      "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=SBOM.cdx.json"
+    ]);
+    assert.deepEqual(uploads, [
+      { name: "p2p-transfer-0.1.0.tgz", body: "tarball-bytes", type: "application/gzip" },
+      { name: "SHA256SUMS", body: "checksum-bytes", type: "text/plain; charset=utf-8" },
+      { name: "SBOM.cdx.json", body: "{}", type: "application/json" }
+    ]);
+    assert.doesNotMatch(JSON.stringify(requests), /token-that-must-not-be-printed/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("GitHub release API errors do not echo remote bodies or tokens", async () => {
+  const { createGitHubRelease } = await import(`../scripts/create-github-release.mjs?release-api-error=${Date.now()}`);
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify({ message: "remote body token-that-must-not-be-printed /tmp/private-path" }), {
+        status: 422,
+        headers: { "content-type": "application/json" }
+      });
+
+    await assert.rejects(
+      createGitHubRelease("token-that-must-not-be-printed", "VictorHaine/p2p-transfer", "v0.1.0", "scoped release notes", [
+        { name: "p2p-transfer-0.1.0.tgz", bytes: Buffer.from("tarball-bytes") },
+        { name: "SHA256SUMS", bytes: Buffer.from("checksum-bytes") },
+        { name: "SBOM.cdx.json", bytes: Buffer.from("{}") }
+      ]),
+      (error) => {
+        assert.ok(error instanceof Error);
+        assert.equal(error.message, "GitHub API request failed with HTTP status 422.");
+        assert.doesNotMatch(error.message, /token-that-must-not-be-printed|remote body|private-path/);
+        return true;
+      }
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("release publish script rejects branch refs before artifact work", () => {

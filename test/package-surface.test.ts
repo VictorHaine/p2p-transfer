@@ -794,7 +794,12 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(githubReleaseScript, /requiredReleaseTag\(requiredEnvString\("GITHUB_REF_NAME"\)\)/);
   assert.match(githubReleaseScript, /requiredEnvString\("GITHUB_REF_TYPE"\) !== "tag"/);
   assert.match(githubReleaseScript, /requiredEnvString\("GITHUB_REF"\) !== `refs\/tags\/\$\{tag\}`/);
-  assert.match(githubReleaseScript, /"release",\s+"create",\s+tag[\s\S]*"--verify-tag"/);
+  assert.match(githubReleaseScript, /const API = "https:\/\/api\.github\.com"/);
+  assert.match(githubReleaseScript, /const token = requiredEnvString\("GH_TOKEN"\)/);
+  assert.match(githubReleaseScript, /\/repos\/\$\{repository\}\/git\/ref\/tags\/\$\{tag\}/);
+  assert.match(githubReleaseScript, /\/repos\/\$\{repository\}\/releases/);
+  assert.match(githubReleaseScript, /uploadReleaseAsset\(token, uploadUrl, asset\)/);
+  assert.doesNotMatch(githubReleaseScript, /"gh"|gh release create|"--verify-tag"/);
   assert.match(githubReleaseScript, /requiredRepository\(requiredEnvString\("GITHUB_REPOSITORY"\)\)/);
   assert.match(githubReleaseScript, /\/\[\\p\{Cc\}\\p\{Cf\}\]\/u\.test\(value\)/);
   assert.match(githubReleaseScript, /\$\{name\} must be a non-empty control-free environment value under \$\{MAX_ENV_VALUE_BYTES\} UTF-8 bytes\./);
@@ -803,9 +808,10 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(githubReleaseScript, /await mkdir\(env\.PNPM_HOME, \{ recursive: true, mode: 0o700 \}\)/);
   assert.match(githubReleaseScript, /await mkdir\(env\.COREPACK_HOME, \{ recursive: true, mode: 0o700 \}\)/);
   assert.match(githubReleaseScript, /\["scripts\/write-release-notes\.mjs"\]/);
-  assert.match(githubReleaseScript, /assertArtifactFile\("release-artifacts\/SHA256SUMS", MAX_CHECKSUM_BYTES, "SHA256SUMS"\)/);
-  assert.match(githubReleaseScript, /assertArtifactFile\("release-artifacts\/SBOM\.cdx\.json", MAX_SBOM_BYTES, "release SBOM"\)/);
-  assert.match(githubReleaseScript, /\[\s+"release",\s+"create",\s+tag,\s+tarball,\s+"release-artifacts\/SHA256SUMS",\s+"release-artifacts\/SBOM\.cdx\.json"[\s\S]*"--notes-file",\s+"release-artifacts\/RELEASE_NOTES\.md"[\s\S]*"--repo",\s+repository/s);
+  assert.match(githubReleaseScript, /await createGitHubRelease\(token, repository, tag, notes, assets\)/);
+  assert.match(githubReleaseScript, /await readArtifactFile\(tarball, 50 \* 1024 \* 1024, "release tarball"\)/);
+  assert.match(githubReleaseScript, /await readArtifactFile\("release-artifacts\/SHA256SUMS", MAX_CHECKSUM_BYTES, "SHA256SUMS"\)/);
+  assert.match(githubReleaseScript, /await readArtifactFile\("release-artifacts\/SBOM\.cdx\.json", MAX_SBOM_BYTES, "release SBOM"\)/);
   assert.match(githubReleaseScript, /timeoutError = new Error\("GitHub Release subprocess timed out\."\);\s*child\.kill\("SIGTERM"\);\s*killTimer = setTimeout\(\(\) => child\.kill\("SIGKILL"\), 5_000\);/s);
   assert.match(githubReleaseScript, /child\.on\("exit", \(code, signal\) => \{[\s\S]*if \(killTimer\) clearTimeout\(killTimer\);[\s\S]*if \(timeoutError\) \{[\s\S]*rejectOnce\(timeoutError\);[\s\S]*return;[\s\S]*\}/);
   assert.match(githubReleaseScript, /GitHub Release subprocess failed with \$\{childExitStatus\(code, signal\)\}\./);

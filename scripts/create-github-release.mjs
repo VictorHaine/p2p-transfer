@@ -4,16 +4,28 @@ import { constants, realpathSync } from "node:fs";
 import { lstat, mkdir, mkdtemp, open, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { TextDecoder } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { appendBoundedOutput, isolatedChildEnv } from "./smoke-packed.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const API = "https://api.github.com";
 const MAX_ENV_VALUE_BYTES = 8_192;
 const MAX_TARBALL_OUTPUT_BYTES = 512;
 const MAX_RELEASE_NOTES_BYTES = 128 * 1024;
 const MAX_CHECKSUM_BYTES = 512;
 const MAX_SBOM_BYTES = 1024 * 1024;
+const MAX_GITHUB_API_RESPONSE_BYTES = 1024 * 1024;
+const GITHUB_API_TIMEOUT_MS = 30_000;
 const CHILD_TIMEOUT_MS = 120_000;
+const UTF8 = new TextDecoder("utf-8", { fatal: true });
+
+class GitHubApiError extends Error {
+  constructor(status) {
+    super(`GitHub API request failed with HTTP status ${status}.`);
+    this.status = status;
+  }
+}
 
 if (isMain()) {
   try {
@@ -29,34 +41,19 @@ async function main() {
   const tag = requiredReleaseTag(requiredEnvString("GITHUB_REF_NAME"));
   assertReleaseTagRef(tag);
   const repository = requiredRepository(requiredEnvString("GITHUB_REPOSITORY"));
+  const token = requiredEnvString("GH_TOKEN");
   const tmp = await mkdtemp(path.join(tmpdir(), "ff-github-release-"));
   try {
     const childEnv = await privateChildEnv(path.join(tmp, "home"));
     const tarball = await verifiedTarballPath({ ...childEnv, GITHUB_REF_NAME: tag });
     await run(process.execPath, ["scripts/write-release-notes.mjs"], { env: childEnv, timeoutMs: CHILD_TIMEOUT_MS });
-    await assertArtifactFile(tarball, 50 * 1024 * 1024, "release tarball");
-    await assertArtifactFile("release-artifacts/SHA256SUMS", MAX_CHECKSUM_BYTES, "SHA256SUMS");
-    await assertArtifactFile("release-artifacts/SBOM.cdx.json", MAX_SBOM_BYTES, "release SBOM");
-    await assertArtifactFile("release-artifacts/RELEASE_NOTES.md", MAX_RELEASE_NOTES_BYTES, "release notes");
-    await run(
-      "gh",
-      [
-        "release",
-        "create",
-        tag,
-        tarball,
-        "release-artifacts/SHA256SUMS",
-        "release-artifacts/SBOM.cdx.json",
-        "--title",
-        tag,
-        "--verify-tag",
-        "--notes-file",
-        "release-artifacts/RELEASE_NOTES.md",
-        "--repo",
-        repository
-      ],
-      { env: { ...childEnv, GH_TOKEN: requiredEnvString("GH_TOKEN"), GITHUB_REPOSITORY: repository }, timeoutMs: CHILD_TIMEOUT_MS }
-    );
+    const assets = [
+      await readArtifactFile(tarball, 50 * 1024 * 1024, "release tarball"),
+      await readArtifactFile("release-artifacts/SHA256SUMS", MAX_CHECKSUM_BYTES, "SHA256SUMS"),
+      await readArtifactFile("release-artifacts/SBOM.cdx.json", MAX_SBOM_BYTES, "release SBOM")
+    ];
+    const notes = UTF8.decode((await readArtifactFile("release-artifacts/RELEASE_NOTES.md", MAX_RELEASE_NOTES_BYTES, "release notes")).bytes);
+    await createGitHubRelease(token, repository, tag, notes, assets);
   } finally {
     await rm(tmp, { recursive: true, force: true }).catch(() => undefined);
   }
@@ -94,7 +91,7 @@ async function verifiedTarballPath(env) {
   return output.trimEnd();
 }
 
-async function assertArtifactFile(relative, maxBytes, description) {
+async function readArtifactFile(relative, maxBytes, description) {
   if (typeof relative !== "string" || !/^release-artifacts\/[A-Za-z0-9._-]+(?:\.tgz|\.md|\.json)?$/.test(relative) || relative.endsWith("/")) {
     throw new Error(`${description} path is invalid.`);
   }
@@ -107,9 +104,136 @@ async function assertArtifactFile(relative, maxBytes, description) {
     const opened = await handle.stat();
     if (!opened.isFile()) throw new Error(`${description} must be a regular file.`);
     if (opened.size !== info.size || opened.dev !== info.dev || opened.ino !== info.ino) throw new Error(`${description} changed before release creation.`);
+    const bytes = Buffer.allocUnsafe(opened.size);
+    const result = await handle.read(bytes, 0, opened.size, 0);
+    if (result.bytesRead !== opened.size) throw new Error(`${description} could not be read completely.`);
+    return { name: path.basename(relative), bytes };
   } finally {
     await handle.close();
   }
+}
+
+export async function createGitHubRelease(token, repository, tag, notes, assets) {
+  if (!isSafeEnvValue(token)) throw new Error(`GH_TOKEN must be a non-empty control-free environment value under ${MAX_ENV_VALUE_BYTES} UTF-8 bytes.`);
+  requiredRepository(repository);
+  requiredReleaseTag(tag);
+  if (typeof notes !== "string" || notes.length < 1 || utf8ByteLengthExceeds(notes, MAX_RELEASE_NOTES_BYTES)) throw new Error("release notes are invalid.");
+  if (!Array.isArray(assets) || assets.length !== 3) throw new Error("release assets are invalid.");
+  for (const asset of assets) {
+    if (!asset || typeof asset.name !== "string" || !/^[A-Za-z0-9._-]+(?:\.tgz|\.json)?$/.test(asset.name) || !Buffer.isBuffer(asset.bytes) || asset.bytes.length < 1) {
+      throw new Error("release assets are invalid.");
+    }
+  }
+
+  const tagRef = await github(token, "GET", `/repos/${repository}/git/ref/tags/${tag}`);
+  if (!tagRef || tagRef.ref !== `refs/tags/${tag}` || !tagRef.object || typeof tagRef.object.sha !== "string") {
+    throw new Error("GitHub tag ref response was invalid.");
+  }
+  const release = await github(token, "POST", `/repos/${repository}/releases`, {
+    tag_name: tag,
+    name: tag,
+    body: notes,
+    draft: false,
+    prerelease: false
+  });
+  const uploadUrl = releaseUploadUrl(release, tag);
+  for (const asset of assets) {
+    await uploadReleaseAsset(token, uploadUrl, asset);
+  }
+}
+
+async function github(token, method, requestPath, body) {
+  if (typeof requestPath !== "string" || !requestPath.startsWith("/")) throw new Error("GitHub API request path was invalid.");
+  return githubFetchJson(`${API}${requestPath}`, {
+    method,
+    headers: {
+      accept: "application/vnd.github+json",
+      authorization: `Bearer ${token}`,
+      "x-github-api-version": "2022-11-28",
+      ...(body === undefined ? {} : { "content-type": "application/json" })
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    expectedStatus: method === "POST" ? 201 : 200
+  });
+}
+
+function releaseUploadUrl(release, tag) {
+  if (!release || release.tag_name !== tag || typeof release.upload_url !== "string") {
+    throw new Error("GitHub release response was invalid.");
+  }
+  const uploadUrl = release.upload_url.replace(/\{[^{}]*\}$/, "");
+  const parsed = new URL(uploadUrl);
+  if (parsed.origin !== "https://uploads.github.com" || parsed.search !== "" || parsed.hash !== "") {
+    throw new Error("GitHub release upload URL was invalid.");
+  }
+  return uploadUrl;
+}
+
+async function uploadReleaseAsset(token, uploadUrl, asset) {
+  const separator = uploadUrl.includes("?") ? "&" : "?";
+  await githubFetchJson(`${uploadUrl}${separator}name=${encodeURIComponent(asset.name)}`, {
+    method: "POST",
+    headers: {
+      accept: "application/vnd.github+json",
+      authorization: `Bearer ${token}`,
+      "content-type": assetContentType(asset.name),
+      "x-github-api-version": "2022-11-28"
+    },
+    body: asset.bytes,
+    expectedStatus: 201
+  });
+}
+
+async function githubFetchJson(url, options) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), GITHUB_API_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, { method: options.method, headers: options.headers, body: options.body, signal: controller.signal });
+    const body = await readResponseBody(response);
+    if (response.status !== options.expectedStatus) throw new GitHubApiError(response.status);
+    return parseJsonBody(body);
+  } catch (error) {
+    if (error instanceof GitHubApiError) throw error;
+    if (error instanceof Error && error.name === "AbortError") throw new Error("GitHub API request timed out.");
+    if (error instanceof Error && /^GitHub API response /.test(error.message)) throw error;
+    throw new Error("GitHub API request failed.");
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function readResponseBody(response) {
+  const reader = response.body?.getReader();
+  if (!reader) return "";
+  const chunks = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!(value instanceof Uint8Array)) throw new Error("GitHub API response body was invalid.");
+      total += value.byteLength;
+      if (total > MAX_GITHUB_API_RESPONSE_BYTES) throw new Error("GitHub API response exceeded the byte limit.");
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return UTF8.decode(Buffer.concat(chunks, total));
+}
+
+function parseJsonBody(body) {
+  try {
+    return JSON.parse(body);
+  } catch {
+    throw new Error("GitHub API response was not valid JSON.");
+  }
+}
+
+function assetContentType(name) {
+  if (name.endsWith(".json")) return "application/json";
+  if (name.endsWith(".tgz")) return "application/gzip";
+  return "text/plain; charset=utf-8";
 }
 
 function requiredReleaseTag(value) {
