@@ -412,7 +412,12 @@ function smokeErrorMessage(error) {
   ) {
     return "docker policy smoke failed with an internal error.";
   }
+  if (containsPathLikeText(error.message)) return "docker policy smoke failed with path-sensitive evidence.";
   return error.message;
+}
+
+function containsPathLikeText(value) {
+  return /(^|[\s("'=])(?:\/|[A-Za-z]:[\\/])/.test(value);
 }
 
 function utf8ByteLengthExceeds(value, maxBytes) {

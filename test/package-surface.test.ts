@@ -647,6 +647,9 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.doesNotMatch(dockerConfigScript, /tcp:\/\/|ssh:\/\/|https:\/\//);
   assert.match(dockerPolicySmokeScript, /const dockerEnv = \{ DOCKER_CONFIG: dockerConfigDir \}/);
   assert.match(dockerPolicySmokeScript, /rmSync\(dockerConfigDir, \{ recursive: true, force: true \}\)/);
+  assert.match(dockerPolicySmokeScript, /function smokeErrorMessage\(error\)/);
+  assert.match(dockerPolicySmokeScript, /function containsPathLikeText\(value\)/);
+  assert.match(dockerPolicySmokeScript, /return "docker policy smoke failed with path-sensitive evidence\."/);
   assert.match(dockerPolicySmokeScript, /Object\.getOwnPropertyDescriptor\(process\.env, name\)/);
   assert.match(dockerPolicySmokeScript, /MAX_CHILD_ENV_VALUE_BYTES = 8_192/);
   assert.match(dockerPolicySmokeScript, /const imageTag = imageTagFromEnv\(optionalEnvString\("DOCKER_SMOKE_TAG"\)\)/);
@@ -658,6 +661,7 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.doesNotMatch(dockerPolicySmokeScript, /env: \{ \.\.\.process\.env/);
   assert.match(dockerPolicySmokeScript, /\/\[\\p\{Cc\}\\p\{Cf\}\]\/u\.test\(value\)/);
   assert.match(securityPolicy, /Docker policy smoke options and subprocesses must run with descriptor-read, non-empty, control-free, byte-capped environment values/);
+  assert.match(securityPolicy, /Docker policy smoke top-level failure reporting must not print stack traces or raw path-sensitive evidence/);
   assert.match(securityPolicy, /Docker policy smoke must run a fast daemon preflight before `docker build`/);
   assert.match(securityPolicy, /command timeouts must terminate timed-out subprocesses with `SIGTERM`, arm a bounded `SIGKILL` fallback, and reject only after the subprocess exits/);
   assert.match(securityPolicy, /Docker policy smoke must validate production-policy container startup failures with bounded exact output-line evidence/);
