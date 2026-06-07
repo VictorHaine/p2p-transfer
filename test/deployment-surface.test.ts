@@ -412,6 +412,7 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(githubReleaseScript, /while \(offset < opened\.size\) \{[\s\S]*await handle\.read\(bytes, offset, opened\.size - offset, offset\)[\s\S]*offset \+= bytesRead/);
   assert.match(githubReleaseScript, /await readArtifactFile\("release-artifacts\/SHA256SUMS", MAX_CHECKSUM_BYTES, "SHA256SUMS"\)/);
   assert.match(githubReleaseScript, /await readArtifactFile\("release-artifacts\/SBOM\.cdx\.json", MAX_SBOM_BYTES, "release SBOM"\)/);
+  assert.match(githubReleaseScript, /const afterRead = await handle\.stat\(\);[\s\S]*afterRead\.size !== opened\.size[\s\S]*afterRead\.dev !== opened\.dev[\s\S]*afterRead\.ino !== opened\.ino[\s\S]*changed while being read/);
   assert.match(githubReleaseScript, /assetNames\.filter\(\(name\) => name\.endsWith\("\.tgz"\)\)\.length !== 1/);
   assert.match(githubReleaseScript, /!assetNames\.includes\("SHA256SUMS"\) \|\| !assetNames\.includes\("SBOM\.cdx\.json"\)/);
   assert.match(githubReleaseScript, /assertReleaseAssetChecksums\(assets\)/);

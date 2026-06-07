@@ -116,6 +116,10 @@ async function readArtifactFile(relative, maxBytes, description) {
       offset += bytesRead;
     }
     if (offset !== opened.size) throw new Error(`${description} could not be read completely.`);
+    const afterRead = await handle.stat();
+    if (afterRead.size !== opened.size || afterRead.dev !== opened.dev || afterRead.ino !== opened.ino) {
+      throw new Error(`${description} changed while being read.`);
+    }
     return { name: path.basename(relative), bytes };
   } finally {
     await handle.close();
