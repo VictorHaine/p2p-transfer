@@ -4,7 +4,7 @@ import { CHUNK_SIZE, DATA_CHANNEL_BUFFER_HIGH, MAX_FILE_BYTES, MAX_FILES_PER_SES
 import { ControlAckWaiter } from "../shared/control-waiter.js";
 import { decodeChunk, encodeChunk } from "../shared/chunks.js";
 import { formatBytes, formatRate } from "../shared/format.js";
-import { createSha256, digestHex, type Sha256 } from "../shared/hash.js";
+import { createSha256, digestCloneHex, digestHex, type Sha256 } from "../shared/hash.js";
 import { assertFileWithinLimits, assertManifestWithinLimits, assertTransferManifestWithinLimits } from "../shared/limits.js";
 import { sanitizeDisplayText, sanitizeStructuredOutput } from "../shared/output-safety.js";
 import { openBulk, openControl, sealBulk, sealControl, type SessionKeys } from "../shared/security.js";
@@ -37,6 +37,11 @@ type SendPlanFile = {
   chunkSha256: string[];
 };
 
+type ReadyState = {
+  offset: number;
+  prefixSha256?: string;
+};
+
 type SendFileRead = (this: SendFile["handle"], buffer: Buffer, offset: number, length: number, position: number) => Promise<{ bytesRead: number }>;
 
 const SHA256_HEX = /^[a-f0-9]{64}$/;
@@ -55,7 +60,7 @@ export async function sendFiles(
   let failed: Error | undefined;
   let completed = false;
   let senderControlQueue: Promise<void> = Promise.resolve();
-  const readyOffsets = new Map<number, number>();
+  const readyStates = new Map<number, ReadyState>();
   const cleanupSenderChannels = () => {
     control.onmessage = null;
     control.onclose = null;
@@ -83,7 +88,7 @@ export async function sendFiles(
     try {
       const message = assertSenderControlMessage(assertControlMessage(await openControl<unknown>(keys, data)));
       if (message.t === "ready") {
-        readyOffsets.set(message.id, resumeOffsetInput(message.offset ?? 0, message.id));
+        readyStates.set(message.id, readyStateInput(message, message.id));
         if (!acks.mark("ready", message.id)) throw new Error(`Unexpected ready acknowledgement for file ${message.id}.`);
       } else if (message.t === "file-ok") {
         if (!acks.mark("file-ok", message.id)) throw new Error(`Unexpected file-ok acknowledgement for file ${message.id}.`);
@@ -129,10 +134,9 @@ export async function sendFiles(
       await throwIfSenderFailed();
       await sendControl(control, keys, { t: "file-begin", id: file.id, name: file.name, size: file.size });
       await acks.wait("ready", file.id);
-      const resumeOffset = readyOffsets.get(file.id) ?? 0;
-      if (resumeOffset > file.size || (resumeOffset < file.size && resumeOffset % CHUNK_SIZE !== 0)) throw new Error(`Invalid resume offset for ${file.name}.`);
-
-      const hash = await hashSendPrefix(file, resumeOffset);
+      const ready = await verifiedReadyState(control, keys, acks, readyStates, file);
+      const resumeOffset = ready.offset;
+      const { hash } = await hashSendPrefix(file, resumeOffset);
       let seq = resumeOffset === file.size ? file.chunkSha256.length : resumeOffset / CHUNK_SIZE;
       let fileBytes = resumeOffset;
       progress.transferredBytes += resumeOffset;
@@ -188,14 +192,37 @@ export async function sendFiles(
   }
 }
 
+async function verifiedReadyState(control: RTCDataChannel, keys: SessionKeys, acks: ControlAckWaiter, readyStates: Map<number, ReadyState>, file: SendPlanFile): Promise<ReadyState> {
+  for (;;) {
+    const ready = readyStates.get(file.id) ?? { offset: 0 };
+    readyStates.delete(file.id);
+    if (ready.offset > file.size || (ready.offset < file.size && ready.offset % CHUNK_SIZE !== 0)) throw new Error(`Invalid resume offset for ${file.name}.`);
+    if (ready.offset === 0) return ready;
+    const { prefixSha256 } = await hashSendPrefix(file, ready.offset);
+    if (prefixSha256 === ready.prefixSha256) return ready;
+    const restarted = acks.wait("ready", file.id);
+    await sendControl(control, keys, { t: "restart", id: file.id });
+    await restarted;
+  }
+}
+
+function readyStateInput(message: Extract<ControlMessage, { t: "ready" }>, id: number): ReadyState {
+  const offset = resumeOffsetInput(message.offset ?? 0, id);
+  if (offset === 0) return { offset };
+  const prefixSha256 = message.prefixSha256;
+  if (prefixSha256 === undefined) throw new Error(`Invalid ready acknowledgement for file ${id}.`);
+  return { offset, prefixSha256 };
+}
+
 function resumeOffsetInput(value: unknown, id: number): number {
   if (!Number.isSafeInteger(value) || typeof value !== "number" || value < 0 || value > MAX_FILE_BYTES) throw new Error(`Invalid ready acknowledgement for file ${id}.`);
   return value;
 }
 
-async function hashSendPrefix(file: SendPlanFile, resumeOffset: number): Promise<Sha256> {
+async function hashSendPrefix(file: SendPlanFile, resumeOffset: number): Promise<{ hash: Sha256; prefixSha256?: string }> {
   const hash = createSha256();
-  if (resumeOffset === 0) return hash;
+  const prefixHash = resumeOffset === 0 ? undefined : createSha256();
+  if (resumeOffset === 0) return { hash };
   for (let offset = 0, seq = 0; offset < resumeOffset; offset += CHUNK_SIZE, seq += 1) {
     const length = Math.min(CHUNK_SIZE, resumeOffset - offset);
     const payload = Buffer.alloc(length);
@@ -209,11 +236,12 @@ async function hashSendPrefix(file: SendPlanFile, resumeOffset: number): Promise
       chunkHash.update(payload);
       if (digestHex(chunkHash) !== expectedChunkSha256) throw new Error(`${file.name} changed before resumed chunk ${seq} could be trusted.`);
       hash.update(payload);
+      prefixHash?.update(payload);
     } finally {
       payload.fill(0);
     }
   }
-  return hash;
+  return prefixHash ? { hash, prefixSha256: digestHex(prefixHash) } : { hash };
 }
 
 function buildSendPlan(files: SendFile[]): SendPlanFile[] {
@@ -464,7 +492,16 @@ export async function receiveFiles(
           void failTransfer(error);
         });
         files.set(message.id, state);
-        await sendControl(control, keys, resumeBytes > 0 ? { t: "ready", id: message.id, offset: resumeBytes } : { t: "ready", id: message.id });
+        await sendControl(control, keys, resumeBytes > 0 ? { t: "ready", id: message.id, offset: resumeBytes, prefixSha256: digestCloneHex(resumeHash ?? createSha256()) } : { t: "ready", id: message.id });
+      } else if (message.t === "restart") {
+        const state = files.get(message.id);
+        if (!state) throw new Error(`restart for unknown file ${message.id}`);
+        if (state.done || state.expectedSha256) throw new Error(`restart for completed file ${message.id}`);
+        await restartReceiveState(state);
+        state.stream.on("error", (error) => {
+          void failTransfer(error);
+        });
+        await sendControl(control, keys, { t: "ready", id: message.id });
       } else if (message.t === "file-end") {
         const state = files.get(message.id);
         if (!state) throw new Error(`file-end for unknown file ${message.id}`);
@@ -550,6 +587,23 @@ async function sendControl(channel: RTCDataChannel, keys: SessionKeys, message: 
   channel.send(await sealControl(keys, message));
 }
 
+async function restartReceiveState(state: ReceiveState): Promise<void> {
+  await closeReceiveStream(state.stream);
+  const handle = await fs.promises.open(state.partPath, NOFOLLOW_WRITE_FLAGS);
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile() || !sameIdentity(stat, { dev: state.partDev, ino: state.partIno })) throw new Error(`Resume partial changed before restart for ${state.name}.`);
+    await handle.truncate(0);
+    state.stream = handle.createWriteStream({ start: 0, autoClose: false });
+    state.hash = createSha256();
+    state.bytes = 0;
+    state.expectedSeq = 0;
+  } catch (error) {
+    await handle.close().catch(() => {});
+    throw error;
+  }
+}
+
 async function maybeFinalize(state: ReceiveState, control: RTCDataChannel, keys: SessionKeys): Promise<void> {
   if (state.done || state.finalizing || !state.expectedSha256 || state.bytes < state.size) return;
   state.finalizing = true;
@@ -580,11 +634,15 @@ async function maybeFinalize(state: ReceiveState, control: RTCDataChannel, keys:
 }
 
 async function discardPartialFile(state: ReceiveState, keepPartial = false): Promise<void> {
-  const close = onceStreamClose(state.stream);
-  state.stream.destroy();
-  await close;
+  await closeReceiveStream(state.stream);
   if (keepPartial) return;
   await removePathIfIdentity(state.partPath, { dev: state.partDev, ino: state.partIno });
+}
+
+async function closeReceiveStream(stream: fs.WriteStream): Promise<void> {
+  const close = onceStreamClose(stream);
+  stream.destroy();
+  await close;
 }
 
 function onceStreamClose(stream: fs.WriteStream): Promise<void> {
@@ -733,6 +791,7 @@ async function linkPartFileExclusive(partPath: string, finalPath: string, expect
 }
 
 const NOFOLLOW_READ_FLAGS = fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK;
+const NOFOLLOW_WRITE_FLAGS = fs.constants.O_RDWR | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK;
 const MAX_PUBLISH_PATH_BYTES = 4096;
 const UNSAFE_PUBLISH_PATH_CHARS = /[\p{Cc}\p{Cf}]/u;
 

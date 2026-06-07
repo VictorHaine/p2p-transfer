@@ -16,7 +16,8 @@ export type TransferManifest = {
 export type ControlMessage =
   | TransferManifest
   | { t: "file-begin"; id: number; name: string; size: number }
-  | { t: "ready"; id: number; offset?: number }
+  | { t: "ready"; id: number; offset?: number; prefixSha256?: string }
+  | { t: "restart"; id: number }
   | { t: "file-end"; id: number; sha256: string }
   | { t: "file-ok"; id: number }
   | { t: "all-done" }
@@ -51,8 +52,24 @@ export function assertControlMessage(value: unknown): ControlMessage {
       {
         const id = ownDataValue(value, "id");
         const offset = ownDataValue(value, "offset");
-        if (!hasOnlyKeys(value, ["t", "id", "offset"]) || !isUint8(id) || !isOptionalResumeOffset(offset)) throw new Error("Malformed ready control message");
-        return offset === undefined ? { t: "ready", id } : { t: "ready", id, offset };
+        const prefixSha256 = ownDataValue(value, "prefixSha256");
+        if (!hasOnlyKeys(value, ["t", "id", "offset", "prefixSha256"]) || !isUint8(id) || !isOptionalResumeOffset(offset) || !isOptionalSha256(prefixSha256)) {
+          throw new Error("Malformed ready control message");
+        }
+        if (offset === undefined && prefixSha256 !== undefined) throw new Error("Malformed ready control message");
+        if (offset !== undefined && offset > 0 && prefixSha256 === undefined) throw new Error("Malformed ready control message");
+        return {
+          t: "ready",
+          id,
+          ...(offset === undefined ? {} : { offset }),
+          ...(prefixSha256 === undefined ? {} : { prefixSha256 })
+        };
+      }
+    case "restart":
+      {
+        const id = ownDataValue(value, "id");
+        if (!hasOnlyKeys(value, ["t", "id"]) || !isUint8(id)) throw new Error("Malformed restart control message");
+        return { t: "restart", id };
       }
     case "file-end":
       {
@@ -163,6 +180,10 @@ function isSafeNonNegativeInteger(value: unknown): value is number {
 
 function isOptionalResumeOffset(value: unknown): value is number | undefined {
   return value === undefined || isSafeNonNegativeInteger(value);
+}
+
+function isOptionalSha256(value: unknown): value is string | undefined {
+  return value === undefined || (typeof value === "string" && /^[a-f0-9]{64}$/.test(value));
 }
 
 function isSafeReason(value: unknown, maxChars: number): value is string {

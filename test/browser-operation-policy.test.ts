@@ -107,12 +107,18 @@ test("browser sender honors encrypted resume offsets", () => {
   const sendBody = extractFunctionBody(webSource, "sendBrowserFiles");
 
   assert.match(securityPolicy, /browser and CLI senders must honor encrypted receiver resume offsets on `ready` acknowledgements/);
-  assert.match(sendBody, /const readyOffsets = new Map<number, number>\(\);/);
-  assert.match(sendBody, /readyOffsets\.set\(message\.id, resumeOffsetInput\(message\.offset \?\? 0, message\.id\)\)/);
+  assert.match(sendBody, /const readyStates = new Map<number, BrowserReadyState>\(\);/);
+  assert.match(sendBody, /readyStates\.set\(message\.id, browserReadyStateInput\(message, message\.id\)\)/);
   assert.match(webSource, /function resumeOffsetInput\(value: unknown, id: number\): number/);
+  assert.match(webSource, /function browserReadyStateInput\(message: Extract<ControlMessage, \{ t: "ready" \}>, id: number\): BrowserReadyState/);
+  assert.match(webSource, /function verifiedBrowserReadyState\(/);
+  assert.match(webSource, /function hashBrowserFilePrefix\(plan: BrowserSendPlanFile, resumeOffset: number\): Promise<string>/);
   assert.match(webSource, /value > MAX_FILE_BYTES/);
-  assert.match(sendBody, /const resumeOffset = readyOffsets\.get\(plan\.id\) \?\? 0;/);
-  assert.match(sendBody, /resumeOffset > plan\.size \|\| \(resumeOffset < plan\.size && resumeOffset % CHUNK_SIZE !== 0\)/);
+  assert.match(webSource, /const prefixSha256 = message\.prefixSha256;\n\s+if \(prefixSha256 === undefined\) throw new Error\(`Invalid ready acknowledgement for file \$\{id\}\.`\);/);
+  assert.match(webSource, /if \(ready\.offset > plan\.size \|\| \(ready\.offset < plan\.size && ready\.offset % CHUNK_SIZE !== 0\)\) throw new Error\(`Invalid resume offset for \$\{plan\.name\}\.`\);/);
+  assert.match(webSource, /const prefixSha256 = await hashBrowserFilePrefix\(plan, ready\.offset\);[\s\S]*if \(prefixSha256 === ready\.prefixSha256\) return ready;[\s\S]*await sendControl\(control, keys, \{ t: "restart", id: plan\.id \}\);/);
+  assert.match(sendBody, /const ready = await verifiedBrowserReadyState\(control, keys, acks, readyStates, plan\);/);
+  assert.match(sendBody, /const resumeOffset = ready\.offset;/);
   assert.match(sendBody, /transferred \+= resumeOffset;/);
   assert.match(sendBody, /if \(resumeOffset > 0\) updateProgress\(log, "sent", transferred, totalBytes, startedAt\);/);
   assert.match(sendBody, /let skippedBytes = 0;/);
@@ -180,7 +186,10 @@ test("browser receive resume is explicit and limited to saved opaque folder part
   assert.match(receiveBody, /hash: writableState\.hash \?\? createSha256\(\)/);
   assert.match(receiveBody, /bytes: writableState\.bytes \?\? 0/);
   assert.match(receiveBody, /expectedSeq: writableState\.expectedSeq \?\? 0/);
-  assert.match(receiveBody, /state\.bytes > 0 \? \{ t: "ready", id: message\.id, offset: state\.bytes \} : \{ t: "ready", id: message\.id \}/);
+  assert.match(receiveBody, /state\.bytes > 0 \? \{ t: "ready", id: message\.id, offset: state\.bytes, prefixSha256: digestCloneHex\(state\.hash\) \} : \{ t: "ready", id: message\.id \}/);
+  assert.match(receiveBody, /message\.t === "restart"[\s\S]*await restartBrowserReceiveState\(state\)[\s\S]*await sendControl\(control, keys, \{ t: "ready", id: message\.id \}\)/);
+  assert.match(webSource, /async function restartBrowserReceiveState\(state: BrowserReceiveState\): Promise<void>/);
+  assert.match(webSource, /state\.writable = await state\.fileHandle\.createWritable\(\{ keepExistingData: false \}\)/);
   assert.match(receiveBody, /if \(state\.resume\) \{[\s\S]*await preserveBrowserPartialFile\(state\);[\s\S]*\} else \{[\s\S]*await discardBrowserPartialFile\(state\)/);
   assert.match(webSource, /async function preserveBrowserPartialFile\(state: BrowserReceiveState\): Promise<void> \{[\s\S]*await state\.writable\.close\(\);[\s\S]*await state\.writable\.abort\(\);/);
   assert.match(webSource, /if \(actual !== state\.expectedSha256\) \{[\s\S]*state\.resume = false;[\s\S]*forgetBrowserResumePartial\(state\.resumeKey\);[\s\S]*Hash mismatch/);

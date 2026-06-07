@@ -20,7 +20,7 @@ import {
 import { decodeChunk, encodeChunk } from "../shared/chunks.js";
 import { ControlAckWaiter } from "../shared/control-waiter.js";
 import { formatBytes, formatRate } from "../shared/format.js";
-import { createSha256, digestHex, type Sha256 } from "../shared/hash.js";
+import { createSha256, digestCloneHex, digestHex, type Sha256 } from "../shared/hash.js";
 import { assertFileWithinLimits, assertManifestWithinLimits, assertTransferManifestWithinLimits, safeFileName } from "../shared/limits.js";
 import type { ErrorCode, FileManifest, ServerMessage, SignalPayload } from "../shared/messages.js";
 import { isServerMessage, parseBrowserJsonMessage, serializeMessage, signalingErrorDisplayMessage } from "../shared/messages.js";
@@ -93,6 +93,11 @@ type BrowserSendPlanFile = {
   slice: File["slice"];
   sha256: string;
   chunkSha256: string[];
+};
+
+type BrowserReadyState = {
+  offset: number;
+  prefixSha256?: string;
 };
 
 class BrowserSignalingError extends Error {
@@ -392,7 +397,7 @@ async function sendBrowserFiles(control: RTCDataChannel, bulk: RTCDataChannel, k
   let failed: Error | undefined;
   let completed = false;
   let senderControlQueue: Promise<void> = Promise.resolve();
-  const readyOffsets = new Map<number, number>();
+  const readyStates = new Map<number, BrowserReadyState>();
   const cleanupSenderChannels = () => {
     control.onmessage = null;
     control.onclose = null;
@@ -420,7 +425,7 @@ async function sendBrowserFiles(control: RTCDataChannel, bulk: RTCDataChannel, k
     try {
       const message = assertSenderControlMessage(assertControlMessage(await openControl<unknown>(keys, data)));
       if (message.t === "ready") {
-        readyOffsets.set(message.id, resumeOffsetInput(message.offset ?? 0, message.id));
+        readyStates.set(message.id, browserReadyStateInput(message, message.id));
         if (!acks.mark("ready", message.id)) throw new Error(`Unexpected ready acknowledgement for file ${message.id}.`);
       } else if (message.t === "file-ok") {
         if (!acks.mark("file-ok", message.id)) throw new Error(`Unexpected file-ok acknowledgement for file ${message.id}.`);
@@ -462,8 +467,8 @@ async function sendBrowserFiles(control: RTCDataChannel, bulk: RTCDataChannel, k
       await throwIfSenderFailed();
       await sendControl(control, keys, { t: "file-begin", id: plan.id, name: plan.name, size: plan.size });
       await acks.wait("ready", plan.id);
-      const resumeOffset = readyOffsets.get(plan.id) ?? 0;
-      if (resumeOffset > plan.size || (resumeOffset < plan.size && resumeOffset % CHUNK_SIZE !== 0)) throw new Error(`Invalid resume offset for ${plan.name}.`);
+      const ready = await verifiedBrowserReadyState(control, keys, acks, readyStates, plan);
+      const resumeOffset = ready.offset;
       transferred += resumeOffset;
       if (resumeOffset > 0) updateProgress(log, "sent", transferred, totalBytes, startedAt);
       const hash = createSha256();
@@ -526,6 +531,47 @@ async function sendBrowserFiles(control: RTCDataChannel, bulk: RTCDataChannel, k
 function resumeOffsetInput(value: unknown, id: number): number {
   if (!Number.isSafeInteger(value) || typeof value !== "number" || value < 0 || value > MAX_FILE_BYTES) throw new Error(`Invalid ready acknowledgement for file ${id}.`);
   return value;
+}
+
+function browserReadyStateInput(message: Extract<ControlMessage, { t: "ready" }>, id: number): BrowserReadyState {
+  const offset = resumeOffsetInput(message.offset ?? 0, id);
+  if (offset === 0) return { offset };
+  const prefixSha256 = message.prefixSha256;
+  if (prefixSha256 === undefined) throw new Error(`Invalid ready acknowledgement for file ${id}.`);
+  return { offset, prefixSha256 };
+}
+
+async function verifiedBrowserReadyState(
+  control: RTCDataChannel,
+  keys: SessionKeys,
+  acks: ControlAckWaiter,
+  readyStates: Map<number, BrowserReadyState>,
+  plan: BrowserSendPlanFile
+): Promise<BrowserReadyState> {
+  for (;;) {
+    const ready = readyStates.get(plan.id) ?? { offset: 0 };
+    readyStates.delete(plan.id);
+    if (ready.offset > plan.size || (ready.offset < plan.size && ready.offset % CHUNK_SIZE !== 0)) throw new Error(`Invalid resume offset for ${plan.name}.`);
+    if (ready.offset === 0) return ready;
+    const prefixSha256 = await hashBrowserFilePrefix(plan, ready.offset);
+    if (prefixSha256 === ready.prefixSha256) return ready;
+    const restarted = acks.wait("ready", plan.id);
+    await sendControl(control, keys, { t: "restart", id: plan.id });
+    await restarted;
+  }
+}
+
+async function hashBrowserFilePrefix(plan: BrowserSendPlanFile, resumeOffset: number): Promise<string> {
+  const hash = createSha256();
+  for (let offset = 0; offset < resumeOffset; offset += CHUNK_SIZE) {
+    const payload = await readBrowserFileChunk(plan.file, plan.slice, offset, Math.min(CHUNK_SIZE, resumeOffset - offset), plan.name);
+    try {
+      hash.update(payload);
+    } finally {
+      payload.fill(0);
+    }
+  }
+  return digestHex(hash);
 }
 
 async function buildBrowserSendPlan(files: File[]): Promise<BrowserSendPlanFile[]> {
@@ -833,7 +879,15 @@ async function receiveBrowserFiles(
           transferred += state.bytes;
           updateProgress(log, "received", transferred, totalBytes, startedAt);
         }
-        await sendControl(control, keys, state.bytes > 0 ? { t: "ready", id: message.id, offset: state.bytes } : { t: "ready", id: message.id });
+        await sendControl(control, keys, state.bytes > 0 ? { t: "ready", id: message.id, offset: state.bytes, prefixSha256: digestCloneHex(state.hash) } : { t: "ready", id: message.id });
+      } else if (message.t === "restart") {
+        const state = states.get(message.id);
+        if (!state) throw new Error(`Unknown file ${message.id}`);
+        if (state.done || state.expectedSha256) throw new Error(`restart for completed file ${message.id}`);
+        transferred = Math.max(0, transferred - state.bytes);
+        await restartBrowserReceiveState(state);
+        updateProgress(log, "received", transferred, totalBytes, startedAt);
+        await sendControl(control, keys, { t: "ready", id: message.id });
       } else if (message.t === "file-end") {
         const state = states.get(message.id);
         if (!state) throw new Error(`Unknown file ${message.id}`);
@@ -973,6 +1027,23 @@ async function maybeDownload(state: BrowserReceiveState, control: RTCDataChannel
     state.finalizing = false;
     throw error;
   }
+}
+
+async function restartBrowserReceiveState(state: BrowserReceiveState): Promise<void> {
+  wipeChunks(state.chunks);
+  state.chunks = [];
+  if (state.writable) {
+    try {
+      await state.writable.abort();
+    } catch {
+      // The browser may have already closed the stale partial writer.
+    }
+    if (!state.fileHandle) throw new Error(`Missing partial file handle for ${state.name}`);
+    state.writable = await state.fileHandle.createWritable({ keepExistingData: false });
+  }
+  state.hash = createSha256();
+  state.bytes = 0;
+  state.expectedSeq = 0;
 }
 
 function wipeChunks(chunks: Uint8Array[]): void {

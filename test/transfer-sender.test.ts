@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { CHUNK_SIZE, MAX_FILES_PER_SESSION } from "../src/shared/constants.js";
 import { decodeChunk } from "../src/shared/chunks.js";
+import { createSha256, digestHex } from "../src/shared/hash.js";
 import { finishPake, openBulk, openControl, ownPakeShareB64, sealControl, startPake, type SessionKeys } from "../src/shared/security.js";
 import type { ControlMessage } from "../src/shared/transfer.js";
 import { buildManifest } from "../src/cli/files.js";
@@ -84,7 +85,7 @@ test("CLI sender resumes at the receiver ready offset", async () => {
   const send = sendFiles(control, bulk, senderKeys, files, false, true);
 
   await waitForControl(control, receiverKeys, "file-begin");
-  await control.emit(await seal(receiverKeys, { t: "ready", id: 0, offset: CHUNK_SIZE }));
+  await control.emit(await seal(receiverKeys, { t: "ready", id: 0, offset: CHUNK_SIZE, prefixSha256: sha256Hex(prefix) }));
   await waitForControl(control, receiverKeys, "file-end");
   await control.emit(await seal(receiverKeys, { t: "file-ok", id: 0 }));
   await waitForControl(control, receiverKeys, "all-done");
@@ -118,11 +119,40 @@ test("CLI sender rejects a mutated skipped resume prefix before sending suffix b
     const send = sender(control, bulk, senderKeys, files, false, true);
 
     await waitForControl(control, receiverKeys, "file-begin");
-    await control.emit(await seal(receiverKeys, { t: "ready", id: 0, offset: CHUNK_SIZE }));
+    await control.emit(await seal(receiverKeys, { t: "ready", id: 0, offset: CHUNK_SIZE, prefixSha256: sha256Hex(prefix) }));
 
     await assert.rejects(send, /changed before resumed chunk 0 could be trusted/);
     assert.equal(bulk.sent.length, 0);
   }
+});
+
+test("CLI sender restarts from zero when receiver resume prefix does not match", async () => {
+  const { senderKeys, receiverKeys } = await makeKeys("send-resume-prefix-restart");
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-send-resume-restart-"));
+  const filePath = path.join(dir, "resume.bin");
+  const prefix = Buffer.alloc(CHUNK_SIZE, 1);
+  const suffix = new TextEncoder().encode("tail");
+  await fs.writeFile(filePath, Buffer.concat([prefix, suffix]));
+  const { files } = await buildManifest([filePath]);
+  const control = fakeChannel();
+  const bulk = fakeChannel();
+  const send = sendFiles(control, bulk, senderKeys, files, false, true);
+
+  await waitForControl(control, receiverKeys, "file-begin");
+  await control.emit(await seal(receiverKeys, { t: "ready", id: 0, offset: CHUNK_SIZE, prefixSha256: sha256Hex(Buffer.alloc(CHUNK_SIZE, 9)) }));
+  await waitForControl(control, receiverKeys, "restart");
+  await control.emit(await seal(receiverKeys, { t: "ready", id: 0 }));
+  await waitForControl(control, receiverKeys, "file-end");
+  await control.emit(await seal(receiverKeys, { t: "file-ok", id: 0 }));
+  await waitForControl(control, receiverKeys, "all-done");
+  await control.emit(await seal(receiverKeys, { t: "all-done-ok" }));
+  await send;
+
+  assert.equal(bulk.sent.length, 2);
+  const first = decodeChunk(bulk.sent[0] as ArrayBuffer);
+  const second = decodeChunk(bulk.sent[1] as ArrayBuffer);
+  assert.equal(first.chunkSeq, 0);
+  assert.equal(second.chunkSeq, 1);
 });
 
 test("CLI sender rejects same-size file mutations after manifest preflight", async () => {
@@ -441,7 +471,7 @@ test("CLI sender send-time stream chunks reject non-canonical runtime values bef
 
   for (const source of [sourceTransfer, distTransfer]) {
     const sendBody = extractFunctionBody(source, "sendFiles");
-    assert.match(sendBody, /const hash = await hashSendPrefix\(file, resumeOffset\)/);
+    assert.match(sendBody, /const \{ hash \} = await hashSendPrefix\(file, resumeOffset\)/);
     const digestBody = extractFunctionBody(source, "digestFilePath");
     assert.match(sendBody, /const payload = toBytes\(chunk\)/);
     assert.doesNotMatch(sendBody, /resumeOffset === 0 && actualSha256/);
@@ -726,4 +756,10 @@ function autoAckSenderControl(control: FakeChannel, receiverKeys: SessionKeys): 
       })
       .catch(() => {});
   };
+}
+
+function sha256Hex(bytes: Uint8Array): string {
+  const hash = createSha256();
+  hash.update(bytes);
+  return digestHex(hash);
 }

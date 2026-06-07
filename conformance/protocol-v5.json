@@ -1,5 +1,5 @@
 {
-  "protocolVersion": 4,
+  "protocolVersion": 5,
   "chunkFrames": [
     {
       "name": "basic bulk chunk frame",
@@ -50,13 +50,21 @@
       "senderControl": true
     },
     {
-      "name": "receiver ready with resume offset",
+      "name": "receiver ready with resume offset and prefix hash",
       "message": {
         "t": "ready",
         "id": 0,
-        "offset": 16384
+        "offset": 16384,
+        "prefixSha256": "63e40b2e565bbe4417e9ab4b13a84ee4fb7b4c57fd7ad70443642b0f96c50dd1"
       },
       "senderControl": true
+    },
+    {
+      "name": "sender restart after stale resume prefix",
+      "message": {
+        "t": "restart",
+        "id": 0
+      }
     },
     {
       "name": "file end with sha256",
@@ -104,9 +112,9 @@
         "type": "register",
         "role": "receiver",
         "code": "12345678",
-        "protocolVersion": 4
+        "protocolVersion": 5
       },
-      "json": "{\"type\":\"register\",\"role\":\"receiver\",\"code\":\"12345678\",\"protocolVersion\":4}"
+      "json": "{\"type\":\"register\",\"role\":\"receiver\",\"code\":\"12345678\",\"protocolVersion\":5}"
     },
     {
       "name": "sender pair request",

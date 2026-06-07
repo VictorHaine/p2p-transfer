@@ -65,7 +65,7 @@ test("CLI receiver resumes from a chunk-aligned partial when resume is enabled",
   await control.emit(await seal(senderKeys, { t: "manifest", files: [{ id: 0, name: "resume.bin", size: payload.byteLength }], totalBytes: payload.byteLength }));
   await control.emit(await seal(senderKeys, { t: "file-begin", id: 0, name: "resume.bin", size: payload.byteLength }));
   const ready = await firstSealedControl(control, senderKeys, "ready");
-  assert.deepEqual(ready, { t: "ready", id: 0, offset: CHUNK_SIZE });
+  assert.deepEqual(ready, { t: "ready", id: 0, offset: CHUNK_SIZE, prefixSha256: sha256Hex(prefix) });
   await bulk.emit(encodeChunk(0, 1, await sealBulk(senderKeys, 0, 1, suffix)));
   await control.emit(await seal(senderKeys, { t: "file-end", id: 0, sha256: digestHex(hash) }));
   await control.emit(await seal(senderKeys, { t: "all-done" }));
@@ -556,6 +556,12 @@ function fakeChannel(): FakeChannel {
     }
   };
   return channel as unknown as FakeChannel;
+}
+
+function sha256Hex(bytes: Uint8Array): string {
+  const hash = createSha256();
+  hash.update(bytes);
+  return digestHex(hash);
 }
 
 function readDistWebBundle(): string {

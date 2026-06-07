@@ -238,7 +238,7 @@ The same verified tarball is attested with GitHub artifact attestations before p
 Npm publishing uses GitHub OIDC trusted publishing from the `npm` environment; configure the npm package trusted publisher instead of storing a long-lived `NPM_TOKEN` secret.
 After npm publish succeeds, the workflow re-verifies the downloaded tarball again, extracts the matching version section from `CHANGELOG.md`, and creates the GitHub Release with that exact tarball plus `SHA256SUMS`.
 Package-surface tests run after the build in local verification, CI, and release, and assert the published `ff` and `ff-server` bin entrypoints keep their Node shebangs and executable mode.
-Protocol conformance fixtures live in `conformance/protocol-v4.json` and are included in the npm package.
+Protocol conformance fixtures live in `conformance/protocol-v5.json` and are included in the npm package.
 
 Security reporting and release invariants are documented in `SECURITY.md`.
 

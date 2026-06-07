@@ -17,10 +17,21 @@ export function digestHex(hash: Sha256): string {
   return bytesToHex(bytes);
 }
 
+export function digestCloneHex(hash: Sha256): string {
+  const clone = hashCloneMethod(hash).call(hash);
+  return digestHex(clone);
+}
+
 function hashDigestMethod(hash: unknown): () => Uint8Array {
   const method = ownOrInheritedDataValue(hash, "digest");
   if (typeof method !== "function") throw new Error("SHA-256 hash is invalid.");
   return method as () => Uint8Array;
+}
+
+function hashCloneMethod(hash: unknown): () => Sha256 {
+  const method = ownOrInheritedDataValue(hash, "clone");
+  if (typeof method !== "function") throw new Error("SHA-256 hash is invalid.");
+  return method as () => Sha256;
 }
 
 function ownOrInheritedDataValue(value: unknown, key: string): unknown {

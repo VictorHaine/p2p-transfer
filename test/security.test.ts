@@ -52,7 +52,7 @@ import {
 } from "../dist-node/shared/messages.js";
 import type { PakeRole } from "../src/shared/security.js";
 
-const vectors = JSON.parse(fs.readFileSync(new URL("../conformance/protocol-v4.json", import.meta.url), "utf8")) as {
+const vectors = JSON.parse(fs.readFileSync(new URL("../conformance/protocol-v5.json", import.meta.url), "utf8")) as {
   signalAuth: {
     keyHex: string;
     sid: string;

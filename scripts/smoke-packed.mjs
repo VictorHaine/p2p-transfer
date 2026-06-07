@@ -37,7 +37,7 @@ async function main() {
   const packageJson = parseJsonEvidence(await readText(path.join(root, "package.json"), MAX_PROJECT_PACKAGE_JSON_BYTES), "package.json");
   const packageVersion = requiredPackageVersion(packageJson.version);
   const packageManager = requiredPackageManager(packageJson.packageManager);
-  const protocolVersion = requiredProtocolVersion(parseJsonEvidence(await readText(path.join(root, "conformance", "protocol-v4.json"), MAX_CONFORMANCE_JSON_BYTES), "conformance/protocol-v4.json").protocolVersion);
+  const protocolVersion = requiredProtocolVersion(parseJsonEvidence(await readText(path.join(root, "conformance", "protocol-v5.json"), MAX_CONFORMANCE_JSON_BYTES), "conformance/protocol-v5.json").protocolVersion);
   const providedTarball = optionalProvidedTarball();
   const keepTemp = process.env.KEEP_PACKED_SMOKE_TMP === "true";
   const tmp = await mkdtemp(path.join(tmpdir(), "ff-packed-smoke-"));

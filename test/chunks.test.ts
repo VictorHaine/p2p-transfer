@@ -14,7 +14,7 @@ import { abortControlMessage, assertControlMessage, assertSenderControlMessage, 
 import { assertControlMessage as distAssertControlMessage, assertSenderControlMessage as distAssertSenderControlMessage, assertTransferManifestMatchesAccepted as distAssertTransferManifestMatchesAccepted } from "../dist-node/shared/transfer.js";
 import { generateCode, isValidCode, isValidRendezvous, MAX_CODE_INPUT_CHARS, normalizeCode, parseCode, RENDEZVOUS_DIGITS } from "../src/shared/wordlist.js";
 
-const vectors = JSON.parse(fs.readFileSync(new URL("../conformance/protocol-v4.json", import.meta.url), "utf8")) as {
+const vectors = JSON.parse(fs.readFileSync(new URL("../conformance/protocol-v5.json", import.meta.url), "utf8")) as {
   protocolVersion: number;
   chunkFrames: { fileId: number; chunkSeq: number; payloadHex: string; frameHex: string }[];
   controlMessages: { name: string; message: unknown; senderControl?: boolean }[];
@@ -72,7 +72,7 @@ test("control-message conformance vectors cover the transfer state machine", () 
     }
   }
 
-  assert.deepEqual([...controlTypes].sort(), ["abort", "all-done", "all-done-ok", "file-begin", "file-end", "file-ok", "manifest", "ready"]);
+  assert.deepEqual([...controlTypes].sort(), ["abort", "all-done", "all-done-ok", "file-begin", "file-end", "file-ok", "manifest", "ready", "restart"]);
   assert.deepEqual([...senderControlTypes].sort(), ["abort", "all-done-ok", "file-ok", "ready"]);
 });
 
