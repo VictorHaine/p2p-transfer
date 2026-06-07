@@ -597,7 +597,8 @@ test("Docker HTTP probes are bounded and timeout protected", () => {
 });
 
 test("release artifact verification is bounded and exact", () => {
-  assert.match(securityPolicy, /release artifact verification must use the checked script with a symlink-safe realpath entrypoint check and verifier-owned top-level failure reporting that does not print stack traces or raw path-sensitive evidence, validate artifact directory entry names before sorting, filtering, or reporting them/);
+  assert.match(securityPolicy, /release artifact verification must use the checked script with a symlink-safe realpath entrypoint check and verifier-owned top-level failure reporting that does not print stack traces or raw path-sensitive evidence, verify `release-artifacts` is a real directory inside the project root before listing or opening release evidence/);
+  assert.match(securityPolicy, /validate artifact directory entry names before sorting, filtering, or reporting them/);
   assert.match(securityPolicy, /reject control\/format\/path-shaped or over-byte-budget entry names without echoing them/);
   assert.match(securityPolicy, /prove the downloaded artifact directory contains only `SHA256SUMS` and the expected tarball/);
   assert.match(releaseWorkflow, /verify downloaded release artifact[\s\S]*node scripts\/verify-release-artifact\.mjs/);
@@ -623,6 +624,9 @@ test("release artifact verification is bounded and exact", () => {
   assert.match(releaseArtifactScript, /console\.error\("Release artifact verification failed:"\)/);
   assert.match(releaseArtifactScript, /function releaseArtifactErrorMessage\(error\)/);
   assert.match(releaseArtifactScript, /function containsAbsolutePathText\(value\)/);
+  assert.match(releaseArtifactScript, /async function verifiedArtifactDir\(\)/);
+  assert.match(releaseArtifactScript, /const releaseArtifactDir = await verifiedArtifactDir\(\)/);
+  assert.match(releaseArtifactScript, /release artifact directory must be a real directory/);
   assert.doesNotMatch(releaseArtifactScript, /process\.cwd\(\)/);
   assert.match(releaseArtifactScript, /const MAX_PROJECT_PACKAGE_JSON_BYTES = 128 \* 1024/);
   assert.match(releaseArtifactScript, /const MAX_PACKED_PACKAGE_JSON_BYTES = 64 \* 1024/);
@@ -639,7 +643,7 @@ test("release artifact verification is bounded and exact", () => {
   assert.match(releaseArtifactScript, /release artifact package metadata does not match the checked workspace metadata/);
   assert.doesNotMatch(releaseArtifactScript, /String\(packed\.name\)|String\(packed\.version\)/);
   assert.match(releaseArtifactScript, /const MAX_ARTIFACT_ENTRY_NAME_BYTES = 255/);
-  assert.match(releaseArtifactScript, /\(await readdir\(artifactDir\)\)\.map\(releaseArtifactEntryName\)/);
+  assert.match(releaseArtifactScript, /\(await readdir\(releaseArtifactDir\)\)\.map\(releaseArtifactEntryName\)/);
   assert.match(releaseArtifactScript, /function releaseArtifactEntryName\(value\)/);
   assert.match(releaseArtifactScript, /release-artifacts contains an invalid artifact entry name/);
   assert.match(releaseArtifactScript, /assertExactArtifactEntries\(entries, expectedBasename\)/);

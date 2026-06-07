@@ -489,7 +489,11 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.doesNotMatch(releaseChecksumScript, /execFileSync|child_process|sha256sum|find release-artifacts/);
   assert.doesNotMatch(releaseWorkflow, /pack release artifact[\s\S]*(find release-artifacts|basename "\$tgz"|sha256sum)/);
   assert.match(releaseWorkflow, /verify downloaded release artifact[\s\S]*node scripts\/verify-release-artifact\.mjs/);
-  assert.match(securityPolicy, /release artifact verification must use the checked script with a symlink-safe realpath entrypoint check and verifier-owned top-level failure reporting that does not print stack traces or raw path-sensitive evidence, validate artifact directory entry names before sorting, filtering, or reporting them/);
+  assert.match(releaseArtifactScript, /async function verifiedArtifactDir\(\)/);
+  assert.match(releaseArtifactScript, /const releaseArtifactDir = await verifiedArtifactDir\(\)/);
+  assert.match(releaseArtifactScript, /release artifact directory must be a real directory/);
+  assert.match(securityPolicy, /release artifact verification must use the checked script with a symlink-safe realpath entrypoint check and verifier-owned top-level failure reporting that does not print stack traces or raw path-sensitive evidence, verify `release-artifacts` is a real directory inside the project root before listing or opening release evidence/);
+  assert.match(securityPolicy, /validate artifact directory entry names before sorting, filtering, or reporting them/);
   assert.match(securityPolicy, /reject control\/format\/path-shaped or over-byte-budget entry names without echoing them/);
   assert.match(securityPolicy, /prove the downloaded artifact directory contains only `SHA256SUMS` and the expected tarball/);
   assert.match(securityPolicy, /release artifact verification must extract exactly one regular-file `package\/package\.json` with bounded in-process gzip\/tar parsing/);
@@ -552,12 +556,12 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseArtifactScript, /release artifact package metadata does not match the checked workspace metadata/);
   assert.doesNotMatch(releaseArtifactScript, /String\(packed\.name\)|String\(packed\.version\)/);
   assert.match(releaseArtifactScript, /const MAX_ARTIFACT_ENTRY_NAME_BYTES = 255/);
-  assert.match(releaseArtifactScript, /\(await readdir\(artifactDir\)\)\.map\(releaseArtifactEntryName\)/);
+  assert.match(releaseArtifactScript, /\(await readdir\(releaseArtifactDir\)\)\.map\(releaseArtifactEntryName\)/);
   assert.match(releaseArtifactScript, /function releaseArtifactEntryName\(value\)/);
   assert.match(releaseArtifactScript, /release-artifacts contains an invalid artifact entry name/);
   assert.match(releaseArtifactScript, /assertExactArtifactEntries\(entries, expectedBasename\)/);
   assert.match(releaseArtifactScript, /release-artifacts must contain only/);
-  assert.match(releaseArtifactScript, /await verifyChecksumFile\(tarball\)/);
+  assert.match(releaseArtifactScript, /await verifyChecksumFile\(releaseArtifactDir, tarball\)/);
   assert.match(releaseArtifactScript, /SHA256SUMS is not a regular file/);
   assert.match(releaseArtifactScript, /info\.size < 1 \|\| info\.size > MAX_CHECKSUM_FILE_BYTES/);
   assert.match(releaseArtifactScript, /const handle = await open\(checksumFile, constants\.O_RDONLY \| \(constants\.O_NOFOLLOW \?\? 0\)\)/);

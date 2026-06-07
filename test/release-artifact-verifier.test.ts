@@ -332,6 +332,28 @@ test("release artifact verifier rejects unsafe artifact directory entry names wi
   assert.doesNotMatch(result.stderr, /evil|name\.tgz/);
 });
 
+test("release artifact verifier rejects symlinked artifact directories without path leakage", { skip: process.platform === "win32" ? "directory symlink behavior differs on Windows." : false }, async () => {
+  const outsideArtifactDir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-verify-outside-"));
+  const result = await runVerifierInFixture({
+    packageName: "p2p-transfer",
+    version: "1.2.3",
+    artifactDirSymlinkTarget: outsideArtifactDir,
+    tarBlocks: packageJsonTarBlocks("p2p-transfer", "1.2.3", {
+      endBlocks: 2
+    })
+  });
+
+  try {
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /release artifact directory must be a real directory\./);
+    assert.doesNotMatch(result.stderr, /ff-release-verify-|ff-release-verify-outside-|release-artifacts|p2p-transfer-1\.2\.3\.tgz/);
+    assert.equal(result.stdout, "");
+  } finally {
+    await fs.rm(result.root, { force: true, recursive: true });
+    await fs.rm(outsideArtifactDir, { force: true, recursive: true });
+  }
+});
+
 async function runVerifierInFixture(options: {
   packageName: string;
   version: string;
@@ -342,12 +364,17 @@ async function runVerifierInFixture(options: {
   tarball?: Buffer;
   extraArtifactEntries?: { name: string; body?: Buffer }[];
   extraWorkspaceFiles?: Record<string, Buffer>;
+  artifactDirSymlinkTarget?: string;
 }) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-verify-"));
   const scriptsDir = path.join(root, "scripts");
   const artifactDir = path.join(root, "release-artifacts");
   await fs.mkdir(scriptsDir);
-  await fs.mkdir(artifactDir);
+  if (options.artifactDirSymlinkTarget) {
+    await fs.symlink(options.artifactDirSymlinkTarget, artifactDir, "dir");
+  } else {
+    await fs.mkdir(artifactDir);
+  }
   await fs.writeFile(path.join(root, "package.json"), options.packageJson ?? `${JSON.stringify(fixturePackageJson(options.packageName, options.version))}\n`);
   await fs.writeFile(path.join(scriptsDir, "verify-release-artifact.mjs"), verifierSource, { mode: 0o755 });
   await writeFixtureWorkspaceFiles(root);

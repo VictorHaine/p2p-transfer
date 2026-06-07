@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
 import { constants, realpathSync } from "node:fs";
-import { lstat, open, readdir } from "node:fs/promises";
+import { lstat, open, readdir, realpath } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createGunzip } from "node:zlib";
@@ -35,10 +35,11 @@ async function main() {
   const expectedName = requiredPackageName(expected.name);
   const expectedVersion = requiredPackageVersion(expected.version);
   const tag = requiredReleaseTag(envString("GITHUB_REF_NAME"), expectedVersion);
-  const tarball = await singleReleaseTarball(expectedName, expectedVersion);
+  const releaseArtifactDir = await verifiedArtifactDir();
+  const tarball = await singleReleaseTarball(releaseArtifactDir, expectedName, expectedVersion);
 
   try {
-    await verifyChecksumFile(tarball);
+    await verifyChecksumFile(releaseArtifactDir, tarball);
     const packed = await verifyPackedFileContents(tarball, expected);
     assertPackedPackageMetadataMatchesWorkspace(expected, packed);
     const packedName = requiredPackageName(packed.name, "package/package.json name");
@@ -326,14 +327,14 @@ function utf8ByteLengthExceeds(value, limit) {
   return false;
 }
 
-async function singleReleaseTarball(name, version) {
+async function singleReleaseTarball(releaseArtifactDir, name, version) {
   const expectedBasename = `${packedPackageName(name)}-${version}.tgz`;
-  const entries = (await readdir(artifactDir)).map(releaseArtifactEntryName);
+  const entries = (await readdir(releaseArtifactDir)).map(releaseArtifactEntryName);
   assertExactArtifactEntries(entries, expectedBasename);
   const tarballs = entries.filter((entry) => entry.endsWith(".tgz"));
   if (tarballs.length !== 1) throw new Error(`expected one release tarball, got ${tarballs.length}`);
   if (tarballs[0] !== expectedBasename) throw new Error(`unexpected release tarball name: ${tarballs[0]}`);
-  const tarball = path.join(artifactDir, tarballs[0]);
+  const tarball = path.join(releaseArtifactDir, tarballs[0]);
   const info = await lstat(tarball);
   if (!info.isFile()) throw new Error(`release tarball is not a regular file: ${tarballs[0]}`);
   if (info.size < 1 || info.size > MAX_TARBALL_BYTES) throw new Error(`release tarball size is outside the allowed range: ${info.size}`);
@@ -383,6 +384,37 @@ function assertExactArtifactEntries(entries, expectedBasename) {
   }
 }
 
+async function verifiedArtifactDir() {
+  let info;
+  try {
+    info = await lstat(artifactDir);
+  } catch {
+    throw new Error("release artifact directory could not be read.");
+  }
+  if (!info.isDirectory()) {
+    throw new Error("release artifact directory must be a real directory.");
+  }
+  const realRoot = await realpathStrict(root, "project root");
+  const realArtifactDir = await realpathStrict(artifactDir, "release artifact directory");
+  if (!isPathInside(realRoot, realArtifactDir)) {
+    throw new Error("release artifact directory must stay inside the project root.");
+  }
+  return realArtifactDir;
+}
+
+async function realpathStrict(targetPath, description) {
+  try {
+    return await realpath(targetPath);
+  } catch {
+    throw new Error(`${description} could not be verified.`);
+  }
+}
+
+function isPathInside(parent, child) {
+  const relative = path.relative(parent, child);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
 function verifiedTarballPath(tarball) {
   const relative = path.relative(root, tarball.path);
   if (relative !== path.join("release-artifacts", tarball.basename)) {
@@ -391,8 +423,8 @@ function verifiedTarballPath(tarball) {
   return relative.split(path.sep).join("/");
 }
 
-async function verifyChecksumFile(tarball) {
-  const checksumFile = path.join(artifactDir, "SHA256SUMS");
+async function verifyChecksumFile(releaseArtifactDir, tarball) {
+  const checksumFile = path.join(releaseArtifactDir, "SHA256SUMS");
   const info = await lstat(checksumFile);
   if (!info.isFile()) throw new Error("SHA256SUMS is not a regular file.");
   if (info.size < 1 || info.size > MAX_CHECKSUM_FILE_BYTES) throw new Error("SHA256SUMS size is outside the allowed range.");
