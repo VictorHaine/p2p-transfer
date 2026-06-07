@@ -67,6 +67,20 @@ test("browser bootstrap HTML uses the named Trusted Types policy", () => {
   assert.doesNotMatch(webSource, /function staticTrustedHtml\(html: string\): string/);
 });
 
+test("browser interop tests fail closed unless browser skipping is explicit", () => {
+  assert.match(securityPolicy, /browser interop tests must fail closed when neither Playwright-installed Chromium nor an explicit `PLAYWRIGHT_CHROMIUM`\/system Chromium binary is available/);
+  assert.match(securityPolicy, /skipping browser interop must require an explicit non-release `FF_ALLOW_BROWSER_TEST_SKIP=true` opt-out/);
+  assert.match(readme, /Missing Chromium is a hard test failure unless `FF_ALLOW_BROWSER_TEST_SKIP=true` is set explicitly/);
+  assert.match(browserInteropTest, /const hasChromium = chromiumPath !== undefined \|\| hasPlaywrightChromium\(\);/);
+  assert.match(browserInteropTest, /const allowMissingChromium = process\.env\.FF_ALLOW_BROWSER_TEST_SKIP === "true";/);
+  assert.match(browserInteropTest, /test\("browser Chromium executable is available"/);
+  assert.match(browserInteropTest, /if \(hasChromium\) return;/);
+  assert.match(browserInteropTest, /context\.skip\(missingChromium\)/);
+  assert.match(browserInteropTest, /assert\.fail\(missingChromium\)/);
+  assert.match(browserInteropTest, /function hasPlaywrightChromium\(\): boolean/);
+  assert.doesNotMatch(browserInteropTest, /skip: chromiumPath \? false : "No Chromium executable found"/);
+});
+
 test("browser sender revalidates transfer manifests at the send boundary", () => {
   assert.match(webSource, /assertTransferManifestWithinLimits\(manifest\);/);
   assert.match(

@@ -36,6 +36,8 @@ pnpm security:audit
 pnpm security:signatures
 ```
 
+Do not set `FF_ALLOW_BROWSER_TEST_SKIP=true` for release, browser, deployment, or protocol changes; that variable is only for intentionally skipping browser coverage in unrelated local work.
+
 Before creating or pushing a release tag, run the full release gate and external
 release prerequisite preflight:
 

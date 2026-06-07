@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -8,8 +9,21 @@ import { randomInt } from "node:crypto";
 import { chromium, type Locator, type Page } from "playwright";
 
 const chromiumPath = process.env.PLAYWRIGHT_CHROMIUM ?? findChromium();
+const hasChromium = chromiumPath !== undefined || hasPlaywrightChromium();
+const allowMissingChromium = process.env.FF_ALLOW_BROWSER_TEST_SKIP === "true";
+const missingChromium = "No Chromium executable found. Run `pnpm exec playwright install --with-deps chromium`, set PLAYWRIGHT_CHROMIUM, or set FF_ALLOW_BROWSER_TEST_SKIP=true for an intentional non-release skip.";
+const browserTestOptions = { skip: hasChromium || !allowMissingChromium ? false : missingChromium };
 
-test("browser sender interoperates with CLI receiver", { skip: chromiumPath ? false : "No Chromium executable found" }, async () => {
+test("browser Chromium executable is available", (context) => {
+  if (hasChromium) return;
+  if (allowMissingChromium) {
+    context.skip(missingChromium);
+    return;
+  }
+  assert.fail(missingChromium);
+});
+
+test("browser sender interoperates with CLI receiver", browserTestOptions, async () => {
   const root = process.cwd();
   const port = 20_000 + randomInt(1_000);
   const origin = `http://127.0.0.1:${port}`;
@@ -52,7 +66,7 @@ test("browser sender interoperates with CLI receiver", { skip: chromiumPath ? fa
   }
 });
 
-test("CLI sender interoperates with browser receiver", { skip: chromiumPath ? false : "No Chromium executable found" }, async () => {
+test("CLI sender interoperates with browser receiver", browserTestOptions, async () => {
   const root = process.cwd();
   const port = 21_000 + randomInt(1_000);
   const origin = `http://127.0.0.1:${port}`;
@@ -100,7 +114,7 @@ test("CLI sender interoperates with browser receiver", { skip: chromiumPath ? fa
   }
 });
 
-test("CLI sender interoperates with browser folder-only receiver", { skip: chromiumPath ? false : "No Chromium executable found" }, async () => {
+test("CLI sender interoperates with browser folder-only receiver", browserTestOptions, async () => {
   const root = process.cwd();
   const port = 22_000 + randomInt(1_000);
   const origin = `http://127.0.0.1:${port}`;
@@ -159,7 +173,7 @@ test("CLI sender interoperates with browser folder-only receiver", { skip: chrom
   }
 });
 
-test("browser folder receiver restarts after a corrupted saved partial", { skip: chromiumPath ? false : "No Chromium executable found" }, async () => {
+test("browser folder receiver restarts after a corrupted saved partial", browserTestOptions, async () => {
   const root = process.cwd();
   const port = 23_000 + randomInt(1_000);
   const origin = `http://127.0.0.1:${port}`;
@@ -235,7 +249,7 @@ test("browser folder receiver restarts after a corrupted saved partial", { skip:
   }
 });
 
-test("browser startup scrubs legacy resume registry metadata", { skip: chromiumPath ? false : "No Chromium executable found" }, async () => {
+test("browser startup scrubs legacy resume registry metadata", browserTestOptions, async () => {
   const root = process.cwd();
   const port = 24_000 + randomInt(1_000);
   const origin = `http://127.0.0.1:${port}`;
@@ -274,6 +288,14 @@ function findChromium(): string | undefined {
     if (result.status === 0) return result.stdout.trim();
   }
   return undefined;
+}
+
+function hasPlaywrightChromium(): boolean {
+  try {
+    return existsSync(chromium.executablePath());
+  } catch {
+    return false;
+  }
 }
 
 async function expectText(locator: Locator, text: string): Promise<void> {
