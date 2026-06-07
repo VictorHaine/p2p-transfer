@@ -16,6 +16,7 @@ const REPOSITORY_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const REQUIRED_CI_CHECKS = [
   "verify",
   "browser interop",
+  "dependency review",
   "production docker policy",
   "platform smoke / ubuntu-24.04 / node 22.22.3",
   "platform smoke / ubuntu-24.04 / node 24.13.1",
@@ -69,8 +70,11 @@ async function main() {
   }
   if (!environment) throw new Error("Create the npm environment before applying release controls.");
   const status = environmentStatus(environment);
-  if (!status.hasProtectionRules) {
-    throw new Error("The npm environment exists but has no protection rules. Add required reviewers or an equivalent release approval gate in GitHub.");
+  if (!status.hasRequiredReviewers) {
+    throw new Error("The npm environment exists but has no required reviewers protection rule.");
+  }
+  if (!status.preventsSelfReview) {
+    throw new Error("The npm environment must prevent self-review.");
   }
 
   for (const ruleset of desired) {
@@ -158,10 +162,13 @@ async function userId(token, login) {
 }
 
 function environmentStatus(environment) {
+  const requiredReviewers = Array.isArray(environment?.protection_rules) ? environment.protection_rules.find((rule) => rule?.type === "required_reviewers") : undefined;
   return {
     name: NPM_ENVIRONMENT,
     exists: !!environment,
     hasProtectionRules: Array.isArray(environment?.protection_rules) && environment.protection_rules.length > 0,
+    hasRequiredReviewers: !!requiredReviewers && Array.isArray(requiredReviewers.reviewers) && requiredReviewers.reviewers.length > 0,
+    preventsSelfReview: requiredReviewers?.prevent_self_review === true,
     deploymentBranchPolicy: environment?.deployment_branch_policy ?? null
   };
 }
@@ -206,7 +213,7 @@ function githubApiErrorMessage(status, data) {
 }
 
 function parseArgs(args) {
-  const options = { apply: false, repository: repositoryInput(envString("GITHUB_REPOSITORY") || DEFAULT_REPOSITORY), requireMain: true, npmReviewers: [], preventSelfReview: false };
+  const options = { apply: false, repository: repositoryInput(envString("GITHUB_REPOSITORY") || DEFAULT_REPOSITORY), requireMain: true, npmReviewers: [], preventSelfReview: true };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === "--apply") {

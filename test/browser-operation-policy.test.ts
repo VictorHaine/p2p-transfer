@@ -16,6 +16,7 @@ test("browser UI prevents overlapping send and receive operations from one tab",
   assert.match(webSource, /const busy = operationBusy\(\);[\s\S]*serverUrl\.disabled = busy;/);
   assert.match(webSource, /serverIce\.disabled = busy;/);
   assert.match(webSource, /relayOnly\.disabled = busy;/);
+  assert.match(webSource, /folderOnly\.disabled = busy;/);
   assert.match(webSource, /sendButton\.disabled = busy;/);
   assert.match(webSource, /receiveButton\.disabled = busy;/);
 });
@@ -31,6 +32,27 @@ test("browser exposes relay-only ICE parity with the CLI", () => {
   assert.match(webSource, /function shouldUseBrowserRelayOnly\(\): boolean \{[\s\S]*return relayOnly\.checked;/);
   assert.match(webSource, /function browserRtcConfiguration\(iceServers: RTCIceServer\[\]\): RTCConfiguration \{[\s\S]*return \{ iceServers, iceTransportPolicy: shouldUseBrowserRelayOnly\(\) \? "relay" : "all" \};/);
   assert.equal(webSource.match(/new RTCPeerConnection\(browserRtcConfiguration\(iceServers\)\)/g)?.length, 2);
+});
+
+test("browser exposes folder-only receive to avoid Blob fallback plaintext retention", () => {
+  const receiveBody = extractFunctionBody(webSource, "receiveInBrowser");
+  const promptBody = extractFunctionBody(webSource, "promptForBrowserAccept");
+
+  assert.match(securityPolicy, /browser receive must expose an explicit folder-only mode for sensitive receives/);
+  assert.match(readme, /enable `Folder only` before starting receive/);
+  assert.match(readme, /memory-backed Blob download fallback/);
+  assert.match(webSource, /<input id="folderOnly" type="checkbox" \/>/);
+  assert.match(webSource, /<span>Folder only<\/span>/);
+  assert.match(webSource, /const folderOnly = byId<HTMLInputElement>\("folderOnly"\);/);
+  assert.match(webSource, /function shouldRequireBrowserFolderReceive\(\): boolean \{[\s\S]*return folderOnly\.checked;/);
+  assert.match(webSource, /function canPickBrowserDirectory\(\): boolean \{[\s\S]*return typeof window\.showDirectoryPicker === "function";/);
+  assert.match(receiveBody, /const requireFolderReceive = shouldRequireBrowserFolderReceive\(\);[\s\S]*if \(requireFolderReceive && !canPickBrowserDirectory\(\)\) throw new Error\("Folder-only receive requires File System Access\."\);/);
+  assert.equal(receiveBody.indexOf("shouldRequireBrowserFolderReceive()") < receiveBody.indexOf("openSignaling()"), true);
+  assert.match(receiveBody, /promptForBrowserAccept\(manifest, keys\.sas, requireFolderReceive\)/);
+  assert.match(webSource, /async function promptForBrowserAccept\(manifest: FileManifest, sas: string, requireFolderReceive = false\): Promise<BrowserReceiveAccept>/);
+  assert.match(promptBody, /const canUseMemoryFallback = !requireFolderReceive && manifest\.totalBytes <= BROWSER_BLOB_FALLBACK_MAX_BYTES;/);
+  assert.match(promptBody, /const acceptButton = canUseMemoryFallback \? makeButton\("acceptButton", "Accept"\) : undefined;/);
+  assert.match(promptBody, /requireFolderReceive \? "Folder-only receive requires folder streaming\." : "Large transfers require folder streaming\."/);
 });
 
 test("browser bootstrap HTML uses the named Trusted Types policy", () => {

@@ -55,13 +55,13 @@
   ],
   "author": "Victor Haine",
   "license": "MIT",
-  "homepage": "https://github.com/victorhaine/p2p-transfer#readme",
+  "homepage": "https://github.com/VictorHaine/p2p-transfer#readme",
   "bugs": {
-    "url": "https://github.com/victorhaine/p2p-transfer/issues"
+    "url": "https://github.com/VictorHaine/p2p-transfer/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/victorhaine/p2p-transfer.git"
+    "url": "git+https://github.com/VictorHaine/p2p-transfer.git"
   },
   "publishConfig": {
     "access": "public",

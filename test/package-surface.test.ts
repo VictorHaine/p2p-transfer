@@ -127,11 +127,11 @@ test("package publishing config keeps provenance and reproducible dependency pin
   assert.match(packageJson.version ?? "", /^\d+\.\d+\.\d+$/);
   assert.equal(packageJson.author, "Victor Haine");
   assert.equal(packageJson.license, "MIT");
-  assert.equal(packageJson.homepage, "https://github.com/victorhaine/p2p-transfer#readme");
-  assert.deepEqual(packageJson.bugs, { url: "https://github.com/victorhaine/p2p-transfer/issues" });
+  assert.equal(packageJson.homepage, "https://github.com/VictorHaine/p2p-transfer#readme");
+  assert.deepEqual(packageJson.bugs, { url: "https://github.com/VictorHaine/p2p-transfer/issues" });
   assert.deepEqual(packageJson.repository, {
     type: "git",
-    url: "git+https://github.com/victorhaine/p2p-transfer.git"
+    url: "git+https://github.com/VictorHaine/p2p-transfer.git"
   });
   assert.equal(packageJson.packageManager, "pnpm@11.1.3");
   assert.equal(packageJson.publishConfig?.provenance, true);

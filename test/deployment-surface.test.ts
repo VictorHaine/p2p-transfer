@@ -209,6 +209,7 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(securityPolicy, /release tag commit must be reachable from protected `main` before release artifact packaging, attestation, npm publish, or GitHub Release creation/);
   assert.match(releaseWorkflow, /fetch-depth: 0/);
   assert.match(releaseWorkflow, /Verify release tag is on main[\s\S]*git fetch --no-tags --prune origin \+refs\/heads\/main:refs\/remotes\/origin\/main[\s\S]*git merge-base --is-ancestor "\$GITHUB_SHA" origin\/main/);
+  assert.match(releaseWorkflow, /Release controls preflight[\s\S]*GITHUB_TOKEN: \$\{\{ github\.token \}\}[\s\S]*run: pnpm release:preflight[\s\S]*Install/);
   const ciVerifyJob = workflowJob(ciWorkflow, "verify");
   const ciPlatformSmokeJob = workflowJob(ciWorkflow, "platform-smoke");
   const ciDockerJob = workflowJob(ciWorkflow, "docker");
@@ -291,10 +292,12 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(githubReleaseControlsScript, /"PUT", `\/repos\/\$\{options\.repository\}\/environments\/\$\{encodeURIComponent\(NPM_ENVIRONMENT\)\}`/);
   assert.match(githubReleaseControlsScript, /reviewers: await Promise\.all\(options\.npmReviewers\.map\(async \(login\) => \(\{ type: "User", id: await userId\(token, login\) \}\)\)\)/);
   assert.match(githubReleaseControlsScript, /prevent_self_review: options\.preventSelfReview/);
+  assert.match(githubReleaseControlsScript, /preventSelfReview: true/);
 
   for (const check of [
     "verify",
     "browser interop",
+    "dependency review",
     "production docker policy",
     "platform smoke / ubuntu-24.04 / node 22.22.3",
     "platform smoke / ubuntu-24.04 / node 24.13.1",
@@ -315,7 +318,8 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.doesNotMatch(githubReleaseControlsScript, /tag_name_pattern/);
   assert.match(releaseWorkflow, /^on:\n  push:\n    tags:\n      - "v\*\.\*\.\*"$/m);
   assert.match(githubReleaseControlsScript, /Push main before applying GitHub release controls\./);
-  assert.match(githubReleaseControlsScript, /The npm environment exists but has no protection rules/);
+  assert.match(githubReleaseControlsScript, /The npm environment exists but has no required reviewers protection rule\./);
+  assert.match(githubReleaseControlsScript, /The npm environment must prevent self-review\./);
   assert.match(githubReleaseControlsScript, /--npm-reviewer/);
   assert.match(githubReleaseControlsScript, /--prevent-self-review/);
   assert.match(githubReleaseControlsScript, /--allow-self-review/);
@@ -328,17 +332,17 @@ test("checked GitHub release controls setup matches the protected release surfac
     "npm environment setup must run before mutating rulesets"
   );
   assert.ok(
-    githubReleaseControlsScript.indexOf("The npm environment exists but has no protection rules") <
+      githubReleaseControlsScript.indexOf("The npm environment exists but has no required reviewers protection rule") <
       githubReleaseControlsScript.indexOf("for (const ruleset of desired)"),
-    "npm environment protection must be checked before mutating rulesets"
+    "npm environment reviewer protection must be checked before mutating rulesets"
   );
 
-  assert.match(readme, /create the `npm` environment[\s\S]*required reviewers or an equivalent approval gate/);
+  assert.match(readme, /create the `npm` environment[\s\S]*required reviewers with self-review prevention/);
   assert.match(readme, /scripts\/configure-github-release-controls\.mjs --apply --npm-reviewer <github-login>/);
-  assert.match(readme, /creates\/updates the `npm` environment approval gate plus the branch and release-tag rulesets/);
-  assert.match(readme, /refuses to mutate repository rulesets if the `npm` environment still has no protection rules/);
-  assert.match(securityPolicy, /setup script must be able to create or update the `npm` environment approval gate from explicit reviewers/);
-  assert.match(securityPolicy, /setup script must[\s\S]*fail before mutating repository rulesets when the `npm` environment is missing approval protection/);
+  assert.match(readme, /creates\/updates the `npm` environment approval gate with self-review prevention plus the branch and release-tag rulesets/);
+  assert.match(readme, /refuses to mutate repository rulesets if the `npm` environment still has no required-reviewer protection/);
+  assert.match(securityPolicy, /setup script must be able to create or update the `npm` environment approval gate from explicit reviewers with self-review prevention/);
+  assert.match(securityPolicy, /setup script must[\s\S]*fail before mutating repository rulesets when the `npm` environment is missing required-reviewer protection/);
   assert.match(securityPolicy, /GitHub release setup and release preflight scripts must read token and repository environment variables through own data descriptors[\s\S]*send GitHub API requests with an abort deadline/);
   assert.match(githubReleaseControlsScript, /const GITHUB_API_TIMEOUT_MS = 30_000/);
   assert.match(githubReleaseControlsScript, /const controller = new AbortController\(\)/);
@@ -354,6 +358,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(readme, /GITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
   assert.match(contributing, /pnpm verify:release\ngh auth refresh -h github\.com -s workflow\nGITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
   assert.match(securityPolicy, /local release preflight must fail before tagging when the GitHub token lacks `workflow` scope/);
+  assert.match(securityPolicy, /release workflow preflight may run with the GitHub Actions token but must still verify remote `main`, rulesets, required status checks, and the npm environment approval gate before packaging/);
   assert.match(releaseReadinessScript, /const REQUIRED_OAUTH_SCOPES = \["repo", "workflow"\]/);
   assert.match(releaseReadinessScript, /const MAX_ENV_VALUE_BYTES = 4_096/);
   assert.match(releaseReadinessScript, /function githubToken\(\)/);
@@ -367,6 +372,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /GitHub API request timed out\./);
   assert.doesNotMatch(releaseReadinessScript, /process\.env\.GITHUB_TOKEN|process\.env\.GH_TOKEN|process\.env\.GITHUB_REPOSITORY/);
   assert.match(releaseReadinessScript, /headers\.get\("x-oauth-scopes"\)/);
+  assert.match(releaseReadinessScript, /if \(rawScopes === "" && envString\("GITHUB_ACTIONS"\) === "true"\) return;/);
   assert.match(releaseReadinessScript, /GitHub token is missing \$\{scope\} scope\.\$\{refresh\}/);
   assert.match(releaseReadinessScript, /gh auth refresh -h github\.com -s workflow/);
   assert.match(releaseReadinessScript, /\/repos\/\$\{options\.repository\}\/branches\/main/);
@@ -385,11 +391,16 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /assertBoolean\(pullRequestParameters\.require_last_push_approval, true/);
   assert.match(releaseReadinessScript, /pullRequestParameters\.required_approving_review_count !== 1/);
   assert.match(releaseReadinessScript, /assertStatusContexts\(statusParameters\.required_status_checks, REQUIRED_CI_CHECKS, MAIN_RULESET_NAME\)/);
+  assert.match(releaseReadinessScript, /"dependency review"/);
   assert.match(releaseReadinessScript, /function assertTagRuleset\(ruleset\)/);
   assert.match(releaseReadinessScript, /assertRulesetBase\(ruleset, TAG_RULESET_NAME, "tag", "refs\/tags\/v\*"\)/);
   assert.match(releaseReadinessScript, /assertRulePresent\(rules, "creation", TAG_RULESET_NAME\)/);
   assert.match(releaseReadinessScript, /actor_id === REPOSITORY_ADMIN_ROLE_BYPASS_ACTOR_ID/);
+  assert.match(releaseReadinessScript, /function assertNpmEnvironment\(environment\)/);
   assert.match(releaseReadinessScript, /GitHub npm environment has no protection rules\./);
+  assert.match(releaseReadinessScript, /GitHub npm environment has no required reviewers protection rule\./);
+  assert.match(releaseReadinessScript, /GitHub npm environment must prevent self-review\./);
+  assert.match(releaseReadinessScript, /GitHub npm environment required reviewers rule has no reviewers\./);
   assert.match(releaseReadinessScript, /realpathSync\(process\.argv\[1\]\) === realpathSync\(fileURLToPath\(import\.meta\.url\)\)/);
   assert.doesNotMatch(releaseReadinessScript, /NPM_TOKEN|NODE_AUTH_TOKEN|npm publish|git tag/);
 });
@@ -735,6 +746,10 @@ test("interop tests run the signaling server behind an explicit origin policy", 
     assert.match(source, /ALLOWED_ORIGINS: origin/);
     assert.match(source, /SIGNALING_TOPOLOGY: "single-instance"/);
     assert.match(source, /ALLOW_INSECURE_ORIGINS: "true"/);
+    assert.match(source, /function testChildEnv\(tmp: string\): NodeJS\.ProcessEnv/);
+    assert.match(source, /Object\.getOwnPropertyDescriptor\(process\.env, name\)/);
+    assert.match(source, /spawn\(process\.execPath/);
+    assert.doesNotMatch(source, /\.\.\.process\.env/);
     assert.doesNotMatch(source, /ALLOW_ANY_ORIGIN/);
   }
 });

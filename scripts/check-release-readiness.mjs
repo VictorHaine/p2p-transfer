@@ -12,6 +12,7 @@ const REQUIRED_OAUTH_SCOPES = ["repo", "workflow"];
 const REQUIRED_CI_CHECKS = [
   "verify",
   "browser interop",
+  "dependency review",
   "production docker policy",
   "platform smoke / ubuntu-24.04 / node 22.22.3",
   "platform smoke / ubuntu-24.04 / node 24.13.1",
@@ -46,7 +47,7 @@ async function main() {
   const token = githubToken();
 
   const auth = await githubWithHeaders(token, "GET", "/user");
-  assertOAuthScopes(auth.headers.get("x-oauth-scopes") ?? "");
+  assertTokenScopes(auth.headers);
   await github(token, "GET", `/repos/${options.repository}`);
   await github(token, "GET", `/repos/${options.repository}/branches/main`).catch((error) => {
     if (error instanceof GitHubApiError && error.status === 404) throw new Error("Remote main branch is missing. Push main before releasing.");
@@ -63,11 +64,15 @@ async function main() {
     if (error instanceof GitHubApiError && error.status === 404) throw new Error("GitHub npm environment is missing.");
     throw error;
   });
-  if (!Array.isArray(environment?.protection_rules) || environment.protection_rules.length < 1) {
-    throw new Error("GitHub npm environment has no protection rules.");
-  }
+  assertNpmEnvironment(environment);
 
   console.log(JSON.stringify({ repository: options.repository, ok: true }, null, 2));
+}
+
+function assertTokenScopes(headers) {
+  const rawScopes = headers.get("x-oauth-scopes") ?? "";
+  if (rawScopes === "" && envString("GITHUB_ACTIONS") === "true") return;
+  assertOAuthScopes(rawScopes);
 }
 
 function assertOAuthScopes(rawScopes) {
@@ -82,6 +87,18 @@ function assertOAuthScopes(rawScopes) {
       const refresh = scope === "workflow" ? " Run `gh auth refresh -h github.com -s workflow`, then rerun release preflight." : "";
       throw new Error(`GitHub token is missing ${scope} scope.${refresh}`);
     }
+  }
+}
+
+function assertNpmEnvironment(environment) {
+  if (!Array.isArray(environment?.protection_rules) || environment.protection_rules.length < 1) {
+    throw new Error("GitHub npm environment has no protection rules.");
+  }
+  const requiredReviewers = environment.protection_rules.find((rule) => rule?.type === "required_reviewers");
+  if (!requiredReviewers) throw new Error("GitHub npm environment has no required reviewers protection rule.");
+  if (requiredReviewers.prevent_self_review !== true) throw new Error("GitHub npm environment must prevent self-review.");
+  if (!Array.isArray(requiredReviewers.reviewers) || requiredReviewers.reviewers.length < 1) {
+    throw new Error("GitHub npm environment required reviewers rule has no reviewers.");
   }
 }
 

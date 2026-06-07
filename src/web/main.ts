@@ -162,6 +162,10 @@ app.innerHTML = staticTrustedHtml`
           <input id="relayOnly" type="checkbox" />
           <span>Relay only</span>
         </label>
+        <label class="serverIce">
+          <input id="folderOnly" type="checkbox" />
+          <span>Folder only</span>
+        </label>
       </div>
     </header>
 
@@ -201,6 +205,7 @@ const serverUrl = byId<HTMLInputElement>("serverUrl");
 serverUrl.value = defaultBrowserServerUrl();
 const serverIce = byId<HTMLInputElement>("serverIce");
 const relayOnly = byId<HTMLInputElement>("relayOnly");
+const folderOnly = byId<HTMLInputElement>("folderOnly");
 const sendForm = byId<HTMLFormElement>("sendForm");
 const sendCode = byId<HTMLInputElement>("sendCode");
 const fileInput = byId<HTMLInputElement>("fileInput");
@@ -305,6 +310,8 @@ async function sendFromBrowser(): Promise<void> {
 
 async function receiveInBrowser(): Promise<void> {
   setStatus(recvStatus, "Registering");
+  const requireFolderReceive = shouldRequireBrowserFolderReceive();
+  if (requireFolderReceive && !canPickBrowserDirectory()) throw new Error("Folder-only receive requires File System Access.");
   let signaling: BrowserSignaling | undefined;
   let pc: RTCPeerConnection | undefined;
   let keys: SessionKeys | undefined;
@@ -342,7 +349,7 @@ async function receiveInBrowser(): Promise<void> {
         setLog(recvLog, "Ignored an invalid transfer request. Still waiting...");
         continue;
       }
-      const accept = await promptForBrowserAccept(manifest, keys.sas);
+      const accept = await promptForBrowserAccept(manifest, keys.sas, requireFolderReceive);
       if (!accept.accepted) {
         safeBrowserSend(signaling, { type: "pair-reject", sid: joined.sid, reason: "user_declined", auth: pairDecisionAuthTag(keys.signalAuthKey, joined.sid, "receiver", "reject", sealedManifest, "user_declined") });
         finished = true;
@@ -1056,9 +1063,9 @@ function wipeChunks(chunks: Uint8Array[]): void {
   for (const chunk of chunks) chunk.fill(0);
 }
 
-async function promptForBrowserAccept(manifest: FileManifest, sas: string): Promise<BrowserReceiveAccept> {
-  const canUseMemoryFallback = manifest.totalBytes <= BROWSER_BLOB_FALLBACK_MAX_BYTES;
-  const hasDirectoryPicker = Boolean(window.showDirectoryPicker);
+async function promptForBrowserAccept(manifest: FileManifest, sas: string, requireFolderReceive = false): Promise<BrowserReceiveAccept> {
+  const canUseMemoryFallback = !requireFolderReceive && manifest.totalBytes <= BROWSER_BLOB_FALLBACK_MAX_BYTES;
+  const hasDirectoryPicker = canPickBrowserDirectory();
   requestBox.hidden = false;
   requestBox.replaceChildren();
   const summary = document.createElement("strong");
@@ -1084,7 +1091,7 @@ async function promptForBrowserAccept(manifest: FileManifest, sas: string): Prom
   if (!canUseMemoryFallback) {
     const warning = document.createElement("p");
     warning.className = "sas";
-    warning.textContent = "Large transfers require folder streaming.";
+    warning.textContent = requireFolderReceive ? "Folder-only receive requires folder streaming." : "Large transfers require folder streaming.";
     requestBox.append(warning);
   }
   if (hasDirectoryPicker) {
@@ -1380,6 +1387,14 @@ function shouldUseBrowserServerIce(): boolean {
 
 function shouldUseBrowserRelayOnly(): boolean {
   return relayOnly.checked;
+}
+
+function shouldRequireBrowserFolderReceive(): boolean {
+  return folderOnly.checked;
+}
+
+function canPickBrowserDirectory(): boolean {
+  return typeof window.showDirectoryPicker === "function";
 }
 
 function browserRtcConfiguration(iceServers: RTCIceServer[]): RTCConfiguration {
@@ -2516,6 +2531,7 @@ function updateOperationControls(): void {
   serverUrl.disabled = busy;
   serverIce.disabled = busy;
   relayOnly.disabled = busy;
+  folderOnly.disabled = busy;
   sendCode.disabled = busy;
   fileInput.disabled = busy;
   sendButton.disabled = busy;

@@ -146,6 +146,33 @@ test("CLI createPeer snapshots construction inputs before native PeerConnection 
   assert.match(distCliRtcSource, /function dataMethod\(value, key\) \{/);
 });
 
+test("CLI relay option reaches native WebRTC configuration at runtime", () => {
+  const validSignaling = { send() {} };
+  for (const [factory, expected] of [
+    [createPeer, "relay"],
+    [distCreatePeer, "relay"]
+  ] as const) {
+    const peer = factory("abc123", [], validSignaling as never, new Uint8Array(32), "sender", true);
+    const connected = peer.waitConnected().catch(() => undefined);
+    try {
+      assert.equal(peer.pc.getConfiguration().iceTransportPolicy, expected);
+    } finally {
+      peer.close();
+      void connected;
+    }
+  }
+  for (const factory of [createPeer, distCreatePeer]) {
+    const peer = factory("abc123", [], validSignaling as never, new Uint8Array(32), "sender", false);
+    const connected = peer.waitConnected().catch(() => undefined);
+    try {
+      assert.equal(peer.pc.getConfiguration().iceTransportPolicy, "all");
+    } finally {
+      peer.close();
+      void connected;
+    }
+  }
+});
+
 test("receivers fail closed on duplicate incoming WebRTC DataChannel labels", () => {
   for (const source of [cliSource, webSource]) {
     const duplicateCheck = source.indexOf("channels.has(label)");

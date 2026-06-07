@@ -136,6 +136,7 @@ Useful CLI flags:
 - `recv --resume`: keep failed CLI partials and resume a later attempt from the last verified chunk boundary. The final SHA-256 still has to match before publish.
 
 The browser client has matching ICE controls in the header. `Relay only` sets WebRTC `iceTransportPolicy` to `relay`, which requires TURN and may reduce connectivity, but avoids exposing direct host/server-reflexive ICE candidates to the peer.
+For sensitive browser receives, enable `Folder only` before starting receive. It requires the File System Access API and streams to folder-backed partial files instead of the memory-backed Blob download fallback.
 
 Exit codes:
 
@@ -255,11 +256,11 @@ git remote add origin https://github.com/VictorHaine/p2p-transfer.git
 
 In GitHub:
 
-- create the `npm` environment used by `.github/workflows/release.yml` and add required reviewers or an equivalent approval gate before publishing
+- create the `npm` environment used by `.github/workflows/release.yml` and add required reviewers with self-review prevention before publishing
 - enable private vulnerability reporting
 - create branch protection for `main` requiring CI and CODEOWNERS review
 - create a tag protection rule or repository ruleset for `v*` release tags so only maintainers can create or update release tags
-- after `main` exists remotely, apply the checked release controls with `GITHUB_TOKEN=<admin-token> node scripts/configure-github-release-controls.mjs --apply --npm-reviewer <github-login>`; this creates/updates the `npm` environment approval gate plus the branch and release-tag rulesets, and refuses to mutate repository rulesets if the `npm` environment still has no protection rules
+- after `main` exists remotely, apply the checked release controls with `GITHUB_TOKEN=<admin-token> node scripts/configure-github-release-controls.mjs --apply --npm-reviewer <github-login>`; this creates/updates the `npm` environment approval gate with self-review prevention plus the branch and release-tag rulesets, and refuses to mutate repository rulesets if the `npm` environment still has no required-reviewer protection
 - enable code scanning alerts; `.github/workflows/codeql.yml` runs pinned CodeQL analysis on pull requests, pushes to `main`, and a weekly schedule
 - enable OpenSSF Scorecard alerts; `.github/workflows/scorecard.yml` runs the pinned Scorecard action on pushes to `main` and a weekly schedule, then uploads SARIF to code scanning
 - keep dependency review required on pull requests; `.github/workflows/dependency-review.yml` runs the pinned GitHub dependency review action on pull requests and blocks vulnerable runtime or development dependency changes at low severity or higher
@@ -268,7 +269,8 @@ In GitHub:
 In npm:
 
 - create or verify ownership of the `@victorhaine` scope
-- configure trusted publishing for package `@victorhaine/p2p-transfer`
+- if `@victorhaine/p2p-transfer` does not exist yet, create the first package version through a controlled, one-time bootstrap publish of the verifier-checked tarball, then revoke that publish credential
+- configure trusted publishing for package `@victorhaine/p2p-transfer`; npm currently requires the package to exist first, and `package.json` `repository.url` must exactly match this GitHub repository
 - set the trusted publisher to this GitHub repository, workflow `.github/workflows/release.yml`, environment `npm`
 
 Release:
@@ -279,7 +281,8 @@ pnpm verify:release
 gh auth refresh -h github.com -s workflow
 GITHUB_TOKEN="$(gh auth token)" pnpm release:preflight
 git tag v0.1.0
-git push origin main --tags
+git push origin main
+git push origin v0.1.0
 ```
 
 The tag starts the release workflow. It verifies the tag matches `package.json`, verifies the tagged commit is reachable from protected `main`, repeats the release gate, attests the exact checked tarball, publishes that tarball to npm with provenance, then creates the GitHub Release with the same tarball and `SHA256SUMS`. Protect `v*` tags with a ruleset/tag-protection rule before the first release; branch protection alone does not restrict who can create release tags.
@@ -293,7 +296,7 @@ MIT. See `LICENSE`.
 - A local MDM/EDR administrator can still observe selected files through endpoint controls. `send --code-stdin`, `send --code-env`, and `send --files-stdin` reduce shell-history and process-argv exposure, but they are not protection from a privileged endpoint monitor.
 - Environment variables are local process metadata. `--code-env` deletes the variable after capture, but local process telemetry or privileged observers may still see it briefly; use `--code-stdin` when you need to avoid both argv and environment exposure.
 - CLI output is metadata-bearing by default for consent, progress, and detailed failures. Use `--redact-output` for log-collected automation; it does not hide metadata from the peer, the endpoint, or the network.
-- Browsers without File System Access support can only receive transfers up to the 128 MiB Blob fallback cap.
+- Browsers without File System Access support can only receive transfers up to the 128 MiB Blob fallback cap. The Blob fallback keeps browser-managed plaintext buffers until the browser has completed or revoked the download URL; use `Folder only` for sensitive receives.
 - Browser folder receives cannot get CLI-style exclusive create from File System Access, so every browser-created folder entry must carry an unguessable `ff-<128-bit>` reservation token; data streams to opaque tokenized `.part` entries and publishes a final tokenized name only after hash verification.
 - Browser receive resume is exposed only through the explicit `Resume in folder` accept action. It preserves opaque tokenized `.part` files on failure and can resume a later matching manifest only when the same browser profile still has the saved opaque partial record and browser-held lookup key, and the user selects a folder containing that entry. Browser startup and registry reads scrub legacy metadata-bearing resume records so saved records do not retain plaintext filenames, MIME types, or sizes. Without that saved browser state, or when using the Blob download fallback, browser receive starts fresh. This is intentionally narrower than CLI `recv --resume` because File System Access does not provide CLI-style path identity and atomic publish primitives.
 
