@@ -51,12 +51,12 @@ async function main() {
   try {
     await mkdir(packDir);
     await mkdir(consumerDir);
-    await mkdir(privateHome);
-    await mkdir(childEnv.XDG_CONFIG_HOME, { recursive: true });
-    await mkdir(childEnv.PNPM_HOME, { recursive: true });
-    await mkdir(childEnv.COREPACK_HOME, { recursive: true });
-    await mkdir(childEnv.LOCALAPPDATA, { recursive: true });
-    await mkdir(childEnv.APPDATA, { recursive: true });
+    await mkdir(privateHome, { mode: 0o700 });
+    await mkdir(childEnv.XDG_CONFIG_HOME, { recursive: true, mode: 0o700 });
+    await mkdir(childEnv.PNPM_HOME, { recursive: true, mode: 0o700 });
+    await mkdir(childEnv.COREPACK_HOME, { recursive: true, mode: 0o700 });
+    await mkdir(childEnv.LOCALAPPDATA, { recursive: true, mode: 0o700 });
+    await mkdir(childEnv.APPDATA, { recursive: true, mode: 0o700 });
     const tarball = providedTarball ?? (await packCurrentProject(packDir, childEnv, expectedTarballName));
     const installTarball = await stageVerifiedTarball(tarball, packDir);
 

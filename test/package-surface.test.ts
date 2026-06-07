@@ -347,6 +347,11 @@ test("packed package smoke installs and executes published bins", () => {
   assert.match(packedSmokeScript, /hasUnsafePathText\(value\)/);
   assert.match(packedSmokeScript, /utf8ByteLengthExceeds\(value, MAX_PACKED_SMOKE_TARBALL_PATH_BYTES\)/);
   assert.match(packedSmokeScript, /const childEnv = isolatedChildEnv\(privateHome\)/);
+  assert.match(packedSmokeScript, /await mkdir\(privateHome, \{ mode: 0o700 \}\)/);
+  assert.match(packedSmokeScript, /await mkdir\(childEnv\.XDG_CONFIG_HOME, \{ recursive: true, mode: 0o700 \}\)/);
+  assert.match(packedSmokeScript, /await mkdir\(childEnv\.PNPM_HOME, \{ recursive: true, mode: 0o700 \}\)/);
+  assert.match(packedSmokeScript, /await mkdir\(childEnv\.COREPACK_HOME, \{ recursive: true, mode: 0o700 \}\)/);
+  assert.match(securityPolicy, /package-manager homes, and npm userconfig paths to a private 0700 temporary directory/);
   assert.match(packedSmokeScript, /providedTarball \?\? \(await packCurrentProject\(packDir, childEnv, expectedTarballName\)\)/);
   assert.match(packedSmokeScript, /const installTarball = await stageVerifiedTarball\(tarball, packDir\)/);
   assert.match(packedSmokeScript, /await run\(pnpm, \["add", installTarball\], \{ cwd: consumerDir, timeoutMs: 180_000, env: childEnv \}\)/);
