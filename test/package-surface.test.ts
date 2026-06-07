@@ -550,6 +550,8 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.match(ciWorkflow, /- 24\.13\.1/);
   assert.match(ciWorkflow, /pnpm install --frozen-lockfile/);
   assert.match(ciWorkflow, /pnpm check:install-state/);
+  assert.match(ciWorkflow, /pnpm security:dependencies/);
+  assert.match(ciWorkflow, /pnpm check:install-state[\s\S]*pnpm security:dependencies[\s\S]*pnpm build/);
   assert.match(ciWorkflow, /pnpm check/);
   assert.match(ciWorkflow, /pnpm build/);
   assert.match(ciWorkflow, /pnpm test:unit/);

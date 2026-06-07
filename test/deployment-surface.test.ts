@@ -279,14 +279,15 @@ test("CI and release workflows keep minimal token permissions", () => {
     assert.match(ciWorkflow, new RegExp(escapeRegExp(runner)));
     assert.match(releaseWorkflow, new RegExp(escapeRegExp(runner)));
   }
-  assert.match(ciVerifyJob, /pnpm check:install-state[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native/);
+  assert.match(ciVerifyJob, /pnpm check:install-state[\s\S]*pnpm security:dependencies[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native/);
+  assert.match(ciBrowserInteropJob, /pnpm check:install-state[\s\S]*pnpm security:dependencies[\s\S]*pnpm exec playwright install --with-deps chromium[\s\S]*pnpm build[\s\S]*pnpm test:e2e[\s\S]*pnpm test:browser/);
   assert.match(ciVerifyJob, /timeout-minutes: 20/);
   assert.match(ciBrowserInteropJob, /timeout-minutes: 45/);
   assert.match(ciPlatformSmokeJob, /timeout-minutes: 25/);
   assert.match(ciDockerJob, /timeout-minutes: 30/);
   assert.match(securityPolicy, /every CI and release workflow job must set an explicit `timeout-minutes` bound/);
   assert.doesNotMatch(ciVerifyJob, /pnpm test:unit[\s\S]*pnpm build[\s\S]*pnpm smoke:native/);
-  assert.match(ciPlatformSmokeJob, /pnpm check:install-state[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed/);
+  assert.match(ciPlatformSmokeJob, /pnpm check:install-state[\s\S]*pnpm security:dependencies[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed/);
   assert.doesNotMatch(ciPlatformSmokeJob, /pnpm test:unit[\s\S]*pnpm build[\s\S]*pnpm smoke:native/);
   assert.match(releasePlatformSmokeJob, /node:\n\s+- 22\.22\.3\n\s+- 24\.13\.1/);
   assert.match(releasePlatformSmokeJob, /os:\n\s+- ubuntu-24\.04\n\s+- ubuntu-24\.04-arm\n\s+- macos-15\n\s+- macos-15-intel\n\s+- windows-2025/);
