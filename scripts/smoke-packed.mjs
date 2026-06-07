@@ -177,7 +177,11 @@ function run(command, args, options) {
     });
     if (options.stdin !== undefined) {
       try {
-        child.stdin.end(checkedChildStdin(options.stdin));
+        endCheckedChildStdin(child, options.stdin, commandLabel, (error) => {
+          child.kill("SIGTERM");
+          killTimer = setTimeout(() => child.kill("SIGKILL"), CHILD_KILL_GRACE_MS);
+          rejectOnce(error, true);
+        });
       } catch (error) {
         child.kill("SIGTERM");
         killTimer = setTimeout(() => child.kill("SIGKILL"), CHILD_KILL_GRACE_MS);
@@ -228,10 +232,22 @@ async function smokeInstalledTransfer(consumerDir, childEnv, port, tmp) {
     env: { ...childEnv, FF_RECEIVE_OUT: out },
     stdio: ["pipe", "pipe", "pipe"]
   });
-  receiver.stdin.end(checkedChildStdin(`${code}\n`));
   const receiverOutput = captureChildOutput(receiver);
+  let receiverStdinError;
   try {
-    await waitForOutput(receiver, /"registered"/, 30_000);
+    endCheckedChildStdin(receiver, `${code}\n`, "packed ff recv", (error) => {
+      receiverStdinError = error;
+      receiver.kill("SIGTERM");
+    });
+  } catch (error) {
+    receiverStdinError = error;
+    receiver.kill("SIGTERM");
+  }
+  try {
+    await waitForOutput(receiver, /"registered"/, 30_000).catch((error) => {
+      throw receiverStdinError ?? error;
+    });
+    if (receiverStdinError) throw receiverStdinError;
     const sender = await run(pnpm, ["exec", "ff", "--server", serverUrl, "--json", "--local-private-mode", "send", "--code-stdin", "--files-stdin"], {
       cwd: consumerDir,
       timeoutMs: 90_000,
@@ -250,6 +266,41 @@ async function smokeInstalledTransfer(consumerDir, childEnv, port, tmp) {
       receiver.kill("SIGTERM");
       await waitForExit(receiver, 5_000).catch(() => receiver.kill("SIGKILL"));
     }
+  }
+}
+
+export function endCheckedChildStdin(child, value, label, onFailure) {
+  if (!child || typeof child !== "object" || !child.stdin || typeof child.stdin.end !== "function" || typeof child.stdin.once !== "function" || typeof child.stdin.off !== "function") {
+    throw new Error("Packed smoke child stdin stream is invalid.");
+  }
+  if (typeof label !== "string" || label.length < 1 || /[\p{Cc}\p{Cf}]/u.test(label) || containsPathLikeText(label)) {
+    throw new Error("Packed smoke child stdin label is invalid.");
+  }
+  if (typeof onFailure !== "function") throw new Error("Packed smoke child stdin failure handler is invalid.");
+  const stdin = checkedChildStdin(value);
+  let closed = false;
+  const onError = () => {
+    if (closed) return;
+    closed = true;
+    cleanup();
+    onFailure(new Error(`${label} stdin pipe failed.`));
+  };
+  const onFinish = () => {
+    if (closed) return;
+    closed = true;
+    cleanup();
+  };
+  const cleanup = () => {
+    child.stdin.off("error", onError);
+    child.stdin.off("finish", onFinish);
+  };
+  child.stdin.once("error", onError);
+  child.stdin.once("finish", onFinish);
+  try {
+    child.stdin.end(stdin);
+  } catch {
+    cleanup();
+    throw new Error(`${label} stdin pipe failed.`);
   }
 }
 

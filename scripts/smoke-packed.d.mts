@@ -4,6 +4,7 @@ export function isolatedChildEnv(privateHome: string): Record<string, string>;
 export function assertTemporaryDiskSpace(minFreeBytes: number, failureMessage: string): Promise<void>;
 export function parseJsonEvidence(text: string, label: string): unknown;
 export function appendBoundedOutput(current: string, chunk: Buffer): string;
+export function endCheckedChildStdin(child: { stdin: { end(value: string): unknown; once(event: string, listener: (...args: unknown[]) => void): unknown; off(event: string, listener: (...args: unknown[]) => void): unknown } }, value: string, label: string, onFailure: (error: Error) => void): void;
 export function checkedChildStdin(value: string): string;
 export function renderCommandForLog(command: string, args: string[]): string;
 export function expectedPackedTarballName(packageName: string, packageVersion: string): string;

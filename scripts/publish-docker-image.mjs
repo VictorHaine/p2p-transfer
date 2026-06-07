@@ -209,6 +209,7 @@ function run(command, args, label, timeoutMs, options = {}) {
     });
     child.on("error", rejectOnce);
     child.on("exit", (code, signal) => {
+      if (killTimer) clearTimeout(killTimer);
       if (timeoutError) {
         rejectOnce(timeoutError);
       } else if (code === 0) {
@@ -217,8 +218,17 @@ function run(command, args, label, timeoutMs, options = {}) {
         rejectOnce(new Error(`${label} failed with ${childExitStatus(code, signal)}.`));
       }
     });
-    if (options.input) child.stdin.end(options.input);
-    else child.stdin.end();
+    try {
+      endChildStdin(child, options.input ?? "", label, (error) => {
+        child.kill("SIGTERM");
+        killTimer = setTimeout(() => child.kill("SIGKILL"), CHILD_KILL_GRACE_MS);
+        rejectOnce(error, true);
+      });
+    } catch (error) {
+      child.kill("SIGTERM");
+      killTimer = setTimeout(() => child.kill("SIGKILL"), CHILD_KILL_GRACE_MS);
+      rejectOnce(error, true);
+    }
 
     function resolveOnce(value) {
       if (settled) return;
@@ -227,18 +237,53 @@ function run(command, args, label, timeoutMs, options = {}) {
       resolve(value);
     }
 
-    function rejectOnce(error) {
+    function rejectOnce(error, keepKillTimer = false) {
       if (settled) return;
       settled = true;
-      cleanup();
+      cleanup(keepKillTimer);
       reject(error);
     }
 
-    function cleanup() {
+    function cleanup(keepKillTimer = false) {
       clearTimeout(timer);
-      if (killTimer) clearTimeout(killTimer);
+      if (!keepKillTimer && killTimer) clearTimeout(killTimer);
     }
   });
+}
+
+function endChildStdin(child, input, label, onFailure) {
+  const stdin = checkedChildStdin(input);
+  let closed = false;
+  const onError = () => {
+    if (closed) return;
+    closed = true;
+    cleanup();
+    onFailure(new Error(`${label} stdin pipe failed.`));
+  };
+  const onFinish = () => {
+    if (closed) return;
+    closed = true;
+    cleanup();
+  };
+  const cleanup = () => {
+    child.stdin.off("error", onError);
+    child.stdin.off("finish", onFinish);
+  };
+  child.stdin.once("error", onError);
+  child.stdin.once("finish", onFinish);
+  try {
+    child.stdin.end(stdin);
+  } catch {
+    cleanup();
+    throw new Error(`${label} stdin pipe failed.`);
+  }
+}
+
+function checkedChildStdin(value) {
+  if (typeof value !== "string" || Buffer.byteLength(value, "utf8") > MAX_TOKEN_BYTES + 1 || /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u.test(value)) {
+    throw new Error("docker publish child stdin is invalid.");
+  }
+  return value;
 }
 
 function childExitStatus(code, signal) {

@@ -450,6 +450,9 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(liveReleaseRefScript, /return error instanceof Error && error\.name === "AbortError"/);
   assert.match(securityPolicy, /last-mile live release-ref verifier must re-check the GitHub tag ref or annotated tag object and GitHub `main` ref against `GITHUB_SHA` through bounded GitHub API calls immediately before release artifact attestation, before npm publish, and before Docker smoke or GHCR push/);
   assert.match(securityPolicy, /Docker publishing subprocesses must use a minimal allowlisted child environment plus a temporary 0700 `DOCKER_CONFIG`/);
+  assert.match(securityPolicy, /Docker publishing subprocesses must use a minimal allowlisted child environment plus a temporary 0700 `DOCKER_CONFIG`[\s\S]*handle child stdin pipe errors with generic non-token-reporting failures/);
+  assert.match(dockerPublishScript, /endChildStdin\(child, options\.input \?\? "", label/);
+  assert.match(dockerPublishScript, /new Error\(`\$\{label\} stdin pipe failed\.`\)/);
   assert.match(dockerPublishScript, /const EXPECTED_GITHUB_REPOSITORY = "VictorHaine\/p2p-transfer"/);
   assert.match(dockerPublishScript, /GitHub repository must match the release repository/);
   assert.match(dockerPublishScript, /const tag = releaseTag\(requiredEnvString\("GITHUB_REF_NAME"\)\);\n  assertReleaseTagRef\(tag\);\n  const repository = githubRepository\(requiredEnvString\("GITHUB_REPOSITORY"\)\);\n  requiredCommitSha\(requiredEnvString\("GITHUB_SHA"\)\);\n  const actor = githubActor\(requiredEnvString\("GITHUB_ACTOR"\)\);\n  const token = requiredEnvString\("GITHUB_TOKEN", MAX_TOKEN_BYTES\);\n  const packageJson = await readPackageJson\(\);/);
@@ -1115,6 +1118,7 @@ test("documented release gates require a hardened Docker runtime smoke, not just
   assert.match(securityPolicy, /validates the single downloaded tarball filename, regular-file status, size cap, checksum, CycloneDX SBOM package identity, packed `package\/package\.json` name and version, and release tag/);
   assert.match(securityPolicy, /packed-install smokes that exact downloaded tarball/);
   assert.match(securityPolicy, /packed-install smoke must byte-cap the provided tarball path by UTF-8 bytes, no-follow-open, identity-check, and stage the verified tarball into a distinct no-follow-copied file in its private temp workspace before fresh-project install/);
+  assert.match(securityPolicy, /packed-install smoke must run an actual installed `ff recv` and `ff send` transfer[\s\S]*handle child stdin pipe errors with generic non-input-reporting failures/);
   assert.match(securityPolicy, /provided tarball paths must reject terminal control\/format characters and staging\/open failures must not echo raw tarball paths/);
   assert.match(securityPolicy, /smoke-tested artifact to npm with provenance/);
   assert.match(securityPolicy, /The publish job must not reinstall dependencies, rebuild, or run publish lifecycle scripts before publish/);

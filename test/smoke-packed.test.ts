@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { appendBoundedOutput, assertTemporaryDiskSpace, checkedChildStdin, expectedPackedTarballName, isolatedChildEnv, optionalEnvString, optionalProvidedTarball, parseJsonEvidence, readBoundedResponseText, renderCommandForLog, safeChildEnv, stageVerifiedTarball } from "../scripts/smoke-packed.mjs";
+import { appendBoundedOutput, assertTemporaryDiskSpace, checkedChildStdin, endCheckedChildStdin, expectedPackedTarballName, isolatedChildEnv, optionalEnvString, optionalProvidedTarball, parseJsonEvidence, readBoundedResponseText, renderCommandForLog, safeChildEnv, stageVerifiedTarball } from "../scripts/smoke-packed.mjs";
 
 const packedSmokeSource = await readFile(new URL("../scripts/smoke-packed.mjs", import.meta.url), "utf8");
 
@@ -153,6 +153,36 @@ test("packed smoke child stdin is bounded and control-free", () => {
   assert.throws(() => checkedChildStdin("12345678-apple-anchor\u001b\nfile.txt\n"), /child stdin/);
   assert.throws(() => checkedChildStdin("x".repeat(8_193)), /child stdin/);
   assert.throws(() => checkedChildStdin({ toString: () => "12345678-apple-anchor\n" } as never), /child stdin/);
+});
+
+test("packed smoke child stdin helper reports pipe errors without echoing private input", async () => {
+  const listeners = new Map<string, (...args: unknown[]) => void>();
+  let written = "";
+  const child = {
+    stdin: {
+      once(event: string, listener: (...args: unknown[]) => void) {
+        listeners.set(event, listener);
+        return this;
+      },
+      off(event: string) {
+        listeners.delete(event);
+        return this;
+      },
+      end(value: string) {
+        written = value;
+      }
+    }
+  };
+  let failure: Error | undefined;
+
+  endCheckedChildStdin(child, "12345678-apple-anchor\n/private/file.txt\n", "packed ff send", (error: Error) => {
+    failure = error;
+  });
+  listeners.get("error")?.(new Error("EPIPE /private/file.txt"));
+
+  assert.equal(written, "12345678-apple-anchor\n/private/file.txt\n");
+  assert.equal(failure?.message, "packed ff send stdin pipe failed.");
+  assert.doesNotMatch(failure?.message ?? "", /apple-anchor|private|file\.txt|EPIPE/);
 });
 
 test("packed smoke child environment drops unsafe optional inherited values", () => {
