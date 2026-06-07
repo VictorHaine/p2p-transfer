@@ -34,7 +34,7 @@ if (isMain()) {
 }
 
 async function main() {
-  const imageTag = imageTagFromEnv(process.env.DOCKER_SMOKE_TAG);
+  const imageTag = imageTagFromEnv(optionalEnvString("DOCKER_SMOKE_TAG"));
   const containerName = `p2p-transfer-policy-${Date.now()}-${process.pid}`;
   const dockerConfigDir = createIsolatedDockerConfig();
   const dockerEnv = { DOCKER_CONFIG: dockerConfigDir };
@@ -234,8 +234,7 @@ function run(command, args, label, timeout, options = {}) {
 }
 
 function verboseEnabled() {
-  const descriptor = Object.getOwnPropertyDescriptor(process.env, VERBOSE_ENV);
-  return Boolean(descriptor && "value" in descriptor && descriptor.value === "1");
+  return optionalEnvString(VERBOSE_ENV) === "1";
 }
 
 export function safeChildEnv() {
@@ -266,6 +265,15 @@ export function safeChildEnv() {
 
 function isSafeChildEnvValue(value) {
   return typeof value === "string" && value.length > 0 && !value.includes("\0") && !utf8ByteLengthExceeds(value, MAX_CHILD_ENV_VALUE_BYTES);
+}
+
+function optionalEnvString(name) {
+  const descriptor = Object.getOwnPropertyDescriptor(process.env, name);
+  if (!descriptor || !("value" in descriptor) || descriptor.value === undefined || descriptor.value === "") return undefined;
+  if (!isSafeChildEnvValue(descriptor.value)) {
+    throw new Error(`${name} must be a non-empty NUL-free environment value under ${MAX_CHILD_ENV_VALUE_BYTES} UTF-8 bytes.`);
+  }
+  return descriptor.value;
 }
 
 function assertExpectedEvidenceLine(value) {

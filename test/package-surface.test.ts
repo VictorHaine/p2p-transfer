@@ -424,9 +424,14 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.match(dockerPolicySmokeScript, /rmSync\(dockerConfigDir, \{ recursive: true, force: true \}\)/);
   assert.match(dockerPolicySmokeScript, /Object\.getOwnPropertyDescriptor\(process\.env, name\)/);
   assert.match(dockerPolicySmokeScript, /MAX_CHILD_ENV_VALUE_BYTES = 8_192/);
+  assert.match(dockerPolicySmokeScript, /const imageTag = imageTagFromEnv\(optionalEnvString\("DOCKER_SMOKE_TAG"\)\)/);
+  assert.match(dockerPolicySmokeScript, /return optionalEnvString\(VERBOSE_ENV\) === "1"/);
+  assert.match(dockerPolicySmokeScript, /function optionalEnvString\(name\)/);
+  assert.match(dockerPolicySmokeScript, /\$\{name\} must be a non-empty NUL-free environment value under \$\{MAX_CHILD_ENV_VALUE_BYTES\} UTF-8 bytes\./);
+  assert.doesNotMatch(dockerPolicySmokeScript, /process\.env\.DOCKER_SMOKE_TAG|process\.env\.DOCKER_SMOKE_VERBOSE/);
   assert.doesNotMatch(dockerPolicySmokeScript, /timer\.unref\?\.\(\)/);
   assert.doesNotMatch(dockerPolicySmokeScript, /env: \{ \.\.\.process\.env/);
-  assert.match(securityPolicy, /Docker policy smoke subprocesses must run with a minimal allowlisted environment/);
+  assert.match(securityPolicy, /Docker policy smoke options and subprocesses must run with descriptor-read, non-empty, NUL-free, byte-capped environment values/);
   assert.match(securityPolicy, /Docker policy smoke must validate production-policy container startup failures with bounded exact output-line evidence/);
   assert.match(securityPolicy, /not loose substring matches over arbitrary Docker output/);
   assert.match(securityPolicy, /accepts the configured production origin and rejects an untrusted origin on both the HTTP ICE endpoint and the WebSocket signaling upgrade path/);
