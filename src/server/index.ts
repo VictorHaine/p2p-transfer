@@ -868,14 +868,24 @@ function staticHttpStatus(error: unknown): 404 | 500 {
 
 async function readStaticFile(filePath: string): Promise<Buffer> {
   const flags = fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK;
+  const info = await fs.lstat(filePath);
+  if (!info.isFile() || !staticFileWithinLimit(info.size, STATIC_MAX_FILE_BYTES)) throw new Error("static asset exceeds maximum size");
   const handle = await fs.open(filePath, flags);
   try {
     const stat = await handle.stat();
     if (!stat.isFile() || !staticFileWithinLimit(stat.size, STATIC_MAX_FILE_BYTES)) throw new Error("static asset exceeds maximum size");
-    return await readBoundedFile(handle, STATIC_MAX_FILE_BYTES);
+    if (!sameFile(info, stat)) throw new Error("static asset changed before verification");
+    const body = await readBoundedFile(handle, STATIC_MAX_FILE_BYTES);
+    const afterRead = await handle.stat();
+    if (!sameFile(stat, afterRead)) throw new Error("static asset changed while being read");
+    return body;
   } finally {
     await handle.close();
   }
+}
+
+function sameFile(left: { dev: number; ino: number; size: number }, right: { dev: number; ino: number; size: number }): boolean {
+  return left.dev === right.dev && left.ino === right.ino && left.size === right.size;
 }
 
 async function readBoundedFile(handle: FileHandle, maxBytes: number): Promise<Buffer> {
