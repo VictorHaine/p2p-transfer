@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { connect as connectTcp } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -99,6 +99,7 @@ async function main() {
 
 function createIsolatedDockerConfig() {
   const dir = mkdtempSync(path.join(tmpdir(), "p2p-transfer-docker-"));
+  chmodSync(dir, 0o700);
   writeFileSync(path.join(dir, "config.json"), JSON.stringify({ auths: {} }), { mode: 0o600 });
   return dir;
 }

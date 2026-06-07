@@ -461,8 +461,10 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.match(dockerPolicySmokeScript, /\["PATH", true\]/);
   assert.doesNotMatch(dockerPolicySmokeScript, /"DOCKER_HOST"/);
   assert.doesNotMatch(dockerPolicySmokeScript, /"DOCKER_CONTEXT"/);
+  assert.match(dockerPolicySmokeScript, /import \{ chmodSync, mkdtempSync, realpathSync, rmSync, writeFileSync \} from "node:fs"/);
   assert.match(dockerPolicySmokeScript, /function createIsolatedDockerConfig\(\)/);
   assert.match(dockerPolicySmokeScript, /mkdtempSync\(path\.join\(tmpdir\(\), "p2p-transfer-docker-"\)\)/);
+  assert.match(dockerPolicySmokeScript, /chmodSync\(dir, 0o700\)/);
   assert.match(dockerPolicySmokeScript, /writeFileSync\(path\.join\(dir, "config\.json"\), JSON\.stringify\(\{ auths: \{\} \}\), \{ mode: 0o600 \}\)/);
   assert.match(dockerPolicySmokeScript, /const dockerEnv = \{ DOCKER_CONFIG: dockerConfigDir \}/);
   assert.match(dockerPolicySmokeScript, /rmSync\(dockerConfigDir, \{ recursive: true, force: true \}\)/);
@@ -483,7 +485,7 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.match(securityPolicy, /accepts the configured production origin and rejects an untrusted origin on both the HTTP ICE endpoint and the WebSocket signaling upgrade path/);
   assert.match(securityPolicy, /`DOCKER_HOST`, or `DOCKER_CONTEXT`/);
   assert.match(securityPolicy, /send the release build context to a caller-configured remote Docker daemon/);
-  assert.match(securityPolicy, /temporary `DOCKER_CONFIG` containing no credential helper or registry credentials/);
+  assert.match(securityPolicy, /temporary 0700 `DOCKER_CONFIG` containing no credential helper or registry credentials/);
   assert.doesNotMatch(ciWorkflow, /\bnpm\s+(?:install|ci|publish)\b|npx\b/);
 });
 
