@@ -1641,6 +1641,52 @@ globalThis.fetch = async (url, init = {}) => {
   }
 });
 
+test("GitHub release controls reject ambiguous ambient tokens before network work", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-controls-env-ambiguous-"));
+  const mock = path.join(tmp, "mock-release-controls-env-ambiguous.mjs");
+  const log = path.join(tmp, "requests.log");
+  try {
+    await fs.writeFile(
+      mock,
+      `
+import { appendFileSync } from "node:fs";
+
+const log = process.env.FF_MOCK_RELEASE_CONTROLS_ENV_AMBIGUOUS_LOG;
+
+globalThis.fetch = async (url, init = {}) => {
+  const parsed = new URL(url);
+  appendFileSync(log, (init.method ?? "GET") + " " + parsed.origin + parsed.pathname + "\\n", "utf8");
+  return new Response(JSON.stringify({ message: "unexpected network" }), { status: 500, headers: { "content-type": "application/json" } });
+};
+`,
+      "utf8"
+    );
+
+    const result = runScriptWithNodeArgs(
+      "scripts/configure-github-release-controls.mjs",
+      {
+        FF_MOCK_RELEASE_CONTROLS_ENV_AMBIGUOUS_LOG: log,
+        GITHUB_TOKEN: "github-token-that-must-not-be-used",
+        GH_TOKEN: "gh-token-that-must-not-be-used"
+      },
+      ["--dry-run"],
+      ["--import", mock]
+    );
+    const requests = await fs.readFile(log, "utf8").catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return "";
+      throw error;
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /GitHub release control setup failed:\n- Set only one of GITHUB_TOKEN or GH_TOKEN before applying release controls\./);
+    assert.doesNotMatch(result.stderr, /github-token-that-must-not-be-used|gh-token-that-must-not-be-used|unexpected network|api\.github|Error:/);
+    assert.equal(requests, "");
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
 test("GitHub release controls reject interactive stdin tokens before network work", async () => {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-controls-stdin-tty-"));
   const mock = path.join(tmp, "mock-release-controls-stdin-tty.mjs");
@@ -2635,6 +2681,52 @@ globalThis.fetch = async (url, init = {}) => {
     assert.equal(result.stdout, "");
     assert.match(result.stderr, /Release readiness check failed:\n- GitHub token stdin must be a non-empty control-free value under 4096 UTF-8 bytes\./);
     assert.doesNotMatch(result.stderr, /token-that-must-not-be-used|workflow=true|unexpected network|api\.github|registry\.npmjs|Error:/);
+    assert.equal(requests, "");
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
+test("release preflight rejects ambiguous ambient GitHub tokens before package or network work", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-preflight-env-ambiguous-"));
+  const mock = path.join(tmp, "mock-release-preflight-env-ambiguous.mjs");
+  const log = path.join(tmp, "requests.log");
+  try {
+    await fs.writeFile(
+      mock,
+      `
+import { appendFileSync } from "node:fs";
+
+const log = process.env.FF_MOCK_PREFLIGHT_ENV_AMBIGUOUS_LOG;
+
+globalThis.fetch = async (url, init = {}) => {
+  const parsed = new URL(url);
+  appendFileSync(log, (init.method ?? "GET") + " " + parsed.origin + parsed.pathname + "\\n", "utf8");
+  return new Response(JSON.stringify({ message: "unexpected network" }), { status: 500, headers: { "content-type": "application/json" } });
+};
+`,
+      "utf8"
+    );
+
+    const result = runScriptWithNodeArgs(
+      "scripts/check-release-readiness.mjs",
+      {
+        FF_MOCK_PREFLIGHT_ENV_AMBIGUOUS_LOG: log,
+        GITHUB_TOKEN: "github-token-that-must-not-be-used",
+        GH_TOKEN: "gh-token-that-must-not-be-used"
+      },
+      [],
+      ["--import", mock]
+    );
+    const requests = await fs.readFile(log, "utf8").catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return "";
+      throw error;
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Release readiness check failed:\n- Set only one of GITHUB_TOKEN or GH_TOKEN before running release preflight\./);
+    assert.doesNotMatch(result.stderr, /github-token-that-must-not-be-used|gh-token-that-must-not-be-used|unexpected network|api\.github|registry\.npmjs|Error:/);
     assert.equal(requests, "");
   } finally {
     await fs.rm(tmp, { force: true, recursive: true });

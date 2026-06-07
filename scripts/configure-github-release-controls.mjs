@@ -679,9 +679,16 @@ async function githubToken(options) {
     if (consumeOptionalGitHubTokenEnv()) throw new Error("Do not set GITHUB_TOKEN or GH_TOKEN when using --token-stdin.");
     return readStdinToken();
   }
-  const token = envString("GITHUB_TOKEN") || envString("GH_TOKEN");
+  const token = githubTokenFromEnv();
   if (!token) throw new Error("Set GITHUB_TOKEN or GH_TOKEN, or pipe a token with --token-stdin, with repository administration permission.");
   return token;
+}
+
+function githubTokenFromEnv() {
+  const githubToken = envString("GITHUB_TOKEN");
+  const ghToken = envString("GH_TOKEN");
+  if (githubToken && ghToken) throw new Error("Set only one of GITHUB_TOKEN or GH_TOKEN before applying release controls.");
+  return githubToken ?? ghToken;
 }
 
 function consumeOptionalGitHubTokenEnv() {
