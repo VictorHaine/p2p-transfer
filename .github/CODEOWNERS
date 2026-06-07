@@ -4,6 +4,9 @@
 /package.json @VictorHaine
 /pnpm-lock.yaml @VictorHaine
 /pnpm-workspace.yaml @VictorHaine
+/README.md @VictorHaine
+/CONTRIBUTING.md @VictorHaine
+/CHANGELOG.md @VictorHaine
 /SECURITY.md @VictorHaine
 /docs/security/ @VictorHaine
 /conformance/ @VictorHaine

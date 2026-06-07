@@ -27,7 +27,7 @@ This build implements the required untrusted-signaling security layer:
 - Receiver codes expire after a small bounded number of sender rendezvous claims, limiting online guessing and prefix-squatting before the accept gate.
 - Both peers display the same short SAS for optional out-of-band comparison.
 
-The signaling server sees the public eight-digit rendezvous prefix, IP-level connection metadata, roles, session timing, accept/reject/teardown events, total transfer bytes, file count, signaling frame sizes, PAKE public shares/tags, and authenticated SDP/ICE contents. It does not receive the two secret words, usable file names, MIME types, file contents, PAKE secrets, DataChannel plaintext, or the true per-file size distribution.
+The signaling server sees the public eight-digit rendezvous prefix, IP-level connection metadata, roles, session timing, accept/reject/teardown events, total transfer bytes, file count, signaling frame sizes, PAKE public shares/tags, and authenticated SDP/ICE contents. Conforming clients do not send the two secret words, usable file names, MIME types, file contents, PAKE secrets, DataChannel plaintext, or the true per-file size distribution. A modified client can still transmit a malformed public pair-request containing plaintext metadata before rejection; the server rejects unredacted public manifests and does not forward or log them.
 
 ## Install and build
 
@@ -182,7 +182,7 @@ Metadata privacy is intentionally limited and should be understood before using 
 
 | Observer | Can learn | Should not learn |
 | --- | --- | --- |
-| Signaling server | client IPs, public rendezvous prefix, roles, session timing, accept/reject/teardown events, the fixed authenticated `pair-reject` reason `user_declined`, total transfer bytes, file count, signaling frame sizes, PAKE public shares/tags, authenticated SDP/ICE contents, and whether clients accept its ICE endpoint hints | two secret words, PAKE output, plaintext file names, MIME types, file bytes, DataChannel control plaintext, true per-file size distribution |
+| Signaling server | client IPs, public rendezvous prefix, roles, session timing, accept/reject/teardown events, the fixed authenticated `pair-reject` reason `user_declined`, total transfer bytes, file count, signaling frame sizes, PAKE public shares/tags, authenticated SDP/ICE contents, whether clients accept its ICE endpoint hints, and malformed unredacted manifests from modified clients before rejection | from conforming clients and accepted protocol flow: two secret words, PAKE output, plaintext file names, MIME types, file bytes, DataChannel control plaintext, true per-file size distribution |
 | STUN server | client public IP/port and ICE timing | code, manifest, file names, file bytes |
 | TURN server | client IPs, relay allocation timing, packet sizes, traffic volume/duration | file bytes or DataChannel plaintext |
 | Network observer | endpoints, DNS/SNI where applicable, timing, traffic volume, peer IPs for direct WebRTC, TURN use when relayed | file bytes or DataChannel plaintext when using `wss://` and WebRTC |

@@ -563,7 +563,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseArtifactSmokeScript, /await run\(pnpm, \["--config\.ignore-scripts=true", "pack", "--pack-destination", "release-artifacts"\], childEnv, \{\}, "release artifact pack"\)/);
   assert.match(releaseArtifactSmokeScript, /await run\(process\.execPath, \["scripts\/write-release-sbom\.mjs"\], childEnv, \{\}, "release SBOM generation"\)/);
   assert.match(releaseArtifactSmokeScript, /await run\(process\.execPath, \["scripts\/write-release-checksum\.mjs"\], childEnv, \{\}, "release checksum generation"\)/);
-  assert.match(releaseArtifactSmokeScript, /await run\(process\.execPath, \["scripts\/verify-release-artifact\.mjs"\], childEnv, \{ GITHUB_REF_NAME: `v\$\{version\}` \}, "release artifact verification"\)/);
+  assert.match(releaseArtifactSmokeScript, /GITHUB_REF_NAME: `v\$\{version\}`,\s+GITHUB_REF_TYPE: "tag",\s+GITHUB_REF: `refs\/tags\/v\$\{version\}`/);
   assert.match(releaseArtifactSmokeScript, /"scripts\/write-release-sbom\.mjs"/);
   assert.match(releaseArtifactSmokeScript, /"scripts\/write-release-checksum\.mjs"/);
   assert.match(releaseArtifactSmokeScript, /"scripts\/verify-release-artifact\.mjs"/);
@@ -690,6 +690,9 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseArtifactScript, /const packedName = requiredPackageName\(packed\.name, "package\/package\.json name"\)/);
   assert.match(releaseArtifactScript, /const packedVersion = requiredPackageVersion\(packed\.version, "package\/package\.json version"\)/);
   assert.match(releaseArtifactScript, /requiredReleaseTag\(envString\("GITHUB_REF_NAME"\), expectedVersion\)/);
+  assert.match(releaseArtifactScript, /function assertReleaseTagRef\(tag\)/);
+  assert.match(releaseArtifactScript, /envString\("GITHUB_REF_TYPE"\) !== "tag"/);
+  assert.match(releaseArtifactScript, /envString\("GITHUB_REF"\) !== `refs\/tags\/\$\{tag\}`/);
   assert.match(releaseArtifactScript, /utf8ByteLengthExceeds\(descriptor\.value, maxBytes\)/);
   assert.match(releaseArtifactScript, /release tag does not match package version \$\{version\}/);
   assert.doesNotMatch(releaseArtifactScript, /release tag \$\{value\} does not match/);

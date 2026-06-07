@@ -35,7 +35,13 @@ async function main() {
     await run(pnpm, ["--config.ignore-scripts=true", "pack", "--pack-destination", "release-artifacts"], childEnv, {}, "release artifact pack");
     await run(process.execPath, ["scripts/write-release-sbom.mjs"], childEnv, {}, "release SBOM generation");
     await run(process.execPath, ["scripts/write-release-checksum.mjs"], childEnv, {}, "release checksum generation");
-    await run(process.execPath, ["scripts/verify-release-artifact.mjs"], childEnv, { GITHUB_REF_NAME: `v${version}` }, "release artifact verification");
+    await run(
+      process.execPath,
+      ["scripts/verify-release-artifact.mjs"],
+      childEnv,
+      { GITHUB_REF_NAME: `v${version}`, GITHUB_REF_TYPE: "tag", GITHUB_REF: `refs/tags/v${version}` },
+      "release artifact verification"
+    );
   } finally {
     if (!options.keepArtifacts) await rm(artifactDir, { recursive: true, force: true }).catch(() => undefined);
     await rm(tmp, { recursive: true, force: true }).catch(() => undefined);

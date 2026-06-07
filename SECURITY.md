@@ -29,7 +29,7 @@ Expected response target: acknowledge within 72 hours, patch or publish mitigati
 
 The project is expected to preserve these invariants:
 
-- the signaling server never receives the two secret words, PAKE output, plaintext file names, plaintext MIME types, file bytes, DataChannel plaintext, or true per-file size distribution; it still receives routing metadata, total transfer bytes, file count, message timing/sizes, and authenticated SDP/ICE contents
+- conforming clients must never send the signaling server the two secret words, PAKE output, plaintext file names, plaintext MIME types, file bytes, DataChannel plaintext, or true per-file size distribution; the server must reject unredacted public pair-request manifests from modified clients without forwarding or logging them, and it still receives routing metadata, total transfer bytes, file count, message timing/sizes, and authenticated SDP/ICE contents
 - the signaling server must not relay arbitrary peer-controlled disconnect text; client `bye.reason` values must be reduced to a fixed server-owned reason set before any `peer-left` forwarding
 - wire-incompatible changes must bump `PROTOCOL_VERSION` and the current conformance fixture together
 - the server-visible rendezvous prefix must have enough namespace to resist cheap live-code enumeration and griefing; do not shrink it below eight decimal digits

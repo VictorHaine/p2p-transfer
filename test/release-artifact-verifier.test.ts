@@ -320,6 +320,37 @@ test("release artifact verifier does not echo mismatched release tag text", asyn
   assert.doesNotMatch(result.stderr, /wrong-tag/);
 });
 
+test("release artifact verifier rejects branch refs before accepting release evidence", async () => {
+  const result = await runVerifierInFixture({
+    packageName: "p2p-transfer",
+    version: "1.2.3",
+    refType: "branch",
+    ref: "refs/heads/v1.2.3",
+    tarBlocks: packageJsonTarBlocks("p2p-transfer", "1.2.3", {
+      endBlocks: 2
+    })
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /release workflow ref must be the matching tag ref\./);
+  assert.doesNotMatch(result.stderr, /refs\/heads|v1\.2\.3|release-artifacts|p2p-transfer-1\.2\.3\.tgz/);
+});
+
+test("release artifact verifier rejects mismatched tag refs", async () => {
+  const result = await runVerifierInFixture({
+    packageName: "p2p-transfer",
+    version: "1.2.3",
+    ref: "refs/tags/v1.2.4",
+    tarBlocks: packageJsonTarBlocks("p2p-transfer", "1.2.3", {
+      endBlocks: 2
+    })
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /release workflow ref must be the matching tag ref\./);
+  assert.doesNotMatch(result.stderr, /v1\.2\.4|release-artifacts|p2p-transfer-1\.2\.3\.tgz/);
+});
+
 test("release artifact verifier rejects control-bearing release tag environment input", async () => {
   const result = await runVerifierInFixture({
     packageName: "p2p-transfer",
@@ -510,6 +541,8 @@ async function runVerifierInFixture(options: {
   version: string;
   packageJson?: Buffer;
   refName?: string;
+  refType?: string;
+  ref?: string;
   args?: string[];
   githubOutputFileName?: string;
   githubOutputPath?: string;
@@ -555,6 +588,8 @@ async function runVerifierInFixture(options: {
     env: {
       ...process.env,
       GITHUB_REF_NAME: options.refName ?? `v${options.version}`,
+      GITHUB_REF_TYPE: options.refType ?? "tag",
+      GITHUB_REF: options.ref ?? `refs/tags/${options.refName ?? `v${options.version}`}`,
       ...(githubOutputPath ? { GITHUB_OUTPUT: githubOutputPath } : {})
     },
     timeout: 10_000

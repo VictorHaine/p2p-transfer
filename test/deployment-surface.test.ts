@@ -695,6 +695,9 @@ test("security-sensitive surfaces require code owner review", () => {
     "/package.json",
     "/pnpm-lock.yaml",
     "/pnpm-workspace.yaml",
+    "/README.md",
+    "/CONTRIBUTING.md",
+    "/CHANGELOG.md",
     "/SECURITY.md",
     "/docs/security/",
     "/conformance/",
@@ -903,6 +906,9 @@ test("release artifact verification is bounded and exact", () => {
   assert.match(releaseArtifactScript, /const packedName = requiredPackageName\(packed\.name, "package\/package\.json name"\)/);
   assert.match(releaseArtifactScript, /const packedVersion = requiredPackageVersion\(packed\.version, "package\/package\.json version"\)/);
   assert.match(releaseArtifactScript, /requiredReleaseTag\(envString\("GITHUB_REF_NAME"\), expectedVersion\)/);
+  assert.match(releaseArtifactScript, /function assertReleaseTagRef\(tag\)/);
+  assert.match(releaseArtifactScript, /envString\("GITHUB_REF_TYPE"\) !== "tag"/);
+  assert.match(releaseArtifactScript, /envString\("GITHUB_REF"\) !== `refs\/tags\/\$\{tag\}`/);
   assert.match(releaseArtifactScript, /utf8ByteLengthExceeds\(descriptor\.value, maxBytes\)/);
   assert.match(releaseArtifactScript, /release tag does not match package version \$\{version\}/);
   assert.doesNotMatch(releaseArtifactScript, /release tag \$\{value\} does not match/);

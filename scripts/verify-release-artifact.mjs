@@ -40,6 +40,7 @@ async function main() {
   const expectedVersion = requiredPackageVersion(expected.version);
   const expectedSbom = await expectedProductionSbom(expected, expectedName, expectedVersion);
   const tag = requiredReleaseTag(envString("GITHUB_REF_NAME"), expectedVersion);
+  assertReleaseTagRef(tag);
   const releaseArtifactDir = await verifiedArtifactDir();
   const tarball = await singleReleaseTarball(releaseArtifactDir, expectedName, expectedVersion);
   const sbom = await releaseSbomFile(releaseArtifactDir);
@@ -118,6 +119,12 @@ function requiredPackageVersion(value, label = "package.json version") {
 function requiredReleaseTag(value, version) {
   if (value !== `v${version}`) throw new Error(`release tag does not match package version ${version}.`);
   return value;
+}
+
+function assertReleaseTagRef(tag) {
+  if (envString("GITHUB_REF_TYPE") !== "tag" || envString("GITHUB_REF") !== `refs/tags/${tag}`) {
+    throw new Error("release workflow ref must be the matching tag ref.");
+  }
 }
 
 function assertPackedPackageMetadataMatchesWorkspace(expected, packed) {

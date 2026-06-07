@@ -12,6 +12,7 @@ const distWebBundle = readDistWebBundle();
 
 test("server logging stays operational and does not log signaling payload fields", () => {
   const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
+  const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
   const logCalls = [...serverSource.matchAll(/console\.(?:log|error|warn)\(([^)]*)\)/g)].map((match) => match[1] ?? "");
   assert.equal(logCalls.length, 4);
   for (const call of logCalls) {
@@ -26,6 +27,13 @@ test("server logging stays operational and does not log signaling payload fields
   assert.match(summaryBody, /ownErrorData\(error, "name"\)/);
   assert.doesNotMatch(summaryBody, /error\.message|error\.stack|String\(error\)|String\(/);
   assert.match(serverSource, /function ownErrorData\(error: unknown, key: string\): unknown \{[\s\S]*Object\.getOwnPropertyDescriptor\(error, key\)/);
+  assert.match(securityPolicy, /conforming clients must never send the signaling server/);
+  assert.match(securityPolicy, /server must reject unredacted public pair-request manifests from modified clients without forwarding or logging them/);
+  assert.doesNotMatch(securityPolicy, /signaling server never receives the two secret words[\s\S]*plaintext file names/);
+  assert.match(readme, /A modified client can still transmit a malformed public pair-request containing plaintext metadata before rejection/);
+  assert.match(readme, /server rejects unredacted public manifests and does not forward or log them/);
+  assert.match(readme, /from conforming clients and accepted protocol flow: two secret words, PAKE output, plaintext file names, MIME types/);
+  assert.doesNotMatch(readme, /It does not receive the two secret words[\s\S]*MIME types/);
 });
 
 test("honest clients do not send raw local exception messages through signaling bye reasons", () => {
