@@ -479,7 +479,9 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(readme, /creates\/updates the `npm` environment approval gate with self-review prevention, admin bypass disabled, and `v\*\.\*\.\*` tag-only deployment/);
   assert.match(readme, /refuses read-only or unknown reviewers/);
   assert.match(readme, /refuses to create a sole-reviewer self-approval deadlock/);
+  assert.match(readme, /refuses `--allow-missing-main` outside dry-run mode/);
   assert.match(readme, /refuses to mutate repository rulesets if GitHub returns malformed, duplicate, unexpected, or wrong-target rulesets, or if the `npm` environment still has no required-reviewer protection, still allows admin bypass or branch deployments, lacks the exact release-tag deployment policy, or still has the authenticated setup operator as its sole required reviewer/);
+  assert.match(securityPolicy, /`--allow-missing-main` must be dry-run only and must not be accepted with `--apply`/);
   assert.match(securityPolicy, /setup script must be able to create or update the `npm` environment approval gate from explicit reviewers with write, maintain, or admin repository permission, self-review prevention, admin bypass disabled, and a single `v\*\.\*\.\*` tag deployment policy/);
   assert.match(securityPolicy, /must not expose an option that writes `prevent_self_review: false`/);
   assert.match(securityPolicy, /release setup must reject malformed, unexpected, wrong-target, or duplicate GitHub rulesets list entries/);
