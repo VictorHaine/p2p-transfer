@@ -95,8 +95,8 @@ function containsAbsolutePathText(value) {
 
 function envString(name, maxBytes = MAX_RELEASE_ENV_VALUE_BYTES) {
   const descriptor = Object.getOwnPropertyDescriptor(process.env, name);
-  if (!descriptor || !("value" in descriptor) || typeof descriptor.value !== "string" || descriptor.value.length < 1 || descriptor.value.includes("\0") || utf8ByteLengthExceeds(descriptor.value, maxBytes)) {
-    throw new Error(`${name} must be a non-empty NUL-free string under ${maxBytes} UTF-8 bytes.`);
+  if (!descriptor || !("value" in descriptor) || typeof descriptor.value !== "string" || descriptor.value.length < 1 || /[\p{Cc}\p{Cf}]/u.test(descriptor.value) || utf8ByteLengthExceeds(descriptor.value, maxBytes)) {
+    throw new Error(`${name} must be a non-empty control-free string under ${maxBytes} UTF-8 bytes.`);
   }
   return descriptor.value;
 }
@@ -489,9 +489,18 @@ async function writeGithubOutput(name, value) {
 }
 
 function githubOutputPath() {
-  const outputPath = envString("GITHUB_OUTPUT", MAX_GITHUB_OUTPUT_BYTES);
-  if (/[\p{Cc}\p{Cf}]/u.test(outputPath)) throw new Error("GITHUB_OUTPUT must be a non-empty control-free path.");
-  return outputPath;
+  const descriptor = Object.getOwnPropertyDescriptor(process.env, "GITHUB_OUTPUT");
+  if (
+    !descriptor ||
+    !("value" in descriptor) ||
+    typeof descriptor.value !== "string" ||
+    descriptor.value.length < 1 ||
+    /[\p{Cc}\p{Cf}]/u.test(descriptor.value) ||
+    utf8ByteLengthExceeds(descriptor.value, MAX_GITHUB_OUTPUT_BYTES)
+  ) {
+    throw new Error("GITHUB_OUTPUT must be a non-empty control-free path.");
+  }
+  return descriptor.value;
 }
 
 async function verifyChecksumFile(releaseArtifactDir, tarball, sbom) {

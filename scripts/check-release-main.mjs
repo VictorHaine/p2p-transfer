@@ -111,10 +111,10 @@ function envString(name) {
     !("value" in descriptor) ||
     typeof descriptor.value !== "string" ||
     descriptor.value.length < 1 ||
-    descriptor.value.includes("\0") ||
+    /[\p{Cc}\p{Cf}]/u.test(descriptor.value) ||
     utf8ByteLengthExceeds(descriptor.value, MAX_RELEASE_ENV_VALUE_BYTES)
   ) {
-    throw new Error(`${name} must be a non-empty NUL-free string under ${MAX_RELEASE_ENV_VALUE_BYTES} UTF-8 bytes.`);
+    throw new Error(`${name} must be a non-empty control-free string under ${MAX_RELEASE_ENV_VALUE_BYTES} UTF-8 bytes.`);
   }
   return descriptor.value;
 }
@@ -137,14 +137,14 @@ function safeChildEnv() {
     if (descriptor && "value" in descriptor && isSafeChildEnvValue(descriptor.value)) {
       env[name] = descriptor.value;
     } else if (required) {
-      throw new Error(`${name} must be a non-empty NUL-free child environment value under ${MAX_CHILD_ENV_VALUE_BYTES} UTF-8 bytes.`);
+      throw new Error(`${name} must be a non-empty control-free child environment value under ${MAX_CHILD_ENV_VALUE_BYTES} UTF-8 bytes.`);
     }
   }
   return env;
 }
 
 function isSafeChildEnvValue(value) {
-  return typeof value === "string" && value.length > 0 && !value.includes("\0") && !utf8ByteLengthExceeds(value, MAX_CHILD_ENV_VALUE_BYTES);
+  return typeof value === "string" && value.length > 0 && !/[\p{Cc}\p{Cf}]/u.test(value) && !utf8ByteLengthExceeds(value, MAX_CHILD_ENV_VALUE_BYTES);
 }
 
 function releaseMainErrorMessage(error) {

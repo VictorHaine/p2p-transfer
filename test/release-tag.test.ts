@@ -56,8 +56,24 @@ test("release tag verifier byte-caps release tag environment values", async () =
     });
     assert.equal(result.status, 1);
     assert.equal(result.stdout, "");
-    assert.match(result.stderr, /Release tag verification failed:\n- GITHUB_REF_NAME must be a non-empty NUL-free string under 256 UTF-8 bytes\./);
+    assert.match(result.stderr, /Release tag verification failed:\n- GITHUB_REF_NAME must be a non-empty control-free string under 256 UTF-8 bytes\./);
     assert.doesNotMatch(result.stderr, /vvvv|ff-release-tag-|at async/);
+  } finally {
+    await fs.rm(root, { force: true, recursive: true });
+  }
+});
+
+test("release tag verifier rejects control-bearing release tag environment values", async () => {
+  const { root, script } = await createFixture();
+  try {
+    const result = spawnSync(process.execPath, [script], {
+      encoding: "utf8",
+      env: { ...process.env, GITHUB_REF_NAME: "v1.2.3\nwith-control" }
+    });
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Release tag verification failed:\n- GITHUB_REF_NAME must be a non-empty control-free string under 256 UTF-8 bytes\./);
+    assert.doesNotMatch(result.stderr, /with-control|ff-release-tag-|at async/);
   } finally {
     await fs.rm(root, { force: true, recursive: true });
   }

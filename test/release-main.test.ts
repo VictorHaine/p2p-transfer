@@ -86,10 +86,36 @@ test("release main verifier validates the GitHub SHA environment value", async (
   }
 });
 
-function runVerifier(script: string, sha: string): { status: number | null; stdout: string; stderr: string } {
+test("release main verifier rejects control-bearing GitHub SHA environment values", async () => {
+  const fixture = await createGitFixture();
+  try {
+    const result = runVerifier(fixture.script, `${fixture.mainSha}\nwith-control`);
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Release main reachability check failed:\n- GITHUB_SHA must be a non-empty control-free string under 256 UTF-8 bytes\./);
+    assert.doesNotMatch(result.stderr, /with-control|ff-release-main-|at async/);
+  } finally {
+    await fs.rm(path.dirname(fixture.root), { force: true, recursive: true });
+  }
+});
+
+test("release main verifier rejects control-bearing Git child environment values", async () => {
+  const fixture = await createGitFixture();
+  try {
+    const result = runVerifier(fixture.script, fixture.mainSha, { PATH: `${process.env.PATH ?? ""}\nwith-control` });
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Release main reachability check failed:\n- PATH must be a non-empty control-free child environment value under 8192 UTF-8 bytes\./);
+    assert.doesNotMatch(result.stderr, /with-control|ff-release-main-|at async/);
+  } finally {
+    await fs.rm(path.dirname(fixture.root), { force: true, recursive: true });
+  }
+});
+
+function runVerifier(script: string, sha: string, env: NodeJS.ProcessEnv = {}): { status: number | null; stdout: string; stderr: string } {
   return spawnSync(process.execPath, [script], {
     encoding: "utf8",
-    env: { ...process.env, GITHUB_SHA: sha }
+    env: { ...process.env, ...env, GITHUB_SHA: sha }
   });
 }
 

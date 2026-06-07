@@ -111,10 +111,10 @@ function envString(name) {
     !("value" in descriptor) ||
     typeof descriptor.value !== "string" ||
     descriptor.value.length < 1 ||
-    descriptor.value.includes("\0") ||
+    /[\p{Cc}\p{Cf}]/u.test(descriptor.value) ||
     utf8ByteLengthExceeds(descriptor.value, MAX_RELEASE_ENV_VALUE_BYTES)
   ) {
-    throw new Error(`${name} must be a non-empty NUL-free string under ${MAX_RELEASE_ENV_VALUE_BYTES} UTF-8 bytes.`);
+    throw new Error(`${name} must be a non-empty control-free string under ${MAX_RELEASE_ENV_VALUE_BYTES} UTF-8 bytes.`);
   }
   return descriptor.value;
 }

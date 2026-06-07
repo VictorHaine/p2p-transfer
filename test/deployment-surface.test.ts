@@ -221,6 +221,7 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releaseTagScript, /const MAX_RELEASE_ENV_VALUE_BYTES = 256/);
   assert.match(releaseTagScript, /await open\(file, constants\.O_RDONLY \| \(constants\.O_NOFOLLOW \?\? 0\)\)/);
   assert.match(releaseTagScript, /Object\.getOwnPropertyDescriptor\(process\.env, name\)/);
+  assert.match(releaseTagScript, /\$\{name\} must be a non-empty control-free string under \$\{MAX_RELEASE_ENV_VALUE_BYTES\} UTF-8 bytes\./);
   assert.match(releaseTagScript, /release tag does not match package version\./);
   assert.match(securityPolicy, /release tag commit must exactly match protected `main` before release artifact packaging, attestation, npm publish, or GitHub Release creation/);
   assert.match(releaseWorkflow, /fetch-depth: 0/);
@@ -229,6 +230,8 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.doesNotMatch(releaseWorkflow, /git fetch --no-tags|git merge-base --is-ancestor "\$GITHUB_SHA"/);
   assert.match(releaseMainScript, /const MAX_RELEASE_ENV_VALUE_BYTES = 256/);
   assert.match(releaseMainScript, /Object\.getOwnPropertyDescriptor\(process\.env, name\)/);
+  assert.match(releaseMainScript, /\$\{name\} must be a non-empty control-free string under \$\{MAX_RELEASE_ENV_VALUE_BYTES\} UTF-8 bytes\./);
+  assert.match(releaseMainScript, /\$\{name\} must be a non-empty control-free child environment value under \$\{MAX_CHILD_ENV_VALUE_BYTES\} UTF-8 bytes\./);
   assert.match(releaseMainScript, /import \{ spawn \} from "node:child_process"/);
   assert.match(releaseMainScript, /const child = spawn\("git", args/);
   assert.match(releaseMainScript, /stdio: "ignore"/);

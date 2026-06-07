@@ -302,14 +302,14 @@ test("release artifact verifier byte-caps release tag environment input", async 
   });
 
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /GITHUB_REF_NAME must be a non-empty NUL-free string under 256 UTF-8 bytes\./);
+  assert.match(result.stderr, /GITHUB_REF_NAME must be a non-empty control-free string under 256 UTF-8 bytes\./);
 });
 
 test("release artifact verifier does not echo mismatched release tag text", async () => {
   const result = await runVerifierInFixture({
     packageName: "p2p-transfer",
     version: "1.2.3",
-    refName: "wrong-tag\nwith-control",
+    refName: "wrong-tag",
     tarBlocks: packageJsonTarBlocks("p2p-transfer", "1.2.3", {
       endBlocks: 2
     })
@@ -318,6 +318,20 @@ test("release artifact verifier does not echo mismatched release tag text", asyn
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /release tag does not match package version 1\.2\.3\./);
   assert.doesNotMatch(result.stderr, /wrong-tag/);
+});
+
+test("release artifact verifier rejects control-bearing release tag environment input", async () => {
+  const result = await runVerifierInFixture({
+    packageName: "p2p-transfer",
+    version: "1.2.3",
+    refName: "v1.2.3\nwith-control",
+    tarBlocks: packageJsonTarBlocks("p2p-transfer", "1.2.3", {
+      endBlocks: 2
+    })
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /GITHUB_REF_NAME must be a non-empty control-free string under 256 UTF-8 bytes\./);
   assert.doesNotMatch(result.stderr, /with-control/);
 });
 

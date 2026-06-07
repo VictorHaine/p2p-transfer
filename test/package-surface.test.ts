@@ -513,7 +513,8 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseTagScript, /await lstat\(file\)[\s\S]*await open\(file, constants\.O_RDONLY \| \(constants\.O_NOFOLLOW \?\? 0\)\)[\s\S]*if \(!sameFile\(info, opened\)\)/);
   assert.match(releaseTagScript, /new TextDecoder\("utf-8", \{ fatal: true \}\)\.decode\(buffer\)/);
   assert.match(releaseTagScript, /Object\.getOwnPropertyDescriptor\(process\.env, name\)/);
-  assert.match(releaseTagScript, /\$\{name\} must be a non-empty NUL-free string under \$\{MAX_RELEASE_ENV_VALUE_BYTES\} UTF-8 bytes\./);
+  assert.match(releaseTagScript, /\/\[\\p\{Cc\}\\p\{Cf\}\]\/u\.test\(descriptor\.value\)/);
+  assert.match(releaseTagScript, /\$\{name\} must be a non-empty control-free string under \$\{MAX_RELEASE_ENV_VALUE_BYTES\} UTF-8 bytes\./);
   assert.match(releaseTagScript, /release tag does not match package version\./);
   assert.doesNotMatch(releaseTagScript, /process\.env\.GITHUB_REF_NAME|readFile\(file, "utf8"\)|String\(error\)|error\.stack|release tag \$\{value\} does not match/);
   assert.match(securityPolicy, /release tag commit must exactly match protected `main` before release artifact packaging, attestation, npm publish, or GitHub Release creation/);
@@ -524,6 +525,10 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseMainScript, /const GIT_TIMEOUT_MS = 120_000/);
   assert.match(releaseMainScript, /const CHILD_KILL_GRACE_MS = 5_000/);
   assert.match(releaseMainScript, /Object\.getOwnPropertyDescriptor\(process\.env, name\)/);
+  assert.match(releaseMainScript, /\/\[\\p\{Cc\}\\p\{Cf\}\]\/u\.test\(descriptor\.value\)/);
+  assert.match(releaseMainScript, /\/\[\\p\{Cc\}\\p\{Cf\}\]\/u\.test\(value\)/);
+  assert.match(releaseMainScript, /\$\{name\} must be a non-empty control-free string under \$\{MAX_RELEASE_ENV_VALUE_BYTES\} UTF-8 bytes\./);
+  assert.match(releaseMainScript, /\$\{name\} must be a non-empty control-free child environment value under \$\{MAX_CHILD_ENV_VALUE_BYTES\} UTF-8 bytes\./);
   assert.match(releaseMainScript, /import \{ spawn \} from "node:child_process"/);
   assert.match(releaseMainScript, /const child = spawn\("git", args/);
   assert.match(releaseMainScript, /stdio: "ignore"/);
@@ -537,7 +542,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseMainScript, /\["merge-base", "--is-ancestor", "origin\/main", sha\]/);
   assert.match(releaseMainScript, /release tag commit does not match current main\./);
   assert.doesNotMatch(releaseMainScript, /process\.env\.GITHUB_SHA|String\(error\)|error\.stack|\.\.\.process\.env/);
-  assert.match(securityPolicy, /release tag current-main matching must use the checked release main verifier with byte-capped `GITHUB_SHA`, a minimal Git child environment, ignored Git output, bidirectional ancestry checks/);
+  assert.match(securityPolicy, /release tag current-main matching must use the checked release main verifier with control-free byte-capped `GITHUB_SHA`, a control-free minimal Git child environment, ignored Git output, bidirectional ancestry checks/);
   assert.match(securityPolicy, /release main checks must signal timed-out Git subprocesses, arm a bounded `SIGKILL` fallback, and reject only after the child exits/);
   assert.match(releaseWorkflow, /pnpm install --frozen-lockfile/);
   assert.match(packageJson.scripts?.["verify:release"] ?? "", /pnpm smoke:packed && pnpm smoke:release-artifact && pnpm test:e2e/);
@@ -634,7 +639,9 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseArtifactScript, /async function writeGithubOutput\(name, value\)/);
   assert.match(releaseArtifactScript, /const outputPath = githubOutputPath\(\)/);
   assert.match(releaseArtifactScript, /function githubOutputPath\(\)/);
-  assert.match(releaseArtifactScript, /if \(\/\[\\p\{Cc\}\\p\{Cf\}\]\/u\.test\(outputPath\)\) throw new Error\("GITHUB_OUTPUT must be a non-empty control-free path\."\)/);
+  assert.match(releaseArtifactScript, /\$\{name\} must be a non-empty control-free string under \$\{maxBytes\} UTF-8 bytes\./);
+  assert.match(releaseArtifactScript, /Object\.getOwnPropertyDescriptor\(process\.env, "GITHUB_OUTPUT"\)/);
+  assert.match(releaseArtifactScript, /\/\[\\p\{Cc\}\\p\{Cf\}\]\/u\.test\(descriptor\.value\)[\s\S]*throw new Error\("GITHUB_OUTPUT must be a non-empty control-free path\."\)/);
   assert.match(releaseArtifactScript, /await handle\.writeFile\(`\$\{name\}=\$\{value\}\\n`, "utf8"\)/);
   assert.match(releaseArtifactScript, /function verifiedTarballPath\(tarball\)/);
   assert.match(releaseArtifactScript, /relative !== path\.join\("release-artifacts", tarball\.basename\)/);
