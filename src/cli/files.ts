@@ -32,6 +32,8 @@ export type ReservedOutputFile = {
   handle: fs.promises.FileHandle;
   dev: number;
   ino: number;
+  dirDev: number;
+  dirIno: number;
   resumeBytes?: number;
   resumeHash?: Sha256;
 };
@@ -40,6 +42,11 @@ type FileSnapshot = {
   dev: number;
   ino: number;
   size: number;
+};
+
+type FileIdentity = {
+  dev: number;
+  ino: number;
 };
 
 export async function buildManifest(paths: string[]): Promise<{ files: SendFile[]; manifest: FileManifest }> {
@@ -172,8 +179,10 @@ function utf8ByteLengthExceeds(value: string, maxBytes: number): boolean {
 
 export async function reserveOutputFile(dir: string, name: string, options?: { resume?: boolean; size?: number }): Promise<ReservedOutputFile> {
   const outputDir = path.resolve(outputDirInput(dir));
+  const outputDirIdentity = await directoryIdentity(outputDir);
   const safeName = safeFileName(name);
   for (let i = 0; i < MAX_OUTPUT_NAME_ATTEMPTS; i += 1) {
+    await assertDirectoryIdentity(outputDir, outputDirIdentity);
     const candidateName = safeCollisionFileName(safeName, i);
     const finalPath = path.join(outputDir, candidateName);
     try {
@@ -186,12 +195,12 @@ export async function reserveOutputFile(dir: string, name: string, options?: { r
       if (!Number.isSafeInteger(options.size) || typeof options.size !== "number" || options.size < 0 || options.size > MAX_FILE_BYTES) throw new Error("Resume file size is invalid.");
       const partPath = path.join(outputDir, await resumablePartFileName(outputDir, candidateName, options.size));
       try {
-        return await reserveExistingResumablePart(finalPath, partPath, options.size);
+        return await reserveExistingResumablePart(finalPath, partPath, outputDir, outputDirIdentity, options.size);
       } catch (error) {
         if (!isMissingPathError(error)) throw error;
       }
       try {
-        return await createOutputPart(finalPath, partPath);
+        return await createOutputPart(finalPath, partPath, outputDir, outputDirIdentity);
       } catch (error) {
         if (isNodeErrorCode(error, "EEXIST")) continue;
         throw error;
@@ -199,7 +208,7 @@ export async function reserveOutputFile(dir: string, name: string, options?: { r
     }
     const partPath = path.join(outputDir, randomPartFileName());
     try {
-      return await createOutputPart(finalPath, partPath);
+      return await createOutputPart(finalPath, partPath, outputDir, outputDirIdentity);
     } catch (error) {
       if (isNodeErrorCode(error, "EEXIST")) continue;
       throw error;
@@ -208,24 +217,35 @@ export async function reserveOutputFile(dir: string, name: string, options?: { r
   throw new Error(`Could not reserve an output name for ${safeName} after ${MAX_OUTPUT_NAME_ATTEMPTS} attempts.`);
 }
 
-async function createOutputPart(finalPath: string, partPath: string): Promise<ReservedOutputFile> {
+async function createOutputPart(finalPath: string, partPath: string, outputDir: string, outputDirIdentity: FileIdentity): Promise<ReservedOutputFile> {
+  await assertDirectoryIdentity(outputDir, outputDirIdentity);
   const handle = await fs.promises.open(partPath, "wx", 0o600);
-  const stat = await handle.stat();
-  return { finalPath, partPath, handle, dev: stat.dev, ino: stat.ino };
+  let stat: fs.Stats | undefined;
+  try {
+    stat = await handle.stat();
+    await assertDirectoryIdentity(outputDir, outputDirIdentity);
+    return { finalPath, partPath, handle, dev: stat.dev, ino: stat.ino, dirDev: outputDirIdentity.dev, dirIno: outputDirIdentity.ino };
+  } catch (error) {
+    await handle.close().catch(() => {});
+    if (stat) await removePathIfIdentity(partPath, stat).catch(() => {});
+    throw error;
+  }
 }
 
-async function reserveExistingResumablePart(finalPath: string, partPath: string, expectedSize: number): Promise<ReservedOutputFile> {
+async function reserveExistingResumablePart(finalPath: string, partPath: string, outputDir: string, outputDirIdentity: FileIdentity, expectedSize: number): Promise<ReservedOutputFile> {
+  await assertDirectoryIdentity(outputDir, outputDirIdentity);
   const handle = await fs.promises.open(partPath, RESUME_PART_FLAGS);
   try {
     const stat = await handle.stat();
     if (!stat.isFile()) throw new Error("Resume partial path is not a file.");
     assertSingleLink(stat, "Resume partial");
+    await assertDirectoryIdentity(outputDir, outputDirIdentity);
     let resumeBytes = Math.min(stat.size, expectedSize);
     if (resumeBytes < expectedSize) resumeBytes -= resumeBytes % CHUNK_SIZE;
     if (resumeBytes < 0) resumeBytes = 0;
     if (resumeBytes !== stat.size) await handle.truncate(resumeBytes);
     const resumeHash = await hashOpenFilePrefix(handle, resumeBytes);
-    return { finalPath, partPath, handle, dev: stat.dev, ino: stat.ino, resumeBytes, resumeHash };
+    return { finalPath, partPath, handle, dev: stat.dev, ino: stat.ino, dirDev: outputDirIdentity.dev, dirIno: outputDirIdentity.ino, resumeBytes, resumeHash };
   } catch (error) {
     await handle.close().catch(() => {});
     throw error;
@@ -234,6 +254,22 @@ async function reserveExistingResumablePart(finalPath: string, partPath: string,
 
 export function assertSingleLink(stat: fs.Stats, label: string): void {
   if (stat.nlink !== 1) throw new Error(`${label} has multiple hard links.`);
+}
+
+async function directoryIdentity(dir: string): Promise<FileIdentity> {
+  const stat = await fs.promises.stat(dir);
+  if (!stat.isDirectory()) throw new Error("Output path is not a directory.");
+  return { dev: stat.dev, ino: stat.ino };
+}
+
+async function assertDirectoryIdentity(dir: string, expected: FileIdentity): Promise<void> {
+  const stat = await fs.promises.stat(dir);
+  if (!stat.isDirectory() || stat.dev !== expected.dev || stat.ino !== expected.ino) throw new Error("Output directory changed during reservation.");
+}
+
+async function removePathIfIdentity(filePath: string, expected: FileIdentity): Promise<void> {
+  const stat = await fs.promises.lstat(filePath);
+  if (stat.isFile() && stat.dev === expected.dev && stat.ino === expected.ino) await fs.promises.rm(filePath, { force: true });
 }
 
 function randomPartFileName(): string {

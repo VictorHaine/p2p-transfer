@@ -335,6 +335,8 @@ type ReceiveState = {
   partPath: string;
   partDev: number;
   partIno: number;
+  dirDev: number;
+  dirIno: number;
   stream: fs.WriteStream;
   hash: Sha256;
   bytes: number;
@@ -491,7 +493,7 @@ export async function receiveFiles(
         if (files.has(message.id)) throw new Error(`Duplicate file-begin for file ${message.id}`);
         if (expected.name !== message.name || expected.size !== message.size) throw new Error(`file-begin does not match manifest for file ${message.id}`);
         assertFileWithinLimits(message.name, message.size);
-        const { finalPath, partPath, handle, dev, ino, resumeBytes = 0, resumeHash } = await reserveOutputFile(outDir, message.name, { resume, size: message.size });
+        const { finalPath, partPath, handle, dev, ino, dirDev, dirIno, resumeBytes = 0, resumeHash } = await reserveOutputFile(outDir, message.name, { resume, size: message.size });
         const state: ReceiveState = {
           id: message.id,
           name: path.basename(finalPath),
@@ -500,6 +502,8 @@ export async function receiveFiles(
           partPath,
           partDev: dev,
           partIno: ino,
+          dirDev,
+          dirIno,
           stream: handle.createWriteStream({ start: resumeBytes, autoClose: false }),
           hash: resumeHash ?? createSha256(),
           bytes: resumeBytes,
@@ -647,7 +651,7 @@ async function maybeFinalize(state: ReceiveState, control: RTCDataChannel, keys:
       await removePathIfIdentity(state.partPath, { dev: state.partDev, ino: state.partIno });
       throw new Error(`On-disk hash mismatch for ${state.name}.`);
     }
-    const publishedIdentity = await publishPartFile(state.partPath, state.finalPath, { dev: state.partDev, ino: state.partIno }, state.size);
+    const publishedIdentity = await publishPartFile(state.partPath, state.finalPath, { dev: state.partDev, ino: state.partIno }, state.size, { dev: state.dirDev, ino: state.dirIno });
     const published = await digestFilePath(state.finalPath, publishedIdentity, state.size);
     if (published !== state.expectedSha256) {
       await removePathIfIdentity(state.finalPath, publishedIdentity);
@@ -722,14 +726,16 @@ type PathIdentity = FileIdentity & {
   mode: number;
 };
 
-export async function publishPartFile(partPath: string, finalPath: string, expectedPart?: FileIdentity, expectedSize?: number): Promise<FileIdentity> {
+export async function publishPartFile(partPath: string, finalPath: string, expectedPart?: FileIdentity, expectedSize?: number, expectedDirectory?: FileIdentity): Promise<FileIdentity> {
   const safePartPath = publishPathInput(partPath, "Partial");
   const safeFinalPath = publishPathInput(finalPath, "Final");
   const safeExpectedPart = expectedPart === undefined ? undefined : fileIdentityInput(expectedPart);
   const safeExpectedSize = expectedSize === undefined ? undefined : publishExpectedSizeInput(expectedSize);
+  const safeExpectedDirectory = expectedDirectory === undefined ? undefined : fileIdentityInput(expectedDirectory);
   const partIdentity = safeExpectedPart ?? (await fileIdentity(safePartPath));
   let finalIdentity: FileIdentity | undefined;
   try {
+    if (safeExpectedDirectory) await assertDirectoryIdentity(path.dirname(safeFinalPath), safeExpectedDirectory);
     await assertPartFileIdentity(safePartPath, partIdentity, safeExpectedSize);
     try {
       finalIdentity = await linkPartFileExclusive(safePartPath, safeFinalPath, partIdentity, safeExpectedSize);
@@ -737,6 +743,7 @@ export async function publishPartFile(partPath: string, finalPath: string, expec
       if (!shouldFallbackToExclusiveCopy(error)) throw error;
       finalIdentity = await copyPartFileExclusive(safePartPath, safeFinalPath, partIdentity, safeExpectedSize);
     }
+    if (safeExpectedDirectory) await assertDirectoryIdentity(path.dirname(safeFinalPath), safeExpectedDirectory);
     await assertPublishedFileIdentity(safeFinalPath, finalIdentity, safeExpectedSize);
     await removePathIfIdentity(safePartPath, partIdentity);
     return finalIdentity;
@@ -879,6 +886,11 @@ async function assertPublishedFileIdentity(finalPath: string, expected: FileIden
   if (!sameFileIdentity(stat, expected) || (expectedSize !== undefined && stat.size !== expectedSize)) {
     throw new Error("Published path changed before verification.");
   }
+}
+
+async function assertDirectoryIdentity(dir: string, expected: FileIdentity): Promise<void> {
+  const stat = await fs.promises.stat(dir);
+  if (!stat.isDirectory() || !sameIdentity(stat, expected)) throw new Error("Output directory changed before publish.");
 }
 
 async function openPartFileNoFollow(partPath: string): Promise<fs.promises.FileHandle> {

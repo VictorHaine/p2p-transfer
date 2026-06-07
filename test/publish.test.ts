@@ -438,6 +438,53 @@ test("reserveOutputFile uses opaque deterministic CLI resume partial names", asy
   }
 });
 
+test("reserveOutputFile rejects output directory replacement during partial creation", { skip: process.platform === "win32" ? "directory replacement behavior differs on Windows." : false }, async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ff-reserve-dir-swap-"));
+  const dir = path.join(root, "out");
+  const moved = path.join(root, "moved");
+  await fs.mkdir(dir);
+  const originalOpen = fsSync.promises.open;
+  const mutablePromises = fsSync.promises as typeof fsSync.promises & { open: typeof fsSync.promises.open };
+  let swapped = false;
+  try {
+    mutablePromises.open = async (target, flags, mode) => {
+      if (!swapped && typeof target === "string" && target.startsWith(dir + path.sep) && flags === "wx") {
+        swapped = true;
+        await fs.rename(dir, moved);
+        await fs.mkdir(dir);
+      }
+      return originalOpen.call(fsSync.promises, target, flags, mode);
+    };
+
+    await assert.rejects(() => reserveOutputFile(dir, "file.txt"), /Output directory changed during reservation/);
+  } finally {
+    mutablePromises.open = originalOpen;
+  }
+
+  assert.equal(swapped, true);
+  assert.deepEqual(await fs.readdir(dir), []);
+});
+
+test("publishPartFile rejects output directory replacement before final publish", { skip: process.platform === "win32" ? "directory replacement behavior differs on Windows." : false }, async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ff-publish-dir-swap-"));
+  const dir = path.join(root, "out");
+  const moved = path.join(root, "moved");
+  await fs.mkdir(dir);
+  const reserved = await reserveOutputFile(dir, "file.txt");
+  try {
+    await reserved.handle.writeFile(Buffer.from("trusted"));
+  } finally {
+    await reserved.handle.close();
+  }
+
+  await fs.rename(dir, moved);
+  await fs.mkdir(dir);
+
+  await assert.rejects(() => publishPartFile(reserved.partPath, reserved.finalPath, reserved, "trusted".length, { dev: reserved.dirDev, ino: reserved.dirIno }), /Output directory changed before publish/);
+  await assert.rejects(() => fs.stat(path.join(dir, "file.txt")), { code: "ENOENT" });
+  assert.equal(await fs.readFile(path.join(moved, path.basename(reserved.partPath)), "utf8"), "trusted");
+});
+
 test("reserveOutputFile rejects hardlinked CLI resume partial files", { skip: process.platform === "win32" ? "hardlink behavior differs on Windows." : false }, async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-reserve-resume-hardlink-"));
   const first = await reserveOutputFile(dir, "private-name.txt", { resume: true, size: "partial".length });
@@ -550,6 +597,7 @@ test("ensureOutputDir rejects unsafe runtime values before path resolution", asy
 
 test("ensureOutputDir input policy is present in source and shipped artifacts", () => {
   assert.match(securityPolicy, /CLI receiver output-directory and reservation helpers must reject non-string, empty, oversized, or control\/format-character paths before path resolution, mkdir, lstat, open, or path joining/);
+  assert.match(securityPolicy, /reservations must carry the output directory identity through partial creation and final publish/);
   for (const source of [sourceFiles, distFiles]) {
     assert.match(source, /function outputDirInput/);
     assert.match(source, /typeof dir !== "string"/);
@@ -557,7 +605,16 @@ test("ensureOutputDir input policy is present in source and shipped artifacts", 
     assert.match(source, /MAX_OUTPUT_DIR_BYTES = 4096/);
     assert.match(source, /UNSAFE_OUTPUT_DIR_CHARS/);
     assert.match(source, /path\.resolve\(outputDirInput\(dir\)\)/);
+    assert.match(source, /const outputDirIdentity = await directoryIdentity\(outputDir\)/);
+    assert.match(source, /await assertDirectoryIdentity\(outputDir, outputDirIdentity\)/);
+    assert.match(source, /dirDev: outputDirIdentity\.dev/);
+    assert.match(source, /dirIno: outputDirIdentity\.ino/);
     assert.doesNotMatch(source, /path\.resolve\(dir\)/);
+  }
+  for (const source of [sourceTransfer, distTransfer]) {
+    assert.match(source, /expectedDirectory/);
+    assert.match(source, /await assertDirectoryIdentity\(path\.dirname\(safeFinalPath\), safeExpectedDirectory\)/);
+    assert.match(source, /Output directory changed before publish/);
   }
 });
 
