@@ -33,6 +33,7 @@ const REQUIRED_CI_CHECKS = [
   "platform smoke / windows-2025 / node 24.13.1"
 ];
 const REQUIRED_SUCCESSFUL_MAIN_WORKFLOWS = [
+  { file: "codeql.yml", name: "codeql" },
   { file: "scorecard.yml", name: "scorecard" },
   { file: "dependency-integrity.yml", name: "dependency-integrity" }
 ];

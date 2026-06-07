@@ -649,7 +649,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(contributing, /pnpm exec playwright install --with-deps chromium\npnpm verify:release\nnode scripts\/write-release-notes\.mjs --check\nDOCKER_SMOKE_TAG=p2p-transfer:test pnpm smoke:docker-policy\ngh auth refresh -h github\.com -s workflow\nGITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
   assert.match(contributing, /make sure `main` already exists on\nGitHub, then run the full release gate/);
   assert.match(securityPolicy, /local release preflight must fail before tagging when the npm package is missing, the target npm version already exists, the GitHub token lacks `workflow` scope/);
-  assert.match(securityPolicy, /current `main` commit lacks a successful Scorecard or dependency-integrity workflow run/);
+  assert.match(securityPolicy, /current `main` commit lacks a successful CodeQL, Scorecard, or dependency-integrity workflow run/);
   assert.match(securityPolicy, /the `RELEASE_PREFLIGHT_TOKEN` repository secret is missing/);
   assert.match(securityPolicy, /GitHub `npm` environment lacks required reviewers, lacks a non-self user reviewer with write, maintain, or admin repository permission, allows self-review, allows admin bypass, allows branch deployments, lacks the exact `v\*\.\*\.\*` tag deployment policy, or has the authenticated release operator or release tag pusher as its sole required reviewer/);
   assert.match(securityPolicy, /first-time npm package bootstrap must use the checked bootstrap script, publish only the minimal temporary `0\.0\.0-bootstrap\.0` package from a private temporary directory under the non-default `bootstrap` dist-tag/);
@@ -664,7 +664,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(securityPolicy, /release workflow preflight must run before dependency install through the checked Node script with an explicit `RELEASE_PREFLIGHT_TOKEN` secret/);
   assert.match(securityPolicy, /must reject classic PAT, OAuth, refresh, user, or unknown-prefix token classes in GitHub Actions before package or network work/);
   assert.match(securityPolicy, /must validate `GITHUB_ACTOR` before package reads or network work after token-class validation/);
-  assert.match(securityPolicy, /must still verify the npm package exists without the target version, remote `main`, successful Scorecard and dependency-integrity runs for current `main`, rulesets/);
+  assert.match(securityPolicy, /must still verify the npm package exists without the target version, remote `main`, successful CodeQL, Scorecard, and dependency-integrity runs for current `main`, rulesets/);
   assert.match(securityPolicy, /no branch\/tag bypass actors, required status checks, and the npm environment approval\/tag-only deployment gate before packaging/);
   assert.match(readme, /verifies the npm package already exists and the target version has not been published/);
   assert.match(readme, /pnpm bootstrap:npm --dry-run/);
@@ -710,7 +710,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /const REQUIRED_OAUTH_SCOPES = \["repo", "workflow"\]/);
   assert.match(releaseReadinessScript, /const GITHUB_ACTIONS_REQUIRED_OAUTH_SCOPES = \["repo"\]/);
   assert.match(releaseReadinessScript, /const RELEASE_PREFLIGHT_SECRET = "RELEASE_PREFLIGHT_TOKEN"/);
-  assert.match(releaseReadinessScript, /const REQUIRED_SUCCESSFUL_MAIN_WORKFLOWS = \[[\s\S]*\{ file: "scorecard\.yml", name: "scorecard" \}[\s\S]*\{ file: "dependency-integrity\.yml", name: "dependency-integrity" \}[\s\S]*\]/);
+  assert.match(releaseReadinessScript, /const REQUIRED_SUCCESSFUL_MAIN_WORKFLOWS = \[[\s\S]*\{ file: "codeql\.yml", name: "codeql" \}[\s\S]*\{ file: "scorecard\.yml", name: "scorecard" \}[\s\S]*\{ file: "dependency-integrity\.yml", name: "dependency-integrity" \}[\s\S]*\]/);
   assert.match(releaseReadinessScript, /class ReleaseReadinessFailure extends Error/);
   assert.match(releaseReadinessScript, /const token = githubToken\(\);[\s\S]*const runningInGitHubActions = envString\("GITHUB_ACTIONS"\) === "true";[\s\S]*assertReleaseWorkflowTokenClass\(token, runningInGitHubActions\);[\s\S]*const releaseActorLogin = runningInGitHubActions \? githubActor\(\) : undefined;[\s\S]*const failures = \[\]/);
   assert.match(releaseReadinessScript, /function githubActor\(\)/);
@@ -912,7 +912,9 @@ test("security-sensitive surfaces require code owner review", () => {
 test("CodeQL code scanning is pinned and least-privilege", () => {
   assert.match(securityPolicy, /CodeQL code scanning must run from a pinned workflow on pull requests, pushes to `main`, and a weekly schedule/);
   assert.match(securityPolicy, /CodeQL code scanning must[\s\S]*with only `contents: read` and `security-events: write` permissions and an explicit job timeout/);
+  assert.match(securityPolicy, /release preflight must require a successful CodeQL run for the current `main` commit before tagging/);
   assert.match(readme, /\.github\/workflows\/codeql\.yml` runs pinned CodeQL analysis/);
+  assert.match(readme, /release preflight requires a successful CodeQL run for the exact current `main` commit before tagging/);
   assert.match(codeqlWorkflow, /^name: codeql$/m);
   assert.match(codeqlWorkflow, /^on:\n  pull_request:\n  push:\n    branches:\n      - main\n  schedule:\n    - cron: "17 3 \* \* 2"$/m);
   assert.match(codeqlWorkflow, /^permissions:\n  contents: read\n  security-events: write$/m);
@@ -1253,6 +1255,9 @@ test("pull request template keeps production-sensitive verification explicit", (
 });
 
 test("README reports implemented release capabilities without stale MVP-gap language", () => {
+  assert.match(readme, /Privacy boundary: file contents and real manifests are end-to-end encrypted from the signaling server, but this is not network or endpoint opacity/);
+  assert.match(readme, /Signaling\/network observers can still see IPs, roles, timing, byte volume, traffic shape, and SDP\/ICE metadata/);
+  assert.match(readme, /privileged local MDM\/EDR administrator can still observe selected files and plaintext at the endpoint before encryption or after decryption/);
   assert.doesNotMatch(readme, /## MVP gaps/);
   assert.match(readme, /## Known limitations/);
   assert.match(readme, /Browser receive resume is exposed only through the explicit `Resume in folder` accept action/);
