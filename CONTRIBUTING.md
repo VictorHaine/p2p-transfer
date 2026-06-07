@@ -46,6 +46,8 @@ GitHub, then run the full release gate and external release prerequisite
 preflight:
 
 ```sh
+node scripts/prepare-checked-pnpm.mjs
+pnpm install --frozen-lockfile
 pnpm exec playwright install --with-deps chromium
 DOCKER_SMOKE_TAG=p2p-transfer:test pnpm verify:release:docker
 gh auth refresh -h github.com -s workflow
