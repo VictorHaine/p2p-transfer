@@ -310,6 +310,59 @@ test("built signaling server ignores late frames after a close decision", async 
   assert.doesNotMatch(serverOutput.text(), /12345682|bad-version/);
 });
 
+test("built signaling server fatal listen errors do not print stacks or arbitrary exception text", async () => {
+  const root = process.cwd();
+  const port = 25_000 + randomInt(1_000);
+  const origin = `http://127.0.0.1:${port}`;
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-server-fatal-log-"));
+  const firstTmp = path.join(tmp, "first");
+  const secondTmp = path.join(tmp, "second");
+  await fs.mkdir(firstTmp);
+  await fs.mkdir(secondTmp);
+  const firstServer = spawn(process.execPath, ["dist-node/server/index.js"], {
+    cwd: root,
+    env: {
+      ...testChildEnv(firstTmp),
+      PORT: String(port),
+      HOST: "127.0.0.1",
+      NODE_ENV: "production",
+      ALLOWED_ORIGINS: origin,
+      SIGNALING_TOPOLOGY: "single-instance",
+      ALLOW_INSECURE_ORIGINS: "true"
+    }
+  });
+  const firstOutput = collectOutput(firstServer);
+  let secondServer: ChildProcessWithoutNullStreams | undefined;
+  let secondOutput: ReturnType<typeof collectOutput> | undefined;
+
+  try {
+    await waitForOutput(firstServer, /listening/);
+    secondServer = spawn(process.execPath, ["dist-node/server/index.js"], {
+      cwd: root,
+      env: {
+        ...testChildEnv(secondTmp),
+        PORT: String(port),
+        HOST: "127.0.0.1",
+        NODE_ENV: "production",
+        ALLOWED_ORIGINS: origin,
+        SIGNALING_TOPOLOGY: "single-instance",
+        ALLOW_INSECURE_ORIGINS: "true"
+      }
+    });
+    secondOutput = collectOutput(secondServer);
+    const exitCode = await waitForProcessExit(secondServer);
+    assert.equal(exitCode, 1);
+  } finally {
+    firstServer.kill();
+    await firstOutput.done;
+    await secondOutput?.done;
+  }
+
+  const output = secondOutput?.text() ?? "";
+  assert.match(output, /ff signaling server failed: EADDRINUSE listen 127\.0\.0\.1 \d+/);
+  assert.doesNotMatch(output, /Error:| at |stack|listen EADDRINUSE: address already in use|ALLOWED_ORIGINS|SIGNALING_TOPOLOGY/);
+});
+
 function testChildEnv(tmp: string): NodeJS.ProcessEnv {
   const pathValue = requiredEnv("PATH");
   const env: NodeJS.ProcessEnv = {
@@ -411,6 +464,19 @@ function waitForWsClose(ws: WebSocket): Promise<void> {
     };
     ws.once("close", onClose);
     ws.once("error", onError);
+  });
+}
+
+function waitForProcessExit(child: ChildProcessWithoutNullStreams): Promise<number | null> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(new Error("Timed out waiting for process exit."));
+    }, 10_000);
+    child.once("exit", (code) => {
+      clearTimeout(timer);
+      resolve(code);
+    });
   });
 }
 
