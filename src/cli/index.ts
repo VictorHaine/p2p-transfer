@@ -82,7 +82,7 @@ program
   .option("--no-server-ice", "ignore signaling-provided ICE servers and use built-in public STUN only")
   .option("--json", "emit machine-readable events")
   .option("--quiet", "suppress human-readable progress output")
-  .option("--redact-output", "redact file metadata from CLI output and JSON events")
+  .option("--redact-output", "redact file metadata from CLI output, JSON events, and error text")
   .option("--no-color", "disable color output")
   .option("--verbose", "show debug details");
 

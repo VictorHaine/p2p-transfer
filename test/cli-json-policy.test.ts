@@ -21,8 +21,9 @@ test("CLI json mode emits structured sanitized error events instead of plain std
 
 test("CLI redacted output mode removes file metadata from JSON and progress events", () => {
   assert.match(securityPolicy, /CLI `--redact-output` must remove file names, MIME types, and byte counts from CLI JSON, human transfer output, and error output/);
-  assert.match(readme, /`--redact-output`: redact file names, MIME types, and byte counts/);
-  assert.match(cliSource, /\.option\("--redact-output", "redact file metadata from CLI output and JSON events"\)/);
+  assert.match(readme, /`--redact-output`: redact file names, MIME types, and byte counts from CLI output, JSON events, and error text/);
+  assert.match(readme, /CLI output is metadata-bearing by default for consent, progress, and detailed failures/);
+  assert.match(cliSource, /\.option\("--redact-output", "redact file metadata from CLI output, JSON events, and error text"\)/);
   assert.match(cliSource, /options\.redactOutput \? \{ event: "pair_requested", sid: joined\.sid, fileCount: manifest\.fileCount \} : \{ event: "pair_requested", sid: joined\.sid, files: manifest\.fileCount, totalBytes: manifest\.totalBytes \}/);
   assert.match(cliSource, /options\.redactOutput \? `Waiting for receiver to accept \$\{manifest\.fileCount\} file\(s\)\. SAS \$\{keys\.sas\}` : `Waiting for receiver to accept \$\{manifest\.fileCount\} file\(s\), \$\{formatBytes\(manifest\.totalBytes\)\}\. SAS \$\{keys\.sas\}`/);
   assert.match(cliSource, /options\.redactOutput \? \{ event: "pair_request", fileCount: manifest\.fileCount \} : \{ event: "pair_request", files: manifest\.files, totalBytes: manifest\.totalBytes \}/);

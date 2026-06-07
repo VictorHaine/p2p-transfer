@@ -123,7 +123,7 @@ Useful CLI flags:
 - `--server <url>`: use a self-hosted signaling server.
 - `--json`: emit machine-readable events.
 - `--quiet`: suppress human-readable progress.
-- `--redact-output`: redact file names, MIME types, and byte counts from CLI output and JSON events for log-collected automation.
+- `--redact-output`: redact file names, MIME types, and byte counts from CLI output, JSON events, and error text for log-collected automation.
 - `--relay`: force relay-only ICE when TURN is configured, reducing local and public endpoint candidate exposure to peers and signaling logs.
 - `--no-server-ice`: ignore signaling-provided STUN/TURN endpoints and use the built-in public STUN defaults. This reduces trust in the rendezvous operator's ICE configuration, but disables that server's TURN fallback.
 - `send --code-stdin`: read the receive code from piped stdin instead of argv.
@@ -296,7 +296,7 @@ MIT. See `LICENSE`.
 
 - A local MDM/EDR administrator can still observe selected files through endpoint controls. `send --code-stdin`, `send --code-env`, and `send --files-stdin` reduce shell-history and process-argv exposure, but they are not protection from a privileged endpoint monitor.
 - Environment variables are local process metadata. `--code-env` deletes the variable after capture, but local process telemetry or privileged observers may still see it briefly; use `--code-stdin` when you need to avoid both argv and environment exposure.
-- CLI output is metadata-bearing by default for consent and progress. Use `--redact-output` for log-collected automation; it does not hide metadata from the peer, the endpoint, or the network.
+- CLI output is metadata-bearing by default for consent, progress, and detailed failures. Use `--redact-output` for log-collected automation; it does not hide metadata from the peer, the endpoint, or the network.
 - Browsers without File System Access support can only receive transfers up to the 128 MiB Blob fallback cap.
 - Browser folder receives cannot get CLI-style exclusive create from File System Access, so every browser-created folder entry must carry an unguessable `ff-<128-bit>` reservation token; data streams to opaque tokenized `.part` entries and publishes a final tokenized name only after hash verification.
 - Browser receive resume is exposed only through the explicit `Resume in folder` accept action. It preserves opaque tokenized `.part` files on failure and can resume a later matching manifest only when the same browser profile still has the saved opaque partial record and browser-held lookup key, and the user selects a folder containing that entry. Browser startup and registry reads scrub legacy metadata-bearing resume records so saved records do not retain plaintext filenames, MIME types, or sizes. Without that saved browser state, or when using the Blob download fallback, browser receive starts fresh. This is intentionally narrower than CLI `recv --resume` because File System Access does not provide CLI-style path identity and atomic publish primitives.
