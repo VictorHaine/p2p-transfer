@@ -249,6 +249,7 @@ async function reserveExistingResumablePart(finalPath: string, partPath: string,
     const stat = await handle.stat();
     if (!stat.isFile()) throw new Error("Resume partial path is not a file.");
     assertSingleLink(stat, "Resume partial");
+    assertPrivatePartialStat(stat);
     await assertDirectoryIdentity(outputDir, outputDirIdentity);
     let resumeBytes = Math.min(stat.size, expectedSize);
     if (resumeBytes < expectedSize) resumeBytes -= resumeBytes % CHUNK_SIZE;
@@ -264,6 +265,10 @@ async function reserveExistingResumablePart(finalPath: string, partPath: string,
 
 export function assertSingleLink(stat: fs.Stats, label: string): void {
   if (stat.nlink !== 1) throw new Error(`${label} has multiple hard links.`);
+}
+
+export function assertPrivatePartialStat(stat: fs.Stats): void {
+  if (process.platform !== "win32" && (stat.mode & 0o077) !== 0) throw new Error("Resume partial is not private.");
 }
 
 async function directoryIdentity(dir: string): Promise<FileIdentity> {

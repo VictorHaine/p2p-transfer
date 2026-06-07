@@ -41,6 +41,7 @@ const dockerPublishScript = fs.readFileSync(new URL("../scripts/publish-docker-i
 const dockerConfigScript = fs.readFileSync(new URL("../scripts/docker-config.mjs", import.meta.url), "utf8");
 const nativeSmokeScript = fs.readFileSync(new URL("../scripts/smoke-native.mjs", import.meta.url), "utf8");
 const installStateScript = fs.readFileSync(new URL("../scripts/check-install-state.mjs", import.meta.url), "utf8");
+const cryptoDependencyCheckScript = fs.readFileSync(new URL("../scripts/check-crypto-dependencies.mjs", import.meta.url), "utf8");
 const checkedPnpmScript = fs.readFileSync(new URL("../scripts/prepare-checked-pnpm.mjs", import.meta.url), "utf8");
 const cliCryptoDependenciesSource = fs.readFileSync(new URL("../src/cli/crypto-dependencies.ts", import.meta.url), "utf8");
 const cliDependencyMetadataSource = fs.readFileSync(new URL("../src/cli/dependency-metadata.ts", import.meta.url), "utf8");
@@ -245,6 +246,7 @@ test("package publishing config keeps provenance and reproducible dependency pin
     "pnpm@11.1.3+sha512.c85357fe17ca12dd23dd7071822666dfd7e3cb76fe214e3370b5ea2fb34f2a231185509b63e717f3cd0acb38dd3f8d82bcd5e8172400ae678b70ea4fbed0896d"
   );
   assert.deepEqual(packageJson.publishConfig, { access: "public", provenance: true });
+  assert.match(packageJson.scripts?.build ?? "", /^node --import tsx scripts\/check-crypto-dependencies\.mjs && /);
   assert.equal(packageJson.scripts?.prepack, "pnpm build");
   assert.equal(packageJson.scripts?.prepublishOnly, "node scripts/guard-direct-publish.mjs");
   assert.equal(packageJson.scripts?.check, "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.test.json");
@@ -266,6 +268,9 @@ test("package publishing config keeps provenance and reproducible dependency pin
   assert.match(securityPolicy, /installed-state verification must resolve the project root from the checked script location, use a symlink-safe realpath entrypoint check, avoid filesystem verification side effects when imported, and use verifier-owned top-level failure reporting/);
   assert.match(securityPolicy, /installed-state verification must byte-cap, no-follow-open, identity-check, mutation-metadata-check, handle-read, and fatal-UTF-8-decode package and lockfile evidence/);
   assert.match(securityPolicy, /runtime crypto and native WebRTC dependency attestation must byte-cap, no-follow-open, identity-check, mutation-metadata-check, handle-read, and fatal-UTF-8-decode dependency package metadata before accepting installed package identity/);
+  assert.match(securityPolicy, /browser and CLI builds must run the reviewed crypto dependency attestation before producing production artifacts/);
+  assert.match(cryptoDependencyCheckScript, /assertReviewedCryptoDependencies\(\)/);
+  assert.match(cryptoDependencyCheckScript, /Reviewed cryptographic dependency metadata is not installed\./);
   assert.match(cliDependencyMetadataSource, /const MAX_PACKAGE_JSON_BYTES = 128 \* 1024/);
   assert.match(cliDependencyMetadataSource, /lstatSync\(file\)/);
   assert.match(cliDependencyMetadataSource, /openSync\(file, constants\.O_RDONLY \| noFollowFlag\(\)\)/);
@@ -1335,7 +1340,7 @@ test("critical PAKE dependency identity and install surface stay reviewed", () =
   assert.match(cliCryptoDependenciesSource, /name: "@noble\/hashes",\n    version: "1\.8\.0"/);
   assert.match(cliCryptoDependenciesSource, /name: "@noble\/hashes",\n    version: "2\.2\.0"/);
   assert.match(cliCryptoDependenciesSource, /allowedScripts: \{[\s\S]*prepublishOnly:/);
-  assert.match(cliCryptoDependenciesSource, /REVIEWED_SCRIPT_SURFACE = \["preinstall", "install", "postinstall", "prepare", "prepublishOnly"\]/);
+  assert.match(cliCryptoDependenciesSource, /REVIEWED_SCRIPT_SURFACE = \["preinstall", "install", "postinstall", "prepare", "prepublish", "prepublishOnly"\]/);
   assert.match(cliCryptoDependenciesSource, /function assertReviewedDependencyEvidence/);
   assert.match(cliCryptoDependenciesSource, /function assertReviewedScripts/);
   assert.match(cliCryptoDependenciesSource, /function assertRequiredExports/);

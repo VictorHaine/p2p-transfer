@@ -75,7 +75,7 @@ const REVIEWED_CRYPTO_DEPENDENCIES = {
     }
   }
 } as const;
-const REVIEWED_SCRIPT_SURFACE = ["preinstall", "install", "postinstall", "prepare", "prepublishOnly"] as const;
+const REVIEWED_SCRIPT_SURFACE = ["preinstall", "install", "postinstall", "prepare", "prepublish", "prepublishOnly"] as const;
 
 export type ReviewedDependency = {
   name: string;

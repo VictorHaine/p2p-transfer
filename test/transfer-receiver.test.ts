@@ -139,6 +139,31 @@ test("CLI receiver rejects hardlinked resume partials before restart truncation"
   assert.equal((await fs.stat(linkedPath)).size, CHUNK_SIZE);
 });
 
+test("CLI receiver rejects non-private resume partials before restart truncation", { skip: process.platform === "win32" ? "POSIX permissions required." : false }, async () => {
+  const { senderKeys, receiverKeys } = await makeKeys("resume-receive-restart-public");
+  const outDir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-recv-resume-public-restart-"));
+  const stalePrefix = Buffer.alloc(CHUNK_SIZE, 1);
+  const payload = Buffer.concat([Buffer.alloc(CHUNK_SIZE, 2), new TextEncoder().encode("fresh-tail")]);
+  const partial = await reserveOutputFile(outDir, "resume.bin", { resume: true, size: payload.byteLength });
+  await partial.handle.writeFile(stalePrefix);
+  await partial.handle.close();
+  const control = fakeChannel();
+  const bulk = fakeChannel();
+  const acceptedManifest = { fileCount: 1, totalBytes: payload.byteLength, files: [{ id: 0, name: "resume.bin", size: payload.byteLength }] };
+  const receive = receiveFiles(control, bulk, receiverKeys, outDir, false, true, undefined, acceptedManifest, true);
+
+  await control.emit(await seal(senderKeys, { t: "manifest", files: [{ id: 0, name: "resume.bin", size: payload.byteLength }], totalBytes: payload.byteLength }));
+  await control.emit(await seal(senderKeys, { t: "file-begin", id: 0, name: "resume.bin", size: payload.byteLength }));
+  const staleReady = await firstSealedControl(control, senderKeys, "ready");
+  assert.deepEqual(staleReady, { t: "ready", id: 0, offset: CHUNK_SIZE, prefixSha256: sha256Hex(stalePrefix) });
+
+  await fs.chmod(partial.partPath, 0o644);
+  await control.emit(await seal(senderKeys, { t: "restart", id: 0 }));
+
+  await assert.rejects(receive, /Resume partial is not private/);
+  assert.equal((await fs.stat(partial.partPath)).size, CHUNK_SIZE);
+});
+
 test("CLI receiver tolerates all-done before bulk chunks drain across DataChannels", async () => {
   const { senderKeys, receiverKeys } = await makeKeys("cross-channel-order");
   const outDir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-recv-cross-channel-"));

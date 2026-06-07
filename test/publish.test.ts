@@ -24,7 +24,7 @@ test("publishPartFile atomically refuses to overwrite an existing file", async (
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-publish-existing-"));
   const partPath = path.join(dir, "file.txt.part");
   const finalPath = path.join(dir, "file.txt");
-  await fs.writeFile(partPath, "new");
+  await fs.writeFile(partPath, "new", { mode: 0o600 });
   await fs.writeFile(finalPath, "existing");
 
   await assert.rejects(() => publishPartFile(partPath, finalPath), { code: "EEXIST" });
@@ -48,7 +48,7 @@ test("publishPartFile publishes a completed part file and removes the part path"
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-publish-ok-"));
   const partPath = path.join(dir, "file.txt.part");
   const finalPath = path.join(dir, "file.txt");
-  await fs.writeFile(partPath, "contents");
+  await fs.writeFile(partPath, "contents", { mode: 0o600 });
 
   const identity = await publishPartFile(partPath, finalPath);
 
@@ -67,7 +67,7 @@ test("publishPartFile removes the final output if partial cleanup fails", { skip
   await fs.mkdir(finalDir);
   const partPath = path.join(partDir, "file.txt.part");
   const finalPath = path.join(finalDir, "file.txt");
-  await fs.writeFile(partPath, "contents");
+  await fs.writeFile(partPath, "contents", { mode: 0o600 });
   await fs.chmod(partDir, 0o555);
 
   try {
@@ -203,7 +203,7 @@ test("publishPartFile fallback copies from a verified partial file handle", asyn
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-publish-copy-fallback-"));
   const partPath = path.join(dir, "file.txt.part");
   const finalPath = path.join(dir, "file.txt");
-  await fs.writeFile(partPath, "contents");
+  await fs.writeFile(partPath, "contents", { mode: 0o600 });
   const originalLink = fsSync.promises.link;
   try {
     fsSync.promises.link = async () => {
@@ -226,7 +226,7 @@ test("publishPartFile fallback refuses a final path swapped after copy", async (
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-publish-copy-final-swap-"));
     const partPath = path.join(dir, "file.txt.part");
     const finalPath = path.join(dir, "file.txt");
-    await fs.writeFile(partPath, "trusted");
+    await fs.writeFile(partPath, "trusted", { mode: 0o600 });
     const originalLink = fsSync.promises.link;
     const originalOpen = fsSync.promises.open;
     let wrappedTarget = false;
@@ -581,13 +581,40 @@ test("reserveOutputFile rejects hardlinked CLI resume partial files", { skip: pr
   assert.equal(await fs.readFile(linkedPath, "utf8"), "partial");
 });
 
-test("CLI resume partial hardlink policy is documented and enforced", () => {
-  assert.match(securityPolicy, /resumable partial files must reject multiple hard links before hashing, truncation, or restart truncation/);
+test("reserveOutputFile rejects non-private CLI resume partial files", { skip: process.platform === "win32" ? "POSIX permissions required." : false }, async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-reserve-resume-public-"));
+  const first = await reserveOutputFile(dir, "private-name.txt", { resume: true, size: "partial".length });
+  try {
+    await first.handle.writeFile(Buffer.from("partial"));
+  } finally {
+    await first.handle.close();
+  }
+  await fs.chmod(first.partPath, 0o644);
+
+  await assert.rejects(() => reserveOutputFile(dir, "private-name.txt", { resume: true, size: "partial".length }), /Resume partial is not private/);
+  assert.equal(await fs.readFile(first.partPath, "utf8"), "partial");
+});
+
+test("publishPartFile rejects non-private partial files", { skip: process.platform === "win32" ? "POSIX permissions required." : false }, async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-publish-public-part-"));
+  const partPath = path.join(dir, "file.txt.part");
+  const finalPath = path.join(dir, "file.txt");
+  await fs.writeFile(partPath, "secret", { mode: 0o600 });
+  await fs.chmod(partPath, 0o644);
+
+  await assert.rejects(() => publishPartFile(partPath, finalPath), /Resume partial is not private/);
+  await assert.rejects(() => fs.stat(finalPath), { code: "ENOENT" });
+  assert.equal(await fs.readFile(partPath, "utf8"), "secret");
+});
+
+test("CLI resume partial privacy policy is documented and enforced", () => {
+  assert.match(securityPolicy, /resumable partial files must reject multiple hard links and non-private POSIX mode bits before hashing, truncation, restart truncation, or publish/);
   assert.match(securityPolicy, /partial and resume-secret creation must use exclusive no-follow creation flags/);
   assert.match(securityPolicy, /newly created resume secrets must be verified as private, fixed-size, and single-link before keying resumable names/);
   assert.match(securityPolicy, /resume secret file must reject multiple hard links before keying resumable names/);
   for (const source of [sourceFiles, distFiles]) {
     assert.match(source, /function assertSingleLink\(stat/);
+    assert.match(source, /function assertPrivatePartialStat\(stat/);
     assert.match(source, /const SAFE_PART_CREATE_FLAGS = fs\.constants\.O_CREAT \| fs\.constants\.O_EXCL \| fs\.constants\.O_WRONLY \| fs\.constants\.O_NOFOLLOW \| fs\.constants\.O_NONBLOCK/);
     assert.match(source, /const SAFE_SECRET_CREATE_FLAGS = fs\.constants\.O_CREAT \| fs\.constants\.O_EXCL \| fs\.constants\.O_WRONLY \| fs\.constants\.O_NOFOLLOW \| fs\.constants\.O_NONBLOCK/);
     assert.match(source, /fs\.promises\.open\(partPath, SAFE_PART_CREATE_FLAGS, 0o600\)/);
@@ -600,6 +627,7 @@ test("CLI resume partial hardlink policy is documented and enforced", () => {
   }
   for (const source of [sourceTransfer, distTransfer]) {
     assert.match(source, /assertSingleLink\(stat, "Resume partial"\)/);
+    assert.match(source, /assertPrivatePartialStat\(stat\)/);
   }
 });
 

@@ -68,6 +68,7 @@ test("CLI crypto dependency attestation rejects changed reviewed metadata", asyn
 
   assert.doesNotThrow(() => assertReviewedDependencyEvidence(packageEvidence(packageJson), reviewed));
   assert.throws(() => assertReviewedDependencyEvidence(packageEvidence({ ...packageJson, scripts: { ...packageJson.scripts, postinstall: "node install.js" } }), reviewed), /metadata/);
+  assert.throws(() => assertReviewedDependencyEvidence(packageEvidence({ ...packageJson, scripts: { ...packageJson.scripts, prepublish: "node publish.js" } }), reviewed), /metadata/);
   assert.throws(() => assertReviewedDependencyEvidence(packageEvidence({ ...packageJson, exports: { ".": packageJson.exports["."] } }), reviewed), /metadata/);
   assert.throws(() => assertReviewedDependencyEvidence(packageEvidence({ ...packageJson, dependencies: { "@scope/dep": "^4.5.6" } }), reviewed), /metadata/);
   assert.throws(() => assertReviewedDependencyEvidence(packageEvidence({ ...packageJson, optionalDependencies: { "@scope/extra": "1.0.0" } }), reviewed), /metadata/);

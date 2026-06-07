@@ -10,7 +10,7 @@ import { assertFileWithinLimits, assertManifestWithinLimits, assertTransferManif
 import { sanitizeDisplayText, sanitizeStructuredOutput } from "../shared/output-safety.js";
 import { openBulk, openControl, sealBulk, sealControl, type SessionKeys } from "../shared/security.js";
 import { abortControlMessage, assertControlMessage, assertSenderControlMessage, assertTransferManifestMatchesAccepted, remoteAbortError, type TransferManifest, type ControlMessage } from "../shared/transfer.js";
-import { assertSingleLink, closeSendFiles, reserveOutputFile } from "./files.js";
+import { assertPrivatePartialStat, assertSingleLink, closeSendFiles, reserveOutputFile } from "./files.js";
 import type { SendFile } from "./files.js";
 import type { FileManifest } from "../shared/messages.js";
 import { safeErrorMessage } from "./exit-codes.js";
@@ -631,6 +631,7 @@ async function restartReceiveState(state: ReceiveState): Promise<void> {
     const stat = await handle.stat();
     if (!stat.isFile() || !sameIdentity(stat, { dev: state.partDev, ino: state.partIno })) throw new Error(`Resume partial changed before restart for ${state.name}.`);
     assertSingleLink(stat, "Resume partial");
+    assertPrivatePartialStat(stat);
     await handle.truncate(0);
     state.stream = handle.createWriteStream({ start: 0, autoClose: false });
     state.hash = createSha256();
@@ -947,6 +948,7 @@ async function assertPartFileIdentity(partPath: string, expected: FileIdentity, 
   if (!sameFileIdentity(stat, expected) || (expectedSize !== undefined && stat.size !== expectedSize)) {
     throw new Error("Partial file changed before publish.");
   }
+  assertPrivatePartialStat(stat);
 }
 
 async function fileIdentity(filePath: string): Promise<FileIdentity> {
