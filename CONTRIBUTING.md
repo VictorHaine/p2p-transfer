@@ -30,12 +30,13 @@ pnpm smoke:packed
 For release-sensitive or protocol-sensitive changes, also run:
 
 ```sh
-pnpm smoke:release-artifact
-pnpm smoke:docker-policy
 pnpm test:e2e
 pnpm test:browser
 pnpm security:audit
 pnpm security:signatures
+node scripts/write-release-notes.mjs --check
+pnpm smoke:release-artifact
+pnpm smoke:docker-policy
 ```
 
 Do not set `FF_ALLOW_BROWSER_TEST_SKIP=true` for release, browser, deployment, or protocol changes; that variable is only for intentionally skipping browser coverage in unrelated local work.

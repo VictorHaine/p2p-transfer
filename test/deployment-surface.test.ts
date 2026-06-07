@@ -343,7 +343,7 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releasePublishJob, /timeout-minutes: 20/);
   assert.match(releaseGitHubReleaseJob, /timeout-minutes: 10/);
   assert.match(packageJson.scripts?.["verify:release"] ?? "", /pnpm check:install-state && pnpm security:dependencies && pnpm build/);
-  assert.match(packageJson.scripts?.["verify:release"] ?? "", /pnpm smoke:release-artifact && node scripts\/write-release-notes\.mjs --check && pnpm test:e2e/);
+  assert.match(packageJson.scripts?.["verify:release"] ?? "", /pnpm test:e2e && pnpm test:browser && pnpm security:audit && pnpm security:signatures && node scripts\/write-release-notes\.mjs --check && pnpm smoke:release-artifact/);
   assert.match(readme, /`pnpm verify:release` runs the full non-Docker local release gate, checks version-scoped release notes, and runs `pnpm security:dependencies` before the build/);
   assert.match(readme, /`pnpm verify:release:docker` runs that same gate plus the hardened Docker policy smoke/);
   assert.match(releaseVerifyJob, /pnpm check:install-state[\s\S]*pnpm security:dependencies[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed[\s\S]*pnpm test:e2e[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures/);
@@ -660,7 +660,7 @@ test("checked GitHub release controls setup matches the protected release surfac
     "repository security controls must be enabled before mutating the npm environment"
   );
 
-  assert.match(readme, /create the `npm` environment[\s\S]*required reviewers with self-review prevention/);
+  assert.match(readme, /use the checked release-control setup script below to create or update the `npm` environment[\s\S]*required reviewers with self-review prevention/);
   assert.match(readme, /reviewer with write, maintain, or admin repository permission/);
   assert.match(readme, /scripts\/configure-github-release-controls\.mjs --apply --npm-reviewer <release-approver-login>/);
   assert.match(readme, /creates\/updates the `npm` environment approval gate with self-review prevention, admin bypass disabled, and `v\*\.\*\.\*` tag-only deployment/);
@@ -1091,7 +1091,7 @@ test("documented release gates require a hardened Docker runtime smoke, not just
   assert.match(readme, /Build from source:[\s\S]*node scripts\/prepare-checked-pnpm\.mjs\npnpm install --frozen-lockfile\npnpm build\npnpm test/);
   assert.doesNotMatch(readme, /Build from source:[\s\S]*```sh\npnpm install\n/);
   assert.match(contributing, /## Local Setup[\s\S]*node scripts\/prepare-checked-pnpm\.mjs\npnpm install --frozen-lockfile\npnpm exec playwright install --with-deps chromium\npnpm verify:local/);
-  assert.match(contributing, /For release-sensitive or protocol-sensitive changes, also run:[\s\S]*pnpm smoke:release-artifact[\s\S]*pnpm smoke:docker-policy[\s\S]*pnpm test:e2e[\s\S]*pnpm test:browser[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures/);
+  assert.match(contributing, /For release-sensitive or protocol-sensitive changes, also run:[\s\S]*pnpm test:e2e[\s\S]*pnpm test:browser[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures[\s\S]*node scripts\/write-release-notes\.mjs --check[\s\S]*pnpm smoke:release-artifact[\s\S]*pnpm smoke:docker-policy/);
   assert.match(securityPolicy, /packed-install checks on Linux x64, Linux arm64, macOS arm64, macOS Intel, and Windows x64 for every supported Node major/);
   assert.match(securityPolicy, /packs the verified npm tarball with lifecycle scripts disabled after the explicit verified build/);
   assert.match(securityPolicy, /derives the expected packed tarball name from the checked package name and exact semver version before writing `SBOM\.cdx\.json` and `SHA256SUMS`/);

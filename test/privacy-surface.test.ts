@@ -132,6 +132,14 @@ test("README documents endpoint-visible local path and browser filename limits",
   assert.match(readme, /browser DOM previews, browser download behavior, final output names/);
 });
 
+test("browser clears sensitive DOM transfer metadata after operations", () => {
+  assert.match(webSource, /function clearBrowserSendSecrets\(\): void \{[\s\S]*sendCode\.value = "";\n\s+sendLog\.textContent = "";/);
+  assert.match(webSource, /function clearBrowserReceiveSecrets\(\): void \{[\s\S]*codeBox\.textContent = "";\n\s+codeBox\.hidden = true;\n\s+clearBrowserPairRequest\(\);/);
+  assert.match(webSource, /function clearBrowserPairRequest\(\): void \{[\s\S]*requestBox\.replaceChildren\(\);\n\s+requestBox\.hidden = true;/);
+  assert.match(webSource, /sendFromBrowser\(\)[\s\S]*finally \{[\s\S]*clearBrowserSendSecrets\(\);[\s\S]*\}/);
+  assert.match(webSource, /receiveInBrowser\(\)[\s\S]*finally \{[\s\S]*clearBrowserReceiveSecrets\(\);[\s\S]*\}/);
+});
+
 test("CLI opaque output names avoid peer basenames in final receive paths", () => {
   const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
   const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");

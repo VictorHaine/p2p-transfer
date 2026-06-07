@@ -477,7 +477,7 @@ async function resolveSendInputs(code: string | undefined, files: string[], opti
     if (files.length === 0) throw new Error("Choose at least one file.");
     rejectSensitiveSendArgv(options, true, true);
     warnSensitiveSendArgv(options);
-    return { code, files };
+    return { code, files: validateSendPathInputs(files) };
   }
 
   if (options.codeStdin && options.filesStdin) {
@@ -487,7 +487,7 @@ async function resolveSendInputs(code: string | undefined, files: string[], opti
     const resolvedCode = stdinLines.shift();
     if (!resolvedCode) throw new Error("Receiver code is required.");
     if (stdinLines.length === 0) throw new Error("Choose at least one file.");
-    return { code: resolvedCode, files: stdinLines };
+    return { code: resolvedCode, files: validateSendPathInputs(stdinLines) };
   }
 
   let resolvedCode: string | undefined;

@@ -117,6 +117,8 @@ test("browser sender revalidates transfer manifests at the send boundary", () =>
     webSource,
     /const sendPlan = await buildBrowserSendPlan\(files\);[\s\S]*const manifest = browserSendPlanManifest\(sendPlan\);[\s\S]*keys = await establishBrowserKeys\(signaling, joined\.sid, "sender", parsedCode\.handle\);[\s\S]*setLog\(sendLog, `SAS \$\{keys\.sas\}`\);[\s\S]*const sealedManifest = await sealManifest\(keys, manifest\);[\s\S]*signaling\.send\(\{ type: "pair-request", sid: joined\.sid, manifest: redactManifest\(manifest\), sealedManifest \}\)/
   );
+  assert.match(webSource, /function clearBrowserSendSecrets\(\): void \{[\s\S]*sendCode\.value = "";\n\s+sendLog\.textContent = "";/);
+  assert.match(webSource, /sendFromBrowser\(\)[\s\S]*finally \{[\s\S]*clearBrowserSendSecrets\(\);[\s\S]*\}/);
   assert.match(
     webSource,
     /const safeSendPlan = browserSendPlanInput\(sendPlan\);[\s\S]*const transferManifest = browserSendPlanManifest\(safeSendPlan\);[\s\S]*await sendControl\(control, keys, \{[\s\S]*t: "manifest",[\s\S]*files: transferFiles,/
@@ -351,9 +353,11 @@ test("browser folder picker cancel keeps the accept gate pending", () => {
 
   assert.match(securityPolicy, /cancelling the browser folder picker must keep the accept gate pending/);
   assert.match(promptBody, /const pickerStatus = document\.createElement\("p"\);[\s\S]*pickerStatus\.hidden = true;/);
-  assert.match(promptBody, /const chooseDirectory = async \(resumeChoice: boolean\) => \{[\s\S]*resolve\(\{ accepted: true, directory: await window\.showDirectoryPicker!\(\), resume: resumeChoice, opaqueNames: opaqueOutputNames \}\);[\s\S]*catch \{[\s\S]*pickerStatus\.textContent = "Folder selection cancelled\.";[\s\S]*requestBox\.hidden = false;[\s\S]*setPickerButtonsDisabled\(false\);[\s\S]*\}/);
+  assert.match(promptBody, /const chooseDirectory = async \(resumeChoice: boolean\) => \{[\s\S]*const directory = await window\.showDirectoryPicker!\(\);[\s\S]*clearBrowserPairRequest\(\);[\s\S]*resolve\(\{ accepted: true, directory, resume: resumeChoice, opaqueNames: opaqueOutputNames \}\);[\s\S]*catch \{[\s\S]*pickerStatus\.textContent = "Folder selection cancelled\.";[\s\S]*requestBox\.hidden = false;[\s\S]*setPickerButtonsDisabled\(false\);[\s\S]*\}/);
   assert.match(promptBody, /folderButton\.onclick = async \(\) => \{[\s\S]*await chooseDirectory\(false\);[\s\S]*\};/);
   assert.match(promptBody, /resumeButton\.onclick = async \(\) => \{[\s\S]*await chooseDirectory\(true\);[\s\S]*\};/);
+  assert.match(promptBody, /acceptButton\.onclick = \(\) => \{[\s\S]*clearBrowserPairRequest\(\);[\s\S]*resolve\(\{ accepted: true, resume: false, opaqueNames: opaqueOutputNames \}\);[\s\S]*\};/);
+  assert.match(promptBody, /declineButton\.onclick = \(\) => \{[\s\S]*clearBrowserPairRequest\(\);[\s\S]*resolve\(\{ accepted: false \}\);[\s\S]*\};/);
   assert.equal(promptBody.match(/resolve\(\{ accepted: false \}\)/g)?.length, 1);
 });
 

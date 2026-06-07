@@ -331,7 +331,7 @@ test("package publishing config keeps provenance and reproducible dependency pin
   assert.equal(packageJson.scripts?.["verify:local"], "pnpm check:install-state && pnpm security:dependencies && pnpm build && pnpm check && pnpm test:unit && pnpm smoke:native && pnpm smoke:packed");
   assert.equal(
     packageJson.scripts?.["verify:release"],
-    "pnpm check:install-state && pnpm security:dependencies && pnpm build && pnpm check && pnpm test:unit && pnpm smoke:native && pnpm smoke:packed && pnpm smoke:release-artifact && node scripts/write-release-notes.mjs --check && pnpm test:e2e && pnpm test:browser && pnpm security:audit && pnpm security:signatures"
+    "pnpm check:install-state && pnpm security:dependencies && pnpm build && pnpm check && pnpm test:unit && pnpm smoke:native && pnpm smoke:packed && pnpm test:e2e && pnpm test:browser && pnpm security:audit && pnpm security:signatures && node scripts/write-release-notes.mjs --check && pnpm smoke:release-artifact"
   );
   assert.equal(packageJson.scripts?.["verify:release:docker"], "pnpm verify:release && pnpm smoke:docker-policy");
   assert.equal(packageJson.scripts?.test, "pnpm build && pnpm test:unit && pnpm test:e2e && pnpm test:browser");
@@ -721,7 +721,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(securityPolicy, /release tag current-main matching must use the checked release main verifier with control-free byte-capped `GITHUB_SHA`, a control-free minimal Git child environment that ignores global and system Git config and disables terminal prompts, ignored Git output, bidirectional ancestry checks/);
   assert.match(securityPolicy, /release main checks must signal timed-out Git subprocesses, arm a bounded `SIGKILL` fallback, and reject only after the child exits/);
   assert.match(releaseWorkflow, /pnpm install --frozen-lockfile/);
-  assert.match(packageJson.scripts?.["verify:release"] ?? "", /pnpm smoke:packed && pnpm smoke:release-artifact && node scripts\/write-release-notes\.mjs --check && pnpm test:e2e/);
+  assert.match(packageJson.scripts?.["verify:release"] ?? "", /pnpm smoke:packed && pnpm test:e2e && pnpm test:browser && pnpm security:audit && pnpm security:signatures && node scripts\/write-release-notes\.mjs --check && pnpm smoke:release-artifact/);
   assert.equal(packageJson.scripts?.["verify:release:docker"], "pnpm verify:release && pnpm smoke:docker-policy");
   assert.match(releaseArtifactSmokeScript, /const pnpm = process\.platform === "win32" \? "pnpm\.cmd" : "pnpm"/);
   assert.match(releaseArtifactSmokeScript, /import \{ spawn \} from "node:child_process"/);
@@ -792,7 +792,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(dockerPublishScript, /env: \{ \.\.\.safeChildEnv\(\), \.\.\.\(options\.env \?\? \{\}\) \}/);
   assert.doesNotMatch(dockerPublishScript, /env: \{ \.\.\.process\.env|DOCKER_HOST|DOCKER_CONTEXT|NPM_TOKEN|NODE_AUTH_TOKEN/);
   assert.doesNotMatch(releaseWorkflow, /corepack prepare pnpm@/);
-  assert.match(releaseWorkflow, /pnpm check:install-state[\s\S]*pnpm security:dependencies[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed[\s\S]*pnpm test:e2e[\s\S]*pnpm test:browser[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures/);
+  assert.match(releaseWorkflow, /pnpm check:install-state[\s\S]*pnpm security:dependencies[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed[\s\S]*pnpm test:e2e[\s\S]*pnpm test:browser[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures[\s\S]*Verify release notes[\s\S]*pack release artifact/);
   assert.match(releaseWorkflow, /Verify release notes[\s\S]*node scripts\/write-release-notes\.mjs --check[\s\S]*pack release artifact[\s\S]*node scripts\/smoke-release-artifact\.mjs --keep-artifacts/);
   assert.doesNotMatch(releaseWorkflow, /pack release artifact[\s\S]*(rm -rf release-artifacts|mkdir -p release-artifacts|pnpm --config\.ignore-scripts=true pack --pack-destination release-artifacts|node scripts\/write-release-checksum\.mjs)/);
   assert.match(releaseSbomScript, /spawn\(pnpm, \["sbom", "--sbom-format", "cyclonedx", "--prod", "--sbom-type", "application"\]/);

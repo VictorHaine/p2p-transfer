@@ -335,6 +335,7 @@ async function sendFromBrowser(): Promise<void> {
     wipeSessionKeys(keys);
     pc?.close();
     signaling?.close();
+    clearBrowserSendSecrets();
   }
 }
 
@@ -415,6 +416,7 @@ async function receiveInBrowser(): Promise<void> {
     wipeSessionKeys(keys);
     pc?.close();
     signaling?.close();
+    clearBrowserReceiveSecrets();
   }
 }
 
@@ -1222,7 +1224,9 @@ async function promptForBrowserAccept(manifest: FileManifest, sas: string, requi
       setPickerButtonsDisabled(true);
       requestBox.hidden = true;
       try {
-        resolve({ accepted: true, directory: await window.showDirectoryPicker!(), resume: resumeChoice, opaqueNames: opaqueOutputNames });
+        const directory = await window.showDirectoryPicker!();
+        clearBrowserPairRequest();
+        resolve({ accepted: true, directory, resume: resumeChoice, opaqueNames: opaqueOutputNames });
       } catch {
         pickerStatus.textContent = "Folder selection cancelled.";
         pickerStatus.hidden = false;
@@ -1232,7 +1236,7 @@ async function promptForBrowserAccept(manifest: FileManifest, sas: string, requi
     };
     if (acceptButton) {
       acceptButton.onclick = () => {
-        requestBox.hidden = true;
+        clearBrowserPairRequest();
         resolve({ accepted: true, resume: false, opaqueNames: opaqueOutputNames });
       };
     }
@@ -1247,10 +1251,26 @@ async function promptForBrowserAccept(manifest: FileManifest, sas: string, requi
       };
     }
     declineButton.onclick = () => {
-      requestBox.hidden = true;
+      clearBrowserPairRequest();
       resolve({ accepted: false });
     };
   });
+}
+
+function clearBrowserSendSecrets(): void {
+  sendCode.value = "";
+  sendLog.textContent = "";
+}
+
+function clearBrowserReceiveSecrets(): void {
+  codeBox.textContent = "";
+  codeBox.hidden = true;
+  clearBrowserPairRequest();
+}
+
+function clearBrowserPairRequest(): void {
+  requestBox.replaceChildren();
+  requestBox.hidden = true;
 }
 
 function makeButton(id: string, label: string, className?: string): HTMLButtonElement {

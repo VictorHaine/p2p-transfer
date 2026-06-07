@@ -138,10 +138,12 @@ test("CLI send supports non-argv code and file path input", () => {
     assert.match(source, /const ENV_NAME_PATTERN = \/\^\[A-Za-z_\]/);
     assert.match(source, /const UNSAFE_OUTPUT_DIR_ENV_CHARS = \/\[\\p\{Cc\}\\p\{Cf\}\]\/u/);
     assert.match(source, /function resolveSendInputs/);
+    assert.match(source, /return \{ code, files: validateSendPathInputs\(files\) \};/);
+    assert.match(source, /return \{ code: resolvedCode, files: validateSendPathInputs\(stdinLines\) \};/);
     assert.match(source, /resolvedFiles = validateSendPathInputs\(resolvedFiles\)/);
     assert.match(source, /const SEND_ARGV_TELEMETRY_WARNING = "Warning: receiver codes or local file paths passed as arguments can be captured by shell history, process lists, or endpoint telemetry\. Use --code-stdin\/--code-env and --files-stdin for private input\."/);
     assert.match(source, /const RECV_ARGV_TELEMETRY_WARNING = "Warning: receive codes or output directories passed as arguments can be captured by shell history, process lists, or endpoint telemetry\. Use --code-stdin\/--code-env and --out-env for private input\."/);
-    assert.match(source, /warnSensitiveSendArgv\(options\);[\s\S]*return \{ code, files \};/);
+    assert.match(source, /warnSensitiveSendArgv\(options\);[\s\S]*return \{ code, files: validateSendPathInputs\(files\) \};/);
     assert.match(source, /const codeFromArgv = !options\.codeStdin && options\.codeEnv === undefined && code !== undefined && code !== "-"/);
     assert.match(source, /const filesFromArgv = !options\.filesStdin && resolvedFiles\.length > 0/);
     assert.match(source, /if \(codeFromArgv \|\| filesFromArgv\) \{[\s\S]*rejectSensitiveSendArgv\(options, codeFromArgv, filesFromArgv\);[\s\S]*warnSensitiveSendArgv\(options\);[\s\S]*\}/);

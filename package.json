@@ -42,7 +42,7 @@
     "bootstrap:npm": "node scripts/bootstrap-npm-package.mjs",
     "release:preflight": "node scripts/check-release-readiness.mjs",
     "verify:local": "pnpm check:install-state && pnpm security:dependencies && pnpm build && pnpm check && pnpm test:unit && pnpm smoke:native && pnpm smoke:packed",
-    "verify:release": "pnpm check:install-state && pnpm security:dependencies && pnpm build && pnpm check && pnpm test:unit && pnpm smoke:native && pnpm smoke:packed && pnpm smoke:release-artifact && node scripts/write-release-notes.mjs --check && pnpm test:e2e && pnpm test:browser && pnpm security:audit && pnpm security:signatures",
+    "verify:release": "pnpm check:install-state && pnpm security:dependencies && pnpm build && pnpm check && pnpm test:unit && pnpm smoke:native && pnpm smoke:packed && pnpm test:e2e && pnpm test:browser && pnpm security:audit && pnpm security:signatures && node scripts/write-release-notes.mjs --check && pnpm smoke:release-artifact",
     "verify:release:docker": "pnpm verify:release && pnpm smoke:docker-policy",
     "test": "pnpm build && pnpm test:unit && pnpm test:e2e && pnpm test:browser",
     "test:unit": "node --import tsx --test test/*.test.ts",

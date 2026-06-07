@@ -320,7 +320,7 @@ git remote add origin https://github.com/VictorHaine/p2p-transfer.git
 
 In GitHub:
 
-- create the `npm` environment used by `.github/workflows/release.yml`, add required reviewers with self-review prevention, disable admin bypass, and restrict deployments to the `v*.*.*` tag policy before publishing
+- use the checked release-control setup script below to create or update the `npm` environment used by `.github/workflows/release.yml`, add required reviewers with self-review prevention, disable admin bypass, and restrict deployments to the `v*.*.*` tag policy before publishing; only configure it manually as a fallback when the script reports an unsupported GitHub API response, then rerun the script and release preflight
 - ensure the `npm` environment has at least one reviewer with write, maintain, or admin repository permission other than the person or token owner that will push the release tag; a sole self-reviewer deadlocks the publish job, and read-only collaborators cannot approve the environment
 - enable private vulnerability reporting; the checked release-control setup enables it with the GitHub `private-vulnerability-reporting` endpoint, and release preflight verifies that endpoint reports enabled before tagging
 - enable dependency vulnerability alerts, repository secret scanning, secret scanning push protection, and Dependabot security updates; the checked release-control setup enables and re-reads those repository security controls, verifies the dedicated Dependabot status is unpaused, and release preflight reads GitHub `security_and_analysis`, `vulnerability-alerts`, and `automated-security-fixes` endpoints so tagging fails if any feature is disabled, paused, or hidden from the release token
