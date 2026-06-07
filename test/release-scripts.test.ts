@@ -1008,6 +1008,7 @@ const log = process.env.FF_MOCK_GITHUB_LOG;
 const requiredChecks = ${JSON.stringify(REQUIRED_RELEASE_CHECKS)};
 let environmentUpdated = false;
 let deploymentCreated = false;
+let vulnerabilityAlertsEnabled = false;
 let privateReportingEnabled = false;
 let repositorySecurityEnabled = false;
 let rulesetPosts = 0;
@@ -1100,6 +1101,11 @@ globalThis.fetch = async (url, init = {}) => {
     ]);
     return json(200, []);
   }
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/vulnerability-alerts") return new Response(null, { status: vulnerabilityAlertsEnabled ? 204 : 404 });
+  if (method === "PUT" && path === "/repos/VictorHaine/p2p-transfer/vulnerability-alerts") {
+    vulnerabilityAlertsEnabled = true;
+    return new Response(null, { status: 204 });
+  }
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/private-vulnerability-reporting") return json(200, { enabled: privateReportingEnabled });
   if (method === "PUT" && path === "/repos/VictorHaine/p2p-transfer/private-vulnerability-reporting") {
     privateReportingEnabled = true;
@@ -1170,7 +1176,10 @@ globalThis.fetch = async (url, init = {}) => {
       "GET /users/approver",
       "GET /repos/VictorHaine/p2p-transfer/environments/npm",
       "GET /repos/VictorHaine/p2p-transfer/rulesets?includes_parents=false",
+      "GET /repos/VictorHaine/p2p-transfer/vulnerability-alerts",
       "GET /repos/VictorHaine/p2p-transfer/private-vulnerability-reporting",
+      "PUT /repos/VictorHaine/p2p-transfer/vulnerability-alerts",
+      "GET /repos/VictorHaine/p2p-transfer/vulnerability-alerts",
       "PUT /repos/VictorHaine/p2p-transfer/private-vulnerability-reporting",
       "GET /repos/VictorHaine/p2p-transfer/private-vulnerability-reporting",
       "PATCH /repos/VictorHaine/p2p-transfer",
@@ -1189,10 +1198,10 @@ globalThis.fetch = async (url, init = {}) => {
       "GET /repos/VictorHaine/p2p-transfer/rulesets/101",
       "GET /repos/VictorHaine/p2p-transfer/rulesets/202"
     ]);
-    assert.equal(requests.length, 25);
-    const repositoryPatch = requests[10];
-    const environmentPut = requests[14];
-    const deploymentPolicyPost = requests[18];
+    assert.equal(requests.length, 28);
+    const repositoryPatch = requests[13];
+    const environmentPut = requests[17];
+    const deploymentPolicyPost = requests[21];
     assert.ok(repositoryPatch);
     assert.ok(environmentPut);
     assert.ok(deploymentPolicyPost);
@@ -1263,6 +1272,7 @@ globalThis.fetch = async (url, init = {}) => {
     ]);
     return json(200, []);
   }
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/vulnerability-alerts") return new Response(null, { status: 204 });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/private-vulnerability-reporting") return json(200, { enabled: true });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/automated-security-fixes") return json(200, { enabled: true, paused: false });
   if (method === "POST" && path === "/repos/VictorHaine/p2p-transfer/rulesets") {
@@ -1347,6 +1357,7 @@ globalThis.fetch = async (url, init = {}) => {
     deployment_branch_policy: { protected_branches: false, custom_branch_policies: true }
   });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/rulesets?includes_parents=false") return json(200, []);
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/vulnerability-alerts") return new Response(null, { status: 204 });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/private-vulnerability-reporting") return json(200, { enabled: true });
   if (method === "PATCH" && path === "/repos/VictorHaine/p2p-transfer") return json(200, {});
   if (method === "PUT" && path === "/repos/VictorHaine/p2p-transfer/automated-security-fixes") return new Response(null, { status: 204 });
@@ -1412,6 +1423,7 @@ globalThis.fetch = async (url, init = {}) => {
     deployment_branch_policy: { protected_branches: false, custom_branch_policies: true }
   });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/rulesets?includes_parents=false") return json(200, []);
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/vulnerability-alerts") return new Response(null, { status: 204 });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/private-vulnerability-reporting") return json(200, { enabled: true });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/automated-security-fixes") return json(200, { enabled: true, paused: true });
   if (method === "PUT" && path === "/repos/VictorHaine/p2p-transfer/environments/npm") return json(500, { message: "environment must not be touched" });
@@ -1491,6 +1503,7 @@ globalThis.fetch = async (url, init = {}) => {
     });
   }
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/rulesets?includes_parents=false") return json(200, []);
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/vulnerability-alerts") return new Response(null, { status: 204 });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/private-vulnerability-reporting") return json(200, { enabled: true });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/automated-security-fixes") return json(200, { enabled: true, paused: false });
   if (method === "PUT" && path === "/repos/VictorHaine/p2p-transfer/environments/npm") {
@@ -1561,6 +1574,7 @@ globalThis.fetch = async (url, init = {}) => {
     deployment_branch_policy: { protected_branches: false, custom_branch_policies: true }
   });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/rulesets?includes_parents=false") return json(200, []);
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/vulnerability-alerts") return new Response(null, { status: 204 });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/private-vulnerability-reporting") return json(200, { enabled: true });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/automated-security-fixes") return json(200, { enabled: true, paused: false });
   if (method === "PUT" && path === "/repos/VictorHaine/p2p-transfer/environments/npm") return json(200, {
@@ -1686,6 +1700,7 @@ globalThis.fetch = async (url, init = {}) => {
   if (method === "GET" && path === "/user") return json(200, { login: "operator" }, { "x-oauth-scopes": "repo" });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer") return json(200, { id: 1 });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/automated-security-fixes") return json(200, { enabled: true, paused: true });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/vulnerability-alerts") return new Response(null, { status: 404 });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/private-vulnerability-reporting") return json(200, { enabled: false });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/branches/main") return json(404, { message: "raw main branch API body" });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/actions/secrets/RELEASE_PREFLIGHT_TOKEN") return json(404, { message: "raw secret API body" });
@@ -1720,6 +1735,7 @@ globalThis.fetch = async (url, init = {}) => {
     assert.match(result.stderr, /GitHub token is missing workflow scope\. Run `gh auth refresh -h github\.com -s workflow`, then rerun release preflight\./);
     assert.match(result.stderr, /GitHub repository security analysis status was missing\./);
     assert.match(result.stderr, /GitHub repository Dependabot security updates must not be paused\./);
+    assert.match(result.stderr, /GitHub dependency vulnerability alerts must be enabled\./);
     assert.match(result.stderr, /GitHub private vulnerability reporting must be enabled\./);
     assert.match(result.stderr, /Remote main branch is missing\. Push main before releasing\./);
     assert.match(result.stderr, /GitHub Actions secret RELEASE_PREFLIGHT_TOKEN is missing\./);
@@ -2037,6 +2053,7 @@ globalThis.fetch = async (url, init = {}) => {
   if (method === "GET" && path === "/user") return json(200, { login: "operator" }, { "x-oauth-scopes": "repo" });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer") return json(200, { id: 1, security_and_analysis: ${JSON.stringify(ENABLED_SECURITY_AND_ANALYSIS)} });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/automated-security-fixes") return json(200, { enabled: true, paused: false });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/vulnerability-alerts") return new Response(null, { status: 204 });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/private-vulnerability-reporting") return json(200, { enabled: true });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/branches/main") return json(200, { name: "main", commit: { sha: mainSha } });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/actions/workflows/codeql.yml/runs?branch=main&per_page=1") {
@@ -2164,6 +2181,7 @@ globalThis.fetch = async (url, init = {}) => {
   if (method === "GET" && path === "/user") return json(200, { login: "operator" }, { "x-oauth-scopes": "repo" });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer") return json(200, { id: 1, security_and_analysis: ${JSON.stringify(ENABLED_SECURITY_AND_ANALYSIS)} });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/automated-security-fixes") return json(200, { enabled: true, paused: false });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/vulnerability-alerts") return new Response(null, { status: 204 });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/private-vulnerability-reporting") return json(200, { enabled: true });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/branches/main") return json(200, { name: "main", commit: { sha: mainSha } });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/actions/workflows/codeql.yml/runs?branch=main&per_page=1") {
@@ -2310,6 +2328,7 @@ globalThis.fetch = async (url, init = {}) => {
   if (method === "GET" && path === "/user") return json(200, { login: "operator" }, { "x-oauth-scopes": "repo" });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer") return json(200, { id: 1, security_and_analysis: securityAndAnalysis() });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/automated-security-fixes") return json(200, { enabled: true, paused: false });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/vulnerability-alerts") return new Response(null, { status: 204 });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/private-vulnerability-reporting") return json(200, { enabled: true });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/branches/main") return json(200, { name: "main", commit: { sha: mainSha } });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/actions/workflows/codeql.yml/runs?branch=main&per_page=1") {

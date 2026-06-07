@@ -118,6 +118,8 @@ async function collectGitHubRepositoryReadiness(failures, token, repository, aut
     assertDependabotAutomatedSecurityFixes(await github(token, "GET", `/repos/${repository}/automated-security-fixes`));
   });
 
+  await collectReadinessFailure(failures, () => assertDependencyVulnerabilityAlerts(token, repository));
+
   await collectReadinessFailure(failures, async () => {
     assertPrivateVulnerabilityReporting(await github(token, "GET", `/repos/${repository}/private-vulnerability-reporting`));
   });
@@ -385,6 +387,15 @@ function assertDependabotAutomatedSecurityFixes(status) {
   }
   if (!status.enabled) throw new Error("GitHub repository Dependabot security updates must be enabled.");
   if (status.paused) throw new Error("GitHub repository Dependabot security updates must not be paused.");
+}
+
+async function assertDependencyVulnerabilityAlerts(token, repository) {
+  await github(token, "GET", `/repos/${repository}/vulnerability-alerts`).catch((error) => {
+    if (error instanceof GitHubApiError && error.status === 404) {
+      throw new Error("GitHub dependency vulnerability alerts must be enabled.");
+    }
+    throw error;
+  });
 }
 
 function assertSecurityAnalysisFeature(security, key, message) {
