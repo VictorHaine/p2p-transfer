@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { appendFile, lstat, open, rm } from "node:fs/promises";
+import { lstat, open, rm } from "node:fs/promises";
 import { chmodSync, constants, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -14,6 +14,7 @@ const MAX_PACKAGE_JSON_BYTES = 128 * 1024;
 const MAX_ENV_VALUE_BYTES = 8_192;
 const MAX_TOKEN_BYTES = 32 * 1024;
 const MAX_OUTPUT_BYTES = 1024 * 1024;
+const MAX_GITHUB_OUTPUT_BYTES = 1024 * 1024;
 const COMMAND_TIMEOUT_MS = 120_000;
 const PUSH_TIMEOUT_MS = 300_000;
 const SMOKE_TIMEOUT_MS = 420_000;
@@ -150,7 +151,18 @@ async function writeGithubOutput(values) {
   if (file === undefined) return;
   if (!path.isAbsolute(file)) throw new Error("GitHub output path is invalid.");
   const lines = Object.entries(values).map(([name, value]) => `${name}=${value}\n`).join("");
-  await appendFile(file, lines, { encoding: "utf8" });
+  const info = await lstat(file);
+  if (!info.isFile()) throw new Error("GitHub output path is invalid.");
+  if (info.size > MAX_GITHUB_OUTPUT_BYTES) throw new Error("GitHub output file is too large.");
+  const handle = await open(file, constants.O_WRONLY | constants.O_APPEND | (constants.O_NOFOLLOW ?? 0));
+  try {
+    const opened = await handle.stat();
+    if (!opened.isFile() || !sameFile(info, opened)) throw new Error("GitHub output path is invalid.");
+    if (opened.size > MAX_GITHUB_OUTPUT_BYTES) throw new Error("GitHub output file is too large.");
+    await handle.writeFile(lines, "utf8");
+  } finally {
+    await handle.close();
+  }
 }
 
 function requiredEnvString(name, maxBytes = MAX_ENV_VALUE_BYTES) {
