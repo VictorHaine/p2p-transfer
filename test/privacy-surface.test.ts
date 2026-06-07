@@ -11,11 +11,21 @@ const sharedTransferSource = fs.readFileSync(new URL("../src/shared/transfer.ts"
 const distWebBundle = readDistWebBundle();
 
 test("server logging stays operational and does not log signaling payload fields", () => {
+  const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
   const logCalls = [...serverSource.matchAll(/console\.(?:log|error|warn)\(([^)]*)\)/g)].map((match) => match[1] ?? "");
   assert.equal(logCalls.length, 4);
   for (const call of logCalls) {
     assert.doesNotMatch(call, /\b(?:message|payload|manifest|sealedManifest|pake|tag|sdp|candidate|code|sid|reason|peer|ip)\b/i);
   }
+  assert.match(securityPolicy, /server operational logs must not include signaling payloads, receiver codes, session ids, peer identifiers, peer IPs, arbitrary exception messages, or stack traces/);
+  const summaryBody = extractFunctionBody(serverSource, "operationalErrorSummary");
+  assert.match(summaryBody, /ownErrorData\(error, "code"\)/);
+  assert.match(summaryBody, /ownErrorData\(error, "syscall"\)/);
+  assert.match(summaryBody, /ownErrorData\(error, "address"\)/);
+  assert.match(summaryBody, /ownErrorData\(error, "port"\)/);
+  assert.match(summaryBody, /ownErrorData\(error, "name"\)/);
+  assert.doesNotMatch(summaryBody, /error\.message|error\.stack|String\(error\)|String\(/);
+  assert.match(serverSource, /function ownErrorData\(error: unknown, key: string\): unknown \{[\s\S]*Object\.getOwnPropertyDescriptor\(error, key\)/);
 });
 
 test("honest clients do not send raw local exception messages through signaling bye reasons", () => {
