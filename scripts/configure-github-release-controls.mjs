@@ -8,6 +8,7 @@ const MAIN_RULESET_NAME = "p2p-transfer: protect main";
 const TAG_RULESET_NAME = "p2p-transfer: protect release tags";
 const NPM_ENVIRONMENT = "npm";
 const REPOSITORY_ADMIN_ROLE_BYPASS_ACTOR_ID = 5;
+const GITHUB_ACTIONS_INTEGRATION_ID = 15368;
 const MAX_NPM_ENVIRONMENT_REVIEWERS = 6;
 const MAX_ENV_VALUE_BYTES = 4_096;
 const MAX_GITHUB_API_RESPONSE_BYTES = 1024 * 1024;
@@ -120,7 +121,7 @@ function mainRuleset() {
         parameters: {
           do_not_enforce_on_create: true,
           strict_required_status_checks_policy: true,
-          required_status_checks: REQUIRED_CI_CHECKS.map((context) => ({ context }))
+          required_status_checks: REQUIRED_CI_CHECKS.map((context) => ({ context, integration_id: GITHUB_ACTIONS_INTEGRATION_ID }))
         }
       }
     ]

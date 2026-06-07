@@ -12,7 +12,10 @@
 /src/shared/messages.ts @VictorHaine
 /src/shared/chunks.ts @VictorHaine
 /src/shared/transfer.ts @VictorHaine
+/src/cli/crypto-dependencies.ts @VictorHaine
 /src/cli/files.ts @VictorHaine
+/src/cli/native-webrtc.ts @VictorHaine
+/src/cli/rtc.ts @VictorHaine
 /src/cli/secure.ts @VictorHaine
 /src/cli/transfer.ts @VictorHaine
 /src/server/ @VictorHaine

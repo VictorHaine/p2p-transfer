@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -46,6 +46,7 @@ export function assertReviewedNativeWebRtcDependencies(): void {
   try {
     const wrtc = packageEvidenceFromResolvedFile(requireFromCli.resolve("@roamhq/wrtc"));
     assertEvidence(wrtc, REVIEWED_NATIVE_WEBRTC_DEPENDENCIES.wrtc);
+    assertNoLocalNativeBuildOutputs(wrtc.root);
     const requireFromWrtc = createRequire(path.join(wrtc.root, "package.json"));
 
     const prebuiltName = reviewedPlatformPrebuiltName();
@@ -57,6 +58,15 @@ export function assertReviewedNativeWebRtcDependencies(): void {
     verified = true;
   } catch {
     throw new Error("Reviewed native WebRTC dependency versions are not installed.");
+  }
+}
+
+function assertNoLocalNativeBuildOutputs(packageRoot: string): void {
+  const entries = readdirSync(packageRoot, { withFileTypes: true });
+  for (const entry of entries) {
+    if (entry.isDirectory() && /^build-[a-z0-9_-]+$/u.test(entry.name)) {
+      throw new Error("Native WebRTC package contains unreviewed local build outputs.");
+    }
   }
 }
 

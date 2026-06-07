@@ -153,6 +153,7 @@ Useful CLI flags:
 - `recv --code <code>`: use a supplied code like `12345678-two-words` instead of generating one.
 - `recv --code-stdin` / `recv --code-env <name>`: provide that supplied receive code without putting it directly in argv. Supplied receive codes are not reprinted in the CLI registered event or human output.
 - `recv --resume`: keep failed CLI partials and resume a later attempt from the last verified chunk boundary. The final SHA-256 still has to match before publish.
+  CLI resume also keeps a private `.ff-resume-key` in the output directory so resumable `.part` file names stay opaque; delete that key together with stale `ff-resume-*.part` files to reset local resume state.
 
 The browser client has matching ICE controls in the header. `Relay only` sets WebRTC `iceTransportPolicy` to `relay`, which requires TURN and may reduce connectivity, but avoids exposing direct host/server-reflexive ICE candidates to the peer.
 For sensitive browser receives, enable `Folder only` before starting receive. It requires the File System Access API and streams to folder-backed partial files instead of the memory-backed Blob download fallback.

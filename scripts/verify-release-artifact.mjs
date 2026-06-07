@@ -609,6 +609,7 @@ function verifySbomProductionInventory(document, expected) {
   if (!Array.isArray(dependencies) || dependencies.length !== expected.graph.size) throwSbomInventoryMismatch();
   const seenRefs = new Set();
   const allowedRefs = new Set(expected.graph.keys());
+  const rootDirectRefs = new Set(expected.graph.get(expected.rootPurl));
   for (const dependency of dependencies) {
     if (!isPlainRecord(dependency)) throwSbomInventoryMismatch();
     const ref = ownValue(dependency, "ref");
@@ -617,7 +618,11 @@ function verifySbomProductionInventory(document, expected) {
     if (!Array.isArray(dependsOn)) throwSbomInventoryMismatch();
     const actual = canonicalSbomRefArray(dependsOn);
     if (actual.some((value) => !allowedRefs.has(value))) throwSbomInventoryMismatch();
-    if (ref === expected.rootPurl && JSON.stringify(actual) !== JSON.stringify(expected.graph.get(ref))) throwSbomInventoryMismatch();
+    const expectedDependsOn = expected.graph.get(ref);
+    if (!expectedDependsOn) throwSbomInventoryMismatch();
+    const comparableActual = ref === expected.rootPurl ? actual : actual.filter((value) => !rootDirectRefs.has(value));
+    const comparableExpected = ref === expected.rootPurl ? expectedDependsOn : expectedDependsOn.filter((value) => !rootDirectRefs.has(value));
+    if (JSON.stringify(comparableActual) !== JSON.stringify(comparableExpected)) throwSbomInventoryMismatch();
     seenRefs.add(ref);
   }
   if (seenRefs.size !== expected.graph.size || !seenRefs.has(expected.rootPurl)) throwSbomInventoryMismatch();

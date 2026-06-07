@@ -360,6 +360,8 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(githubReleaseControlsScript, /const TAG_RULESET_NAME = "p2p-transfer: protect release tags"/);
   assert.match(githubReleaseControlsScript, /const NPM_ENVIRONMENT = "npm"/);
   assert.match(githubReleaseControlsScript, /const REPOSITORY_ADMIN_ROLE_BYPASS_ACTOR_ID = 5/);
+  assert.match(githubReleaseControlsScript, /const GITHUB_ACTIONS_INTEGRATION_ID = 15368/);
+  assert.match(releaseReadinessScript, /const GITHUB_ACTIONS_INTEGRATION_ID = 15368/);
   assert.match(githubReleaseControlsScript, /const MAX_NPM_ENVIRONMENT_REVIEWERS = 6/);
   assert.match(githubReleaseControlsScript, /const MAX_ENV_VALUE_BYTES = 4_096/);
   assert.match(githubReleaseControlsScript, /function githubToken\(\)/);
@@ -406,7 +408,7 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(githubReleaseControlsScript, /conditions: \{ ref_name: \{ include: \["refs\/heads\/main"\], exclude: \[\] \} \}/);
   assert.match(githubReleaseControlsScript, /conditions: \{ ref_name: \{ include: \["refs\/tags\/v\*"\], exclude: \[\] \} \}/);
   assert.match(githubReleaseControlsScript, /type: "pull_request"[\s\S]*require_code_owner_review: true[\s\S]*require_last_push_approval: true[\s\S]*required_approving_review_count: 1[\s\S]*required_review_thread_resolution: true/);
-  assert.match(githubReleaseControlsScript, /type: "required_status_checks"[\s\S]*do_not_enforce_on_create: true[\s\S]*strict_required_status_checks_policy: true[\s\S]*required_status_checks: REQUIRED_CI_CHECKS\.map\(\(context\) => \(\{ context \}\)\)/);
+  assert.match(githubReleaseControlsScript, /type: "required_status_checks"[\s\S]*do_not_enforce_on_create: true[\s\S]*strict_required_status_checks_policy: true[\s\S]*required_status_checks: REQUIRED_CI_CHECKS\.map\(\(context\) => \(\{ context, integration_id: GITHUB_ACTIONS_INTEGRATION_ID \}\)\)/);
   assert.match(githubReleaseControlsScript, /bypass_actors: \[\{ actor_type: "RepositoryRole", actor_id: REPOSITORY_ADMIN_ROLE_BYPASS_ACTOR_ID, bypass_mode: "always" \}\]/);
   assert.match(githubReleaseControlsScript, /type: "creation"[\s\S]*type: "deletion"[\s\S]*type: "non_fast_forward"/);
   assert.doesNotMatch(githubReleaseControlsScript, /tag_name_pattern/);
@@ -575,6 +577,8 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /assertBoolean\(pullRequestParameters\.require_last_push_approval, true/);
   assert.match(releaseReadinessScript, /pullRequestParameters\.required_approving_review_count !== 1/);
   assert.match(releaseReadinessScript, /assertStatusContexts\(statusParameters\.required_status_checks, REQUIRED_CI_CHECKS, MAIN_RULESET_NAME\)/);
+  assert.match(releaseReadinessScript, /entry\.integration_id !== GITHUB_ACTIONS_INTEGRATION_ID/);
+  assert.match(releaseReadinessScript, /required status checks are not pinned to GitHub Actions/);
   assert.match(releaseReadinessScript, /"codeql analyze"/);
   assert.match(releaseReadinessScript, /"dependency review"/);
   assert.match(releaseReadinessScript, /function assertTagRuleset\(ruleset\)/);
@@ -621,7 +625,10 @@ test("security-sensitive surfaces require code owner review", () => {
     "/src/shared/messages.ts",
     "/src/shared/chunks.ts",
     "/src/shared/transfer.ts",
+    "/src/cli/crypto-dependencies.ts",
     "/src/cli/files.ts",
+    "/src/cli/native-webrtc.ts",
+    "/src/cli/rtc.ts",
     "/src/cli/secure.ts",
     "/src/cli/transfer.ts",
     "/src/server/",

@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
 import { constants, realpathSync } from "node:fs";
-import { lstat, open, rm } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, open, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { safeChildEnv } from "./smoke-packed.mjs";
+import { isolatedChildEnv } from "./smoke-packed.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const artifactDir = path.join(root, "release-artifacts");
@@ -27,15 +28,29 @@ async function main() {
   const options = parseArgs(process.argv.slice(2));
   const packageJson = parsePackageMetadata(await readBoundedRegularFile(path.join(root, "package.json"), MAX_PACKAGE_JSON_BYTES, "package metadata"));
   const version = requiredVersion(packageJson.version);
+  const tmp = await mkdtemp(path.join(tmpdir(), "ff-release-artifact-smoke-"));
+  const childEnv = await privateReleaseArtifactEnv(path.join(tmp, "home"));
   await rm(artifactDir, { recursive: true, force: true });
   try {
-    await run(pnpm, ["--config.ignore-scripts=true", "pack", "--pack-destination", "release-artifacts"], {}, "release artifact pack");
-    await run(process.execPath, ["scripts/write-release-sbom.mjs"], {}, "release SBOM generation");
-    await run(process.execPath, ["scripts/write-release-checksum.mjs"], {}, "release checksum generation");
-    await run(process.execPath, ["scripts/verify-release-artifact.mjs"], { GITHUB_REF_NAME: `v${version}` }, "release artifact verification");
+    await run(pnpm, ["--config.ignore-scripts=true", "pack", "--pack-destination", "release-artifacts"], childEnv, {}, "release artifact pack");
+    await run(process.execPath, ["scripts/write-release-sbom.mjs"], childEnv, {}, "release SBOM generation");
+    await run(process.execPath, ["scripts/write-release-checksum.mjs"], childEnv, {}, "release checksum generation");
+    await run(process.execPath, ["scripts/verify-release-artifact.mjs"], childEnv, { GITHUB_REF_NAME: `v${version}` }, "release artifact verification");
   } finally {
     if (!options.keepArtifacts) await rm(artifactDir, { recursive: true, force: true }).catch(() => undefined);
+    await rm(tmp, { recursive: true, force: true }).catch(() => undefined);
   }
+}
+
+async function privateReleaseArtifactEnv(homeDir) {
+  const env = isolatedChildEnv(homeDir);
+  await mkdir(homeDir, { recursive: true, mode: 0o700 });
+  await mkdir(env.XDG_CONFIG_HOME, { recursive: true, mode: 0o700 });
+  await mkdir(env.PNPM_HOME, { recursive: true, mode: 0o700 });
+  await mkdir(env.COREPACK_HOME, { recursive: true, mode: 0o700 });
+  await mkdir(env.LOCALAPPDATA, { recursive: true, mode: 0o700 });
+  await mkdir(env.APPDATA, { recursive: true, mode: 0o700 });
+  return env;
 }
 
 function parseArgs(args) {
@@ -108,11 +123,11 @@ function parsePackageMetadata(bytes) {
   }
 }
 
-function run(command, args, env, label) {
+function run(command, args, childEnv, env, label) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: root,
-      env: { ...safeChildEnv(), ...env },
+      env: { ...childEnv, ...env },
       stdio: "ignore"
     });
     let settled = false;

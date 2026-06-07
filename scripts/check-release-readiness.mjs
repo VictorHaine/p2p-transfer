@@ -11,6 +11,7 @@ const MAIN_RULESET_NAME = "p2p-transfer: protect main";
 const TAG_RULESET_NAME = "p2p-transfer: protect release tags";
 const NPM_ENVIRONMENT = "npm";
 const REPOSITORY_ADMIN_ROLE_BYPASS_ACTOR_ID = 5;
+const GITHUB_ACTIONS_INTEGRATION_ID = 15368;
 const REQUIRED_OAUTH_SCOPES = ["repo", "workflow"];
 const REQUIRED_CI_CHECKS = [
   "verify",
@@ -401,7 +402,16 @@ function assertBoolean(actual, expected, description) {
 
 function assertStatusContexts(actual, expected, name) {
   if (!Array.isArray(actual)) throw new Error(`${name} required status checks are invalid.`);
-  const contexts = actual.map((entry) => entry?.context).filter((context) => typeof context === "string");
+  const contexts = [];
+  for (const entry of actual) {
+    if (!entry || typeof entry !== "object" || typeof entry.context !== "string") {
+      throw new Error(`${name} required status checks are invalid.`);
+    }
+    if (entry.integration_id !== GITHUB_ACTIONS_INTEGRATION_ID) {
+      throw new Error(`${name} required status checks are not pinned to GitHub Actions.`);
+    }
+    contexts.push(entry.context);
+  }
   assertArrayIncludesExactly(contexts, expected, `${name} required status checks`);
 }
 

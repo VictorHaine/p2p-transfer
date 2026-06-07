@@ -88,6 +88,7 @@ test("CLI transfer progress sanitizes labels at the output sink", () => {
 test("CLI redacted error output does not render transfer exception metadata", () => {
   const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
   assert.match(securityPolicy, /CLI `--redact-output` must remove file names, MIME types, and byte counts from CLI JSON, human transfer output, and error output/);
+  assert.match(cliSource, /--redact-output", "redact file names, MIME types, and byte counts from CLI output, JSON events, and error text"/);
   for (const source of [cliSource, distCliSource]) {
     const printErrorBody = extractFunctionBody(source, "printError");
     assert.match(printErrorBody, /options\.redactOutput \? redactedErrorMessage\(code\) : redactLocalPathEvidence\(safeErrorMessage\(error\)\)/);

@@ -97,6 +97,26 @@ test("release artifact verifier rejects SBOMs that disconnect direct WebSocket d
   assert.doesNotMatch(result.stderr, /ws@8\.20\.1|WebSocket/);
 });
 
+test("release artifact verifier rejects SBOMs that omit transitive dependency edges", async () => {
+  const sbom = cloneJson(fixtureSbom("@victorhaine/p2p-transfer", "1.2.3"));
+  const wrtc = sbom.dependencies.find((entry: { ref: string }) => entry.ref === "pkg:npm/%40roamhq/wrtc@0.10.0");
+  assert.ok(wrtc);
+  wrtc.dependsOn = wrtc.dependsOn.filter((ref: string) => ref !== "pkg:npm/domexception@4.0.0");
+
+  const result = await runVerifierInFixture({
+    packageName: "@victorhaine/p2p-transfer",
+    version: "1.2.3",
+    sbom: Buffer.from(`${JSON.stringify(sbom)}\n`, "utf8"),
+    tarBlocks: packageJsonTarBlocks("@victorhaine/p2p-transfer", "1.2.3", {
+      endBlocks: 2
+    })
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /release SBOM production dependency inventory does not match package\.json and pnpm-lock\.yaml\./);
+  assert.doesNotMatch(result.stderr, /domexception|roamhq|wrtc/);
+});
+
 test("release artifact verifier prints the verified tarball path on request", async () => {
   const result = await runVerifierInFixture({
     packageName: "@victorhaine/p2p-transfer",

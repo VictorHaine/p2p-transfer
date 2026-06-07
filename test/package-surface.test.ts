@@ -530,10 +530,12 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseArtifactSmokeScript, /import \{ spawn \} from "node:child_process"/);
   assert.match(releaseArtifactSmokeScript, /const CHILD_TIMEOUT_MS = 120_000/);
   assert.match(releaseArtifactSmokeScript, /const CHILD_KILL_GRACE_MS = 5_000/);
-  assert.match(releaseArtifactSmokeScript, /await run\(pnpm, \["--config\.ignore-scripts=true", "pack", "--pack-destination", "release-artifacts"\], \{\}, "release artifact pack"\)/);
-  assert.match(releaseArtifactSmokeScript, /await run\(process\.execPath, \["scripts\/write-release-sbom\.mjs"\], \{\}, "release SBOM generation"\)/);
-  assert.match(releaseArtifactSmokeScript, /await run\(process\.execPath, \["scripts\/write-release-checksum\.mjs"\], \{\}, "release checksum generation"\)/);
-  assert.match(releaseArtifactSmokeScript, /await run\(process\.execPath, \["scripts\/verify-release-artifact\.mjs"\], \{ GITHUB_REF_NAME: `v\$\{version\}` \}, "release artifact verification"\)/);
+  assert.match(releaseArtifactSmokeScript, /const tmp = await mkdtemp\(path\.join\(tmpdir\(\), "ff-release-artifact-smoke-"\)\)/);
+  assert.match(releaseArtifactSmokeScript, /const childEnv = await privateReleaseArtifactEnv\(path\.join\(tmp, "home"\)\)/);
+  assert.match(releaseArtifactSmokeScript, /await run\(pnpm, \["--config\.ignore-scripts=true", "pack", "--pack-destination", "release-artifacts"\], childEnv, \{\}, "release artifact pack"\)/);
+  assert.match(releaseArtifactSmokeScript, /await run\(process\.execPath, \["scripts\/write-release-sbom\.mjs"\], childEnv, \{\}, "release SBOM generation"\)/);
+  assert.match(releaseArtifactSmokeScript, /await run\(process\.execPath, \["scripts\/write-release-checksum\.mjs"\], childEnv, \{\}, "release checksum generation"\)/);
+  assert.match(releaseArtifactSmokeScript, /await run\(process\.execPath, \["scripts\/verify-release-artifact\.mjs"\], childEnv, \{ GITHUB_REF_NAME: `v\$\{version\}` \}, "release artifact verification"\)/);
   assert.match(releaseArtifactSmokeScript, /"scripts\/write-release-sbom\.mjs"/);
   assert.match(releaseArtifactSmokeScript, /"scripts\/write-release-checksum\.mjs"/);
   assert.match(releaseArtifactSmokeScript, /"scripts\/verify-release-artifact\.mjs"/);
@@ -541,8 +543,11 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseArtifactSmokeScript, /const options = parseArgs\(process\.argv\.slice\(2\)\)/);
   assert.match(releaseArtifactSmokeScript, /args\.length === 1 && args\[0\] === "--keep-artifacts"/);
   assert.match(releaseArtifactSmokeScript, /if \(!options\.keepArtifacts\) await rm\(artifactDir, \{ recursive: true, force: true \}\)/);
-  assert.match(releaseArtifactSmokeScript, /import \{ safeChildEnv \} from "\.\/smoke-packed\.mjs"/);
-  assert.match(releaseArtifactSmokeScript, /env: \{ \.\.\.safeChildEnv\(\), \.\.\.env \}/);
+  assert.match(releaseArtifactSmokeScript, /import \{ isolatedChildEnv \} from "\.\/smoke-packed\.mjs"/);
+  assert.match(releaseArtifactSmokeScript, /await mkdir\(env\.XDG_CONFIG_HOME, \{ recursive: true, mode: 0o700 \}\)/);
+  assert.match(releaseArtifactSmokeScript, /await mkdir\(env\.PNPM_HOME, \{ recursive: true, mode: 0o700 \}\)/);
+  assert.match(releaseArtifactSmokeScript, /await mkdir\(env\.COREPACK_HOME, \{ recursive: true, mode: 0o700 \}\)/);
+  assert.match(releaseArtifactSmokeScript, /env: \{ \.\.\.childEnv, \.\.\.env \}/);
   assert.match(releaseArtifactSmokeScript, /stdio: "ignore"/);
   assert.match(releaseArtifactSmokeScript, /timeoutError = new Error\(`\$\{label\} timed out\.`\)/);
   assert.match(releaseArtifactSmokeScript, /child\.kill\("SIGTERM"\)/);
@@ -552,6 +557,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseArtifactSmokeScript, /failed with \$\{childExitStatus\(code, signal\)\}\./);
   assert.doesNotMatch(releaseArtifactSmokeScript, /spawnSync|encoding: "utf8"|timeout: 120_000|args\.join|stdout|stderr/);
   assert.doesNotMatch(releaseArtifactSmokeScript, /env: \{ \.\.\.process\.env/);
+  assert.doesNotMatch(releaseArtifactSmokeScript, /safeChildEnv\(\)/);
   assert.match(releaseArtifactSmokeScript, /const MAX_PACKAGE_JSON_BYTES = 128 \* 1024/);
   assert.match(releaseArtifactSmokeScript, /await lstat\(filePath\)[\s\S]*await open\(filePath, noFollowReadFlags\(\)\)[\s\S]*if \(!sameFile\(info, stat\)\)/);
   assert.match(releaseArtifactSmokeScript, /new TextDecoder\("utf-8", \{ fatal: true \}\)\.decode\(bytes\)/);
