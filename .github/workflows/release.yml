@@ -31,9 +31,7 @@ jobs:
       - name: Verify tag matches package version
         run: node scripts/check-release-tag.mjs
       - name: Verify release tag is on main
-        run: |
-          git fetch --no-tags --prune origin +refs/heads/main:refs/remotes/origin/main
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+        run: node scripts/check-release-main.mjs
       - name: Release controls preflight
         env:
           GITHUB_TOKEN: ${{ github.token }}

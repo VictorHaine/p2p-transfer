@@ -19,6 +19,7 @@ const codeowners = fs.readFileSync(new URL("../.github/CODEOWNERS", import.meta.
 const pullRequestTemplate = fs.readFileSync(new URL("../.github/pull_request_template.md", import.meta.url), "utf8");
 const httpProbeScript = fs.readFileSync(new URL("../scripts/probe-http.mjs", import.meta.url), "utf8");
 const releaseTagScript = fs.readFileSync(new URL("../scripts/check-release-tag.mjs", import.meta.url), "utf8");
+const releaseMainScript = fs.readFileSync(new URL("../scripts/check-release-main.mjs", import.meta.url), "utf8");
 const releaseArtifactScript = fs.readFileSync(new URL("../scripts/verify-release-artifact.mjs", import.meta.url), "utf8");
 const releaseChecksumScript = fs.readFileSync(new URL("../scripts/write-release-checksum.mjs", import.meta.url), "utf8");
 const releaseNotesScript = fs.readFileSync(new URL("../scripts/write-release-notes.mjs", import.meta.url), "utf8");
@@ -217,7 +218,16 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releaseTagScript, /release tag does not match package version\./);
   assert.match(securityPolicy, /release tag commit must be reachable from protected `main` before release artifact packaging, attestation, npm publish, or GitHub Release creation/);
   assert.match(releaseWorkflow, /fetch-depth: 0/);
-  assert.match(releaseWorkflow, /Verify release tag is on main[\s\S]*git fetch --no-tags --prune origin \+refs\/heads\/main:refs\/remotes\/origin\/main[\s\S]*git merge-base --is-ancestor "\$GITHUB_SHA" origin\/main/);
+  assert.match(securityPolicy, /release tag main-reachability matching must use the checked release main verifier/);
+  assert.match(releaseWorkflow, /Verify release tag is on main[\s\S]*run: node scripts\/check-release-main\.mjs[\s\S]*Release controls preflight/);
+  assert.doesNotMatch(releaseWorkflow, /git fetch --no-tags|git merge-base --is-ancestor "\$GITHUB_SHA"/);
+  assert.match(releaseMainScript, /const MAX_RELEASE_ENV_VALUE_BYTES = 256/);
+  assert.match(releaseMainScript, /const MAX_GIT_OUTPUT_BYTES = 128 \* 1024/);
+  assert.match(releaseMainScript, /Object\.getOwnPropertyDescriptor\(process\.env, name\)/);
+  assert.match(releaseMainScript, /spawnSync\("git", args/);
+  assert.match(releaseMainScript, /\["fetch", "--no-tags", "--prune", "origin", "\+refs\/heads\/main:refs\/remotes\/origin\/main"\]/);
+  assert.match(releaseMainScript, /\["merge-base", "--is-ancestor", sha, "origin\/main"\]/);
+  assert.match(releaseMainScript, /release tag commit is not reachable from main\./);
   assert.match(releaseWorkflow, /Release controls preflight[\s\S]*GITHUB_TOKEN: \$\{\{ github\.token \}\}[\s\S]*run: pnpm release:preflight[\s\S]*Install/);
   const ciVerifyJob = workflowJob(ciWorkflow, "verify");
   const ciPlatformSmokeJob = workflowJob(ciWorkflow, "platform-smoke");
