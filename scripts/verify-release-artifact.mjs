@@ -14,6 +14,7 @@ const MAX_PACKED_PACKAGE_JSON_BYTES = 64 * 1024;
 const MAX_CHECKSUM_FILE_BYTES = 256;
 const MAX_ARTIFACT_ENTRY_NAME_BYTES = 255;
 const MAX_RELEASE_ENV_VALUE_BYTES = 256;
+const MAX_GITHUB_OUTPUT_BYTES = 1024 * 1024;
 const MAX_TAR_SCAN_BYTES = 256 * 1024 * 1024;
 const MAX_EXPECTED_PACKED_FILES = 4096;
 const MAX_EXPECTED_PACKED_BYTES = 256 * 1024 * 1024;
@@ -30,7 +31,7 @@ if (isMain()) {
 }
 
 async function main() {
-  const printTarballPath = shouldPrintTarballPath();
+  const options = parseArgs(process.argv.slice(2));
   const expected = parseJson(await readText(path.join(root, "package.json"), MAX_PROJECT_PACKAGE_JSON_BYTES), "package.json");
   const expectedName = requiredPackageName(expected.name);
   const expectedVersion = requiredPackageVersion(expected.version);
@@ -47,16 +48,18 @@ async function main() {
     if (packedName !== expectedName || packedVersion !== expectedVersion || tag !== `v${packedVersion}`) {
       throw new Error("release artifact package metadata does not match the checked workspace metadata.");
     }
-    if (printTarballPath) console.log(verifiedTarballPath(tarball));
+    const tarballPath = verifiedTarballPath(tarball);
+    if (options.printTarballPath) console.log(tarballPath);
+    if (options.githubOutputName) await writeGithubOutput(options.githubOutputName, tarballPath);
   } finally {
     await tarball.handle.close().catch(() => undefined);
   }
 }
 
-function shouldPrintTarballPath() {
-  const args = process.argv.slice(2);
-  if (args.length === 0) return false;
-  if (args.length === 1 && args[0] === "--print-tarball") return true;
+function parseArgs(args) {
+  if (args.length === 0) return { printTarballPath: false };
+  if (args.length === 1 && args[0] === "--print-tarball") return { printTarballPath: true };
+  if (args.length === 2 && args[0] === "--github-output" && args[1] === "tarball") return { printTarballPath: false, githubOutputName: "tarball" };
   throw new Error("Unsupported release artifact verifier arguments.");
 }
 
@@ -83,10 +86,10 @@ function containsAbsolutePathText(value) {
   return /(^|[\s("'=])(?:\/|[A-Za-z]:[\\/])/.test(value);
 }
 
-function envString(name) {
+function envString(name, maxBytes = MAX_RELEASE_ENV_VALUE_BYTES) {
   const descriptor = Object.getOwnPropertyDescriptor(process.env, name);
-  if (!descriptor || !("value" in descriptor) || typeof descriptor.value !== "string" || descriptor.value.length < 1 || descriptor.value.includes("\0") || utf8ByteLengthExceeds(descriptor.value, MAX_RELEASE_ENV_VALUE_BYTES)) {
-    throw new Error(`${name} must be a non-empty NUL-free string under ${MAX_RELEASE_ENV_VALUE_BYTES} UTF-8 bytes.`);
+  if (!descriptor || !("value" in descriptor) || typeof descriptor.value !== "string" || descriptor.value.length < 1 || descriptor.value.includes("\0") || utf8ByteLengthExceeds(descriptor.value, maxBytes)) {
+    throw new Error(`${name} must be a non-empty NUL-free string under ${maxBytes} UTF-8 bytes.`);
   }
   return descriptor.value;
 }
@@ -421,6 +424,26 @@ function verifiedTarballPath(tarball) {
     throw new Error("verified release tarball path is invalid.");
   }
   return relative.split(path.sep).join("/");
+}
+
+async function writeGithubOutput(name, value) {
+  if (name !== "tarball" || !/^release-artifacts\/[A-Za-z0-9._-]+\.tgz$/.test(value)) {
+    throw new Error("verified release tarball output is invalid.");
+  }
+  const outputPath = envString("GITHUB_OUTPUT", MAX_GITHUB_OUTPUT_BYTES);
+  if (!path.isAbsolute(outputPath)) throw new Error("GITHUB_OUTPUT must be an absolute path.");
+  const info = await lstat(outputPath);
+  if (!info.isFile()) throw new Error("GITHUB_OUTPUT must be a regular file.");
+  if (info.size > MAX_GITHUB_OUTPUT_BYTES) throw new Error("GITHUB_OUTPUT exceeds the byte limit.");
+  const handle = await open(outputPath, constants.O_WRONLY | constants.O_APPEND | (constants.O_NOFOLLOW ?? 0));
+  try {
+    const opened = await handle.stat();
+    if (!opened.isFile()) throw new Error("GITHUB_OUTPUT must be a regular file.");
+    if (!sameFile(info, opened)) throw new Error("GITHUB_OUTPUT changed before verification.");
+    await handle.writeFile(`${name}=${value}\n`, "utf8");
+  } finally {
+    await handle.close();
+  }
 }
 
 async function verifyChecksumFile(releaseArtifactDir, tarball) {

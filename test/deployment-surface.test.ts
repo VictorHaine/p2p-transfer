@@ -21,6 +21,8 @@ const httpProbeScript = fs.readFileSync(new URL("../scripts/probe-http.mjs", imp
 const releaseTagScript = fs.readFileSync(new URL("../scripts/check-release-tag.mjs", import.meta.url), "utf8");
 const releaseMainScript = fs.readFileSync(new URL("../scripts/check-release-main.mjs", import.meta.url), "utf8");
 const releaseArtifactScript = fs.readFileSync(new URL("../scripts/verify-release-artifact.mjs", import.meta.url), "utf8");
+const releasePublishScript = fs.readFileSync(new URL("../scripts/publish-release-artifact.mjs", import.meta.url), "utf8");
+const githubReleaseScript = fs.readFileSync(new URL("../scripts/create-github-release.mjs", import.meta.url), "utf8");
 const releaseChecksumScript = fs.readFileSync(new URL("../scripts/write-release-checksum.mjs", import.meta.url), "utf8");
 const releaseNotesScript = fs.readFileSync(new URL("../scripts/write-release-notes.mjs", import.meta.url), "utf8");
 const githubReleaseControlsScript = fs.readFileSync(new URL("../scripts/configure-github-release-controls.mjs", import.meta.url), "utf8");
@@ -297,14 +299,24 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.equal(releaseWorkflow.match(/id-token:\s*write/g)?.length, 2);
   assert.match(releaseWorkflow, /publish npm package[\s\S]*permissions:\n      contents: read\n      id-token: write/);
   assert.match(releaseWorkflow, /attest release artifact[\s\S]*permissions:\n      contents: read\n      id-token: write\n      attestations: write/);
-  assert.match(releaseWorkflow, /attest release artifact[\s\S]*verify downloaded release artifact[\s\S]*id: verify_artifact[\s\S]*node scripts\/verify-release-artifact\.mjs --print-tarball[\s\S]*uses: actions\/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4\.1\.0[\s\S]*subject-path: \$\{\{ steps\.verify_artifact\.outputs\.tarball \}\}/);
-  assert.match(releaseWorkflow, /verify downloaded release artifact[\s\S]*id: verify_artifact[\s\S]*node scripts\/verify-release-artifact\.mjs --print-tarball[\s\S]*smoke downloaded release artifact[\s\S]*tgz="\$\{\{ steps\.verify_artifact\.outputs\.tarball \}\}"[\s\S]*PACKED_SMOKE_TARBALL="\$tgz" node scripts\/smoke-packed\.mjs[\s\S]*publish npm package[\s\S]*pnpm publish "\$tgz" --provenance --access public --ignore-scripts/);
-  assert.match(releaseWorkflow, /github-release:[\s\S]*needs:\n      - publish[\s\S]*permissions:\n      contents: write[\s\S]*verify downloaded release artifact[\s\S]*node scripts\/verify-release-artifact\.mjs --print-tarball[\s\S]*write release notes[\s\S]*node scripts\/write-release-notes\.mjs[\s\S]*gh release create "\$GITHUB_REF_NAME" "\$tgz" release-artifacts\/SHA256SUMS --title "\$GITHUB_REF_NAME" --notes-file release-artifacts\/RELEASE_NOTES\.md/);
+  assert.match(releaseWorkflow, /attest release artifact[\s\S]*verify downloaded release artifact[\s\S]*id: verify_artifact[\s\S]*node scripts\/verify-release-artifact\.mjs --github-output tarball[\s\S]*uses: actions\/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4\.1\.0[\s\S]*subject-path: \$\{\{ steps\.verify_artifact\.outputs\.tarball \}\}/);
+  assert.match(releaseWorkflow, /publish npm package[\s\S]*verify, smoke, and publish release artifact[\s\S]*node scripts\/publish-release-artifact\.mjs/);
+  assert.match(releasePublishScript, /rejectStaticNpmTokens\(\)/);
+  assert.match(releasePublishScript, /ACTIONS_ID_TOKEN_REQUEST_TOKEN/);
+  assert.match(releasePublishScript, /isolatedChildEnv\(privateHome\)/);
+  assert.match(releasePublishScript, /PACKED_SMOKE_TARBALL: tarball/);
+  assert.match(releasePublishScript, /\["publish", tarball, "--provenance", "--access", "public", "--ignore-scripts"\]/);
+  assert.match(releaseWorkflow, /github-release:[\s\S]*needs:\n      - publish[\s\S]*permissions:\n      contents: write[\s\S]*node scripts\/create-github-release\.mjs/);
+  assert.match(githubReleaseScript, /requiredReleaseTag\(requiredEnvString\("GITHUB_REF_NAME"\)\)/);
+  assert.match(githubReleaseScript, /requiredRepository\(requiredEnvString\("GITHUB_REPOSITORY"\)\)/);
+  assert.match(githubReleaseScript, /\["scripts\/write-release-notes\.mjs"\]/);
+  assert.match(githubReleaseScript, /\[\s+"release",\s+"create",\s+tag,\s+tarball,\s+"release-artifacts\/SHA256SUMS"[\s\S]*"--notes-file",\s+"release-artifacts\/RELEASE_NOTES\.md"[\s\S]*"--repo",\s+repository/s);
   assert.doesNotMatch(releaseWorkflow, /--notes-file CHANGELOG\.md/);
+  assert.doesNotMatch(releaseWorkflow, /tgz="\$\(node scripts\/verify-release-artifact\.mjs --print-tarball\)"|printf 'tarball=%s\\n'|test -f "\$tgz"|PACKED_SMOKE_TARBALL="\$tgz" node scripts\/smoke-packed\.mjs|pnpm publish "\$tgz"|gh release create "\$GITHUB_REF_NAME"/);
   const publishJob = releaseWorkflow.slice(releaseWorkflow.indexOf("  publish:"));
   assert.match(publishJob, /needs:\n      - verify\n      - attest\n      - docker\n      - platform-smoke/);
   assert.doesNotMatch(publishJob, /pnpm install|pnpm build|pnpm smoke:native/);
-  assert.match(publishJob, /--ignore-scripts/);
+  assert.match(releasePublishScript, /"--ignore-scripts"/);
   assert.doesNotMatch(publishJob, /NODE_AUTH_TOKEN|NPM_TOKEN/);
 });
 
@@ -671,7 +683,7 @@ test("release artifact verification is bounded and exact", () => {
   assert.match(releaseArtifactScript, /const packedName = requiredPackageName\(packed\.name, "package\/package\.json name"\)/);
   assert.match(releaseArtifactScript, /const packedVersion = requiredPackageVersion\(packed\.version, "package\/package\.json version"\)/);
   assert.match(releaseArtifactScript, /requiredReleaseTag\(envString\("GITHUB_REF_NAME"\), expectedVersion\)/);
-  assert.match(releaseArtifactScript, /utf8ByteLengthExceeds\(descriptor\.value, MAX_RELEASE_ENV_VALUE_BYTES\)/);
+  assert.match(releaseArtifactScript, /utf8ByteLengthExceeds\(descriptor\.value, maxBytes\)/);
   assert.match(releaseArtifactScript, /release tag does not match package version \$\{version\}/);
   assert.doesNotMatch(releaseArtifactScript, /release tag \$\{value\} does not match/);
   assert.match(releaseArtifactScript, /release artifact package metadata does not match the checked workspace metadata/);

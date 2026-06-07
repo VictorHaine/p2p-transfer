@@ -38,6 +38,24 @@ test("release artifact verifier prints the verified tarball path on request", as
   assert.doesNotMatch(result.stdout, new RegExp(escapeRegExp(result.root)));
 });
 
+test("release artifact verifier writes the verified tarball path to GitHub output", async () => {
+  const result = await runVerifierInFixture({
+    packageName: "@victorhaine/p2p-transfer",
+    version: "1.2.3",
+    args: ["--github-output", "tarball"],
+    githubOutputFileName: "github-output.txt",
+    tarBlocks: packageJsonTarBlocks("@victorhaine/p2p-transfer", "1.2.3", {
+      endBlocks: 2
+    })
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, "");
+  assert.equal(result.stderr, "");
+  assert.ok(result.githubOutputPath);
+  assert.equal(await fs.readFile(result.githubOutputPath, "utf8"), "tarball=release-artifacts/victorhaine-p2p-transfer-1.2.3.tgz\n");
+});
+
 test("release artifact verifier rejects unexpected CLI arguments without a stack", async () => {
   const result = await runVerifierInFixture({
     packageName: "p2p-transfer",
@@ -360,6 +378,7 @@ async function runVerifierInFixture(options: {
   packageJson?: Buffer;
   refName?: string;
   args?: string[];
+  githubOutputFileName?: string;
   tarBlocks?: Buffer[];
   tarball?: Buffer;
   extraArtifactEntries?: { name: string; body?: Buffer }[];
@@ -388,17 +407,20 @@ async function runVerifierInFixture(options: {
   for (const entry of options.extraArtifactEntries ?? []) {
     await fs.writeFile(path.join(artifactDir, entry.name), entry.body ?? Buffer.alloc(0));
   }
+  const githubOutputPath = options.githubOutputFileName ? path.join(root, options.githubOutputFileName) : undefined;
+  if (githubOutputPath) await fs.writeFile(githubOutputPath, "");
 
   const result = spawnSync(process.execPath, [path.join(scriptsDir, "verify-release-artifact.mjs"), ...(options.args ?? [])], {
     cwd: root,
     encoding: "utf8",
     env: {
       ...process.env,
-      GITHUB_REF_NAME: options.refName ?? `v${options.version}`
+      GITHUB_REF_NAME: options.refName ?? `v${options.version}`,
+      ...(githubOutputPath ? { GITHUB_OUTPUT: githubOutputPath } : {})
     },
     timeout: 10_000
   });
-  return { ...result, root };
+  return { ...result, root, githubOutputPath };
 }
 
 function packageJsonTarBlocks(packageName: string, version: string, options: { body?: Buffer; endBlocks: 1 | 2; trailingBlocks?: Buffer[] }): Buffer[] {

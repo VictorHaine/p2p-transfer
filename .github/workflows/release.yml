@@ -150,9 +150,7 @@ jobs:
           path: release-artifacts
       - name: verify downloaded release artifact
         id: verify_artifact
-        run: |
-          tgz="$(node scripts/verify-release-artifact.mjs --print-tarball)"
-          printf 'tarball=%s\n' "$tgz" >> "$GITHUB_OUTPUT"
+        run: node scripts/verify-release-artifact.mjs --github-output tarball
       - uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-path: ${{ steps.verify_artifact.outputs.tarball }}
@@ -185,21 +183,8 @@ jobs:
         with:
           name: npm-tarball
           path: release-artifacts
-      - name: verify downloaded release artifact
-        id: verify_artifact
-        run: |
-          tgz="$(node scripts/verify-release-artifact.mjs --print-tarball)"
-          printf 'tarball=%s\n' "$tgz" >> "$GITHUB_OUTPUT"
-      - name: smoke downloaded release artifact
-        run: |
-          tgz="${{ steps.verify_artifact.outputs.tarball }}"
-          test -f "$tgz"
-          PACKED_SMOKE_TARBALL="$tgz" node scripts/smoke-packed.mjs
-      - name: publish npm package
-        run: |
-          tgz="${{ steps.verify_artifact.outputs.tarball }}"
-          test -f "$tgz"
-          pnpm publish "$tgz" --provenance --access public --ignore-scripts
+      - name: verify, smoke, and publish release artifact
+        run: node scripts/publish-release-artifact.mjs
 
   github-release:
     name: create GitHub release
@@ -219,19 +204,7 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22.22.3
-      - name: verify downloaded release artifact
-        id: verify_artifact
-        run: |
-          tgz="$(node scripts/verify-release-artifact.mjs --print-tarball)"
-          printf 'tarball=%s\n' "$tgz" >> "$GITHUB_OUTPUT"
-      - name: write release notes
-        run: node scripts/write-release-notes.mjs
       - name: create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          tgz="${{ steps.verify_artifact.outputs.tarball }}"
-          test -f "$tgz"
-          test -f release-artifacts/SHA256SUMS
-          test -f release-artifacts/RELEASE_NOTES.md
-          gh release create "$GITHUB_REF_NAME" "$tgz" release-artifacts/SHA256SUMS --title "$GITHUB_REF_NAME" --notes-file release-artifacts/RELEASE_NOTES.md
+        run: node scripts/create-github-release.mjs
