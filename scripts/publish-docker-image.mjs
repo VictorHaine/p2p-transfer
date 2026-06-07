@@ -30,16 +30,17 @@ try {
 }
 
 async function main() {
-  const packageJson = await readPackageJson();
-  const version = packageVersion(packageJson.version);
   const tag = releaseTag(requiredEnvString("GITHUB_REF_NAME"));
-  if (tag !== `v${version}`) throw new Error("release tag does not match package version.");
-
+  assertReleaseTagRef(tag);
   const repository = githubRepository(requiredEnvString("GITHUB_REPOSITORY"));
   requiredCommitSha(requiredEnvString("GITHUB_SHA"));
-  await assertLiveReleaseRefFromEnv();
   const actor = githubActor(requiredEnvString("GITHUB_ACTOR"));
   const token = requiredEnvString("GITHUB_TOKEN", MAX_TOKEN_BYTES);
+  const packageJson = await readPackageJson();
+  const version = packageVersion(packageJson.version);
+  if (tag !== `v${version}`) throw new Error("release tag does not match package version.");
+
+  await assertLiveReleaseRefFromEnv();
   const image = `${REGISTRY}/${repository.toLowerCase()}`;
   const versionRef = `${image}:${tag}`;
   const plainVersionRef = `${image}:${version}`;
@@ -117,6 +118,12 @@ function packageVersion(value) {
 function releaseTag(value) {
   if (!/^v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u.test(value)) throw new Error("release tag is not an exact release tag.");
   return value;
+}
+
+function assertReleaseTagRef(tag) {
+  if (requiredEnvString("GITHUB_REF_TYPE") !== "tag" || requiredEnvString("GITHUB_REF") !== `refs/tags/${tag}`) {
+    throw new Error("release workflow ref must be the matching tag ref.");
+  }
 }
 
 function githubRepository(value) {

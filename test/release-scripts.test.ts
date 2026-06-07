@@ -654,7 +654,23 @@ test("Docker publish script rejects prerelease tags before smoke or push", () =>
   assert.doesNotMatch(result.stderr, /token-that-must-not-be-used|docker release|release docker policy smoke|push|api\.github|Error:/);
 });
 
-test("Docker publish script rejects non-file package metadata before env, smoke, or push work", async () => {
+test("Docker publish script rejects branch refs before package, smoke, or push work", () => {
+  const result = runScript("scripts/publish-docker-image.mjs", {
+    ...releaseTagEnv("v0.1.0"),
+    GITHUB_REF_TYPE: "branch",
+    GITHUB_REF: "refs/heads/v0.1.0",
+    GITHUB_REPOSITORY: "VictorHaine/p2p-transfer",
+    GITHUB_ACTOR: "VictorHaine",
+    GITHUB_TOKEN: "token-that-must-not-be-used"
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.equal(result.stdout, "");
+  assert.match(result.stderr, /Docker image publish failed:\n- release workflow ref must be the matching tag ref\./);
+  assert.doesNotMatch(result.stderr, /refs\/heads|package metadata|token-that-must-not-be-used|release docker policy smoke|docker release|api\.github|Error:/);
+});
+
+test("Docker publish script rejects non-file package metadata after release env validation and before smoke or push work", async () => {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-docker-publish-package-"));
   const scripts = path.join(tmp, "scripts");
   try {
@@ -682,6 +698,39 @@ test("Docker publish script rejects non-file package metadata before env, smoke,
     assert.equal(result.stdout, "");
     assert.match(result.stderr, /Docker image publish failed:\n- package metadata must be a regular file\./);
     assert.doesNotMatch(result.stderr, /token-that-must-not-be-used|release docker policy smoke|docker release|api\.github|Error:/);
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
+test("Docker publish script rejects wrong repositories before package, smoke, or push work", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-docker-publish-repository-"));
+  const scripts = path.join(tmp, "scripts");
+  try {
+    await fs.mkdir(scripts);
+    await fs.mkdir(path.join(tmp, "package.json"));
+    await fs.copyFile(path.join(root, "scripts", "publish-docker-image.mjs"), path.join(scripts, "publish-docker-image.mjs"));
+    await fs.copyFile(path.join(root, "scripts", "docker-config.mjs"), path.join(scripts, "docker-config.mjs"));
+    await fs.copyFile(path.join(root, "scripts", "smoke-packed.mjs"), path.join(scripts, "smoke-packed.mjs"));
+    await fs.copyFile(path.join(root, "scripts", "verify-live-release-ref.mjs"), path.join(scripts, "verify-live-release-ref.mjs"));
+
+    const result = spawnSync(process.execPath, [path.join(scripts, "publish-docker-image.mjs")], {
+      cwd: tmp,
+      encoding: "utf8",
+      env: {
+        PATH: process.env.PATH ?? "",
+        ...releaseTagEnv("v0.1.0"),
+        GITHUB_REPOSITORY: "Attacker/p2p-transfer",
+        GITHUB_ACTOR: "VictorHaine",
+        GITHUB_TOKEN: "token-that-must-not-be-used"
+      },
+      timeout: 10_000
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Docker image publish failed:\n- GitHub repository must match the release repository\./);
+    assert.doesNotMatch(result.stderr, /Attacker|package metadata|token-that-must-not-be-used|release docker policy smoke|docker release|api\.github|Error:/);
   } finally {
     await fs.rm(tmp, { force: true, recursive: true });
   }

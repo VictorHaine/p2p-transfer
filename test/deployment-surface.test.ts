@@ -372,7 +372,7 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releaseDockerJob, /actions\/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4\.1\.0[\s\S]*subject-name: \$\{\{ steps\.docker_image\.outputs\.image \}\}[\s\S]*subject-digest: \$\{\{ steps\.docker_image\.outputs\.digest \}\}[\s\S]*push-to-registry: true/);
   assert.doesNotMatch(releaseDockerJob, /corepack prepare pnpm@/);
   assert.match(dockerPublishScript, /import \{ assertLiveReleaseRefFromEnv \} from "\.\/verify-live-release-ref\.mjs"/);
-  assert.match(dockerPublishScript, /requiredCommitSha\(requiredEnvString\("GITHUB_SHA"\)\);\n  await assertLiveReleaseRefFromEnv\(\);\n  const actor = githubActor/);
+  assert.match(dockerPublishScript, /const actor = githubActor\(requiredEnvString\("GITHUB_ACTOR"\)\);\n  const token = requiredEnvString\("GITHUB_TOKEN", MAX_TOKEN_BYTES\);\n  const packageJson = await readPackageJson\(\);[\s\S]*if \(tag !== `v\$\{version\}`\) throw new Error\("release tag does not match package version\."\);\n\n  await assertLiveReleaseRefFromEnv\(\);/);
   assert.match(dockerPublishScript, /await run\(process\.execPath, \["scripts\/smoke-docker-policy\.mjs"\], "release docker policy smoke", SMOKE_TIMEOUT_MS,\s+\{\s+env: \{ DOCKER_SMOKE_TAG: versionRef \}/);
   assert.match(dockerPublishScript, /await run\("docker", \["push", versionRef\]/);
   assert.match(dockerPublishScript, /await run\("docker", \["push", plainVersionRef\]/);
@@ -449,6 +449,7 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(securityPolicy, /Docker publishing subprocesses must use a minimal allowlisted child environment plus a temporary 0700 `DOCKER_CONFIG`/);
   assert.match(dockerPublishScript, /const EXPECTED_GITHUB_REPOSITORY = "VictorHaine\/p2p-transfer"/);
   assert.match(dockerPublishScript, /GitHub repository must match the release repository/);
+  assert.match(dockerPublishScript, /const tag = releaseTag\(requiredEnvString\("GITHUB_REF_NAME"\)\);\n  assertReleaseTagRef\(tag\);\n  const repository = githubRepository\(requiredEnvString\("GITHUB_REPOSITORY"\)\);\n  requiredCommitSha\(requiredEnvString\("GITHUB_SHA"\)\);\n  const actor = githubActor\(requiredEnvString\("GITHUB_ACTOR"\)\);\n  const token = requiredEnvString\("GITHUB_TOKEN", MAX_TOKEN_BYTES\);\n  const packageJson = await readPackageJson\(\);/);
   assert.match(githubReleaseScript, /\/repos\/\$\{repository\}\/releases/);
   assert.match(githubReleaseScript, /uploadReleaseAsset\(token, uploadUrl, asset\)/);
   assert.match(githubReleaseScript, /draft: true/);

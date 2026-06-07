@@ -1041,6 +1041,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(dockerPublishScript, /DOCKER_SMOKE_TAG: versionRef/);
   assert.match(dockerPublishScript, /const EXPECTED_GITHUB_REPOSITORY = "VictorHaine\/p2p-transfer"/);
   assert.match(dockerPublishScript, /GitHub repository must match the release repository/);
+  assert.match(dockerPublishScript, /const tag = releaseTag\(requiredEnvString\("GITHUB_REF_NAME"\)\);\n  assertReleaseTagRef\(tag\);\n  const repository = githubRepository\(requiredEnvString\("GITHUB_REPOSITORY"\)\);\n  requiredCommitSha\(requiredEnvString\("GITHUB_SHA"\)\);\n  const actor = githubActor\(requiredEnvString\("GITHUB_ACTOR"\)\);\n  const token = requiredEnvString\("GITHUB_TOKEN", MAX_TOKEN_BYTES\);\n  const packageJson = await readPackageJson\(\);/);
   assert.match(dockerPublishScript, /import \{ safeChildEnv \} from "\.\/smoke-packed\.mjs"/);
   assert.match(dockerPublishScript, /env: \{ \.\.\.safeChildEnv\(\), \.\.\.\(options\.env \?\? \{\}\) \}/);
   assert.match(dockerPublishScript, /import \{ assertLiveReleaseRefFromEnv \} from "\.\/verify-live-release-ref\.mjs"/);
