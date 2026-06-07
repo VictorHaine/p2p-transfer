@@ -1177,6 +1177,16 @@ test("build-time native toolchain identity and install surface stay reviewed", (
   assert.match(buildToolchainNativeReview, /Vite CSS dependency: `lightningcss@1\.32\.0`/);
   assert.match(buildToolchainNativeReview, /release build runs `vite build`/);
   assert.match(buildToolchainNativeReview, /This repo does not contain a formal independent audit certificate for Vite, esbuild, Rolldown, Lightning CSS, their native binaries, or their wasm bindings/);
+  assert.match(securityPolicy, /Dependabot must track Vite, esbuild, esbuild platform binaries, Rolldown, Rolldown native\/wasm bindings, Lightning CSS, and Lightning CSS native packages in their own build-toolchain update group/);
+  assert.match(buildToolchainNativeReview, /Dependabot must keep Vite, esbuild, esbuild platform binaries, Rolldown, Rolldown native\/wasm bindings, Lightning CSS, and Lightning CSS native packages in the dedicated `build-toolchain-dependencies` update group and excluded from the bulk development dependency group/);
+  assert.match(
+    dependabotConfig,
+    /build-toolchain-dependencies:\n\s+patterns:\n\s+- "vite"\n\s+- "esbuild"\n\s+- "@esbuild\/\*"\n\s+- "rolldown"\n\s+- "@rolldown\/\*"\n\s+- "lightningcss"\n\s+- "lightningcss-\*"/
+  );
+  assert.match(
+    dependabotConfig,
+    /development-dependencies:\n\s+dependency-type: development\n\s+exclude-patterns:\n\s+- "vite"\n\s+- "esbuild"\n\s+- "@esbuild\/\*"\n\s+- "rolldown"\n\s+- "@rolldown\/\*"\n\s+- "lightningcss"\n\s+- "lightningcss-\*"/
+  );
   assert.match(buildToolchainNativeReview, /Release must stop if any of these are true:/);
   assert.match(buildToolchainNativeReview, /`package\.json`, `pnpm-lock\.yaml`, installed package metadata, or this artifact no longer agree/);
 });

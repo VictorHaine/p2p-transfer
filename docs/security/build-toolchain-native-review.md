@@ -43,7 +43,7 @@ These packages do not ship in the runtime npm package surface as application cod
 
 ## Monitoring And Update Process
 
-- Dependabot must keep Vite and build-toolchain dependencies visible in normal dependency review; do not hide Vite/esbuild/Rolldown/Lightning CSS updates in unrelated release changes.
+- Dependabot must keep Vite, esbuild, esbuild platform binaries, Rolldown, Rolldown native/wasm bindings, Lightning CSS, and Lightning CSS native packages in the dedicated `build-toolchain-dependencies` update group and excluded from the bulk development dependency group, so release build-toolchain changes cannot hide in unrelated dev dependency batches.
 - Release verification must run `pnpm check:install-state`, `pnpm build`, `pnpm smoke:release-artifact`, `pnpm security:audit`, and `pnpm security:signatures`.
 - Scheduled dependency integrity monitoring must keep running `pnpm security:audit` and `pnpm security:signatures` on unchanged `main`.
 - Build-toolchain updates must update this artifact in the same change as the package pin and lockfile, with changed package metadata, lifecycle hooks, optional native/wasm package set, advisories, and release-build impact reviewed explicitly.

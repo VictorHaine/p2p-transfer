@@ -1388,6 +1388,14 @@ test("dependency update automation covers npm, GitHub Actions, and Docker", () =
   assert.match(dependabotConfig, /package-ecosystem: npm[\s\S]*directory: \//);
   assert.match(dependabotConfig, /package-ecosystem: github-actions[\s\S]*directory: \//);
   assert.match(dependabotConfig, /package-ecosystem: docker[\s\S]*directory: \//);
+  assert.match(
+    dependabotConfig,
+    /build-toolchain-dependencies:\n\s+patterns:\n\s+- "vite"\n\s+- "esbuild"\n\s+- "@esbuild\/\*"\n\s+- "rolldown"\n\s+- "@rolldown\/\*"\n\s+- "lightningcss"\n\s+- "lightningcss-\*"/
+  );
+  assert.match(
+    dependabotConfig,
+    /development-dependencies:\n\s+dependency-type: development\n\s+exclude-patterns:\n\s+- "vite"\n\s+- "esbuild"\n\s+- "@esbuild\/\*"\n\s+- "rolldown"\n\s+- "@rolldown\/\*"\n\s+- "lightningcss"\n\s+- "lightningcss-\*"/
+  );
 });
 
 function actionUseCount(workflow: string, action: string): number {

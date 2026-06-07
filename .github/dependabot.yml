@@ -20,6 +20,15 @@ updates:
           - "@roamhq/wrtc"
           - "@roamhq/wrtc-*"
         dependency-type: production
+      build-toolchain-dependencies:
+        patterns:
+          - "vite"
+          - "esbuild"
+          - "@esbuild/*"
+          - "rolldown"
+          - "@rolldown/*"
+          - "lightningcss"
+          - "lightningcss-*"
       production-dependencies:
         dependency-type: production
         exclude-patterns:
@@ -30,6 +39,14 @@ updates:
           - "@roamhq/wrtc-*"
       development-dependencies:
         dependency-type: development
+        exclude-patterns:
+          - "vite"
+          - "esbuild"
+          - "@esbuild/*"
+          - "rolldown"
+          - "@rolldown/*"
+          - "lightningcss"
+          - "lightningcss-*"
 
   - package-ecosystem: github-actions
     directory: /
