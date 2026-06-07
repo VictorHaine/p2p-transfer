@@ -146,9 +146,7 @@ function applyLocalPrivateMode<T extends CommonOptions>(options: T): T {
   if (!options.localPrivateMode) return options;
   options.redactOutput = true;
   options.requirePrivateInput = true;
-  if ("opaqueOutputNames" in options) {
-    (options as T & { opaqueOutputNames: boolean }).opaqueOutputNames = true;
-  }
+  (options as T & { opaqueOutputNames?: boolean }).opaqueOutputNames = true;
   return options;
 }
 

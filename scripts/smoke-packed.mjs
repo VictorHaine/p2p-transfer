@@ -221,7 +221,7 @@ async function smokeInstalledTransfer(consumerDir, childEnv, port, tmp) {
   await writeFile(source, expected);
   const serverUrl = `ws://127.0.0.1:${port}/v1/ws`;
   const code = "12345678-apple-anchor";
-  const receiver = spawn(pnpm, ["exec", "ff", "--server", serverUrl, "--json", "--require-private-input", "recv", "--code-stdin", "--yes", "--out", out], {
+  const receiver = spawn(pnpm, ["exec", "ff", "--server", serverUrl, "--json", "--local-private-mode", "recv", "--code-stdin", "--yes", "--out", out], {
     cwd: consumerDir,
     env: childEnv,
     stdio: ["pipe", "pipe", "pipe"]
@@ -230,7 +230,7 @@ async function smokeInstalledTransfer(consumerDir, childEnv, port, tmp) {
   const receiverOutput = captureChildOutput(receiver);
   try {
     await waitForOutput(receiver, /"registered"/, 30_000);
-    const sender = await run(pnpm, ["exec", "ff", "--server", serverUrl, "--json", "--require-private-input", "send", "--code-stdin", "--files-stdin"], {
+    const sender = await run(pnpm, ["exec", "ff", "--server", serverUrl, "--json", "--local-private-mode", "send", "--code-stdin", "--files-stdin"], {
       cwd: consumerDir,
       timeoutMs: 90_000,
       env: childEnv,
@@ -239,7 +239,9 @@ async function smokeInstalledTransfer(consumerDir, childEnv, port, tmp) {
     const receiverResult = await waitForExitWithOutput(receiver, 90_000, receiverOutput);
     if (sender.stderr.length > 0 || !sender.stdout.includes('"sent"')) throw new Error("Packed installed ff send did not complete a transfer.");
     if (receiverResult.code !== 0 || receiverResult.stderr.length > 0 || !receiverResult.stdout.includes('"received"')) throw new Error("Packed installed ff recv did not complete a transfer.");
-    const actual = await readFile(path.join(out, "transfer-source.txt"));
+    const receivedNames = await readdir(out);
+    if (receivedNames.length !== 1 || !/^ff-[a-f0-9]{32}$/.test(receivedNames[0])) throw new Error("Packed installed ff recv did not use an opaque output name.");
+    const actual = await readFile(path.join(out, receivedNames[0]));
     if (!Buffer.from(actual).equals(expected)) throw new Error("Packed installed CLI transfer changed file bytes.");
   } finally {
     if (receiver.exitCode === null) {

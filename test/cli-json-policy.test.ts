@@ -126,7 +126,7 @@ test("CLI send supports non-argv code and file path input", () => {
     assert.match(source, /function applyLocalPrivateMode/);
     assert.match(source, /options\.redactOutput = true/);
     assert.match(source, /options\.requirePrivateInput = true/);
-    assert.match(source, /opaqueOutputNames/);
+    assert.match(source, /opaqueOutputNames[^\n]*= true/);
     assert.match(source, /sourceCount === 0 && options\.localPrivateMode/);
     assert.match(source, /Receive code stdin or environment input is required by --local-private-mode/);
     assert.match(source, /const CLI_STDIN_MAX_BYTES = 512 \* 1024/);
