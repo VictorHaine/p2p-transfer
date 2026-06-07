@@ -95,6 +95,11 @@ async function main() {
   }
   assertEnvironmentDoesNotSelfReviewDeadlock(environment, authenticatedLogin);
   await ensureNpmDeploymentPolicy(token, options.repository);
+  environment = await github(token, "GET", `/repos/${options.repository}/environments/${encodeURIComponent(NPM_ENVIRONMENT)}`);
+  const verifiedEnvironmentStatus = environmentStatus(environment);
+  assertNpmEnvironmentStatus(verifiedEnvironmentStatus);
+  assertEnvironmentDoesNotSelfReviewDeadlock(environment, authenticatedLogin);
+  assertNpmDeploymentPolicies(await github(token, "GET", `/repos/${options.repository}/environments/${encodeURIComponent(NPM_ENVIRONMENT)}/deployment-branch-policies?per_page=100`));
 
   for (const ruleset of desired) {
     const existing = existingByName.get(ruleset.name);
@@ -284,6 +289,31 @@ function environmentStatus(environment) {
     usesCustomDeploymentPolicies: environment?.deployment_branch_policy?.protected_branches === false && environment?.deployment_branch_policy?.custom_branch_policies === true,
     deploymentBranchPolicy: environment?.deployment_branch_policy ?? null
   };
+}
+
+function assertNpmEnvironmentStatus(status) {
+  if (!status.hasRequiredReviewers) {
+    throw new Error("The npm environment exists but has no required reviewers protection rule.");
+  }
+  if (!status.preventsSelfReview) {
+    throw new Error("The npm environment must prevent self-review.");
+  }
+  if (!status.disablesAdminBypass) {
+    throw new Error("The npm environment must disable admin bypass.");
+  }
+  if (!status.usesCustomDeploymentPolicies) {
+    throw new Error("The npm environment must restrict deployments to custom policies.");
+  }
+}
+
+function assertNpmDeploymentPolicies(response) {
+  if (!response || typeof response !== "object" || !Array.isArray(response.branch_policies)) throw new Error("GitHub deployment branch policies response was invalid.");
+  if (typeof response.total_count === "number" && response.total_count !== response.branch_policies.length) throw new Error("GitHub deployment branch policies response was paginated unexpectedly.");
+  if (response.branch_policies.length !== 1) throw new Error("GitHub npm environment deployment policy is not exact.");
+  const policy = response.branch_policies[0];
+  if (!policy || typeof policy !== "object" || policy.name !== NPM_DEPLOYMENT_TAG_POLICY || policy.type !== "tag") {
+    throw new Error("GitHub npm environment must deploy only from release tags.");
+  }
 }
 
 async function github(token, method, path, body) {
