@@ -18,18 +18,15 @@ import { isServerMessage, type FileManifest, type ServerMessage, type SignalPayl
 import { sanitizeDisplayText, sanitizeStructuredOutput } from "../shared/output-safety.js";
 import { PACKAGE_VERSION } from "../shared/package-info.js";
 import { codeInputUtf8ByteLengthExceeds, generateCode, normalizeCode, parseCode } from "../shared/wordlist.js";
-import { openManifest, pairDecisionAuthTag, sdpAuthTag, sealManifest, verifyPairDecisionAuthTag, verifySignalAuthTag, wipeSessionKeys, type SessionKeys } from "../shared/security.js";
+import type { SessionKeys } from "../shared/security.js";
 import { cloneIceServers } from "../shared/ice.js";
 import { assertReviewedCryptoDependencies } from "./crypto-dependencies.js";
 import { buildManifest, closeSendFiles, ensureOutputDir } from "./files.js";
 import { redactLocalPathEvidence } from "./error-redaction.js";
 import { classifyExitCode, safeErrorMessage } from "./exit-codes.js";
 import { onInterrupt, withInterrupt } from "./interrupt.js";
-import { closeDataChannel, createPeer, dataChannelLabel, handleSignal, isSafeIncomingDataChannel, waitForDataChannelOpen } from "./rtc.js";
-import { establishKeys } from "./secure.js";
 import { SignalingClient, SignalingError, SignalingWaitTimeoutError, waitForMessage } from "./signaling.js";
 import { unrefTimer } from "./timers.js";
-import { receiveFiles, sendFiles } from "./transfer.js";
 
 type CommonOptions = {
   server: string;
@@ -72,6 +69,20 @@ const CLI_STDIN_MAX_BYTES = 512 * 1024;
 const ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const SEND_ARGV_TELEMETRY_WARNING = "Warning: receiver codes or local file paths passed as arguments can be captured by shell history, process lists, or endpoint telemetry. Use --code-stdin/--code-env and --files-stdin for private input.";
 const RECV_ARGV_TELEMETRY_WARNING = "Warning: receive codes passed as arguments can be captured by shell history, process lists, or endpoint telemetry. Use --code-stdin/--code-env for private input.";
+
+type SecurityModule = typeof import("../shared/security.js");
+type RtcModule = typeof import("./rtc.js");
+type SecureModule = typeof import("./secure.js");
+type TransferModule = typeof import("./transfer.js");
+type ReviewedCliRuntime = {
+  security: SecurityModule;
+  rtc: RtcModule;
+  secure: SecureModule;
+  transfer: TransferModule;
+};
+type CliPeer = ReturnType<RtcModule["createPeer"]>;
+
+let reviewedCliRuntimePromise: Promise<ReviewedCliRuntime> | undefined;
 
 process.title = "ff";
 
@@ -122,13 +133,26 @@ program
 
 program.parse();
 
+async function reviewedCliRuntime(): Promise<ReviewedCliRuntime> {
+  if (!reviewedCliRuntimePromise) {
+    assertReviewedCryptoDependencies();
+    reviewedCliRuntimePromise = Promise.all([import("../shared/security.js"), import("./rtc.js"), import("./secure.js"), import("./transfer.js")]).then(([security, rtc, secure, transfer]) => ({
+      security,
+      rtc,
+      secure,
+      transfer
+    }));
+  }
+  return reviewedCliRuntimePromise;
+}
+
 async function recv(options: RecvOptions): Promise<void> {
   const suppliedCode = await resolveRecvCode(options);
-  assertReviewedCryptoDependencies();
+  const runtime = await reviewedCliRuntime();
   const outDir = await ensureOutputDir(options.out);
 
   const signaling = await openSignaling(options.server);
-  let peer: ReturnType<typeof createPeer> | undefined;
+  let peer: CliPeer | undefined;
   let keys: SessionKeys | undefined;
   let sid: string | undefined;
   let parsedCode: ReturnType<typeof parseRequiredCode> | undefined;
@@ -159,7 +183,7 @@ async function recv(options: RecvOptions): Promise<void> {
         printRegisteredReceiver(options, parsedCode.handle, registered, registeredCode.supplied);
 
         for (let pairRequestRetry = 0; ; pairRequestRetry += 1) {
-          const joined = await waitForConfirmedReceiverSession(signaling, parsedCode.handle, options);
+          const joined = await waitForConfirmedReceiverSession(runtime, signaling, parsedCode.handle, options);
           sid = joined.sid;
           keys = joined.keys;
           print(options, { event: "secure_session", sas: keys.sas });
@@ -168,12 +192,12 @@ async function recv(options: RecvOptions): Promise<void> {
           try {
             const request = await waitForMessage(signaling, "pair-request", PAIR_TIMEOUT_MS, joined.sid);
             sealedManifest = request.sealedManifest;
-            manifest = await openManifest<FileManifest>(keys, request.sealedManifest);
+            manifest = await runtime.security.openManifest<FileManifest>(keys, request.sealedManifest);
             assertTransferManifestWithinLimits(manifest);
           } catch (error) {
             if (pairRequestRetry >= RECEIVER_MAX_PREPAIR_ATTEMPTS - 1) throw error;
             safeSend(signaling, { type: "bye", sid: joined.sid, reason: "prepair_retry" });
-            wipeSessionKeys(keys);
+            runtime.security.wipeSessionKeys(keys);
             keys = undefined;
             sid = undefined;
             const restored = await waitForMessage(signaling, "registered", CONNECT_TIMEOUT_MS);
@@ -184,24 +208,24 @@ async function recv(options: RecvOptions): Promise<void> {
           }
           const accepted = await showManifestAndMaybeAccept(manifest, options, keys.sas);
           if (!accepted) {
-            safeSend(signaling, { type: "pair-reject", sid: joined.sid, reason: "user_declined", auth: pairDecisionAuthTag(keys.signalAuthKey, joined.sid, "receiver", "reject", sealedManifest, "user_declined") });
+            safeSend(signaling, { type: "pair-reject", sid: joined.sid, reason: "user_declined", auth: runtime.security.pairDecisionAuthTag(keys.signalAuthKey, joined.sid, "receiver", "reject", sealedManifest, "user_declined") });
             throw new Error("Transfer declined.");
           }
 
-          signaling.send({ type: "pair-accept", sid: joined.sid, auth: pairDecisionAuthTag(keys.signalAuthKey, joined.sid, "receiver", "accept", sealedManifest) });
+          signaling.send({ type: "pair-accept", sid: joined.sid, auth: runtime.security.pairDecisionAuthTag(keys.signalAuthKey, joined.sid, "receiver", "accept", sealedManifest) });
           iceServers = await getIceServersAfterAccept(signaling, iceServers, useServerIce);
 
-          peer = createPeer(joined.sid, iceServers, signaling, keys.signalAuthKey, "receiver", options.relay);
-          const channels = waitForIncomingChannels(peer.pc);
-          const signalWire = wireSignals(signaling, peer.pc, joined.sid, keys, true);
+          peer = runtime.rtc.createPeer(joined.sid, iceServers, signaling, keys.signalAuthKey, "receiver", options.relay);
+          const channels = waitForIncomingChannels(runtime, peer.pc);
+          const signalWire = wireSignals(runtime, signaling, peer.pc, joined.sid, keys, true);
           unwireSignals = signalWire.dispose;
 
           const { control, bulk } = await Promise.race([channels, signalWire.failure]);
-          await Promise.race([Promise.all([waitForDataChannelOpen(control), waitForDataChannelOpen(bulk), peer.waitConnected()]), signalWire.failure]);
+          await Promise.race([Promise.all([runtime.rtc.waitForDataChannelOpen(control), runtime.rtc.waitForDataChannelOpen(bulk), peer.waitConnected()]), signalWire.failure]);
           signalWire.dispose();
           unwireSignals = undefined;
           human(options, "Connected. Receiving files...");
-          await receiveFiles(control, bulk, keys, outDir, options.json, options.quiet, undefined, manifest, Boolean(options.resume), Boolean(options.redactOutput));
+          await runtime.transfer.receiveFiles(control, bulk, keys, outDir, options.json, options.quiet, undefined, manifest, Boolean(options.resume), Boolean(options.redactOutput));
           safeSend(signaling, { type: "bye", sid: joined.sid, reason: "complete" });
           completed = true;
           break;
@@ -213,7 +237,7 @@ async function recv(options: RecvOptions): Promise<void> {
     interrupt.dispose();
     if (!completed) safeBye(signaling, sid, interrupt.interrupted ? "cancelled" : "error");
     unwireSignals?.();
-    wipeSessionKeys(keys);
+    runtime.security.wipeSessionKeys(keys);
     peer?.close();
     signaling.close();
   }
@@ -250,6 +274,7 @@ function printRegisteredReceiver(options: RecvOptions, handle: string, registere
 }
 
 async function waitForConfirmedReceiverSession(
+  runtime: ReviewedCliRuntime,
   signaling: SignalingClient,
   code: string,
   options: RecvOptions
@@ -258,7 +283,7 @@ async function waitForConfirmedReceiverSession(
   for (let attempt = 1; attempt <= RECEIVER_MAX_PREPAIR_ATTEMPTS; attempt += 1) {
     const joined = await waitForMessage(signaling, "peer-joined", PAIR_TIMEOUT_MS);
     try {
-      return { sid: joined.sid, keys: await establishKeys(signaling, joined.sid, "receiver", code) };
+      return { sid: joined.sid, keys: await runtime.secure.establishKeys(signaling, joined.sid, "receiver", code) };
     } catch (error) {
       if (!isPrePairRetryable(error) || attempt >= RECEIVER_MAX_PREPAIR_ATTEMPTS) throw error;
       safeSend(signaling, { type: "bye", sid: joined.sid, reason: "prepair_retry" });
@@ -294,10 +319,10 @@ async function getIceServersAfterAccept(signaling: SignalingClient, fallback: RT
 
 async function send(code: string, paths: string[], options: CommonOptions): Promise<void> {
   const parsedCode = parseRequiredCode(code);
-  assertReviewedCryptoDependencies();
+  const runtime = await reviewedCliRuntime();
   const { files, manifest } = await buildManifest(paths);
   let signaling: SignalingClient | undefined;
-  let peer: ReturnType<typeof createPeer> | undefined;
+  let peer: CliPeer | undefined;
   let keys: SessionKeys | undefined;
   let sid: string | undefined;
   let completed = false;
@@ -329,31 +354,31 @@ async function send(code: string, paths: string[], options: CommonOptions): Prom
           signaling.send({ type: "connect", role: "sender", code: parsedCode.rendezvous, protocolVersion: PROTOCOL_VERSION });
           const joined = await waitForMessage(signaling, "peer-joined", CONNECT_TIMEOUT_MS);
           sid = joined.sid;
-          keys = await establishKeys(signaling, joined.sid, "sender", parsedCode.handle);
+          keys = await runtime.secure.establishKeys(signaling, joined.sid, "sender", parsedCode.handle);
           const publicManifest = redactManifest(manifest);
-          const sealedManifest = await sealManifest(keys, manifest);
+          const sealedManifest = await runtime.security.sealManifest(keys, manifest);
           signaling.send({ type: "pair-request", sid: joined.sid, manifest: publicManifest, sealedManifest });
           print(options, options.redactOutput ? { event: "pair_requested", sid: joined.sid, fileCount: manifest.fileCount } : { event: "pair_requested", sid: joined.sid, files: manifest.fileCount, totalBytes: manifest.totalBytes });
           print(options, { event: "secure_session", sas: keys.sas });
           human(options, options.redactOutput ? `Waiting for receiver to accept ${manifest.fileCount} file(s). SAS ${keys.sas}` : `Waiting for receiver to accept ${manifest.fileCount} file(s), ${formatBytes(manifest.totalBytes)}. SAS ${keys.sas}`);
-          await waitForPairAccept(signaling, joined.sid, keys, sealedManifest);
+          await waitForPairAccept(runtime, signaling, joined.sid, keys, sealedManifest);
           iceServers = await getIceServersAfterAccept(signaling, iceServers, useServerIce);
 
-          peer = createPeer(joined.sid, iceServers, signaling, keys.signalAuthKey, "sender", options.relay);
-          const signalWire = wireSignals(signaling, peer.pc, joined.sid, keys, false);
+          peer = runtime.rtc.createPeer(joined.sid, iceServers, signaling, keys.signalAuthKey, "sender", options.relay);
+          const signalWire = wireSignals(runtime, signaling, peer.pc, joined.sid, keys, false);
           unwireSignals = signalWire.dispose;
           const control = peer.pc.createDataChannel("control", { ordered: true });
           const bulk = peer.pc.createDataChannel("bulk", { ordered: true });
           const offer = await peer.pc.createOffer();
           await peer.pc.setLocalDescription(offer);
           const offerSdp = requireSdp(peer.pc.localDescription?.sdp ?? offer.sdp);
-          signaling.send({ type: "signal", sid: joined.sid, signal: { kind: "offer", sdp: offerSdp, auth: sdpAuthTag(keys.signalAuthKey, joined.sid, "sender", "offer", offerSdp) } });
+          signaling.send({ type: "signal", sid: joined.sid, signal: { kind: "offer", sdp: offerSdp, auth: runtime.security.sdpAuthTag(keys.signalAuthKey, joined.sid, "sender", "offer", offerSdp) } });
 
-          await Promise.race([Promise.all([waitForDataChannelOpen(control), waitForDataChannelOpen(bulk), peer.waitConnected()]), signalWire.failure]);
+          await Promise.race([Promise.all([runtime.rtc.waitForDataChannelOpen(control), runtime.rtc.waitForDataChannelOpen(bulk), peer.waitConnected()]), signalWire.failure]);
           signalWire.dispose();
           unwireSignals = undefined;
           human(options, "Connected. Sending files...");
-          await sendFiles(control, bulk, keys, files, options.json, options.quiet, Boolean(options.redactOutput));
+          await runtime.transfer.sendFiles(control, bulk, keys, files, options.json, options.quiet, Boolean(options.redactOutput));
           safeSend(signaling, { type: "bye", sid: joined.sid, reason: "complete" });
           completed = true;
         })(),
@@ -366,7 +391,7 @@ async function send(code: string, paths: string[], options: CommonOptions): Prom
     if (!completed && signaling) safeBye(signaling, sid, interrupted ? "cancelled" : "error");
     unwireSignals?.();
     await closeSendFiles(files);
-    wipeSessionKeys(keys);
+    runtime.security.wipeSessionKeys(keys);
     peer?.close();
     signaling?.close();
   }
@@ -503,7 +528,7 @@ async function showManifestAndMaybeAccept(manifest: FileManifest, options: RecvO
   }
 }
 
-function waitForIncomingChannels(pc: RTCPeerConnection): Promise<{ control: RTCDataChannel; bulk: RTCDataChannel }> {
+function waitForIncomingChannels(runtime: ReviewedCliRuntime, pc: RTCPeerConnection): Promise<{ control: RTCDataChannel; bulk: RTCDataChannel }> {
   const channels = new Map<string, RTCDataChannel>();
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -544,19 +569,19 @@ function waitForIncomingChannels(pc: RTCPeerConnection): Promise<{ control: RTCD
     };
     pc.addEventListener("connectionstatechange", failOnTerminalConnectionState);
     pc.ondatachannel = (event) => {
-      const channel = incomingDataChannel(event);
+      const channel = incomingDataChannel(runtime, event);
       if (!channel) {
         fail(new Error("Unexpected DataChannel parameters."));
         return;
       }
-      const label = dataChannelLabel(channel);
+      const label = runtime.rtc.dataChannelLabel(channel);
       if (!isExpectedDataChannel(channel, label)) {
-        closeDataChannel(channel);
+        runtime.rtc.closeDataChannel(channel);
         fail(new Error("Unexpected DataChannel parameters."));
         return;
       }
       if (channels.has(label)) {
-        closeDataChannel(channel);
+        runtime.rtc.closeDataChannel(channel);
         fail(new Error(`Duplicate DataChannel ${label}.`));
         return;
       }
@@ -571,9 +596,9 @@ function waitForIncomingChannels(pc: RTCPeerConnection): Promise<{ control: RTCD
   });
 }
 
-function incomingDataChannel(event: RTCDataChannelEvent): RTCDataChannel | undefined {
+function incomingDataChannel(runtime: ReviewedCliRuntime, event: RTCDataChannelEvent): RTCDataChannel | undefined {
   const channel = ownDataValue(event, "channel");
-  return isSafeIncomingDataChannel(channel) ? channel : undefined;
+  return runtime.rtc.isSafeIncomingDataChannel(channel) ? channel : undefined;
 }
 
 function isExpectedDataChannel(channel: RTCDataChannel, label: string | undefined): label is "control" | "bulk" {
@@ -584,7 +609,7 @@ function isUnsetRetransmissionLimit(value: unknown): boolean {
   return value === null || value === 65535;
 }
 
-function waitForPairAccept(signaling: SignalingClient, sid: string, keys: SessionKeys, sealedManifest: string): Promise<void> {
+function waitForPairAccept(runtime: ReviewedCliRuntime, signaling: SignalingClient, sid: string, keys: SessionKeys, sealedManifest: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       cleanup();
@@ -596,14 +621,14 @@ function waitForPairAccept(signaling: SignalingClient, sid: string, keys: Sessio
       if ("sid" in message && message.sid !== sid) return;
       if (message.type === "pair-accept") {
         cleanup();
-        if (verifyPairDecisionAuthTag(keys.signalAuthKey, sid, "receiver", "accept", sealedManifest, undefined, message.auth)) {
+        if (runtime.security.verifyPairDecisionAuthTag(keys.signalAuthKey, sid, "receiver", "accept", sealedManifest, undefined, message.auth)) {
           resolve();
         } else {
           reject(new Error("Authenticated pair decision check failed. Wrong code or signaling MITM."));
         }
       } else if (message.type === "pair-reject") {
         cleanup();
-        if (verifyPairDecisionAuthTag(keys.signalAuthKey, sid, "receiver", "reject", sealedManifest, message.reason, message.auth)) {
+        if (runtime.security.verifyPairDecisionAuthTag(keys.signalAuthKey, sid, "receiver", "reject", sealedManifest, message.reason, message.auth)) {
           reject(new Error(pairRejectMessage(message.reason)));
         } else {
           reject(new Error("Authenticated pair decision check failed. Wrong code or signaling MITM."));
@@ -642,7 +667,7 @@ function waitForPairAccept(signaling: SignalingClient, sid: string, keys: Sessio
   });
 }
 
-function wireSignals(signaling: SignalingClient, pc: RTCPeerConnection, sid: string, keys: SessionKeys, answerOffers: boolean): { dispose: () => void; failure: Promise<never> } {
+function wireSignals(runtime: ReviewedCliRuntime, signaling: SignalingClient, pc: RTCPeerConnection, sid: string, keys: SessionKeys, answerOffers: boolean): { dispose: () => void; failure: Promise<never> } {
   const queuedCandidates: Extract<SignalPayload, { kind: "candidate" }>[] = [];
   let disposed = false;
   let failed = false;
@@ -670,7 +695,7 @@ function wireSignals(signaling: SignalingClient, pc: RTCPeerConnection, sid: str
       if (!isServerMessage(message)) return;
       if (message.type !== "signal" || message.sid !== sid) return;
       const peerRole = keys.role === "sender" ? "receiver" : "sender";
-      if (!verifySignalAuthTag(keys.signalAuthKey, sid, peerRole, message.signal)) {
+      if (!runtime.security.verifySignalAuthTag(keys.signalAuthKey, sid, peerRole, message.signal)) {
         throw new Error("Authenticated WebRTC signal check failed. Wrong code or signaling MITM.");
       }
       const signal = message.signal.kind === "candidate" ? copyCandidateSignal(message.signal) : message.signal;
@@ -679,7 +704,7 @@ function wireSignals(signaling: SignalingClient, pc: RTCPeerConnection, sid: str
         queuedCandidates.push(signal);
         return;
       }
-      const kind = await handleSignal(pc, signal);
+      const kind = await runtime.rtc.handleSignal(pc, signal);
       if (disposed) return;
       if (kind === "offer" && answerOffers) {
         const answer = await pc.createAnswer();
@@ -687,10 +712,10 @@ function wireSignals(signaling: SignalingClient, pc: RTCPeerConnection, sid: str
         await pc.setLocalDescription(answer);
         if (disposed) return;
         const answerSdp = requireSdp(pc.localDescription?.sdp ?? answer.sdp);
-        signaling.send({ type: "signal", sid, signal: { kind: "answer", sdp: answerSdp, auth: sdpAuthTag(keys.signalAuthKey, sid, keys.role, "answer", answerSdp) } });
+        signaling.send({ type: "signal", sid, signal: { kind: "answer", sdp: answerSdp, auth: runtime.security.sdpAuthTag(keys.signalAuthKey, sid, keys.role, "answer", answerSdp) } });
       }
       if (pc.remoteDescription) {
-        while (!disposed && queuedCandidates.length > 0) await handleSignal(pc, queuedCandidates.shift()!);
+        while (!disposed && queuedCandidates.length > 0) await runtime.rtc.handleSignal(pc, queuedCandidates.shift()!);
       }
     } catch (error) {
       fail(error instanceof Error ? error : new Error(safeErrorMessage(error)));

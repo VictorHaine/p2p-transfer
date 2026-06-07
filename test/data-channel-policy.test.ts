@@ -187,7 +187,8 @@ test("receivers fail closed on duplicate incoming WebRTC DataChannel labels", ()
 
 test("incoming DataChannel setup validates event channels before labels, close, or error text", () => {
   assert.match(securityPolicy, /incoming DataChannel setup must snapshot and validate the accepted event channel and channel object before reading labels, channel parameters, closing unexpected channels, or interpolating duplicate-label errors/);
-  assert.match(cliSource, /import \{ closeDataChannel, createPeer, dataChannelLabel, handleSignal, isSafeIncomingDataChannel, waitForDataChannelOpen \} from "\.\/rtc\.js";/);
+  assert.match(cliSource, /import\("\.\/rtc\.js"\)/);
+  assert.doesNotMatch(cliSource, /import \{ closeDataChannel, createPeer, dataChannelLabel, handleSignal, isSafeIncomingDataChannel, waitForDataChannelOpen \} from "\.\/rtc\.js";/);
   assert.match(cliRtcSource, /export function isSafeDataChannel\(channel: unknown\): channel is RTCDataChannel/);
   assert.match(cliRtcSource, /export function isSafeIncomingDataChannel\(channel: unknown\): channel is RTCDataChannel/);
   assert.match(cliRtcSource, /\["readyState", "bufferedAmount", "bufferedAmountLowThreshold", "onopen", "onclose", "onerror", "onbufferedamountlow"\]/);
@@ -202,22 +203,22 @@ test("incoming DataChannel setup validates event channels before labels, close, 
   for (const source of [cliSource, webSource]) {
     const functionName = source === cliSource ? "waitForIncomingChannels" : "waitIncomingChannels";
     const body = extractFunctionBody(source, functionName);
-    assert.match(body, /const channel = incoming(?:Browser)?DataChannel\(event\);/);
+    assert.match(body, /const channel = (?:incomingBrowserDataChannel\(event\)|incomingDataChannel\(runtime, event\));/);
     assert.match(body, /if \(!channel\) \{[\s\S]*Unexpected DataChannel parameters\.[\s\S]*return;[\s\S]*\}/);
-    assert.match(body, /const label = (?:dataChannelLabel|browserDataChannelLabel)\(channel\);/);
-    assert.match(body, /if \(!isExpectedDataChannel\(channel, label\)\) \{[\s\S]*(?:closeDataChannel|closeBrowserDataChannel)\(channel\);[\s\S]*Unexpected DataChannel parameters\./);
-    assert.match(body, /channels\.has\(label\)[\s\S]*(?:closeDataChannel|closeBrowserDataChannel)\(channel\)[\s\S]*Duplicate DataChannel \$\{label\}/);
+    assert.match(body, /const label = (?:runtime\.rtc\.dataChannelLabel|browserDataChannelLabel)\(channel\);/);
+    assert.match(body, /if \(!isExpectedDataChannel\(channel, label\)\) \{[\s\S]*(?:runtime\.rtc\.closeDataChannel|closeBrowserDataChannel)\(channel\);[\s\S]*Unexpected DataChannel parameters\./);
+    assert.match(body, /channels\.has\(label\)[\s\S]*(?:runtime\.rtc\.closeDataChannel|closeBrowserDataChannel)\(channel\)[\s\S]*Duplicate DataChannel \$\{label\}/);
     assert.match(body, /channels\.set\(label, channel\)/);
     assert.doesNotMatch(body, /event\.channel\.label|event\.channel\.close\(\)|channels\.set\(event\.channel\.label/);
   }
 
-  assert.match(cliSource, /function incomingDataChannel\(event: RTCDataChannelEvent\): RTCDataChannel \| undefined \{[\s\S]*const channel = ownDataValue\(event, "channel"\);[\s\S]*return isSafeIncomingDataChannel\(channel\) \? channel : undefined;[\s\S]*\}/);
+  assert.match(cliSource, /function incomingDataChannel\(runtime: ReviewedCliRuntime, event: RTCDataChannelEvent\): RTCDataChannel \| undefined \{[\s\S]*const channel = ownDataValue\(event, "channel"\);[\s\S]*return runtime\.rtc\.isSafeIncomingDataChannel\(channel\) \? channel : undefined;[\s\S]*\}/);
   assert.match(webSource, /function isSafeBrowserDataChannel\(channel: unknown\): channel is RTCDataChannel \{/);
   assert.match(webSource, /function incomingBrowserDataChannel\(event: RTCDataChannelEvent\): RTCDataChannel \| undefined \{[\s\S]*typeof RTCDataChannelEvent !== "undefined" && event instanceof RTCDataChannelEvent \? event\.channel : ownDataValue\(event, "channel"\)/);
   assert.match(webSource, /channel instanceof RTCDataChannel/);
   assert.match(webSource, /function browserDataChannelLabel\(channel: RTCDataChannel\): string \| undefined/);
   assert.match(webSource, /function closeBrowserDataChannel\(channel: RTCDataChannel\): void/);
-  assert.match(distCliSource, /function incomingDataChannel\(event\) \{[\s\S]*const channel = ownDataValue\(event, "channel"\);[\s\S]*return isSafeIncomingDataChannel\(channel\) \? channel : undefined;/);
+  assert.match(distCliSource, /function incomingDataChannel\(runtime, event\) \{[\s\S]*const channel = ownDataValue\(event, "channel"\);[\s\S]*return runtime\.rtc\.isSafeIncomingDataChannel\(channel\) \? channel : undefined;/);
   assert.match(distWebBundle, /typeof RTCDataChannelEvent<`u`&&\w+ instanceof RTCDataChannelEvent\?\w+\.channel/);
   assert.match(distWebBundle, /typeof RTCDataChannel<`u`&&\w+ instanceof RTCDataChannel/);
   assert.match(distWebBundle, /typeof \w+==`string`\?\w+:void 0/);
@@ -263,9 +264,9 @@ test("incoming DataChannel setup fails on terminal peer-connection states while 
 test("WebRTC signaling listeners are disposed before session key wipe", () => {
   for (const source of [cliSource, webSource]) {
     assert.match(source, /let unwireSignals: \(\(\) => void\) \| undefined/);
-    assert.match(source, /const signalWire = wireSignals\(signaling, [\s\S]*unwireSignals = signalWire\.dispose/);
+    assert.match(source, /const signalWire = wireSignals\((?:runtime, )?signaling, [\s\S]*unwireSignals = signalWire\.dispose/);
     const cleanup = source.indexOf("unwireSignals?.()");
-    const wipe = source.indexOf("wipeSessionKeys(keys)", cleanup);
+    const wipe = source.indexOf(source === cliSource ? "runtime.security.wipeSessionKeys(keys)" : "wipeSessionKeys(keys)", cleanup);
     assert.notEqual(cleanup, -1);
     assert.notEqual(wipe, -1);
     assert.equal(cleanup < wipe, true);
@@ -279,8 +280,8 @@ test("in-flight WebRTC signal handlers stop after disposal", () => {
     const wireSignals = extractFunctionBody(source, "wireSignals");
     assert.match(wireSignals, /let disposed = false/);
     assert.match(wireSignals, /const dispose = \(\) => \{[\s\S]*disposed = true;[\s\S]*queuedCandidates\.length = 0;[\s\S]*signaling\.off\("signal", onSignal\);[\s\S]*\};/);
-    assert.match(wireSignals, /if \(disposed\) return;[\s\S]*verifySignalAuthTag/);
-    assert.match(wireSignals, /await [\s\S]*(?:handleSignal|setRemoteDescription)[\s\S]*if \(disposed\) return;/);
+    assert.match(wireSignals, /if \(disposed\) return;[\s\S]*(?:runtime\.security\.)?verifySignalAuthTag/);
+    assert.match(wireSignals, /await [\s\S]*(?:runtime\.rtc\.handleSignal|handleSignal|setRemoteDescription)[\s\S]*if \(disposed\) return;/);
     assert.match(wireSignals, /while \(!disposed && queuedCandidates\.length > 0\)/);
   }
 });

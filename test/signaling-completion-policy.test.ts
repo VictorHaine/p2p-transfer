@@ -18,7 +18,7 @@ test("successful transfers treat final signaling bye as best-effort teardown", (
 });
 
 test("receiver declines preserve local decision even if signaling teardown fails", () => {
-  assert.match(cliSource, /safeSend\(signaling, \{ type: "pair-reject", sid: joined\.sid, reason: "user_declined", auth: pairDecisionAuthTag\(keys\.signalAuthKey, joined\.sid, "receiver", "reject", sealedManifest, "user_declined"\) \}\);[\s\S]*throw new Error\("Transfer declined\."\)/);
+  assert.match(cliSource, /safeSend\(signaling, \{ type: "pair-reject", sid: joined\.sid, reason: "user_declined", auth: runtime\.security\.pairDecisionAuthTag\(keys\.signalAuthKey, joined\.sid, "receiver", "reject", sealedManifest, "user_declined"\) \}\);[\s\S]*throw new Error\("Transfer declined\."\)/);
   assert.match(webSource, /safeBrowserSend\(signaling, \{ type: "pair-reject", sid: joined\.sid, reason: "user_declined", auth: pairDecisionAuthTag\(keys\.signalAuthKey, joined\.sid, "receiver", "reject", sealedManifest, "user_declined"\) \}\);[\s\S]*setStatus\(recvStatus, "Declined"\)/);
   assert.doesNotMatch(cliSource, /signaling\.send\(\{ type: "pair-reject", sid: joined\.sid, reason: "user_declined" \}\);[\s\S]*throw new Error\("Transfer declined\."\)/);
   assert.doesNotMatch(webSource, /signaling\.send\(\{ type: "pair-reject", sid: joined\.sid, reason: "user_declined" \}\);[\s\S]*setStatus\(recvStatus, "Declined"\)/);
@@ -82,16 +82,16 @@ test("authenticated WebRTC signal failures stay visible during connection setup"
 
 test("transfers stop depending on signaling after WebRTC is connected", () => {
   assert.match(securityPolicy, /after WebRTC is connected and both DataChannels are open, transfers must not race file streaming against signaling liveness/);
-  assert.match(cliSource, /waitForDataChannelOpen\(control\), waitForDataChannelOpen\(bulk\), peer\.waitConnected\(\)[\s\S]*signalWire\.failure\]\);[\s\S]*signalWire\.dispose\(\);[\s\S]*unwireSignals = undefined;[\s\S]*await receiveFiles\(control, bulk, keys,/);
-  assert.match(cliSource, /waitForDataChannelOpen\(control\), waitForDataChannelOpen\(bulk\), peer\.waitConnected\(\)[\s\S]*signalWire\.failure\]\);[\s\S]*signalWire\.dispose\(\);[\s\S]*unwireSignals = undefined;[\s\S]*await sendFiles\(control, bulk, keys,/);
+  assert.match(cliSource, /runtime\.rtc\.waitForDataChannelOpen\(control\), runtime\.rtc\.waitForDataChannelOpen\(bulk\), peer\.waitConnected\(\)[\s\S]*signalWire\.failure\]\);[\s\S]*signalWire\.dispose\(\);[\s\S]*unwireSignals = undefined;[\s\S]*await runtime\.transfer\.receiveFiles\(control, bulk, keys,/);
+  assert.match(cliSource, /runtime\.rtc\.waitForDataChannelOpen\(control\), runtime\.rtc\.waitForDataChannelOpen\(bulk\), peer\.waitConnected\(\)[\s\S]*signalWire\.failure\]\);[\s\S]*signalWire\.dispose\(\);[\s\S]*unwireSignals = undefined;[\s\S]*await runtime\.transfer\.sendFiles\(control, bulk, keys,/);
   assert.match(webSource, /waitOpen\(control\), waitOpen\(bulk\), waitPeerConnected\(pc\)[\s\S]*signalWire\.failure\]\);[\s\S]*signalWire\.dispose\(\);[\s\S]*unwireSignals = undefined;[\s\S]*await sendBrowserFiles\(control, bulk, keys,/);
   assert.match(webSource, /waitOpen\(control\), waitOpen\(bulk\), waitPeerConnected\(pc\)[\s\S]*signalWire\.failure\]\);[\s\S]*signalWire\.dispose\(\);[\s\S]*unwireSignals = undefined;[\s\S]*await receiveBrowserFiles\(control, bulk, keys,/);
   assert.doesNotMatch(cliSource, /Promise\.race\(\[receiveFiles\(control, bulk, keys,[\s\S]*\), signalWire\.failure\]\)/);
   assert.doesNotMatch(cliSource, /Promise\.race\(\[sendFiles\(control, bulk, keys,[\s\S]*\), signalWire\.failure\]\)/);
   assert.doesNotMatch(webSource, /Promise\.race\(\[sendBrowserFiles\(control, bulk, keys,[\s\S]*\), signalWire\.failure\]\)/);
   assert.doesNotMatch(webSource, /Promise\.race\(\[receiveBrowserFiles\(control, bulk, keys,[\s\S]*\), signalWire\.failure\]\)/);
-  assert.match(distCliSource, /signalWire\.dispose\(\);\n\s+unwireSignals = undefined;\n\s+human\(options, "Connected\. Receiving files\.\.\."\);\n\s+await receiveFiles\(control, bulk, keys,/);
-  assert.match(distCliSource, /signalWire\.dispose\(\);\n\s+unwireSignals = undefined;\n\s+human\(options, "Connected\. Sending files\.\.\."\);\n\s+await sendFiles\(control, bulk, keys,/);
+  assert.match(distCliSource, /signalWire\.dispose\(\);\n\s+unwireSignals = undefined;\n\s+human\(options, "Connected\. Receiving files\.\.\."\);\n\s+await runtime\.transfer\.receiveFiles\(control, bulk, keys,/);
+  assert.match(distCliSource, /signalWire\.dispose\(\);\n\s+unwireSignals = undefined;\n\s+human\(options, "Connected\. Sending files\.\.\."\);\n\s+await runtime\.transfer\.sendFiles\(control, bulk, keys,/);
   assert.match(distWebBundle, /`Sending`/);
   assert.match(distWebBundle, /`Receiving`/);
   assert.match(distWebBundle, /\.dispose\(\)/);
