@@ -5,6 +5,7 @@ import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { safeChildEnv } from "./smoke-packed.mjs";
 import { assertLiveReleaseRefFromEnv } from "./verify-live-release-ref.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -148,7 +149,7 @@ function run(command, args, label, timeoutMs, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: root,
-      env: options.env,
+      env: { ...safeChildEnv(), ...(options.env ?? {}) },
       stdio: ["pipe", "pipe", "pipe"]
     });
     let stdout = "";
