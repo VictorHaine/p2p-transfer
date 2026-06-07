@@ -13,6 +13,10 @@ autoInstallPeers: false
 verifyDepsBeforeRun: error
 strictDepBuilds: true
 
+overrides:
+  "@types/node": 22.13.14
+  undici-types: 6.19.1
+
 allowBuilds:
   "@roamhq/wrtc": true
   esbuild: true

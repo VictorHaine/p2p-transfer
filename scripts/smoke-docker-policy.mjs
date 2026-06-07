@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
-import { realpathSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -29,50 +30,65 @@ if (isMain()) {
 async function main() {
   const imageTag = imageTagFromEnv(process.env.DOCKER_SMOKE_TAG);
   const containerName = `p2p-transfer-policy-${Date.now()}-${process.pid}`;
+  const dockerConfigDir = createIsolatedDockerConfig();
+  const dockerEnv = { DOCKER_CONFIG: dockerConfigDir };
 
-  run("docker", ["build", "-t", imageTag, "."], "docker image build", BUILD_TIMEOUT_MS);
-  expectDockerFailure(
-    ["run", "--rm", "--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "-e", "SIGNALING_TOPOLOGY=single-instance", imageTag],
-    "container without ALLOWED_ORIGINS",
-    "ALLOWED_ORIGINS"
-  );
-  expectDockerFailure(
-    ["run", "--rm", "--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "-e", `ALLOWED_ORIGINS=${PRODUCTION_ORIGIN}`, imageTag],
-    "container without SIGNALING_TOPOLOGY",
-    "SIGNALING_TOPOLOGY"
-  );
-
-  assertContainerName(containerName);
   try {
-    run(
-      "docker",
-      [
-        "run",
-        "-d",
-        "--name",
-        containerName,
-        "--read-only",
-        "--cap-drop=ALL",
-        "--security-opt",
-        "no-new-privileges",
-        "-p",
-        "127.0.0.1::8787",
-        "-e",
-        `ALLOWED_ORIGINS=${PRODUCTION_ORIGIN}`,
-        "-e",
-        "SIGNALING_TOPOLOGY=single-instance",
-        imageTag
-      ],
-      "hardened container start",
-      COMMAND_TIMEOUT_MS
+    run("docker", ["build", "-t", imageTag, "."], "docker image build", BUILD_TIMEOUT_MS, { env: dockerEnv });
+    expectDockerFailure(
+      ["run", "--rm", "--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "-e", "SIGNALING_TOPOLOGY=single-instance", imageTag],
+      "container without ALLOWED_ORIGINS",
+      "ALLOWED_ORIGINS",
+      dockerEnv
     );
-    const port = publishedPort(containerName);
-    await waitForProbe(`http://127.0.0.1:${port}/healthz`, "200");
-    probe(`http://127.0.0.1:${port}/`, "200", { contains: "ff transfer", maxBytes: "1048576" });
-    probe(`http://127.0.0.1:${port}/v1/ice`, "403", { origin: BAD_ORIGIN });
+    expectDockerFailure(
+      ["run", "--rm", "--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "-e", `ALLOWED_ORIGINS=${PRODUCTION_ORIGIN}`, imageTag],
+      "container without SIGNALING_TOPOLOGY",
+      "SIGNALING_TOPOLOGY",
+      dockerEnv
+    );
+
+    assertContainerName(containerName);
+    try {
+      run(
+        "docker",
+        [
+          "run",
+          "-d",
+          "--name",
+          containerName,
+          "--read-only",
+          "--cap-drop=ALL",
+          "--security-opt",
+          "no-new-privileges",
+          "-p",
+          "127.0.0.1::8787",
+          "-e",
+          `ALLOWED_ORIGINS=${PRODUCTION_ORIGIN}`,
+          "-e",
+          "SIGNALING_TOPOLOGY=single-instance",
+          imageTag
+        ],
+        "hardened container start",
+        COMMAND_TIMEOUT_MS,
+        { env: dockerEnv }
+      );
+      const port = publishedPort(containerName, dockerEnv);
+      await waitForProbe(`http://127.0.0.1:${port}/healthz`, "200");
+      probe(`http://127.0.0.1:${port}/`, "200", { contains: "ff transfer", maxBytes: "1048576" });
+      probe(`http://127.0.0.1:${port}/v1/ice`, "403", { origin: BAD_ORIGIN });
+    } finally {
+      run("docker", ["rm", "-f", containerName], "container cleanup", COMMAND_TIMEOUT_MS, { allowFailure: true, env: dockerEnv });
+    }
   } finally {
-    run("docker", ["rm", "-f", containerName], "container cleanup", COMMAND_TIMEOUT_MS, { allowFailure: true });
+    rmSync(dockerConfigDir, { recursive: true, force: true });
   }
+}
+
+function createIsolatedDockerConfig() {
+  const dir = mkdtempSync(path.join(tmpdir(), "p2p-transfer-docker-"));
+  writeFileSync(path.join(dir, "config.json"), JSON.stringify({ auths: {} }), { mode: 0o600 });
+  return dir;
 }
 
 function imageTagFromEnv(value) {
@@ -85,14 +101,14 @@ function assertContainerName(value) {
   if (!CONTAINER_NAME_RE.test(value)) throw new Error("generated docker container name is invalid.");
 }
 
-function expectDockerFailure(args, label, requiredEvidence) {
-  const result = run("docker", args, label, COMMAND_TIMEOUT_MS, { allowFailure: true });
+function expectDockerFailure(args, label, requiredEvidence, env) {
+  const result = run("docker", args, label, COMMAND_TIMEOUT_MS, { allowFailure: true, env });
   if (result.status === 0) throw new Error(`${label} unexpectedly started.`);
   if (!combinedOutput(result).includes(requiredEvidence)) throw new Error(`${label} did not fail with the expected production policy evidence.`);
 }
 
-function publishedPort(containerName) {
-  const result = run("docker", ["port", containerName, "8787/tcp"], "container port lookup", COMMAND_TIMEOUT_MS);
+function publishedPort(containerName, env) {
+  const result = run("docker", ["port", containerName, "8787/tcp"], "container port lookup", COMMAND_TIMEOUT_MS, { env });
   const output = `${result.stdout ?? ""}`.trim();
   const match = /^127\.0\.0\.1:(?<port>[1-9][0-9]{0,4})$/u.exec(output);
   const port = match?.groups?.port ? Number(match.groups.port) : 0;
@@ -178,8 +194,7 @@ function combinedOutput(result) {
 
 function delay(ms) {
   return new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    timer.unref?.();
+    setTimeout(resolve, ms);
   });
 }
 

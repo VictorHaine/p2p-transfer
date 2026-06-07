@@ -396,10 +396,17 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.match(dockerPolicySmokeScript, /\["PATH", true\]/);
   assert.match(dockerPolicySmokeScript, /\["DOCKER_HOST", false\]/);
   assert.match(dockerPolicySmokeScript, /\["DOCKER_CONTEXT", false\]/);
+  assert.match(dockerPolicySmokeScript, /function createIsolatedDockerConfig\(\)/);
+  assert.match(dockerPolicySmokeScript, /mkdtempSync\(path\.join\(tmpdir\(\), "p2p-transfer-docker-"\)\)/);
+  assert.match(dockerPolicySmokeScript, /writeFileSync\(path\.join\(dir, "config\.json"\), JSON\.stringify\(\{ auths: \{\} \}\), \{ mode: 0o600 \}\)/);
+  assert.match(dockerPolicySmokeScript, /const dockerEnv = \{ DOCKER_CONFIG: dockerConfigDir \}/);
+  assert.match(dockerPolicySmokeScript, /rmSync\(dockerConfigDir, \{ recursive: true, force: true \}\)/);
   assert.match(dockerPolicySmokeScript, /Object\.getOwnPropertyDescriptor\(process\.env, name\)/);
   assert.match(dockerPolicySmokeScript, /MAX_CHILD_ENV_VALUE_BYTES = 8_192/);
+  assert.doesNotMatch(dockerPolicySmokeScript, /timer\.unref\?\.\(\)/);
   assert.doesNotMatch(dockerPolicySmokeScript, /env: \{ \.\.\.process\.env/);
   assert.match(securityPolicy, /Docker policy smoke subprocesses must run with a minimal allowlisted environment/);
+  assert.match(securityPolicy, /temporary `DOCKER_CONFIG` containing no credential helper or registry credentials/);
   assert.doesNotMatch(ciWorkflow, /\bnpm\s+(?:install|ci|publish)\b|npx\b/);
 });
 
@@ -604,6 +611,10 @@ test("Node ambient types stay on the supported runtime major", () => {
   assert.doesNotMatch(nodeTypes ?? "", /^2[345]\./);
   assert.match(pnpmLock, /^  '@types\/node@22\.\d+\.\d+':$/m);
   assert.doesNotMatch(pnpmLock, /@types\/node@2[345]\./);
+  assert.match(pnpmWorkspace, /overrides:\n\s+"@types\/node": 22\.13\.14\n\s+undici-types: 6\.19\.1/);
+  assert.match(pnpmLock, /overrides:\n\s+'@types\/node': 22\.13\.14\n\s+undici-types: 6\.19\.1/);
+  assert.match(pnpmLock, /^  undici-types@6\.19\.1:$/m);
+  assert.doesNotMatch(pnpmLock, /undici-types@6\.2[01]\./);
   assert.doesNotMatch(pnpmLock, /undici-types@7\./);
 });
 
@@ -978,7 +989,7 @@ test("lockfile resolved package set is explicitly reviewed", () => {
     "@scure/base@2.2.0",
     "@scure/bip39@2.2.0",
     "@tybys/wasm-util@0.10.2",
-    "@types/node@22.19.17",
+    "@types/node@22.13.14",
     "@types/ws@8.18.1",
     "commander@14.0.3",
     "detect-libc@2.1.2",
@@ -1008,11 +1019,11 @@ test("lockfile resolved package set is explicitly reviewed", () => {
     "postcss@8.5.15",
     "rolldown@1.0.2",
     "source-map-js@1.2.1",
-    "tinyglobby@0.2.16",
+    "tinyglobby@0.2.17",
     "tslib@2.8.1",
     "tsx@4.22.3",
     "typescript@6.0.3",
-    "undici-types@6.21.0",
+    "undici-types@6.19.1",
     "vite@8.0.14",
     "webidl-conversions@7.0.0",
     "ws@8.20.1"
