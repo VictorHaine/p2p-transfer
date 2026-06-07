@@ -133,9 +133,11 @@ test("README documents endpoint-visible local path and browser filename limits",
 });
 
 test("browser clears sensitive DOM transfer metadata after operations", () => {
-  assert.match(webSource, /function clearBrowserSendSecrets\(\): void \{[\s\S]*sendCode\.value = "";\n\s+sendLog\.textContent = "";/);
+  assert.match(webSource, /function clearBrowserSendSecrets\(\): void \{[\s\S]*clearBrowserSendCode\(\);\n\s+sendLog\.textContent = "";/);
+  assert.match(webSource, /function clearBrowserSendCode\(\): void \{[\s\S]*sendCode\.value = "";/);
   assert.match(webSource, /function clearBrowserReceiveSecrets\(\): void \{[\s\S]*codeBox\.textContent = "";\n\s+codeBox\.hidden = true;\n\s+clearBrowserPairRequest\(\);/);
   assert.match(webSource, /function clearBrowserPairRequest\(\): void \{[\s\S]*requestBox\.replaceChildren\(\);\n\s+requestBox\.hidden = true;/);
+  assert.match(webSource, /sendFromBrowser\(\)[\s\S]*\.finally\(\(\) => \{[\s\S]*clearBrowserSendCode\(\);[\s\S]*sendBusy = false;/);
   assert.match(webSource, /sendFromBrowser\(\)[\s\S]*finally \{[\s\S]*clearBrowserSendSecrets\(\);[\s\S]*\}/);
   assert.match(webSource, /receiveInBrowser\(\)[\s\S]*finally \{[\s\S]*clearBrowserReceiveSecrets\(\);[\s\S]*\}/);
 });

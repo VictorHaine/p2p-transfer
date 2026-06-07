@@ -243,6 +243,7 @@ sendForm.addEventListener("submit", (event) => {
       setLog(sendLog, errorMessage(error));
     })
     .finally(() => {
+      clearBrowserSendCode();
       sendBusy = false;
       updateOperationControls();
     });
@@ -1258,8 +1259,12 @@ async function promptForBrowserAccept(manifest: FileManifest, sas: string, requi
 }
 
 function clearBrowserSendSecrets(): void {
-  sendCode.value = "";
+  clearBrowserSendCode();
   sendLog.textContent = "";
+}
+
+function clearBrowserSendCode(): void {
+  sendCode.value = "";
 }
 
 function clearBrowserReceiveSecrets(): void {
