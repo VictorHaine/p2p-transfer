@@ -38,6 +38,7 @@ type CommonOptions = {
   quiet?: boolean;
   redactOutput?: boolean;
   requirePrivateInput?: boolean;
+  localPrivateMode?: boolean;
   noColor?: boolean;
 };
 
@@ -102,6 +103,7 @@ program
   .option("--quiet", "suppress human-readable progress output")
   .option("--redact-output", "redact transfer codes, SAS, file metadata, and byte counts from CLI output, JSON events, and error text")
   .option("--require-private-input", "reject receive codes and send code/file paths supplied through argv")
+  .option("--local-private-mode", "enable local CLI privacy guardrails: private input, redacted output, and opaque receive names")
   .option("--no-color", "disable color output")
   .option("--verbose", "show debug details");
 
@@ -117,6 +119,7 @@ program
   .option("--code-env <name>", "read a supplied receive code from an environment variable")
   .action(async (options: RecvCommandOptions) => {
     const merged: RecvOptions = { ...program.opts<CommonOptions>(), ...options, out: options.out ?? process.cwd() };
+    applyLocalPrivateMode(merged);
     return runWithExit(() => recv(merged), merged);
   });
 
@@ -130,6 +133,7 @@ program
   .option("--files-stdin", "read newline-delimited file paths from stdin instead of argv")
   .action(async (code: string | undefined, files: string[], options: SendOptions) => {
     const merged = { ...program.opts<CommonOptions>(), ...options };
+    applyLocalPrivateMode(merged);
     return runWithExit(async () => {
       const inputs = await resolveSendInputs(code, files, merged);
       return send(normalizeCode(inputs.code), inputs.files, merged);
@@ -137,6 +141,16 @@ program
   });
 
 program.parse();
+
+function applyLocalPrivateMode<T extends CommonOptions>(options: T): T {
+  if (!options.localPrivateMode) return options;
+  options.redactOutput = true;
+  options.requirePrivateInput = true;
+  if ("opaqueOutputNames" in options) {
+    (options as T & { opaqueOutputNames: boolean }).opaqueOutputNames = true;
+  }
+  return options;
+}
 
 async function reviewedCliRuntime(): Promise<ReviewedCliRuntime> {
   if (!reviewedCliRuntimePromise) {
