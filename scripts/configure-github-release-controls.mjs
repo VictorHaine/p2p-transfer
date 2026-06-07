@@ -70,11 +70,14 @@ async function main() {
   });
   const existingRulesets = await github(token, "GET", `/repos/${options.repository}/rulesets?includes_parents=false`);
   const existingByName = existingRulesetsByName(existingRulesets);
+  const privateVulnerabilityReporting = await privateVulnerabilityReportingStatus(token, options.repository);
 
   if (!options.apply) {
-    console.log(JSON.stringify({ repository: options.repository, mode: "dry-run", rulesets: desired, environment: environmentStatus(environment), desiredEnvironment }, null, 2));
+    console.log(JSON.stringify({ repository: options.repository, mode: "dry-run", rulesets: desired, environment: environmentStatus(environment), desiredEnvironment, privateVulnerabilityReporting }, null, 2));
     return;
   }
+
+  await ensurePrivateVulnerabilityReporting(token, options.repository, privateVulnerabilityReporting);
 
   if (desiredEnvironment) {
     environment = await github(token, "PUT", `/repos/${options.repository}/environments/${encodeURIComponent(NPM_ENVIRONMENT)}`, desiredEnvironment);
@@ -349,6 +352,25 @@ async function assertPersistedRulesets(token, repository) {
   const tagRuleset = assertRequiredRuleset(rulesetsByName, TAG_RULESET_NAME, "tag");
   assertMainRuleset(await github(token, "GET", `/repos/${repository}/rulesets/${mainRuleset.id}`));
   assertTagRuleset(await github(token, "GET", `/repos/${repository}/rulesets/${tagRuleset.id}`));
+}
+
+async function privateVulnerabilityReportingStatus(token, repository) {
+  const status = await github(token, "GET", `/repos/${repository}/private-vulnerability-reporting`);
+  return assertPrivateVulnerabilityReportingResponse(status);
+}
+
+async function ensurePrivateVulnerabilityReporting(token, repository, status) {
+  if (status.enabled) return;
+  await github(token, "PUT", `/repos/${repository}/private-vulnerability-reporting`);
+  const verified = await privateVulnerabilityReportingStatus(token, repository);
+  if (!verified.enabled) throw new Error("GitHub private vulnerability reporting must be enabled.");
+}
+
+function assertPrivateVulnerabilityReportingResponse(status) {
+  if (!status || typeof status !== "object" || Array.isArray(status) || typeof status.enabled !== "boolean") {
+    throw new Error("GitHub private vulnerability reporting status response was invalid.");
+  }
+  return { enabled: status.enabled };
 }
 
 function assertRequiredRuleset(rulesetsByName, name, target) {

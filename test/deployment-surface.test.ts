@@ -573,6 +573,11 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(githubReleaseControlsScript, /Npm environment reviewers must be unique\./);
   assert.match(githubReleaseControlsScript, /Npm environment can have at most \$\{MAX_NPM_ENVIRONMENT_REVIEWERS\} reviewers\./);
   assert.match(githubReleaseControlsScript, /await assertPersistedRulesets\(token, options\.repository\)/);
+  assert.match(githubReleaseControlsScript, /privateVulnerabilityReportingStatus\(token, options\.repository\)/);
+  assert.match(githubReleaseControlsScript, /await ensurePrivateVulnerabilityReporting\(token, options\.repository, privateVulnerabilityReporting\)/);
+  assert.match(githubReleaseControlsScript, /\/repos\/\$\{repository\}\/private-vulnerability-reporting/);
+  assert.match(githubReleaseControlsScript, /"PUT", `\/repos\/\$\{repository\}\/private-vulnerability-reporting`/);
+  assert.match(githubReleaseControlsScript, /GitHub private vulnerability reporting must be enabled\./);
   assert.match(githubReleaseControlsScript, /async function assertPersistedRulesets\(token, repository\)/);
   assert.match(githubReleaseControlsScript, /assertMainRuleset\(await github\(token, "GET", `\/repos\/\$\{repository\}\/rulesets\/\$\{mainRuleset\.id\}`\)\)/);
   assert.match(githubReleaseControlsScript, /assertTagRuleset\(await github\(token, "GET", `\/repos\/\$\{repository\}\/rulesets\/\$\{tagRuleset\.id\}`\)\)/);
@@ -591,6 +596,11 @@ test("checked GitHub release controls setup matches the protected release surfac
       githubReleaseControlsScript.indexOf("for (const ruleset of desired)"),
     "npm environment reviewer protection must be checked before mutating rulesets"
   );
+  assert.ok(
+    githubReleaseControlsScript.indexOf("await ensurePrivateVulnerabilityReporting(token, options.repository, privateVulnerabilityReporting)") <
+      githubReleaseControlsScript.indexOf("if (desiredEnvironment)"),
+    "private vulnerability reporting must be enabled before mutating the npm environment"
+  );
 
   assert.match(readme, /create the `npm` environment[\s\S]*required reviewers with self-review prevention/);
   assert.match(readme, /reviewer with write, maintain, or admin repository permission/);
@@ -604,7 +614,8 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(readme, /refuses to mutate deployment policies or repository rulesets if GitHub returns a persisted reviewer without write, maintain, or admin permission/);
   assert.match(readme, /refuses to mutate repository rulesets if GitHub returns malformed, duplicate, unexpected, wrong-target, or bypass-enabled rulesets, or if the persisted `npm` environment still has no required-reviewer protection, still allows admin bypass or branch deployments, lacks the exact release-tag deployment policy, still has the authenticated setup operator as its sole required reviewer, or the persisted branch\/tag rulesets do not exactly match the requested protected surface/);
   assert.match(securityPolicy, /`--allow-missing-main` must be dry-run only and must not be accepted with `--apply`/);
-  assert.match(securityPolicy, /setup script must be able to create or update the `npm` environment approval gate from explicit reviewers with write, maintain, or admin repository permission, self-review prevention, admin bypass disabled, and a single `v\*\.\*\.\*` tag deployment policy/);
+  assert.match(securityPolicy, /the setup script must enable and re-read GitHub private vulnerability reporting before mutating the npm environment, deployment policies, or repository rulesets/);
+  assert.match(securityPolicy, /must be able to create or update the `npm` environment approval gate from explicit reviewers with write, maintain, or admin repository permission, self-review prevention, admin bypass disabled, and a single `v\*\.\*\.\*` tag deployment policy/);
   assert.match(securityPolicy, /must not expose an option that writes `prevent_self_review: false`/);
   assert.match(securityPolicy, /release setup must create branch and tag rulesets with no bypass actors/);
   assert.match(securityPolicy, /release setup must reject malformed, unexpected, wrong-target, duplicate, or bypass-enabled GitHub rulesets list entries/);
@@ -648,7 +659,8 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(readme, /For normal releases, fetch `origin\/main` and tag that exact remote commit after the protected pull request has merged/);
   assert.doesNotMatch(readme, /git push -u origin main\nGITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
   assert.match(readme, /the exact repository rulesets that release preflight requires for `main` and `v\*\.\*\.\*` release tags/);
-  assert.match(readme, /release preflight verifies the GitHub repository's `private-vulnerability-reporting` endpoint reports enabled before tagging/);
+  assert.match(readme, /checked release-control setup enables it with the GitHub `private-vulnerability-reporting` endpoint/);
+  assert.match(readme, /release preflight verifies that endpoint reports enabled before tagging/);
   assert.match(readme, /read repository metadata, private vulnerability reporting status, the `main` branch, Actions secret metadata, Actions workflow run metadata, repository rulesets including bypass actors, repository environments, and deployment branch policies/);
   assert.match(readme, /verifies private vulnerability reporting is enabled/);
   assert.match(readme, /The checked repository ruleset for `v\*\.\*\.\*` tags must be active before the first release/);
@@ -796,8 +808,9 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /for \(const workflow of REQUIRED_SUCCESSFUL_MAIN_WORKFLOWS\)/);
   assert.match(releaseReadinessScript, /assertSuccessfulMainWorkflowRun\(token, repository, workflow, mainSha\)/);
   assert.match(releaseReadinessScript, /function requiredBranchSha\(branch, branchName\)/);
-  assert.match(releaseReadinessScript, /\/repos\/\$\{repository\}\/actions\/workflows\/\$\{encodeURIComponent\(workflow\.file\)\}\/runs\?branch=main&status=success&per_page=1/);
-  assert.match(releaseReadinessScript, /GitHub \$\{workflow\.name\} workflow latest successful main run is not current main/);
+  assert.match(releaseReadinessScript, /\/repos\/\$\{repository\}\/actions\/workflows\/\$\{encodeURIComponent\(workflow\.file\)\}\/runs\?branch=main&per_page=1/);
+  assert.doesNotMatch(releaseReadinessScript, /runs\?branch=main&status=success&per_page=1/);
+  assert.match(releaseReadinessScript, /GitHub \$\{workflow\.name\} workflow latest main run is not a successful current-main run/);
   assert.match(releaseReadinessScript, /\/repos\/\$\{repository\}\/actions\/secrets\/\$\{RELEASE_PREFLIGHT_SECRET\}/);
   assert.match(releaseReadinessScript, /GitHub Actions secret RELEASE_PREFLIGHT_TOKEN is missing\./);
   assert.match(releaseReadinessScript, /const rulesetsByName = collectReadinessValueSync\(failures, \(\) => requiredRulesetsByName\(rulesets\)\)/);

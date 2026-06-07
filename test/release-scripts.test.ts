@@ -1003,6 +1003,7 @@ const log = process.env.FF_MOCK_GITHUB_LOG;
 const requiredChecks = ${JSON.stringify(REQUIRED_RELEASE_CHECKS)};
 let environmentUpdated = false;
 let deploymentCreated = false;
+let privateReportingEnabled = false;
 let rulesetPosts = 0;
 
 function mainRuleset() {
@@ -1086,6 +1087,11 @@ globalThis.fetch = async (url, init = {}) => {
     ]);
     return json(200, []);
   }
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/private-vulnerability-reporting") return json(200, { enabled: privateReportingEnabled });
+  if (method === "PUT" && path === "/repos/VictorHaine/p2p-transfer/private-vulnerability-reporting") {
+    privateReportingEnabled = true;
+    return new Response(null, { status: 204 });
+  }
   if (method === "PUT" && path === "/repos/VictorHaine/p2p-transfer/environments/npm") {
     environmentUpdated = true;
     return json(200, {
@@ -1142,6 +1148,9 @@ globalThis.fetch = async (url, init = {}) => {
       "GET /users/approver",
       "GET /repos/VictorHaine/p2p-transfer/environments/npm",
       "GET /repos/VictorHaine/p2p-transfer/rulesets?includes_parents=false",
+      "GET /repos/VictorHaine/p2p-transfer/private-vulnerability-reporting",
+      "PUT /repos/VictorHaine/p2p-transfer/private-vulnerability-reporting",
+      "GET /repos/VictorHaine/p2p-transfer/private-vulnerability-reporting",
       "PUT /repos/VictorHaine/p2p-transfer/environments/npm",
       "GET /repos/VictorHaine/p2p-transfer/environments/npm",
       "GET /repos/VictorHaine/p2p-transfer/collaborators/approver/permission",
@@ -1154,9 +1163,9 @@ globalThis.fetch = async (url, init = {}) => {
       "GET /repos/VictorHaine/p2p-transfer/rulesets/101",
       "GET /repos/VictorHaine/p2p-transfer/rulesets/202"
     ]);
-    assert.equal(requests.length, 18);
-    const environmentPut = requests[7];
-    const deploymentPolicyPost = requests[11];
+    assert.equal(requests.length, 21);
+    const environmentPut = requests[10];
+    const deploymentPolicyPost = requests[14];
     assert.ok(environmentPut);
     assert.ok(deploymentPolicyPost);
     assert.deepEqual(environmentPut.body, {
@@ -1220,6 +1229,7 @@ globalThis.fetch = async (url, init = {}) => {
     ]);
     return json(200, []);
   }
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/private-vulnerability-reporting") return json(200, { enabled: true });
   if (method === "POST" && path === "/repos/VictorHaine/p2p-transfer/rulesets") {
     rulesetPosts += 1;
     return json(201, { id: rulesetPosts === 1 ? 101 : 202 });
@@ -1307,6 +1317,7 @@ globalThis.fetch = async (url, init = {}) => {
     });
   }
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/rulesets?includes_parents=false") return json(200, []);
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/private-vulnerability-reporting") return json(200, { enabled: true });
   if (method === "PUT" && path === "/repos/VictorHaine/p2p-transfer/environments/npm") {
     environmentUpdated = true;
     return json(200, {
@@ -1375,6 +1386,7 @@ globalThis.fetch = async (url, init = {}) => {
     deployment_branch_policy: { protected_branches: false, custom_branch_policies: true }
   });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/rulesets?includes_parents=false") return json(200, []);
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/private-vulnerability-reporting") return json(200, { enabled: true });
   if (method === "PUT" && path === "/repos/VictorHaine/p2p-transfer/environments/npm") return json(200, {
     can_admins_bypass: false,
     protection_rules: [{ type: "required_reviewers", prevent_self_review: true, reviewers: [{ type: "User", reviewer: { login: "approver" } }] }],
@@ -1803,13 +1815,13 @@ globalThis.fetch = async (url, init = {}) => {
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer") return json(200, { id: 1 });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/private-vulnerability-reporting") return json(200, { enabled: true });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/branches/main") return json(200, { name: "main", commit: { sha: mainSha } });
-  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/actions/workflows/codeql.yml/runs?branch=main&status=success&per_page=1") {
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/actions/workflows/codeql.yml/runs?branch=main&per_page=1") {
     return json(200, { workflow_runs: [{ status: "completed", conclusion: "success", head_branch: "main", head_sha: mainSha }] });
   }
-  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/actions/workflows/scorecard.yml/runs?branch=main&status=success&per_page=1") {
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/actions/workflows/scorecard.yml/runs?branch=main&per_page=1") {
     return json(200, { workflow_runs: [{ status: "completed", conclusion: "success", head_branch: "main", head_sha: mainSha }] });
   }
-  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/actions/workflows/dependency-integrity.yml/runs?branch=main&status=success&per_page=1") {
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/actions/workflows/dependency-integrity.yml/runs?branch=main&per_page=1") {
     return json(200, { workflow_runs: [{ status: "completed", conclusion: "success", head_branch: "main", head_sha: mainSha }] });
   }
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/actions/secrets/RELEASE_PREFLIGHT_TOKEN") return json(200, { name: "RELEASE_PREFLIGHT_TOKEN" });
@@ -1929,13 +1941,13 @@ globalThis.fetch = async (url, init = {}) => {
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer") return json(200, { id: 1 });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/private-vulnerability-reporting") return json(200, { enabled: true });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/branches/main") return json(200, { name: "main", commit: { sha: mainSha } });
-  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/actions/workflows/codeql.yml/runs?branch=main&status=success&per_page=1") {
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/actions/workflows/codeql.yml/runs?branch=main&per_page=1") {
     return json(200, { workflow_runs: [{ status: "completed", conclusion: "success", head_branch: "main", head_sha: mainSha }] });
   }
-  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/actions/workflows/scorecard.yml/runs?branch=main&status=success&per_page=1") {
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/actions/workflows/scorecard.yml/runs?branch=main&per_page=1") {
     return json(200, { workflow_runs: [{ status: "completed", conclusion: "success", head_branch: "main", head_sha: mainSha }] });
   }
-  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/actions/workflows/dependency-integrity.yml/runs?branch=main&status=success&per_page=1") {
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/actions/workflows/dependency-integrity.yml/runs?branch=main&per_page=1") {
     return json(200, { workflow_runs: [{ status: "completed", conclusion: "success", head_branch: "main", head_sha: mainSha }] });
   }
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/actions/secrets/RELEASE_PREFLIGHT_TOKEN") return json(200, { name: "RELEASE_PREFLIGHT_TOKEN" });
@@ -1997,6 +2009,7 @@ const tagRulesetRef = process.env.FF_MOCK_TAG_RULESET_REF ?? "refs/tags/v*.*.*";
 const bootstrapLatest = process.env.FF_MOCK_BOOTSTRAP_LATEST === "true";
 const mainSha = "0123456789abcdef0123456789abcdef01234567";
 const codeqlRunSha = process.env.FF_MOCK_CODEQL_STALE === "true" ? "ffffffffffffffffffffffffffffffffffffffff" : mainSha;
+const codeqlRunConclusion = process.env.FF_MOCK_CODEQL_FAILED === "true" ? "failure" : "success";
 
 function record(method, origin, path) {
   appendFileSync(log, method + " " + origin + path + "\\n", "utf8");
@@ -2064,13 +2077,13 @@ globalThis.fetch = async (url, init = {}) => {
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer") return json(200, { id: 1 });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/private-vulnerability-reporting") return json(200, { enabled: true });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/branches/main") return json(200, { name: "main", commit: { sha: mainSha } });
-  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/actions/workflows/codeql.yml/runs?branch=main&status=success&per_page=1") {
-    return json(200, { workflow_runs: [{ status: "completed", conclusion: "success", head_branch: "main", head_sha: codeqlRunSha }] });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/actions/workflows/codeql.yml/runs?branch=main&per_page=1") {
+    return json(200, { workflow_runs: [{ status: "completed", conclusion: codeqlRunConclusion, head_branch: "main", head_sha: codeqlRunSha }] });
   }
-  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/actions/workflows/scorecard.yml/runs?branch=main&status=success&per_page=1") {
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/actions/workflows/scorecard.yml/runs?branch=main&per_page=1") {
     return json(200, { workflow_runs: [{ status: "completed", conclusion: "success", head_branch: "main", head_sha: mainSha }] });
   }
-  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/actions/workflows/dependency-integrity.yml/runs?branch=main&status=success&per_page=1") {
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/actions/workflows/dependency-integrity.yml/runs?branch=main&per_page=1") {
     return json(200, { workflow_runs: [{ status: "completed", conclusion: "success", head_branch: "main", head_sha: mainSha }] });
   }
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/actions/secrets/RELEASE_PREFLIGHT_TOKEN") return json(200, { name: "RELEASE_PREFLIGHT_TOKEN", created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z" });
@@ -2112,9 +2125,9 @@ globalThis.fetch = async (url, init = {}) => {
     assert.doesNotMatch(result.stdout, /token-that-must-not-be-printed|approver|RELEASE_PREFLIGHT_TOKEN|0\.0\.0-bootstrap/);
     assert.match(requests, /^GET https:\/\/registry\.npmjs\.org\/%40victorhaine%2Fp2p-transfer\nGET https:\/\/api\.github\.com\/user\n/);
     assert.match(requests, /GET https:\/\/api\.github\.com\/repos\/VictorHaine\/p2p-transfer\/private-vulnerability-reporting\n/);
-    assert.match(requests, /GET https:\/\/api\.github\.com\/repos\/VictorHaine\/p2p-transfer\/actions\/workflows\/codeql\.yml\/runs\?branch=main&status=success&per_page=1\n/);
-    assert.match(requests, /GET https:\/\/api\.github\.com\/repos\/VictorHaine\/p2p-transfer\/actions\/workflows\/scorecard\.yml\/runs\?branch=main&status=success&per_page=1\n/);
-    assert.match(requests, /GET https:\/\/api\.github\.com\/repos\/VictorHaine\/p2p-transfer\/actions\/workflows\/dependency-integrity\.yml\/runs\?branch=main&status=success&per_page=1\n/);
+    assert.match(requests, /GET https:\/\/api\.github\.com\/repos\/VictorHaine\/p2p-transfer\/actions\/workflows\/codeql\.yml\/runs\?branch=main&per_page=1\n/);
+    assert.match(requests, /GET https:\/\/api\.github\.com\/repos\/VictorHaine\/p2p-transfer\/actions\/workflows\/scorecard\.yml\/runs\?branch=main&per_page=1\n/);
+    assert.match(requests, /GET https:\/\/api\.github\.com\/repos\/VictorHaine\/p2p-transfer\/actions\/workflows\/dependency-integrity\.yml\/runs\?branch=main&per_page=1\n/);
     assert.match(requests, /GET https:\/\/api\.github\.com\/repos\/VictorHaine\/p2p-transfer\/rulesets\/101\n/);
     assert.match(requests, /GET https:\/\/api\.github\.com\/repos\/VictorHaine\/p2p-transfer\/rulesets\/202\n/);
     assert.match(requests, /GET https:\/\/api\.github\.com\/repos\/VictorHaine\/p2p-transfer\/collaborators\/approver\/permission\n/);
@@ -2154,8 +2167,25 @@ globalThis.fetch = async (url, init = {}) => {
     );
     assert.notEqual(staleCodeqlResult.status, 0);
     assert.equal(staleCodeqlResult.stdout, "");
-    assert.match(staleCodeqlResult.stderr, /GitHub codeql workflow latest successful main run is not current main\./);
+    assert.match(staleCodeqlResult.stderr, /GitHub codeql workflow latest main run is not a successful current-main run\./);
     assert.doesNotMatch(staleCodeqlResult.stderr, /token-that-must-not-be-printed|ffffffffffffffffffffffffffffffffffffffff|api\.github|registry\.npmjs|Error:/);
+
+    const failedCodeqlResult = runScriptWithNodeArgs(
+      "scripts/check-release-readiness.mjs",
+      {
+        FF_MOCK_PREFLIGHT_LOG: log,
+        FF_MOCK_CODEQL_FAILED: "true",
+        GITHUB_ACTIONS: "true",
+        GITHUB_ACTOR: "tagger",
+        GITHUB_TOKEN: "ghs_token-that-must-not-be-printed"
+      },
+      [],
+      ["--import", mock]
+    );
+    assert.notEqual(failedCodeqlResult.status, 0);
+    assert.equal(failedCodeqlResult.stdout, "");
+    assert.match(failedCodeqlResult.stderr, /GitHub codeql workflow latest main run is not a successful current-main run\./);
+    assert.doesNotMatch(failedCodeqlResult.stderr, /token-that-must-not-be-printed|failure|api\.github|registry\.npmjs|Error:/);
 
     const bootstrapLatestResult = runScriptWithNodeArgs(
       "scripts/check-release-readiness.mjs",

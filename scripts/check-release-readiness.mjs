@@ -348,12 +348,12 @@ function requiredBranchSha(branch, branchName) {
 }
 
 async function assertSuccessfulMainWorkflowRun(token, repository, workflow, mainSha) {
-  const runs = await github(token, "GET", `/repos/${repository}/actions/workflows/${encodeURIComponent(workflow.file)}/runs?branch=main&status=success&per_page=1`);
+  const runs = await github(token, "GET", `/repos/${repository}/actions/workflows/${encodeURIComponent(workflow.file)}/runs?branch=main&per_page=1`);
   if (!runs || typeof runs !== "object" || !Array.isArray(runs.workflow_runs)) throw new Error(`GitHub ${workflow.name} workflow runs response was invalid.`);
   const run = runs.workflow_runs[0];
   if (!run || typeof run !== "object") throw new Error(`GitHub ${workflow.name} workflow has no successful main run.`);
   if (run.status !== "completed" || run.conclusion !== "success" || run.head_branch !== "main" || run.head_sha !== mainSha) {
-    throw new Error(`GitHub ${workflow.name} workflow latest successful main run is not current main.`);
+    throw new Error(`GitHub ${workflow.name} workflow latest main run is not a successful current-main run.`);
   }
 }
 
