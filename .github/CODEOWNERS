@@ -13,7 +13,9 @@
 /src/shared/chunks.ts @VictorHaine
 /src/shared/transfer.ts @VictorHaine
 /src/cli/crypto-dependencies.ts @VictorHaine
+/src/cli/error-redaction.ts @VictorHaine
 /src/cli/files.ts @VictorHaine
+/src/cli/index.ts @VictorHaine
 /src/cli/native-webrtc.ts @VictorHaine
 /src/cli/rtc.ts @VictorHaine
 /src/cli/secure.ts @VictorHaine
@@ -30,6 +32,10 @@
 /test/release-notes-writer.test.ts @VictorHaine
 /test/release-*.test.ts @VictorHaine
 /test/*install-state*.test.ts @VictorHaine
+/test/cli-error-redaction.test.ts @VictorHaine
+/test/cli-json-policy.test.ts @VictorHaine
 /test/smoke-packed.test.ts @VictorHaine
+/test/privacy-surface.test.ts @VictorHaine
+/test/browser-operation-policy.test.ts @VictorHaine
 /test/crypto-dependencies.test.ts @VictorHaine
 /test/cpace-vectors.test.ts @VictorHaine

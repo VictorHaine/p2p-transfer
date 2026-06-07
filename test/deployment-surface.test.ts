@@ -677,7 +677,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
 });
 
 test("security-sensitive surfaces require code owner review", () => {
-  assert.match(securityPolicy, /security-sensitive crypto, protocol, release, dependency, dependency-review artifacts, Docker, server, and file-publish surfaces must be covered by `\.github\/CODEOWNERS`/);
+  assert.match(securityPolicy, /security-sensitive crypto, protocol, release, dependency, dependency-review artifacts, Docker, server, CLI input\/privacy, browser file-write, and file-publish surfaces must be covered by `\.github\/CODEOWNERS`/);
   assert.match(readme, /exact repository rulesets that release preflight requires for `main` and `v\*` release tags/);
   for (const path of [
     "/.github/",
@@ -694,7 +694,9 @@ test("security-sensitive surfaces require code owner review", () => {
     "/src/shared/chunks.ts",
     "/src/shared/transfer.ts",
     "/src/cli/crypto-dependencies.ts",
+    "/src/cli/error-redaction.ts",
     "/src/cli/files.ts",
+    "/src/cli/index.ts",
     "/src/cli/native-webrtc.ts",
     "/src/cli/rtc.ts",
     "/src/cli/secure.ts",
@@ -706,14 +708,18 @@ test("security-sensitive surfaces require code owner review", () => {
     "/test/security.test.ts",
     "/test/package-surface.test.ts",
     "/test/deployment-surface.test.ts",
-	    "/test/release-artifact-verifier.test.ts",
-	    "/test/release-checksum-writer.test.ts",
-	    "/test/release-notes-writer.test.ts",
-	    "/test/release-*.test.ts",
-	    "/test/*install-state*.test.ts",
-	    "/test/smoke-packed.test.ts",
-	    "/test/crypto-dependencies.test.ts",
-	    "/test/cpace-vectors.test.ts"
+    "/test/release-artifact-verifier.test.ts",
+    "/test/release-checksum-writer.test.ts",
+    "/test/release-notes-writer.test.ts",
+    "/test/release-*.test.ts",
+    "/test/*install-state*.test.ts",
+    "/test/cli-error-redaction.test.ts",
+    "/test/cli-json-policy.test.ts",
+    "/test/smoke-packed.test.ts",
+    "/test/privacy-surface.test.ts",
+    "/test/browser-operation-policy.test.ts",
+    "/test/crypto-dependencies.test.ts",
+    "/test/cpace-vectors.test.ts"
 	  ]) {
     assert.match(codeowners, new RegExp(`^${escapeRegExp(path)}\\s+@VictorHaine$`, "m"), `${path} must be owned`);
   }
