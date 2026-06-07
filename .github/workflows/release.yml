@@ -102,6 +102,28 @@ jobs:
           subject-digest: ${{ steps.docker_image.outputs.digest }}
           push-to-registry: true
 
+  docker-validate:
+    name: pre-publish docker validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    needs:
+      - verify
+      - platform-smoke
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.22.3
+      - name: Enable pnpm
+        run: |
+          node scripts/prepare-checked-pnpm.mjs
+      - name: Validate release Docker image
+        run: DOCKER_SMOKE_TAG=p2p-transfer:release-gate node scripts/smoke-docker-policy.mjs
+
   platform-smoke:
     name: platform smoke / ${{ matrix.os }} / node ${{ matrix.node }}
     runs-on: ${{ matrix.os }}
@@ -150,6 +172,7 @@ jobs:
     needs:
       - verify
       - platform-smoke
+      - docker-validate
     environment: npm
     permissions:
       contents: read

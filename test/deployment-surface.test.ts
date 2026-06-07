@@ -262,6 +262,7 @@ test("CI and release workflows keep minimal token permissions", () => {
   const ciPlatformSmokeJob = workflowJob(ciWorkflow, "platform-smoke");
   const ciDockerJob = workflowJob(ciWorkflow, "docker");
   const releasePlatformSmokeJob = workflowJob(releaseWorkflow, "platform-smoke");
+  const releaseDockerValidateJob = workflowJob(releaseWorkflow, "docker-validate");
   const releaseDockerJob = workflowJob(releaseWorkflow, "docker");
   for (const runner of PINNED_RUNNERS) {
     assert.match(ciWorkflow, new RegExp(escapeRegExp(runner)));
@@ -324,6 +325,7 @@ test("CI and release workflows keep minimal token permissions", () => {
   const releaseGitHubReleaseJob = workflowJob(releaseWorkflow, "github-release");
   assert.match(releaseVerifyJob, /timeout-minutes: 60/);
   assert.match(releasePlatformSmokeJob, /timeout-minutes: 25/);
+  assert.match(releaseDockerValidateJob, /timeout-minutes: 30/);
   assert.match(releaseDockerJob, /timeout-minutes: 30/);
   assert.doesNotMatch(releaseWorkflow, /\n  attest:\n/);
   assert.match(releasePublishJob, /timeout-minutes: 20/);
@@ -346,6 +348,9 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releaseNotesScript, /writeFile\(path\.join\(await verifiedArtifactDir\(\), "RELEASE_NOTES\.md"\), notes, \{ flag: "wx" \}\)/);
   assert.match(securityPolicy, /release checksum, SBOM, and release-notes writers must verify `release-artifacts` is a real directory inside the project root/);
   assert.doesNotMatch(releaseWorkflow, /pack release artifact[\s\S]*(find release-artifacts|basename "\$tgz"|sha256sum)/);
+  assert.match(releaseDockerValidateJob, /needs:\n      - verify\n      - platform-smoke/);
+  assert.match(releaseDockerValidateJob, /permissions:\n      contents: read/);
+  assert.match(releaseDockerValidateJob, /node scripts\/prepare-checked-pnpm\.mjs[\s\S]*Validate release Docker image[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:release-gate node scripts\/smoke-docker-policy\.mjs/);
   assert.match(releaseDockerJob, /needs:\n      - publish/);
   assert.match(releaseDockerJob, /permissions:\n      contents: read\n      packages: write\n      id-token: write\n      attestations: write/);
   assert.match(releaseDockerJob, /actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3/);
@@ -430,7 +435,7 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.doesNotMatch(releaseWorkflow, /--notes-file CHANGELOG\.md/);
   assert.doesNotMatch(releaseWorkflow, /tgz="\$\(node scripts\/verify-release-artifact\.mjs --print-tarball\)"|printf 'tarball=%s\\n'|test -f "\$tgz"|PACKED_SMOKE_TARBALL="\$tgz" node scripts\/smoke-packed\.mjs|pnpm publish "\$tgz"|gh release create "\$GITHUB_REF_NAME"/);
   const publishJob = releaseWorkflow.slice(releaseWorkflow.indexOf("  publish:"));
-  assert.match(publishJob, /needs:\n      - verify\n      - platform-smoke/);
+  assert.match(publishJob, /needs:\n      - verify\n      - platform-smoke\n      - docker-validate/);
   assert.doesNotMatch(publishJob, /pnpm install|pnpm build|pnpm smoke:native/);
   assert.match(releasePublishScript, /"--ignore-scripts"/);
   assert.match(releasePublishScript, /verifiedTarballPath\(\{ \.\.\.childEnv, \.\.\.releaseVerifierEnv\(tag\) \}\)/);

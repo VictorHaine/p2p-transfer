@@ -627,6 +627,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(securityPolicy, /release workflow is tag-only/);
   assert.match(securityPolicy, /Release publishing must use npm trusted publishing with OIDC provenance/);
   assert.match(securityPolicy, /GitHub Releases must be tag-only, run only after npm publishing succeeds, re-verify the downloaded npm tarball and SBOM/);
+  assert.match(securityPolicy, /runs a pre-publish Docker validation job with the checked Docker policy smoke before npm can publish/);
   assert.match(releaseWorkflow, /tags:\n\s+- "v\*\.\*\.\*"/);
   assert.doesNotMatch(releaseWorkflow, /workflow_dispatch/);
   assert.doesNotMatch(releaseWorkflow, /pull_request:/);
@@ -721,6 +722,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseArtifactSmokeScript, /Release artifact smoke failed:/);
   assert.match(releaseArtifactSmokeScript, /realpathSync\(process\.argv\[1\]\) === realpathSync\(fileURLToPath\(import\.meta\.url\)\)/);
   assert.match(releaseWorkflow, /release docker image[\s\S]*needs:\n      - publish[\s\S]*permissions:\n      contents: read\n      packages: write\n      id-token: write\n      attestations: write/);
+  assert.match(releaseWorkflow, /pre-publish docker validation[\s\S]*needs:\n      - verify\n      - platform-smoke[\s\S]*permissions:\n      contents: read[\s\S]*Validate release Docker image[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:release-gate node scripts\/smoke-docker-policy\.mjs/);
   assert.match(releaseWorkflow, /release docker image[\s\S]*actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3[\s\S]*node scripts\/prepare-checked-pnpm\.mjs[\s\S]*run: node scripts\/publish-docker-image\.mjs/);
   assert.match(releaseWorkflow, /release docker image[\s\S]*subject-name: \$\{\{ steps\.docker_image\.outputs\.image \}\}[\s\S]*subject-digest: \$\{\{ steps\.docker_image\.outputs\.digest \}\}[\s\S]*push-to-registry: true/);
   assert.match(dockerPublishScript, /await run\(process\.execPath, \["scripts\/smoke-docker-policy\.mjs"\], "release docker policy smoke", SMOKE_TIMEOUT_MS,\s+\{\s+env: \{ DOCKER_SMOKE_TAG: versionRef \}/);
@@ -907,7 +909,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(securityPolicy, /attest the verified `SHA256SUMS` subjects instead of a single tarball path/);
   assert.doesNotMatch(releaseWorkflow, /\n  attest:\n/);
   assert.match(releaseWorkflow, /publish npm package[\s\S]*environment: npm[\s\S]*node scripts\/verify-release-artifact\.mjs --github-output tarball[\s\S]*node scripts\/verify-live-release-ref\.mjs[\s\S]*uses: actions\/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4\.1\.0[\s\S]*subject-checksums: release-artifacts\/SHA256SUMS[\s\S]*node scripts\/publish-release-artifact\.mjs/);
-  assert.match(releaseWorkflow, /publish npm package[\s\S]*needs:\n      - verify\n      - platform-smoke/);
+  assert.match(releaseWorkflow, /publish npm package[\s\S]*needs:\n      - verify\n      - platform-smoke\n      - docker-validate/);
   assert.match(releaseWorkflow, /github-release:[\s\S]*needs:\n      - publish\n      - docker/);
   assert.match(releaseWorkflow, /environment: npm/);
   assert.match(releaseWorkflow, /id-token: write/);
