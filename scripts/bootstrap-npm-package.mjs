@@ -55,11 +55,15 @@ async function main() {
     await mkdir(packageDir);
     const childEnv = await privateChildEnv(homeDir, token);
     await writeBootstrapPackage(packageDir, workspace);
-    await run(
-      pnpm,
-      ["--config.ignore-scripts=true", "publish", "--access", "public", "--no-git-checks", "--registry", NPM_REGISTRY, "--tag", BOOTSTRAP_DIST_TAG],
-      { cwd: packageDir, env: childEnv, timeoutMs: CHILD_TIMEOUT_MS, label: "npm bootstrap publish" }
-    );
+    try {
+      await run(
+        pnpm,
+        ["--config.ignore-scripts=true", "publish", "--access", "public", "--no-git-checks", "--registry", NPM_REGISTRY, "--tag", BOOTSTRAP_DIST_TAG],
+        { cwd: packageDir, env: childEnv, timeoutMs: CHILD_TIMEOUT_MS, label: "npm bootstrap publish" }
+      );
+    } finally {
+      await removeBootstrapCredential(childEnv);
+    }
     await assertBootstrapPublished(workspace.name);
     console.log(JSON.stringify({ package: workspace.name, version: BOOTSTRAP_VERSION, apply: true, ok: true }, null, 2));
   } finally {
@@ -120,6 +124,12 @@ async function privateChildEnv(homeDir, token) {
   await mkdir(env.APPDATA, { recursive: true, mode: 0o700 });
   await writeFile(env.NPM_CONFIG_USERCONFIG, `//registry.npmjs.org/:_authToken=${token}\n`, { flag: "wx", mode: 0o600 });
   return env;
+}
+
+async function removeBootstrapCredential(env) {
+  await rm(env.NPM_CONFIG_USERCONFIG, { force: true }).catch(() => {
+    throw new Error("temporary npm bootstrap credential could not be removed.");
+  });
 }
 
 async function npmPackageExists(name) {

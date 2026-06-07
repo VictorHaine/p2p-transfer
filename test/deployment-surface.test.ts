@@ -721,6 +721,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(securityPolicy, /the `RELEASE_PREFLIGHT_TOKEN` repository secret is missing/);
   assert.match(securityPolicy, /GitHub `npm` environment lacks required reviewers, lacks a non-self user reviewer with write, maintain, or admin repository permission, allows self-review, allows admin bypass, allows branch deployments, lacks the exact `v\*\.\*\.\*` tag deployment policy, or has the authenticated release operator or release tag pusher as its sole required reviewer/);
   assert.match(securityPolicy, /first-time npm package bootstrap must use the checked bootstrap script, publish only the minimal temporary `0\.0\.0-bootstrap\.0` package from a private temporary directory under the non-default `bootstrap` dist-tag/);
+  assert.match(securityPolicy, /remove the temporary npm credential file immediately after the publish subprocess exits and before post-publish registry verification/);
   assert.match(securityPolicy, /re-read npm registry metadata after publish and fail unless the bootstrap version exists, the `bootstrap` dist-tag points to it, and `latest` does not point to it/);
   assert.match(securityPolicy, /require `--apply` plus either an explicit `NPM_BOOTSTRAP_TOKEN` or bounded `--token-stdin` input/);
   assert.match(securityPolicy, /reject interactive terminal stdin for `--token-stdin`/);
@@ -773,6 +774,9 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(npmBootstrapScript, /await writeBootstrapPackage\(packageDir, workspace\)/);
   assert.match(npmBootstrapScript, /publishConfig: \{\n      access: "public",\n      tag: BOOTSTRAP_DIST_TAG\n    \}/);
   assert.match(npmBootstrapScript, /\["--config\.ignore-scripts=true", "publish", "--access", "public", "--no-git-checks", "--registry", NPM_REGISTRY, "--tag", BOOTSTRAP_DIST_TAG\]/);
+  assert.match(npmBootstrapScript, /finally \{\n      await removeBootstrapCredential\(childEnv\);\n    \}/);
+  assert.match(npmBootstrapScript, /async function removeBootstrapCredential\(env\)/);
+  assert.match(npmBootstrapScript, /await rm\(env\.NPM_CONFIG_USERCONFIG, \{ force: true \}\)/);
   assert.match(npmBootstrapScript, /await assertBootstrapPublished\(workspace\.name\)/);
   assert.match(npmBootstrapScript, /function assertBootstrapPublished\(name\)/);
   assert.match(npmBootstrapScript, /distTags\[BOOTSTRAP_DIST_TAG\] !== BOOTSTRAP_VERSION/);

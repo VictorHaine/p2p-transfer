@@ -869,6 +869,77 @@ globalThis.fetch = async (url, init = {}) => {
   }
 });
 
+test("npm bootstrap script removes the temporary credential before post-publish verification", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-npm-bootstrap-credential-"));
+  const mock = path.join(tmp, "mock-npm-bootstrap-credential-fetch.mjs");
+  const log = path.join(tmp, "requests.log");
+  const marker = path.join(tmp, "published.marker");
+  const bin = path.join(tmp, "bin");
+  try {
+    await fs.mkdir(bin);
+    await fs.writeFile(
+      path.join(bin, "pnpm"),
+      `#!/usr/bin/env node\nimport { writeFileSync } from "node:fs";\nwriteFileSync(${JSON.stringify(marker)}, process.env.NPM_CONFIG_USERCONFIG ?? "", "utf8");\n`,
+      "utf8"
+    );
+    await fs.chmod(path.join(bin, "pnpm"), 0o755);
+    await fs.writeFile(path.join(bin, "pnpm.cmd"), `@echo off\r\nnode "%~dp0\\pnpm" %*\r\n`, "utf8");
+    await fs.writeFile(
+      mock,
+      `
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
+
+const log = process.env.FF_MOCK_NPM_BOOTSTRAP_CREDENTIAL_LOG;
+const marker = ${JSON.stringify(marker)};
+
+globalThis.fetch = async (url, init = {}) => {
+  const parsed = new URL(url);
+  appendFileSync(log, (init.method ?? "GET") + " " + parsed.origin + parsed.pathname + "\\n", "utf8");
+  if (parsed.origin === "https://registry.npmjs.org" && parsed.pathname === "/%40victorhaine%2Fp2p-transfer") {
+    if (!existsSync(marker)) return new Response(JSON.stringify({ message: "missing package" }), { status: 404, headers: { "content-type": "application/json" } });
+    const userconfig = readFileSync(marker, "utf8");
+    if (existsSync(userconfig)) return new Response(JSON.stringify({ message: "bootstrap credential still present" }), { status: 500, headers: { "content-type": "application/json" } });
+    return new Response(JSON.stringify({
+      versions: { "0.0.0-bootstrap.0": {} },
+      "dist-tags": { bootstrap: "0.0.0-bootstrap.0" }
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  }
+  return new Response(JSON.stringify({ message: "unexpected route" }), { status: 500, headers: { "content-type": "application/json" } });
+};
+`,
+      "utf8"
+    );
+
+    const result = runScriptWithNodeArgs(
+      "scripts/bootstrap-npm-package.mjs",
+      {
+        FF_MOCK_NPM_BOOTSTRAP_CREDENTIAL_LOG: log,
+        NPM_BOOTSTRAP_TOKEN: "token-that-must-not-be-printed",
+        PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`
+      },
+      ["--apply"],
+      ["--import", mock]
+    );
+    const requests = await fs.readFile(log, "utf8");
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stderr, "");
+    assert.deepEqual(JSON.parse(result.stdout), { package: "@victorhaine/p2p-transfer", version: "0.0.0-bootstrap.0", apply: true, ok: true });
+    assert.doesNotMatch(result.stdout, /token-that-must-not-be-printed|bootstrap credential/);
+    assert.doesNotMatch(result.stderr, /token-that-must-not-be-printed|bootstrap credential|Error:/);
+    assert.equal(
+      requests,
+      [
+        "GET https://registry.npmjs.org/%40victorhaine%2Fp2p-transfer",
+        "GET https://registry.npmjs.org/%40victorhaine%2Fp2p-transfer",
+        ""
+      ].join("\n")
+    );
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
 test("npm bootstrap script rejects a post-publish latest dist-tag downgrade", async () => {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-npm-bootstrap-latest-"));
   const mock = path.join(tmp, "mock-npm-bootstrap-latest-fetch.mjs");
