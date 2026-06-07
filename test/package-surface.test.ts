@@ -64,6 +64,16 @@ const reviewedPakeIntegrity = "sha512-iutxMCmRXYacl3fc19SKFisk1sRD1FNQi7+GWPlnQn
 const reviewedNobleCurvesIntegrity = "sha512-gbKGcRUYIjA3/zCCNaWDciTMFI0dCkvou3TL8Zmy5Nc7sJ47a0jtOeZoTaMxkuqRo9cRhjOdZJXegxYE5FN/xw==";
 const reviewedNobleHashesCpaceIntegrity = "sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A==";
 const reviewedNobleHashesIntegrity = "sha512-IYqDGiTXab6FniAgnSdZwgWbomxpy9FtYvLKs7wCUs2a8RkITG+DFGO1DM9cr+E3/RgADRpFjrKVaJ1z6sjtEg==";
+const reviewedWrtcIntegrity = "sha512-yFqQQ0EV1ZUHaphh3tmjoxPi2wzhW2vjmzoAVNRRLUjXYd2e1nvwi9TKfE2w4WNvNws/hBkouvOt23Xo9FkXkQ==";
+const reviewedWrtcPrebuiltIntegrities: Record<string, string> = {
+  "@roamhq/wrtc-darwin-arm64": "sha512-vFdi79jWuPHcnUcnuOjTvyKtmY/RI2xRQo9Y6RsIjIlYePN/7LTy00c+Ivrz4prYAPbp0oHscl7PDV64VUqGTQ==",
+  "@roamhq/wrtc-darwin-x64": "sha512-H6852g2xYCuaR+/TrthpdMafs4bMfAUEpvRDhsIguzrK7Dz+MKpNI8MkwdqJN8W65J+7w7k+YqXIkTHe7Fz/cg==",
+  "@roamhq/wrtc-linux-arm64": "sha512-fEuJbNjprxQG6QlFd2iqBW9x028RDSho6izVg7gyt8irdPiXWOxzOxNnYMs/B2fohBTd1wD4Qxfivl07/dCR8A==",
+  "@roamhq/wrtc-linux-x64": "sha512-H32lK2eFg3sVb/9nkHIX5HIisxFoS82Gpesuea+zqAyRpRzSd5NpFXx28bVy9wQyRrNtj8k0bTUgEzWRzSbYCA==",
+  "@roamhq/wrtc-win32-x64": "sha512-wEVXMvLrBizdLyrd+Zc7zb7zpwUuHUBXwrdIvI69e3i/AA8YsVYI2xo/sxk6GoQ+o8a14ONc4SStDS35TCjg+w=="
+};
+const reviewedDomexceptionIntegrity = "sha512-A2is4PLG+eeSfoTMA95/s4pvAoSo2mKtiM5jlHkAVewmiO8ISFTFKZjH7UAM1Atli/OT/7JHOrJRJiMKUZKYBw==";
+const reviewedWebidlConversionsIntegrity = "sha512-VwddBukDzu71offAQR975unBIGqfKZpM+8ZX6ySk8nYhVoo5CYaZyzt3YBvYtRtO+aoGlqxPg/B87NGVZ/fu6g==";
 
 test("npm package surface is restricted to built artifacts and required docs", () => {
   assert.deepEqual(packageJson.files, [
@@ -832,10 +842,18 @@ test("native WebRTC dependency identity and install surface stay reviewed", () =
     Object.fromEntries(reviewedWrtcPrebuiltPackages.map((name) => [name, wrtcPin]))
   );
   assert.equal(wrtcPackageJson.optionalDependencies?.domexception, "^4.0.0");
-  assert.match(pnpmLock, /^  '@roamhq\/wrtc@0\.10\.0':\n    resolution: \{integrity: sha512-/m);
+  assert.match(
+    pnpmLock,
+    new RegExp(`^  '@roamhq/wrtc@0\\.10\\.0':\\n    resolution: \\{integrity: ${escapeRegExp(reviewedWrtcIntegrity)}\\}`, "m")
+  );
   for (const name of reviewedWrtcPrebuiltPackages) {
-    assert.match(pnpmLock, new RegExp(`^  '${escapeRegExp(name)}@0\\.10\\.0':\\n    resolution: \\{integrity: sha512-`, "m"));
+    assert.match(
+      pnpmLock,
+      new RegExp(`^  '${escapeRegExp(name)}@0\\.10\\.0':\\n    resolution: \\{integrity: ${escapeRegExp(reviewedWrtcPrebuiltIntegrities[name] ?? "")}\\}`, "m")
+    );
   }
+  assert.match(pnpmLock, new RegExp(`^  domexception@4\\.0\\.0:\\n    resolution: \\{integrity: ${escapeRegExp(reviewedDomexceptionIntegrity)}\\}`, "m"));
+  assert.match(pnpmLock, new RegExp(`^  webidl-conversions@7\\.0\\.0:\\n    resolution: \\{integrity: ${escapeRegExp(reviewedWebidlConversionsIntegrity)}\\}`, "m"));
   assert.match(nativeSmokeScript, /const mod = await import\("@roamhq\/wrtc"\)/);
   assert.match(nativeSmokeScript, /requiredConstructor\(wrtc\.RTCPeerConnection, "RTCPeerConnection"\)/);
   assert.match(nativeSmokeScript, /requiredConstructor\(wrtc\.RTCDataChannel, "RTCDataChannel"\)/);
@@ -862,6 +880,12 @@ test("native WebRTC dependency identity and install surface stay reviewed", () =
   assert.match(nativeWebrtcReview, /Consumer install lifecycle hooks reviewed: `preinstall`, `install`, and `postinstall` are absent/);
   assert.match(nativeWebrtcReview, /`prepare` is present upstream but is not run during registry consumer installs/);
   assert.match(nativeWebrtcReview, /Optional platform prebuilt packages reviewed: `@roamhq\/wrtc-darwin-arm64@0\.10\.0`, `@roamhq\/wrtc-darwin-x64@0\.10\.0`, `@roamhq\/wrtc-linux-arm64@0\.10\.0`, `@roamhq\/wrtc-linux-x64@0\.10\.0`, and `@roamhq\/wrtc-win32-x64@0\.10\.0`/);
+  assert.match(nativeWebrtcReview, new RegExp(`Reviewed lockfile integrity for \`@roamhq/wrtc@0\\.10\\.0\`: \`${escapeRegExp(reviewedWrtcIntegrity)}\``));
+  for (const name of reviewedWrtcPrebuiltPackages) {
+    assert.match(nativeWebrtcReview, new RegExp(`\`${escapeRegExp(name)}@0\\.10\\.0\` is \`${escapeRegExp(reviewedWrtcPrebuiltIntegrities[name] ?? "")}\``));
+  }
+  assert.match(nativeWebrtcReview, new RegExp(`\`domexception@4\\.0\\.0\` is \`${escapeRegExp(reviewedDomexceptionIntegrity)}\``));
+  assert.match(nativeWebrtcReview, new RegExp(`\`webidl-conversions@7\\.0\\.0\` is \`${escapeRegExp(reviewedWebidlConversionsIntegrity)}\``));
   assert.match(nativeWebrtcReview, /This repo does not contain a formal independent audit certificate for the package or its prebuilts/);
   assert.match(nativeWebrtcReview, /does not include Windows ARM64, Linux ARMv7, or other unsupported platforms/);
   assert.match(nativeWebrtcReview, /does not hide endpoint compromise, MDM inspection of local files before encryption or after decryption, or network-level metadata/);
