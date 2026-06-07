@@ -1,7 +1,9 @@
 FROM node:22.22.3-bookworm-slim@sha256:6ed70fbf60557fb3a2faea5657d4105bace34c93449c2571919a1589fae30153 AS build
 WORKDIR /app
-RUN corepack enable && corepack prepare pnpm@11.1.3 --activate
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY package.json ./
+COPY scripts/prepare-checked-pnpm.mjs ./scripts/prepare-checked-pnpm.mjs
+RUN node scripts/prepare-checked-pnpm.mjs
+COPY pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm check:install-state

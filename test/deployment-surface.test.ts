@@ -29,6 +29,7 @@ const releaseNotesScript = fs.readFileSync(new URL("../scripts/write-release-not
 const githubReleaseControlsScript = fs.readFileSync(new URL("../scripts/configure-github-release-controls.mjs", import.meta.url), "utf8");
 const releaseReadinessScript = fs.readFileSync(new URL("../scripts/check-release-readiness.mjs", import.meta.url), "utf8");
 const npmBootstrapScript = fs.readFileSync(new URL("../scripts/bootstrap-npm-package.mjs", import.meta.url), "utf8");
+const checkedPnpmScript = fs.readFileSync(new URL("../scripts/prepare-checked-pnpm.mjs", import.meta.url), "utf8");
 const dockerPolicySmokeScript = fs.readFileSync(new URL("../scripts/smoke-docker-policy.mjs", import.meta.url), "utf8");
 const dependabotConfig = fs.readFileSync(new URL("../.github/dependabot.yml", import.meta.url), "utf8");
 const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
@@ -73,8 +74,8 @@ const PINNED_ACTIONS = new Map([
 test("Docker runtime image keeps a minimal non-root production surface", () => {
   const pnpmVersion = packageJson.packageManager?.replace(/^pnpm@/, "");
   assert.ok(pnpmVersion);
-  assert.match(dockerfile, new RegExp(String.raw`corepack prepare pnpm@${escapeRegExp(pnpmVersion)} --activate`));
-  assert.match(dockerfile, /^COPY package\.json pnpm-lock\.yaml pnpm-workspace\.yaml \.\/$/m);
+  assert.match(checkedPnpmScript, /EXPECTED_PNPM_COREPACK_HASH = "sha512\.c85357fe17ca12dd23dd7071822666dfd7e3cb76fe214e3370b5ea2fb34f2a231185509b63e717f3cd0acb38dd3f8d82bcd5e8172400ae678b70ea4fbed0896d"/);
+  assert.match(dockerfile, /^COPY package\.json \.\/\nCOPY scripts\/prepare-checked-pnpm\.mjs \.\/scripts\/prepare-checked-pnpm\.mjs\nRUN node scripts\/prepare-checked-pnpm\.mjs\nCOPY pnpm-lock\.yaml pnpm-workspace\.yaml \.\//m);
   assert.match(dockerfile, new RegExp(`^FROM ${escapeRegExp(PINNED_NODE_IMAGE_REF)} AS build$`, "m"));
   assert.match(dockerfile, new RegExp(`^FROM ${escapeRegExp(PINNED_NODE_IMAGE_REF)}$`, "m"));
   assert.doesNotMatch(dockerfile, /^FROM node:[^@\n]+(?: AS build)?$/m);
@@ -94,6 +95,7 @@ test("Docker runtime image keeps a minimal non-root production surface", () => {
   const runtimeStage = dockerfile.slice(dockerfile.lastIndexOf(`\nFROM ${PINNED_NODE_IMAGE_REF}`));
   assert.doesNotMatch(runtimeStage, /COPY .*\/app\/(?:src|test|\.github|release-artifacts)\b/);
   assert.doesNotMatch(runtimeStage, /pnpm install|pnpm build|corepack prepare/);
+  assert.doesNotMatch(dockerfile, /corepack prepare pnpm@/);
 });
 
 test("Docker build context excludes local-only and sensitive surfaces", () => {
@@ -274,7 +276,8 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(ciWorkflow, /dependency audit[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures/);
   assert.match(ciWorkflow, /DOCKER_SMOKE_TAG=p2p-transfer:test node scripts\/smoke-docker-policy\.mjs/);
   assert.match(ciDockerJob, /actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3/);
-  assert.match(ciDockerJob, /corepack enable[\s\S]*corepack prepare pnpm@11\.1\.3 --activate[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:test node scripts\/smoke-docker-policy\.mjs/);
+  assert.match(ciDockerJob, /node scripts\/prepare-checked-pnpm\.mjs[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:test node scripts\/smoke-docker-policy\.mjs/);
+  assert.doesNotMatch(ciDockerJob, /corepack prepare pnpm@/);
   assert.match(dockerPolicySmokeScript, /\["build", "-t", imageTag, "\."\]/);
   assert.match(dockerPolicySmokeScript, /"run", "--rm", "--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "-e", "SIGNALING_TOPOLOGY=single-instance", imageTag/);
   assert.match(dockerPolicySmokeScript, /"run", "--rm", "--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "-e", `ALLOWED_ORIGINS=\$\{PRODUCTION_ORIGIN\}`, imageTag/);
@@ -335,7 +338,8 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.doesNotMatch(releaseWorkflow, /pack release artifact[\s\S]*(find release-artifacts|basename "\$tgz"|sha256sum)/);
   assert.match(releaseWorkflow, /DOCKER_SMOKE_TAG=p2p-transfer:release node scripts\/smoke-docker-policy\.mjs/);
   assert.match(releaseDockerJob, /actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3/);
-  assert.match(releaseDockerJob, /corepack enable[\s\S]*corepack prepare pnpm@11\.1\.3 --activate[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:release node scripts\/smoke-docker-policy\.mjs/);
+  assert.match(releaseDockerJob, /node scripts\/prepare-checked-pnpm\.mjs[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:release node scripts\/smoke-docker-policy\.mjs/);
+  assert.doesNotMatch(releaseDockerJob, /corepack prepare pnpm@/);
   assert.doesNotMatch(releaseWorkflow, /fetch\('http:\/\/127\.0\.0\.1:8787|body\.includes\('ff transfer'\)/);
   assert.doesNotMatch(releaseWorkflow, /ALLOW_ANY_ORIGIN/);
   assert.equal(releaseWorkflow.match(/id-token:\s*write/g)?.length, 2);
@@ -806,15 +810,16 @@ test("dependency review blocks vulnerable dependency introductions", () => {
 
 test("documented release gates require a hardened Docker runtime smoke, not just image build", () => {
   for (const document of [readme, securityPolicy]) {
-    assert.match(document, /corepack enable\ncorepack prepare pnpm@11\.1\.3 --activate\npnpm install --frozen-lockfile\npnpm exec playwright install --with-deps chromium\npnpm verify:local/);
-    assert.match(document, /corepack enable\ncorepack prepare pnpm@11\.1\.3 --activate\npnpm install --frozen-lockfile\npnpm exec playwright install --with-deps chromium\npnpm verify:release/);
+    assert.match(document, /node scripts\/prepare-checked-pnpm\.mjs\npnpm install --frozen-lockfile\npnpm exec playwright install --with-deps chromium\npnpm verify:local/);
+    assert.match(document, /node scripts\/prepare-checked-pnpm\.mjs\npnpm install --frozen-lockfile\npnpm exec playwright install --with-deps chromium\npnpm verify:release/);
     assert.match(document, /pnpm smoke:docker-policy/);
     assert.match(document, /read-only filesystem, dropped Linux capabilities,[^.\n]+`no-new-privileges`/);
     assert.match(document, /refuses to start without `ALLOWED_ORIGINS` and without `SIGNALING_TOPOLOGY`/);
   }
-  assert.match(readme, /Build from source:[\s\S]*corepack enable\ncorepack prepare pnpm@11\.1\.3 --activate\npnpm install --frozen-lockfile\npnpm build\npnpm test/);
+  assert.match(securityPolicy, /CI, release, Docker, and documented source builds must prepare pnpm through `scripts\/prepare-checked-pnpm\.mjs`/);
+  assert.match(readme, /Build from source:[\s\S]*node scripts\/prepare-checked-pnpm\.mjs\npnpm install --frozen-lockfile\npnpm build\npnpm test/);
   assert.doesNotMatch(readme, /Build from source:[\s\S]*```sh\npnpm install\n/);
-  assert.match(contributing, /## Local Setup[\s\S]*corepack enable\ncorepack prepare pnpm@11\.1\.3 --activate\npnpm install --frozen-lockfile\npnpm exec playwright install --with-deps chromium\npnpm verify:local/);
+  assert.match(contributing, /## Local Setup[\s\S]*node scripts\/prepare-checked-pnpm\.mjs\npnpm install --frozen-lockfile\npnpm exec playwright install --with-deps chromium\npnpm verify:local/);
   assert.match(contributing, /For release-sensitive or protocol-sensitive changes, also run:[\s\S]*pnpm smoke:release-artifact[\s\S]*pnpm smoke:docker-policy[\s\S]*pnpm test:e2e[\s\S]*pnpm test:browser[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures/);
   assert.match(securityPolicy, /packed-install checks on Linux, macOS, and Windows for every supported Node major/);
   assert.match(securityPolicy, /packs the verified npm tarball with lifecycle scripts disabled after the explicit verified build/);

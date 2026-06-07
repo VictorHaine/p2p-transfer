@@ -5,8 +5,7 @@ This project handles cryptography, local files, and network handshakes. Keep cha
 ## Local Setup
 
 ```sh
-corepack enable
-corepack prepare pnpm@11.1.3 --activate
+node scripts/prepare-checked-pnpm.mjs
 pnpm install --frozen-lockfile
 pnpm exec playwright install --with-deps chromium
 pnpm verify:local

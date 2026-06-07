@@ -51,8 +51,7 @@ ff-server
 Build from source:
 
 ```sh
-corepack enable
-corepack prepare pnpm@11.1.3 --activate
+node scripts/prepare-checked-pnpm.mjs
 pnpm install --frozen-lockfile
 pnpm build
 pnpm test
@@ -259,8 +258,7 @@ docker run --rm -p 8787:8787 \
 Fast local verification:
 
 ```sh
-corepack enable
-corepack prepare pnpm@11.1.3 --activate
+node scripts/prepare-checked-pnpm.mjs
 pnpm install --frozen-lockfile
 pnpm exec playwright install --with-deps chromium
 pnpm verify:local
@@ -269,8 +267,7 @@ pnpm verify:local
 Full release verification:
 
 ```sh
-corepack enable
-corepack prepare pnpm@11.1.3 --activate
+node scripts/prepare-checked-pnpm.mjs
 pnpm install --frozen-lockfile
 pnpm exec playwright install --with-deps chromium
 pnpm verify:release
@@ -337,8 +334,7 @@ NPM_BOOTSTRAP_TOKEN=<one-time-npm-token> pnpm bootstrap:npm --apply
 Release:
 
 ```sh
-corepack enable
-corepack prepare pnpm@11.1.3 --activate
+node scripts/prepare-checked-pnpm.mjs
 pnpm install --frozen-lockfile
 pnpm exec playwright install --with-deps chromium
 pnpm verify:release

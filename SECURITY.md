@@ -265,6 +265,7 @@ The project is expected to preserve these invariants:
 - packed-install smoke must run an actual installed `ff recv` and `ff send` transfer through the installed `ff-server` using private stdin receive-code and file-list inputs, then compare received bytes, so native WebRTC optional dependency packaging and non-argv CLI input paths are exercised from the packed install rather than only from the workspace
 - packed-install smoke must validate the project package name and `version`, derive the exact expected npm tarball name from that metadata before installing a self-packed workspace, and reject any pack output that is not exactly that single tarball, so malformed package metadata or stale archive files cannot produce misleading release evidence
 - packed-install smoke must validate the project `packageManager` is an exact `pnpm@1.2.3` pin before writing the fresh consumer project, so package-manager drift cannot silently change the installer used for release evidence
+- CI, release, Docker, and documented source builds must prepare pnpm through `scripts/prepare-checked-pnpm.mjs`, which checks the exact `packageManager` pin and the reviewed Corepack pnpm package hash before installing the pnpm shim; unchecked `corepack prepare pnpm@... --activate` must not be used
 - packed-install smoke must byte-cap the provided tarball path by UTF-8 bytes, no-follow-open, identity-check, and stage the verified tarball into a distinct no-follow-copied file in its private temp workspace before fresh-project install so malformed local input, release artifact drift, path swaps, or path-dependent self-pack exceptions cannot make install verification prove different bytes
 - release publishing must packed-install smoke the exact downloaded tarball artifact immediately before `pnpm publish`, not only a package produced earlier in the release job
 - release artifact attestation must run after the checked release-artifact verifier proves the downloaded npm tarball, SBOM, checksums, and package identity before npm publish; the attestation job must attest the verified `SHA256SUMS` subjects instead of a single tarball path and must not reinstall dependencies, rebuild, repack, smoke, or rediscover release contents
@@ -312,8 +313,7 @@ The project is expected to preserve these invariants:
 For the local gate subset, first prove dependency resolution from the lockfile, then run:
 
 ```sh
-corepack enable
-corepack prepare pnpm@11.1.3 --activate
+node scripts/prepare-checked-pnpm.mjs
 pnpm install --frozen-lockfile
 pnpm exec playwright install --with-deps chromium
 pnpm verify:local
@@ -322,8 +322,7 @@ pnpm verify:local
 Before release, run:
 
 ```sh
-corepack enable
-corepack prepare pnpm@11.1.3 --activate
+node scripts/prepare-checked-pnpm.mjs
 pnpm install --frozen-lockfile
 pnpm exec playwright install --with-deps chromium
 pnpm verify:release
