@@ -566,6 +566,15 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(githubReleaseControlsScript, /delete options\.npmReviewerKeys/);
   assert.match(githubReleaseControlsScript, /Npm environment reviewers must be unique\./);
   assert.match(githubReleaseControlsScript, /Npm environment can have at most \$\{MAX_NPM_ENVIRONMENT_REVIEWERS\} reviewers\./);
+  assert.match(githubReleaseControlsScript, /await assertPersistedRulesets\(token, options\.repository\)/);
+  assert.match(githubReleaseControlsScript, /async function assertPersistedRulesets\(token, repository\)/);
+  assert.match(githubReleaseControlsScript, /assertMainRuleset\(await github\(token, "GET", `\/repos\/\$\{repository\}\/rulesets\/\$\{mainRuleset\.id\}`\)\)/);
+  assert.match(githubReleaseControlsScript, /assertTagRuleset\(await github\(token, "GET", `\/repos\/\$\{repository\}\/rulesets\/\$\{tagRuleset\.id\}`\)\)/);
+  assert.match(githubReleaseControlsScript, /function assertMainRuleset\(ruleset\)/);
+  assert.match(githubReleaseControlsScript, /function assertTagRuleset\(ruleset\)/);
+  assert.match(githubReleaseControlsScript, /assertRulesetBase\(ruleset, MAIN_RULESET_NAME, "branch", "refs\/heads\/main"\)/);
+  assert.match(githubReleaseControlsScript, /assertRulesetBase\(ruleset, TAG_RULESET_NAME, "tag", RELEASE_TAG_REF_PATTERN\)/);
+  assert.match(githubReleaseControlsScript, /assertStatusContexts\(statusParameters\.required_status_checks, REQUIRED_CI_CHECKS, MAIN_RULESET_NAME\)/);
   assert.ok(
     githubReleaseControlsScript.indexOf("environments/${encodeURIComponent(NPM_ENVIRONMENT)}") <
       githubReleaseControlsScript.indexOf("for (const ruleset of desired)"),
@@ -585,8 +594,8 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(readme, /refuses read-only or unknown reviewers/);
   assert.match(readme, /refuses to create a sole-reviewer self-approval deadlock/);
   assert.match(readme, /refuses `--allow-missing-main` outside dry-run mode/);
-  assert.match(readme, /re-reads the persisted `npm` environment and deployment tag policy after writes/);
-  assert.match(readme, /refuses to mutate repository rulesets if GitHub returns malformed, duplicate, unexpected, wrong-target, or bypass-enabled rulesets, or if the persisted `npm` environment still has no required-reviewer protection, still allows admin bypass or branch deployments, lacks the exact release-tag deployment policy, or still has the authenticated setup operator as its sole required reviewer/);
+  assert.match(readme, /re-reads the persisted `npm` environment, deployment tag policy, and repository ruleset details after writes/);
+  assert.match(readme, /refuses to mutate repository rulesets if GitHub returns malformed, duplicate, unexpected, wrong-target, or bypass-enabled rulesets, or if the persisted `npm` environment still has no required-reviewer protection, still allows admin bypass or branch deployments, lacks the exact release-tag deployment policy, still has the authenticated setup operator as its sole required reviewer, or the persisted branch\/tag rulesets do not exactly match the requested protected surface/);
   assert.match(securityPolicy, /`--allow-missing-main` must be dry-run only and must not be accepted with `--apply`/);
   assert.match(securityPolicy, /setup script must be able to create or update the `npm` environment approval gate from explicit reviewers with write, maintain, or admin repository permission, self-review prevention, admin bypass disabled, and a single `v\*\.\*\.\*` tag deployment policy/);
   assert.match(securityPolicy, /must not expose an option that writes `prevent_self_review: false`/);
@@ -594,6 +603,7 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(securityPolicy, /release setup must reject malformed, unexpected, wrong-target, duplicate, or bypass-enabled GitHub rulesets list entries/);
   assert.match(securityPolicy, /setup script must reject unknown or read-only reviewers and sole-reviewer self-approval deadlocks/);
   assert.match(securityPolicy, /release setup must re-read the persisted `npm` environment plus deployment tag policy and fail before mutating repository rulesets when the persisted `npm` environment is missing required-reviewer protection, allows admin bypass or branch deployments, lacks the exact release-tag deployment policy, or has the authenticated setup operator as its sole required reviewer/);
+  assert.match(securityPolicy, /release setup must re-read persisted repository ruleset details after writes and fail before reporting success when GitHub drops, broadens, weakens, bypass-enables, or otherwise normalizes branch\/tag rulesets away from the exact protected surface/);
   assert.match(securityPolicy, /GitHub release setup and release preflight scripts must read token, repository, and GitHub Actions mode environment variables through own data descriptors[\s\S]*send GitHub API requests with an abort deadline/);
   assert.match(securityPolicy, /release preflight must reject malformed GitHub token or `GITHUB_ACTIONS` values before package reads, npm registry requests, or GitHub API requests/);
   assert.match(securityPolicy, /byte-cap and fatal-UTF-8\/JSON-decode GitHub API responses with setup-owned deterministic errors/);

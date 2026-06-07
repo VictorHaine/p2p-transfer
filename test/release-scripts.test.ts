@@ -869,8 +869,55 @@ test("GitHub release controls apply environment and rulesets after reviewer vali
 import { appendFileSync } from "node:fs";
 
 const log = process.env.FF_MOCK_GITHUB_LOG;
+const requiredChecks = ${JSON.stringify(REQUIRED_RELEASE_CHECKS)};
 let environmentUpdated = false;
 let deploymentCreated = false;
+let rulesetPosts = 0;
+
+function mainRuleset() {
+  return {
+    id: 101,
+    name: "p2p-transfer: protect main",
+    target: "branch",
+    enforcement: "active",
+    bypass_actors: [],
+    conditions: { ref_name: { include: ["refs/heads/main"], exclude: [] } },
+    rules: [
+      { type: "deletion" },
+      { type: "non_fast_forward" },
+      {
+        type: "pull_request",
+        parameters: {
+          allowed_merge_methods: ["squash", "rebase"],
+          dismiss_stale_reviews_on_push: true,
+          require_code_owner_review: true,
+          require_last_push_approval: true,
+          required_approving_review_count: 1,
+          required_review_thread_resolution: true
+        }
+      },
+      {
+        type: "required_status_checks",
+        parameters: {
+          strict_required_status_checks_policy: true,
+          required_status_checks: requiredChecks.map((context) => ({ context, integration_id: 15368 }))
+        }
+      }
+    ]
+  };
+}
+
+function tagRuleset() {
+  return {
+    id: 202,
+    name: "p2p-transfer: protect release tags",
+    target: "tag",
+    enforcement: "active",
+    bypass_actors: [],
+    conditions: { ref_name: { include: ["refs/tags/v*.*.*"], exclude: [] } },
+    rules: [{ type: "creation" }, { type: "deletion" }, { type: "non_fast_forward" }]
+  };
+}
 
 function record(method, path, body) {
   appendFileSync(log, JSON.stringify({ method, path, body }) + "\\n", "utf8");
@@ -901,7 +948,13 @@ globalThis.fetch = async (url, init = {}) => {
       deployment_branch_policy: null
     });
   }
-  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/rulesets?includes_parents=false") return json(200, []);
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/rulesets?includes_parents=false") {
+    if (rulesetPosts >= 2) return json(200, [
+      { id: 101, name: "p2p-transfer: protect main", target: "branch", enforcement: "active" },
+      { id: 202, name: "p2p-transfer: protect release tags", target: "tag", enforcement: "active" }
+    ]);
+    return json(200, []);
+  }
   if (method === "PUT" && path === "/repos/VictorHaine/p2p-transfer/environments/npm") {
     environmentUpdated = true;
     return json(200, {
@@ -918,7 +971,12 @@ globalThis.fetch = async (url, init = {}) => {
     deploymentCreated = true;
     return json(201, { id: 77, name: "v*.*.*", type: "tag" });
   }
-  if (method === "POST" && path === "/repos/VictorHaine/p2p-transfer/rulesets") return json(201, { id: 88 });
+  if (method === "POST" && path === "/repos/VictorHaine/p2p-transfer/rulesets") {
+    rulesetPosts += 1;
+    return json(201, { id: body.name === "p2p-transfer: protect main" ? 101 : 202 });
+  }
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/rulesets/101") return json(200, mainRuleset());
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/rulesets/202") return json(200, tagRuleset());
   return json(500, {});
 };
 `,
@@ -959,9 +1017,12 @@ globalThis.fetch = async (url, init = {}) => {
       "GET /repos/VictorHaine/p2p-transfer/environments/npm",
       "GET /repos/VictorHaine/p2p-transfer/environments/npm/deployment-branch-policies?per_page=100",
       "POST /repos/VictorHaine/p2p-transfer/rulesets",
-      "POST /repos/VictorHaine/p2p-transfer/rulesets"
+      "POST /repos/VictorHaine/p2p-transfer/rulesets",
+      "GET /repos/VictorHaine/p2p-transfer/rulesets?includes_parents=false",
+      "GET /repos/VictorHaine/p2p-transfer/rulesets/101",
+      "GET /repos/VictorHaine/p2p-transfer/rulesets/202"
     ]);
-    assert.equal(requests.length, 14);
+    assert.equal(requests.length, 17);
     const environmentPut = requests[7];
     const deploymentPolicyPost = requests[9];
     assert.ok(environmentPut);
@@ -977,6 +1038,94 @@ globalThis.fetch = async (url, init = {}) => {
     assert.doesNotMatch(result.stdout, /token-that-must-not-be-printed/);
   } finally {
     await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
+test("GitHub release controls verify persisted rulesets after applying", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-controls-rulesets-"));
+  const mock = path.join(tmp, "mock-github-fetch.mjs");
+  const log = path.join(tmp, "requests.log");
+  try {
+    await fs.writeFile(
+      mock,
+      `
+import { appendFileSync } from "node:fs";
+
+const log = process.env.FF_MOCK_GITHUB_LOG;
+let rulesetPosts = 0;
+
+function record(method, path) {
+  appendFileSync(log, method + " " + path + "\\n", "utf8");
+}
+
+globalThis.fetch = async (url, init = {}) => {
+  const parsed = new URL(url);
+  const method = init.method ?? "GET";
+  const path = parsed.pathname + parsed.search;
+  record(method, path);
+  const json = (status, value) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
+  if (parsed.origin !== "https://api.github.com") return json(500, {});
+  if (method === "GET" && path === "/user") return json(200, { login: "operator" });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer") return json(200, { id: 1 });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/branches/main") return json(200, { name: "main" });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/collaborators/approver/permission") return json(200, { permission: "write", user: { login: "approver" } });
+  if (method === "GET" && path === "/users/approver") return json(200, { id: 42, login: "approver" });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/environments/npm") return json(200, {
+    can_admins_bypass: false,
+    protection_rules: [{ type: "required_reviewers", prevent_self_review: true, reviewers: [{ type: "User", reviewer: { login: "approver" } }] }],
+    deployment_branch_policy: { protected_branches: false, custom_branch_policies: true }
+  });
+  if (method === "PUT" && path === "/repos/VictorHaine/p2p-transfer/environments/npm") return json(200, {
+    can_admins_bypass: false,
+    protection_rules: [{ type: "required_reviewers", prevent_self_review: true, reviewers: [{ type: "User", reviewer: { login: "approver" } }] }],
+    deployment_branch_policy: { protected_branches: false, custom_branch_policies: true }
+  });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/environments/npm/deployment-branch-policies?per_page=100") return json(200, { total_count: 1, branch_policies: [{ id: 77, name: "v*.*.*", type: "tag" }] });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/rulesets?includes_parents=false") {
+    if (rulesetPosts >= 2) return json(200, [
+      { id: 101, name: "p2p-transfer: protect main", target: "branch", enforcement: "active" },
+      { id: 202, name: "p2p-transfer: protect release tags", target: "tag", enforcement: "active" }
+    ]);
+    return json(200, []);
+  }
+  if (method === "POST" && path === "/repos/VictorHaine/p2p-transfer/rulesets") {
+    rulesetPosts += 1;
+    return json(201, { id: rulesetPosts === 1 ? 101 : 202 });
+  }
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/rulesets/101") return json(200, {
+    id: 101,
+    name: "p2p-transfer: protect main",
+    target: "branch",
+    enforcement: "active",
+    bypass_actors: [],
+    conditions: { ref_name: { include: ["refs/heads/main"], exclude: [] } },
+    rules: [{ type: "deletion" }, { type: "non_fast_forward" }]
+  });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/rulesets/202") return json(500, { message: "tag ruleset should not be read after invalid main ruleset" });
+  return json(500, {});
+};
+`,
+      "utf8"
+    );
+
+    const result = runScriptWithNodeArgs(
+      "scripts/configure-github-release-controls.mjs",
+      {
+        FF_MOCK_GITHUB_LOG: log,
+        GITHUB_TOKEN: "token-that-must-not-be-printed"
+      },
+      ["--apply", "--npm-reviewer", "approver"],
+      ["--import", mock]
+    );
+    const requests = await fs.readFile(log, "utf8");
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /GitHub release control setup failed:\n- p2p-transfer: protect main rules are not exact\./);
+    assert.doesNotMatch(result.stderr, /token-that-must-not-be-printed|tag ruleset should not be read|api\.github|Error:/);
+    assert.match(requests, /POST \/repos\/VictorHaine\/p2p-transfer\/rulesets\nPOST \/repos\/VictorHaine\/p2p-transfer\/rulesets\nGET \/repos\/VictorHaine\/p2p-transfer\/rulesets\?includes_parents=false\nGET \/repos\/VictorHaine\/p2p-transfer\/rulesets\/101\n$/);
+  } finally {
+    await fs.rm(tmp, { recursive: true, force: true });
   }
 });
 

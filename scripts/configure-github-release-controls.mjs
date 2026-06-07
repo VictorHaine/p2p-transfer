@@ -109,6 +109,7 @@ async function main() {
     }
     await github(token, "POST", `/repos/${options.repository}/rulesets`, ruleset);
   }
+  await assertPersistedRulesets(token, options.repository);
 
   console.log(JSON.stringify({ repository: options.repository, mode: "applied", rulesets: desired.map((ruleset) => ruleset.name), environment: status }, null, 2));
 }
@@ -314,6 +315,117 @@ function assertNpmDeploymentPolicies(response) {
   if (!policy || typeof policy !== "object" || policy.name !== NPM_DEPLOYMENT_TAG_POLICY || policy.type !== "tag") {
     throw new Error("GitHub npm environment must deploy only from release tags.");
   }
+}
+
+async function assertPersistedRulesets(token, repository) {
+  const rulesetsByName = existingRulesetsByName(await github(token, "GET", `/repos/${repository}/rulesets?includes_parents=false`));
+  const mainRuleset = assertRequiredRuleset(rulesetsByName, MAIN_RULESET_NAME, "branch");
+  const tagRuleset = assertRequiredRuleset(rulesetsByName, TAG_RULESET_NAME, "tag");
+  assertMainRuleset(await github(token, "GET", `/repos/${repository}/rulesets/${mainRuleset.id}`));
+  assertTagRuleset(await github(token, "GET", `/repos/${repository}/rulesets/${tagRuleset.id}`));
+}
+
+function assertRequiredRuleset(rulesetsByName, name, target) {
+  const ruleset = rulesetsByName.get(name);
+  if (!ruleset) throw new Error(`GitHub ruleset is missing: ${name}.`);
+  if (ruleset.target !== target || ruleset.enforcement !== "active") throw new Error(`GitHub ruleset is not active for ${target}: ${name}.`);
+  if (typeof ruleset.id !== "number") throw new Error(`GitHub ruleset response is missing id: ${name}.`);
+  return ruleset;
+}
+
+function assertMainRuleset(ruleset) {
+  assertRulesetBase(ruleset, MAIN_RULESET_NAME, "branch", "refs/heads/main");
+  assertNoBypassActors(ruleset, MAIN_RULESET_NAME);
+  const rules = rulesByType(ruleset, MAIN_RULESET_NAME, ["deletion", "non_fast_forward", "pull_request", "required_status_checks"]);
+  assertRulePresent(rules, "deletion", MAIN_RULESET_NAME);
+  assertRulePresent(rules, "non_fast_forward", MAIN_RULESET_NAME);
+  const pullRequest = assertRulePresent(rules, "pull_request", MAIN_RULESET_NAME);
+  const pullRequestParameters = parameters(pullRequest, MAIN_RULESET_NAME, "pull_request");
+  assertArrayIncludesExactly(pullRequestParameters.allowed_merge_methods, ["squash", "rebase"], `${MAIN_RULESET_NAME} pull request allowed merge methods`);
+  assertBoolean(pullRequestParameters.dismiss_stale_reviews_on_push, true, `${MAIN_RULESET_NAME} stale review dismissal`);
+  assertBoolean(pullRequestParameters.require_code_owner_review, true, `${MAIN_RULESET_NAME} code owner review`);
+  assertBoolean(pullRequestParameters.require_last_push_approval, true, `${MAIN_RULESET_NAME} last push approval`);
+  assertBoolean(pullRequestParameters.required_review_thread_resolution, true, `${MAIN_RULESET_NAME} review thread resolution`);
+  if (pullRequestParameters.required_approving_review_count !== 1) throw new Error(`${MAIN_RULESET_NAME} approving review count is not enforced.`);
+  const statusChecks = assertRulePresent(rules, "required_status_checks", MAIN_RULESET_NAME);
+  const statusParameters = parameters(statusChecks, MAIN_RULESET_NAME, "required_status_checks");
+  assertBoolean(statusParameters.strict_required_status_checks_policy, true, `${MAIN_RULESET_NAME} strict status checks`);
+  assertStatusContexts(statusParameters.required_status_checks, REQUIRED_CI_CHECKS, MAIN_RULESET_NAME);
+}
+
+function assertTagRuleset(ruleset) {
+  assertRulesetBase(ruleset, TAG_RULESET_NAME, "tag", RELEASE_TAG_REF_PATTERN);
+  assertNoBypassActors(ruleset, TAG_RULESET_NAME);
+  const rules = rulesByType(ruleset, TAG_RULESET_NAME, ["creation", "deletion", "non_fast_forward"]);
+  assertRulePresent(rules, "creation", TAG_RULESET_NAME);
+  assertRulePresent(rules, "deletion", TAG_RULESET_NAME);
+  assertRulePresent(rules, "non_fast_forward", TAG_RULESET_NAME);
+}
+
+function assertRulesetBase(ruleset, name, target, refName) {
+  if (!ruleset || typeof ruleset !== "object") throw new Error(`GitHub ruleset details are invalid: ${name}.`);
+  if (ruleset.name !== name || ruleset.target !== target || ruleset.enforcement !== "active") throw new Error(`GitHub ruleset details are not active for ${target}: ${name}.`);
+  const refConditions = ruleset.conditions?.ref_name;
+  const includes = refConditions?.include;
+  if (!Array.isArray(includes) || includes.length !== 1 || includes[0] !== refName) throw new Error(`GitHub ruleset ref coverage is not exact for ${refName}: ${name}.`);
+  const excludes = refConditions?.exclude;
+  if (!Array.isArray(excludes) || excludes.length !== 0) throw new Error(`GitHub ruleset has ref exclusions: ${name}.`);
+}
+
+function assertNoBypassActors(ruleset, name) {
+  if (!Array.isArray(ruleset?.bypass_actors) || ruleset.bypass_actors.length !== 0) {
+    throw new Error(`${name} must not allow bypass actors.`);
+  }
+}
+
+function rulesByType(ruleset, name, expectedTypes) {
+  if (!Array.isArray(ruleset?.rules)) throw new Error(`GitHub ruleset has no rules: ${ruleset?.name ?? "unknown"}.`);
+  if (ruleset.rules.length !== expectedTypes.length) throw new Error(`${name} rules are not exact.`);
+  const expected = new Set(expectedTypes);
+  const rules = new Map();
+  for (const rule of ruleset.rules) {
+    if (!rule || typeof rule !== "object" || typeof rule.type !== "string" || !expected.has(rule.type) || rules.has(rule.type)) {
+      throw new Error(`${name} rules are not exact.`);
+    }
+    rules.set(rule.type, rule);
+  }
+  return rules;
+}
+
+function assertRulePresent(rules, type, name) {
+  const rule = rules.get(type);
+  if (!rule) throw new Error(`${name} is missing ${type} rule.`);
+  return rule;
+}
+
+function parameters(rule, name, type) {
+  if (!rule.parameters || typeof rule.parameters !== "object") throw new Error(`${name} ${type} rule parameters are invalid.`);
+  return rule.parameters;
+}
+
+function assertArrayIncludesExactly(actual, expected, description) {
+  if (!Array.isArray(actual) || actual.length !== expected.length || !expected.every((value) => actual.includes(value))) {
+    throw new Error(`${description} are not enforced.`);
+  }
+}
+
+function assertBoolean(actual, expected, description) {
+  if (actual !== expected) throw new Error(`${description} is not enforced.`);
+}
+
+function assertStatusContexts(actual, expected, name) {
+  if (!Array.isArray(actual)) throw new Error(`${name} required status checks are invalid.`);
+  const contexts = [];
+  for (const entry of actual) {
+    if (!entry || typeof entry !== "object" || typeof entry.context !== "string") {
+      throw new Error(`${name} required status checks are invalid.`);
+    }
+    if (entry.integration_id !== GITHUB_ACTIONS_INTEGRATION_ID) {
+      throw new Error(`${name} required status checks are not pinned to GitHub Actions.`);
+    }
+    contexts.push(entry.context);
+  }
+  assertArrayIncludesExactly(contexts, expected, `${name} required status checks`);
 }
 
 async function github(token, method, path, body) {
