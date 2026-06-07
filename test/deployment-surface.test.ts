@@ -708,7 +708,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /\/repos\/\$\{repository\}\/automated-security-fixes/);
   assert.match(releaseReadinessScript, /GitHub repository Dependabot security updates must not be paused\./);
   assert.match(securityPolicy, /no branch\/tag bypass actors, required status checks, and the npm environment approval\/tag-only deployment gate before packaging/);
-  assert.match(readme, /verifies the npm package already exists, verifies any bootstrap placeholder is not tagged as `latest`, verifies the target version has not been published, verifies private vulnerability reporting is enabled, verifies repository secret scanning, secret scanning push protection, and Dependabot security updates are enabled/);
+  assert.match(readme, /verifies the npm package already exists, verifies any bootstrap placeholder is not tagged as `latest`, verifies the target version has not been published, verifies private vulnerability reporting is enabled, verifies repository secret scanning and secret scanning push protection are enabled, verifies Dependabot security updates are enabled and unpaused/);
   assert.match(readme, /pnpm bootstrap:npm --dry-run/);
   assert.match(readme, /read -rs NPM_BOOTSTRAP_TOKEN\nprintf %s "\$NPM_BOOTSTRAP_TOKEN" \| pnpm bootstrap:npm --apply --token-stdin\nunset NPM_BOOTSTRAP_TOKEN/);
   assert.match(readme, /The helper publishes only a minimal temporary `0\.0\.0-bootstrap\.0` package from a private temp directory under the non-default `bootstrap` dist-tag/);
