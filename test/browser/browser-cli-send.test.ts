@@ -13,6 +13,7 @@ const hasChromium = chromiumPath !== undefined || hasPlaywrightChromium();
 const allowMissingChromium = process.env.FF_ALLOW_BROWSER_TEST_SKIP === "true";
 const missingChromium = "No Chromium executable found. Run `pnpm exec playwright install --with-deps chromium`, set PLAYWRIGHT_CHROMIUM, or set FF_ALLOW_BROWSER_TEST_SKIP=true for an intentional non-release skip.";
 const browserTestOptions = { skip: hasChromium || !allowMissingChromium ? false : missingChromium };
+const TEST_CHUNK_SIZE = 16 * 1024;
 
 test("browser Chromium executable is available", (context) => {
   if (hasChromium) return;
@@ -60,6 +61,73 @@ test("browser sender interoperates with CLI receiver", browserTestOptions, async
     assert.equal(receiverResult.code, 0, receiverResult.stderr);
     assert.match(receiverResult.stdout, /"secure_session"/);
     assert.equal(await fs.readFile(path.join(out, "source.txt"), "utf8"), "browser to cli secure transfer\n");
+  } finally {
+    await browser?.close();
+    server.kill();
+  }
+});
+
+test("browser sender resumes into CLI receiver partials", browserTestOptions, async () => {
+  const root = process.cwd();
+  const port = 28_000 + randomInt(1_000);
+  const origin = `http://127.0.0.1:${port}`;
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-browser-cli-resume-"));
+  const childEnv = testChildEnv(tmp);
+  const server = spawn(process.execPath, ["dist-node/server/index.js"], {
+    cwd: root,
+    env: { ...childEnv, PORT: String(port), HOST: "127.0.0.1", NODE_ENV: "production", ALLOWED_ORIGINS: origin, SIGNALING_TOPOLOGY: "single-instance", ALLOW_INSECURE_ORIGINS: "true" }
+  });
+
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  try {
+    await waitForOutput(server, /listening/);
+    const source = path.join(tmp, "resume-from-browser.txt");
+    const out = path.join(tmp, "out");
+    const payload = Buffer.alloc(32 * 1024 * 1024, 0x61);
+    await fs.mkdir(out);
+    await fs.writeFile(source, payload);
+
+    const serverUrl = `ws://127.0.0.1:${port}/v1/ws`;
+    browser = await chromium.launch(chromiumLaunchOptions());
+
+    const firstReceiver = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "recv", "--resume", "--code", "12345678-apple-anchor", "--yes", "--out", out], { cwd: root, env: childEnv });
+    const firstReceiverDone = collectExit(firstReceiver);
+    await waitForOutput(firstReceiver, /"registered"/);
+
+    const firstPage = await browser.newPage();
+    await firstPage.goto(`http://127.0.0.1:${port}/`);
+    await firstPage.locator("#serverUrl").fill(serverUrl);
+    await firstPage.locator("#sendCode").fill("12345678-apple-anchor");
+    await firstPage.locator("#fileInput").setInputFiles(source);
+    await firstPage.locator('button[type="submit"]').click();
+    let partial = await waitForCliResumePartial(out);
+    firstReceiver.kill("SIGTERM");
+    await firstReceiverDone;
+    partial = { path: partial.path, size: (await fs.stat(partial.path)).size };
+    await firstPage.close();
+
+    const secondReceiver = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "recv", "--resume", "--code", "12345679-apple-anchor", "--yes", "--out", out], { cwd: root, env: childEnv });
+    const secondReceiverDone = collectExit(secondReceiver);
+    await waitForOutput(secondReceiver, /"registered"/);
+
+    const secondPage = await browser.newPage();
+    await secondPage.goto(`http://127.0.0.1:${port}/`);
+    await secondPage.locator("#serverUrl").fill(serverUrl);
+    await secondPage.locator("#sendCode").fill("12345679-apple-anchor");
+    await secondPage.locator("#fileInput").setInputFiles(source);
+    await secondPage.locator('button[type="submit"]').click();
+    await expectText(secondPage.locator("#sendStatus"), "Done");
+
+    const secondReceiverResult = await secondReceiverDone;
+    assert.equal(secondReceiverResult.code, 0, secondReceiverResult.stderr);
+    assert.match(secondReceiverResult.stdout, /"secure_session"/);
+    const receivedEvents = parseJsonEvents(secondReceiverResult.stdout).filter((event): event is { event: "received"; bytes: number; totalBytes: number } => {
+      return event.event === "received" && typeof event.bytes === "number" && typeof event.totalBytes === "number";
+    });
+    assert.ok(receivedEvents.length > 0);
+    assert.ok(receivedEvents[0]!.bytes >= partial.size, `first resumed progress ${receivedEvents[0]!.bytes} should include saved partial ${partial.size}`);
+    assert.deepEqual(await fs.readFile(path.join(out, "resume-from-browser.txt")), payload);
+    await assert.rejects(() => fs.stat(partial.path), { code: "ENOENT" });
   } finally {
     await browser?.close();
     server.kill();
@@ -574,6 +642,31 @@ function collectExit(child: ChildProcessWithoutNullStreams): Promise<{ code: num
     });
     child.on("exit", (code) => resolve({ code, stdout, stderr }));
   });
+}
+
+async function waitForCliResumePartial(dir: string): Promise<{ path: string; size: number }> {
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    const entries = await fs.readdir(dir).catch(() => []);
+    for (const entry of entries) {
+      if (!/^ff-resume-[a-f0-9]{64}\.part$/.test(entry)) continue;
+      const file = path.join(dir, entry);
+      const stat = await fs.stat(file);
+      if (stat.size >= TEST_CHUNK_SIZE && stat.size % TEST_CHUNK_SIZE === 0) return { path: file, size: stat.size };
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  assert.fail("Timed out waiting for a chunk-aligned CLI resume partial.");
+}
+
+function parseJsonEvents(stdout: string): Array<Record<string, unknown>> {
+  const events: Array<Record<string, unknown>> = [];
+  for (const line of stdout.split(/\n/)) {
+    if (line.trim().length === 0) continue;
+    const parsed = JSON.parse(line) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) events.push(parsed as Record<string, unknown>);
+  }
+  return events;
 }
 
 function chromiumLaunchOptions() {
