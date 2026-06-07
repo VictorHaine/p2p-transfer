@@ -6,6 +6,9 @@ import os from "node:os";
 import path from "node:path";
 import { randomInt } from "node:crypto";
 
+const CHILD_EXIT_TIMEOUT_MS = 15_000;
+const CHILD_KILL_GRACE_MS = 3_000;
+
 test("CLI transfers a file through the built signaling server with secure session output", async () => {
   const root = process.cwd();
   const port = 19_000 + randomInt(1_000);
@@ -38,10 +41,13 @@ test("CLI transfers a file through the built signaling server with secure sessio
     await waitForOutput(receiver, /"registered"/);
 
     const sender = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "send", "12345678-apple-anchor", source], { cwd: root, env: childEnv });
-    const [senderResult, receiverResult] = await Promise.all([collectExit(sender), collectExit(receiver)]);
+    const [senderResult, receiverResult] = await Promise.all([
+      waitForExitWithOutput(sender, "sender", CHILD_EXIT_TIMEOUT_MS),
+      waitForExitWithOutput(receiver, "receiver", CHILD_EXIT_TIMEOUT_MS)
+    ]);
 
-    assert.equal(senderResult.code, 0, senderResult.stderr);
-    assert.equal(receiverResult.code, 0, receiverResult.stderr);
+    assert.equal(senderResult.code, 0, exitSummary(senderResult));
+    assert.equal(receiverResult.code, 0, exitSummary(receiverResult));
     assert.match(senderResult.stdout, /"secure_session"/);
     assert.match(receiverResult.stdout, /"secure_session"/);
     assert.match(senderResult.stdout, /"sent"/);
@@ -81,41 +87,119 @@ function waitForOutput(child: ChildProcessWithoutNullStreams, pattern: RegExp): 
   return new Promise((resolve, reject) => {
     let stdout = "";
     let stderr = "";
-    const timer = setTimeout(() => reject(new Error(`Timed out waiting for ${pattern}\nstdout:\n${stdout}\nstderr:\n${stderr}`)), 10_000);
+    let settled = false;
+    const cleanup = () => {
+      clearTimeout(timer);
+      child.stdout.off("data", onStdout);
+      child.stderr.off("data", onStderr);
+      child.stdout.off("data", onData);
+      child.stderr.off("data", onData);
+      child.off("exit", onExit);
+      child.off("error", onError);
+    };
+    const rejectOnce = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+    const resolveOnce = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      terminateChild(child);
+      rejectOnce(new Error(`Timed out waiting for ${pattern}\nstdout:\n${stdout}\nstderr:\n${stderr}`));
+    }, 10_000);
     const onData = (chunk: Buffer) => {
       const text = chunk.toString();
       if (pattern.test(text)) {
-        clearTimeout(timer);
-        child.stdout.off("data", onData);
-        child.stderr.off("data", onData);
-        resolve();
+        resolveOnce();
       }
     };
-    child.stdout.on("data", (chunk) => {
+    const onStdout = (chunk: Buffer) => {
       stdout += chunk.toString();
-    });
-    child.stderr.on("data", (chunk) => {
+    };
+    const onStderr = (chunk: Buffer) => {
       stderr += chunk.toString();
-    });
+    };
+    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+      rejectOnce(new Error(`Process exited before ${pattern}: ${exitStatus({ label: "process", code, signal, stdout, stderr })}`));
+    };
+    const onError = (error: Error) => {
+      rejectOnce(error);
+    };
+    child.stdout.on("data", onStdout);
+    child.stderr.on("data", onStderr);
     child.stdout.on("data", onData);
     child.stderr.on("data", onData);
-    child.once("exit", (code) => {
-      clearTimeout(timer);
-      reject(new Error(`Process exited before ${pattern}: ${code}\nstdout:\n${stdout}\nstderr:\n${stderr}`));
-    });
+    child.once("exit", onExit);
+    child.once("error", onError);
   });
 }
 
-function collectExit(child: ChildProcessWithoutNullStreams): Promise<{ code: number | null; stdout: string; stderr: string }> {
-  return new Promise((resolve) => {
+type ChildResult = { label: string; code: number | null; signal: NodeJS.Signals | null; stdout: string; stderr: string };
+
+function waitForExitWithOutput(child: ChildProcessWithoutNullStreams, label: string, timeoutMs: number): Promise<ChildResult> {
+  return new Promise((resolve, reject) => {
     let stdout = "";
     let stderr = "";
-    child.stdout.on("data", (chunk) => {
+    let settled = false;
+    const cleanup = () => {
+      clearTimeout(timer);
+      child.stdout.off("data", onStdout);
+      child.stderr.off("data", onStderr);
+      child.off("exit", onExit);
+      child.off("error", onError);
+    };
+    const resolveOnce = (result: ChildResult) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(result);
+    };
+    const rejectOnce = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+    const timer = setTimeout(() => {
+      terminateChild(child);
+      rejectOnce(new Error(`Timed out waiting for ${label} exit.\nstdout:\n${stdout}\nstderr:\n${stderr}`));
+    }, timeoutMs);
+    const onStdout = (chunk: Buffer) => {
       stdout += chunk.toString();
-    });
-    child.stderr.on("data", (chunk) => {
+    };
+    const onStderr = (chunk: Buffer) => {
       stderr += chunk.toString();
-    });
-    child.on("exit", (code) => resolve({ code, stdout, stderr }));
+    };
+    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+      resolveOnce({ label, code, signal, stdout, stderr });
+    };
+    const onError = (error: Error) => {
+      rejectOnce(error);
+    };
+    child.stdout.on("data", onStdout);
+    child.stderr.on("data", onStderr);
+    child.once("exit", onExit);
+    child.once("error", onError);
   });
+}
+
+function terminateChild(child: ChildProcessWithoutNullStreams): void {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  child.kill("SIGTERM");
+  const killTimer = setTimeout(() => child.kill("SIGKILL"), CHILD_KILL_GRACE_MS);
+  killTimer.unref();
+}
+
+function exitSummary(result: ChildResult): string {
+  return `${exitStatus(result)}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`;
+}
+
+function exitStatus(result: Pick<ChildResult, "label" | "code" | "signal" | "stdout" | "stderr">): string {
+  return `${result.label} exited with code ${result.code}${result.signal ? ` signal ${result.signal}` : ""}`;
 }
