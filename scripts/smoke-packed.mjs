@@ -221,9 +221,9 @@ async function smokeInstalledTransfer(consumerDir, childEnv, port, tmp) {
   await writeFile(source, expected);
   const serverUrl = `ws://127.0.0.1:${port}/v1/ws`;
   const code = "12345678-apple-anchor";
-  const receiver = spawn(pnpm, ["exec", "ff", "--server", serverUrl, "--json", "--local-private-mode", "recv", "--code-stdin", "--yes", "--out", out], {
+  const receiver = spawn(pnpm, ["exec", "ff", "--server", serverUrl, "--json", "--local-private-mode", "recv", "--code-stdin", "--yes", "--out-env", "FF_RECEIVE_OUT"], {
     cwd: consumerDir,
-    env: childEnv,
+    env: { ...childEnv, FF_RECEIVE_OUT: out },
     stdio: ["pipe", "pipe", "pipe"]
   });
   receiver.stdin.end(checkedChildStdin(`${code}\n`));

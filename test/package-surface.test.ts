@@ -316,10 +316,10 @@ test("package publishing config keeps provenance and reproducible dependency pin
   assert.match(installStateScript, /Object\.getOwnPropertyDescriptor\(record, key\)/);
   assert.match(installStateScript, /info\.isFile\(\)/);
   assert.match(installStateScript, /info\.size < 1 \|\| info\.size > maxBytes/);
-  assert.equal(packageJson.scripts?.["verify:local"], "pnpm check:install-state && pnpm build && pnpm check && pnpm test:unit && pnpm smoke:native && pnpm smoke:packed");
+  assert.equal(packageJson.scripts?.["verify:local"], "pnpm check:install-state && pnpm security:dependencies && pnpm build && pnpm check && pnpm test:unit && pnpm smoke:native && pnpm smoke:packed");
   assert.equal(
     packageJson.scripts?.["verify:release"],
-    "pnpm check:install-state && pnpm build && pnpm check && pnpm test:unit && pnpm smoke:native && pnpm smoke:packed && pnpm smoke:release-artifact && pnpm test:e2e && pnpm test:browser && pnpm security:audit && pnpm security:signatures"
+    "pnpm check:install-state && pnpm security:dependencies && pnpm build && pnpm check && pnpm test:unit && pnpm smoke:native && pnpm smoke:packed && pnpm smoke:release-artifact && pnpm test:e2e && pnpm test:browser && pnpm security:audit && pnpm security:signatures"
   );
   assert.equal(packageJson.scripts?.test, "pnpm build && pnpm test:unit && pnpm test:e2e && pnpm test:browser");
   for (const [name, version] of Object.entries({ ...packageJson.dependencies, ...packageJson.devDependencies })) {
@@ -384,7 +384,8 @@ test("packed package smoke installs and executes published bins", () => {
   assert.doesNotMatch(packedSmokeScript, /version\.stdout\.includes/);
   assert.match(packedSmokeScript, /pnpm.*exec", "ff-server"/);
   assert.match(packedSmokeScript, /async function smokeInstalledTransfer\(consumerDir, childEnv, port, tmp\)/);
-  assert.match(packedSmokeScript, /"exec", "ff", "--server", serverUrl, "--json", "--local-private-mode", "recv", "--code-stdin", "--yes", "--out", out/);
+  assert.match(packedSmokeScript, /"exec", "ff", "--server", serverUrl, "--json", "--local-private-mode", "recv", "--code-stdin", "--yes", "--out-env", "FF_RECEIVE_OUT"/);
+  assert.match(packedSmokeScript, /env: \{ \.\.\.childEnv, FF_RECEIVE_OUT: out \}/);
   assert.match(packedSmokeScript, /receiver\.stdin\.end\(checkedChildStdin\(`\$\{code\}\\n`\)\)/);
   assert.match(packedSmokeScript, /"exec", "ff", "--server", serverUrl, "--json", "--local-private-mode", "send", "--code-stdin", "--files-stdin"/);
   assert.match(packedSmokeScript, /stdin: `\$\{code\}\\n\$\{source\}\\n`/);
@@ -406,7 +407,7 @@ test("packed package smoke installs and executes published bins", () => {
   assert.match(securityPolicy, /packed-install smoke HTTP probes must use an abort deadline that covers both headers and response body reads/);
   assert.match(securityPolicy, /packed-install smoke must fatal-UTF-8-decode project metadata and HTTP probe responses, parse project metadata and health response JSON with smoke-owned deterministic errors, and reject invalid health bodies without echoing response content/);
   assert.match(securityPolicy, /packed-install smoke must require exact `ff --version` stdout and empty stderr/);
-  assert.match(securityPolicy, /packed-install smoke must run an actual installed `ff recv` and `ff send` transfer through the installed `ff-server` using `--local-private-mode` plus private stdin receive-code and file-list inputs, verify the receive path is opaque, then compare received bytes/);
+  assert.match(securityPolicy, /packed-install smoke must run an actual installed `ff recv` and `ff send` transfer through the installed `ff-server` using `--local-private-mode` plus private stdin receive-code input, environment-sourced receive-output input, and stdin file-list input, verify the receive path is opaque, then compare received bytes/);
   assert.match(securityPolicy, /packed-install smoke must validate the project package name and `version`, derive the exact expected npm tarball name from that metadata before installing a self-packed workspace, and reject any pack output that is not exactly that single tarball/);
   assert.match(securityPolicy, /packed-install smoke must validate the project `packageManager` is an exact hash-pinned `pnpm@\d+\.\d+\.\d+\+sha512\.[a-f0-9]+` pin/);
   assert.match(securityPolicy, /provided tarball paths must reject terminal control\/format characters and staging\/open failures must not echo raw tarball paths/);

@@ -40,6 +40,8 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Check installed dependency tree
         run: pnpm check:install-state
+      - name: Reviewed dependency attestations
+        run: pnpm security:dependencies
       - name: Install Chromium
         run: pnpm exec playwright install --with-deps chromium
       - name: Build

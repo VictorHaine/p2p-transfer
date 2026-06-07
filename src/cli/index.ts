@@ -44,6 +44,8 @@ type CommonOptions = {
 
 type RecvOptions = CommonOptions & {
   out: string;
+  outEnv?: string;
+  outFromArgv?: boolean;
   yes?: boolean;
   code?: string;
   codeStdin?: boolean;
@@ -72,7 +74,7 @@ const ICE_CONFIG_GRACE_MS = 1_000;
 const CLI_STDIN_MAX_BYTES = 512 * 1024;
 const ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const SEND_ARGV_TELEMETRY_WARNING = "Warning: receiver codes or local file paths passed as arguments can be captured by shell history, process lists, or endpoint telemetry. Use --code-stdin/--code-env and --files-stdin for private input.";
-const RECV_ARGV_TELEMETRY_WARNING = "Warning: receive codes passed as arguments can be captured by shell history, process lists, or endpoint telemetry. Use --code-stdin/--code-env for private input.";
+const RECV_ARGV_TELEMETRY_WARNING = "Warning: receive codes or output directories passed as arguments can be captured by shell history, process lists, or endpoint telemetry. Use --code-stdin/--code-env and --out-env for private input.";
 
 type SecurityModule = typeof import("../shared/security.js");
 type RtcModule = typeof import("./rtc.js");
@@ -102,7 +104,7 @@ program
   .option("--json", "emit machine-readable events")
   .option("--quiet", "suppress human-readable progress output")
   .option("--redact-output", "redact transfer codes, SAS, file metadata, and byte counts from CLI output, JSON events, and error text")
-  .option("--require-private-input", "reject receive codes and send code/file paths supplied through argv")
+  .option("--require-private-input", "reject receive codes, receive output directories, and send code/file paths supplied through argv")
   .option("--local-private-mode", "enable local CLI privacy guardrails: private input, redacted output, and opaque receive names")
   .option("--no-color", "disable color output")
   .option("--verbose", "show debug details");
@@ -111,6 +113,7 @@ program
   .command("recv")
   .description("receive files")
   .option("--out <dir>", "output directory")
+  .option("--out-env <name>", "read the output directory from an environment variable")
   .option("-y, --yes", "auto-accept incoming transfers")
   .option("--resume", "resume from chunk-aligned CLI partial files left in the output directory")
   .option("--opaque-output-names", "write received files to opaque ff-<token> names instead of peer-supplied basenames")
@@ -118,7 +121,7 @@ program
   .option("--code-stdin", "read a supplied receive code from piped stdin")
   .option("--code-env <name>", "read a supplied receive code from an environment variable")
   .action(async (options: RecvCommandOptions) => {
-    const merged: RecvOptions = { ...program.opts<CommonOptions>(), ...options, out: options.out ?? process.cwd() };
+    const merged: RecvOptions = { ...program.opts<CommonOptions>(), ...options, out: options.out ?? process.cwd(), outFromArgv: options.out !== undefined };
     applyLocalPrivateMode(merged);
     return runWithExit(() => recv(merged), merged);
   });
@@ -164,9 +167,10 @@ async function reviewedCliRuntime(): Promise<ReviewedCliRuntime> {
 }
 
 async function recv(options: RecvOptions): Promise<void> {
+  const outputDirInput = resolveRecvOutputDir(options);
   const suppliedCode = await resolveRecvCode(options);
   const runtime = await reviewedCliRuntime();
-  const outDir = await ensureOutputDir(options.out);
+  const outDir = await ensureOutputDir(outputDirInput);
 
   const signaling = await openSignaling(options.server);
   let peer: CliPeer | undefined;
@@ -452,6 +456,15 @@ async function resolveRecvCode(options: RecvOptions): Promise<ResolvedRecvCode |
   return { parsedCode: parseRequiredCode(normalizeCode(code)), supplied: true };
 }
 
+function resolveRecvOutputDir(options: RecvOptions): string {
+  if (options.outEnv !== undefined && options.outFromArgv) throw new Error("Use only one receive output directory input source.");
+  if (options.outFromArgv) {
+    rejectSensitiveRecvOutputArgv(options);
+    warnSensitiveRecvArgv(options);
+  }
+  return options.outEnv === undefined ? options.out : readOutputDirEnv(options.outEnv);
+}
+
 async function resolveSendInputs(code: string | undefined, files: string[], options: SendOptions): Promise<{ code: string; files: string[] }> {
   if (options.codeStdin && options.codeEnv !== undefined) throw new Error("Use only one receiver code input source.");
 
@@ -518,6 +531,18 @@ function readCodeEnv(name: string): string {
   if (typeof value !== "string" || value.length === 0 || codeInputUtf8ByteLengthExceeds(value)) {
     throw new Error(`Environment variable ${name} is invalid.`);
   }
+  return value;
+}
+
+function readOutputDirEnv(name: string): string {
+  if (name.length > 128 || !ENV_NAME_PATTERN.test(name)) throw new Error("Environment variable name is invalid.");
+  const descriptor = Object.getOwnPropertyDescriptor(process.env, name);
+  if (!descriptor || !("value" in descriptor) || descriptor.value === undefined) {
+    throw new Error(`Environment variable ${name} is not set.`);
+  }
+  const value = descriptor.value;
+  delete process.env[name];
+  if (typeof value !== "string" || value.length === 0) throw new Error(`Environment variable ${name} is invalid.`);
   return value;
 }
 
@@ -899,6 +924,10 @@ function rejectSensitiveSendArgv(options: CommonOptions, codeFromArgv: boolean, 
 
 function rejectSensitiveRecvArgv(options: CommonOptions): void {
   if (options.requirePrivateInput) throw new Error("Receive code argv is disabled by --require-private-input. Use --code-stdin or --code-env.");
+}
+
+function rejectSensitiveRecvOutputArgv(options: CommonOptions): void {
+  if (options.requirePrivateInput) throw new Error("Output directory argv is disabled by --require-private-input. Use --out-env or the current working directory.");
 }
 
 async function runWithExit(fn: () => Promise<void>, options: CommonOptions): Promise<void> {
