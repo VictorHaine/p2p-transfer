@@ -584,18 +584,45 @@ function captureChildOutput(child) {
 function waitForExitWithOutput(child, timeoutMs, output) {
   if (child.exitCode !== null) return Promise.resolve({ code: child.exitCode, stdout: output.stdout, stderr: output.stderr });
   return new Promise((resolve, reject) => {
+    let settled = false;
+    let killTimer;
+    let timeoutError;
     const timer = setTimeout(() => {
+      timeoutError = new Error("Timed out waiting for packed transfer command.");
       child.kill("SIGTERM");
-      reject(new Error("Timed out waiting for packed transfer command."));
+      killTimer = setTimeout(() => child.kill("SIGKILL"), CHILD_KILL_GRACE_MS);
     }, timeoutMs);
-    child.once("exit", (code) => {
-      clearTimeout(timer);
-      resolve({ code, stdout: output.stdout, stderr: output.stderr });
-    });
-    child.once("error", (error) => {
-      clearTimeout(timer);
+    const onExit = (code) => {
+      if (killTimer) clearTimeout(killTimer);
+      if (timeoutError) {
+        rejectOnce(timeoutError);
+        return;
+      }
+      resolveOnce({ code, stdout: output.stdout, stderr: output.stderr });
+    };
+    const onError = (error) => {
+      rejectOnce(error);
+    };
+    const resolveOnce = (value) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(value);
+    };
+    const rejectOnce = (error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
       reject(error);
-    });
+    };
+    const cleanup = () => {
+      clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
+      child.off("exit", onExit);
+      child.off("error", onError);
+    };
+    child.once("exit", onExit);
+    child.once("error", onError);
   });
 }
 

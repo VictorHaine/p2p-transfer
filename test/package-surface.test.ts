@@ -332,12 +332,17 @@ test("packed package smoke installs and executes published bins", () => {
   assert.doesNotMatch(packedSmokeScript, /rejectOnce\(new Error\(`\$\{command\} \$\{args\.join\(" "\)\} timed out/);
   assert.match(packedSmokeScript, /fetchBoundedResponseText\(`http:\/\/127\.0\.0\.1:\$\{port\}\/healthz`, MAX_HEALTH_RESPONSE_BYTES\)/);
   assert.match(packedSmokeScript, /fetchBoundedResponseText\(`http:\/\/127\.0\.0\.1:\$\{port\}\/`, MAX_WEB_RESPONSE_BYTES\)/);
-  assert.equal(packedSmokeScript.match(/child\.kill\("SIGKILL"\)/g)?.length, 2);
+  assert.equal(packedSmokeScript.match(/child\.kill\("SIGKILL"\)/g)?.length, 3);
   assert.match(packedSmokeScript, /function waitForOutput\(child, pattern, timeoutMs\)[\s\S]*let timeoutError[\s\S]*timeoutError = new Error\(`Timed out waiting for \$\{pattern\}/);
   assert.match(packedSmokeScript, /function waitForOutput\(child, pattern, timeoutMs\)[\s\S]*child\.kill\("SIGTERM"\)[\s\S]*killTimer = setTimeout\(\(\) => child\.kill\("SIGKILL"\), CHILD_KILL_GRACE_MS\)/);
   assert.match(packedSmokeScript, /const onExit = \(code\) => \{[\s\S]*if \(killTimer\) clearTimeout\(killTimer\);[\s\S]*if \(timeoutError\) \{[\s\S]*rejectOnce\(timeoutError\);[\s\S]*return;[\s\S]*\}/);
   assert.doesNotMatch(packedSmokeScript, /rejectOnce\(new Error\(`Timed out waiting for \$\{pattern\}/);
   assert.match(packedSmokeScript, /function waitForOutput\(child, pattern, timeoutMs\)[\s\S]*child\.stdout\.off\("data", onStdout\)[\s\S]*child\.stderr\.off\("data", onStderr\)[\s\S]*child\.off\("exit", onExit\)/);
+  assert.match(packedSmokeScript, /function waitForExitWithOutput\(child, timeoutMs, output\)[\s\S]*let timeoutError[\s\S]*timeoutError = new Error\("Timed out waiting for packed transfer command\."\)/);
+  assert.match(packedSmokeScript, /function waitForExitWithOutput\(child, timeoutMs, output\)[\s\S]*child\.kill\("SIGTERM"\)[\s\S]*killTimer = setTimeout\(\(\) => child\.kill\("SIGKILL"\), CHILD_KILL_GRACE_MS\)/);
+  assert.match(packedSmokeScript, /const onExit = \(code\) => \{[\s\S]*if \(killTimer\) clearTimeout\(killTimer\);[\s\S]*if \(timeoutError\) \{[\s\S]*rejectOnce\(timeoutError\);[\s\S]*return;[\s\S]*\}/);
+  assert.match(packedSmokeScript, /function waitForExitWithOutput\(child, timeoutMs, output\)[\s\S]*child\.off\("exit", onExit\)[\s\S]*child\.off\("error", onError\)/);
+  assert.doesNotMatch(packedSmokeScript, /reject\(new Error\("Timed out waiting for packed transfer command\."\)\)/);
   assert.match(packedSmokeScript, /const packageManager = requiredPackageManager\(packageJson\.packageManager\)/);
   assert.match(packedSmokeScript, /function requiredPackageManager\(value\)/);
   assert.match(packedSmokeScript, /\^pnpm@\\d\+\\\.\\d\+\\\.\\d\+\$/);
