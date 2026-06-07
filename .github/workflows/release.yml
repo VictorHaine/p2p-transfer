@@ -35,8 +35,8 @@ jobs:
         run: node scripts/check-release-main.mjs
       - name: Release controls preflight
         env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: pnpm release:preflight
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PREFLIGHT_TOKEN }}
+        run: node scripts/check-release-readiness.mjs
       - name: Install
         run: pnpm install --frozen-lockfile
       - name: Check installed dependency tree
@@ -89,7 +89,7 @@ jobs:
           corepack enable
           corepack prepare pnpm@11.1.3 --activate
       - name: Build image
-        run: DOCKER_SMOKE_TAG=p2p-transfer:release pnpm smoke:docker-policy
+        run: DOCKER_SMOKE_TAG=p2p-transfer:release node scripts/smoke-docker-policy.mjs
 
   platform-smoke:
     name: platform smoke / ${{ matrix.os }} / node ${{ matrix.node }}

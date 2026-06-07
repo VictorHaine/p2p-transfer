@@ -31,6 +31,25 @@ The signaling server sees the public eight-digit rendezvous prefix, IP-level con
 
 ## Install and build
 
+Use the released package after the first npm publish:
+
+```sh
+pnpm add -g @victorhaine/p2p-transfer
+ff recv
+ff send <code> ./path/to/file
+```
+
+Run the packaged server:
+
+```sh
+NODE_ENV=production \
+ALLOWED_ORIGINS='https://files.example.com' \
+SIGNALING_TOPOLOGY=single-instance \
+ff-server
+```
+
+Build from source:
+
 ```sh
 pnpm install
 pnpm build
@@ -196,13 +215,15 @@ ALLOWED_ORIGINS='https://files.example.com,https://www.files.example.com' pnpm s
 ```
 
 CLI clients do not send a browser `Origin` header and remain allowed.
-The signaling server requires an explicit fixed `PORT` between 1 and 65535; `PORT=0` is rejected instead of silently binding a random ephemeral port.
+The signaling server defaults to `PORT=8787`; if `PORT` is set, it must be a fixed integer between 1 and 65535. `PORT=0` is rejected instead of silently binding a random ephemeral port.
 In production, `ALLOWED_ORIGINS` entries must use `https://`; set `ALLOW_INSECURE_ORIGINS=true` only for private deployments behind a trusted network boundary.
 Clients reject plain `ws://` signaling URLs except localhost/loopback. Use `wss://` for any remote signaling server.
 The served browser app's production Content Security Policy permits same-origin signaling only by default. Local development allows loopback `ws://` signaling sockets; in production, set `BROWSER_ALLOW_LOOPBACK_WS=true` only for a deliberate private deployment that needs browser-to-localhost signaling. If you intentionally host one static web UI that must connect to arbitrary custom `wss://` signaling servers, set `BROWSER_ALLOW_ANY_WSS=true`; both switches widen the browser exfiltration surface and should not be the default for public production deployments.
 Host the browser client on a dedicated origin. Browser resume records are opaque, but they live in origin-scoped storage; unrelated scripts on the same origin could inspect opaque registry entries and use the browser-held lookup key to test guessed manifest identities.
 
 ## Docker
+
+Production-shaped run, assuming TLS terminates at `https://files.example.com` and forwards to this container:
 
 ```sh
 docker build -t p2p-transfer .
@@ -215,12 +236,26 @@ docker run --rm -p 8787:8787 \
   p2p-transfer
 ```
 
+Local browser smoke run, deliberately allowing the loopback HTTP origin:
+
+```sh
+docker run --rm -p 8787:8787 \
+  --read-only \
+  --cap-drop=ALL \
+  --security-opt no-new-privileges \
+  -e ALLOWED_ORIGINS='http://127.0.0.1:8787' \
+  -e ALLOW_INSECURE_ORIGINS=true \
+  -e SIGNALING_TOPOLOGY=single-instance \
+  p2p-transfer
+```
+
 ## Verification
 
 Fast local verification:
 
 ```sh
 pnpm install --frozen-lockfile
+pnpm exec playwright install --with-deps chromium
 pnpm verify:local
 ```
 
@@ -228,12 +263,13 @@ Full release verification:
 
 ```sh
 pnpm install --frozen-lockfile
+pnpm exec playwright install --with-deps chromium
 pnpm verify:release
 DOCKER_SMOKE_TAG=p2p-transfer:test pnpm smoke:docker-policy
 ```
 
 `pnpm test` runs the production build, unit crypto/protocol tests, built CLI end-to-end transfer test, and browser/CLI interop tests.
-`pnpm test:browser` verifies browser sender to CLI receiver, CLI sender to browser download receiver, CLI sender to browser folder-only receiver, browser resume-key replacement, browser resume-registry metadata scrubbing, and browser folder restart after a corrupted saved partial with Playwright. It requires Chromium; set `PLAYWRIGHT_CHROMIUM=/path/to/chromium` if auto-detection fails.
+`pnpm test:browser` verifies browser sender to CLI receiver, CLI sender to browser download receiver, CLI sender to browser folder-only receiver, browser resume-key replacement, browser resume-registry metadata scrubbing, and browser folder restart after a corrupted saved partial with Playwright. Install Chromium with `pnpm exec playwright install --with-deps chromium`; set `PLAYWRIGHT_CHROMIUM=/path/to/chromium` only when using an existing local browser binary.
 `pnpm smoke:native` loads the native `@roamhq/wrtc` binding inside its controlled smoke path, creates a DataChannel, and completes local offer/answer SDP negotiation. `pnpm smoke:packed` packs the verified workspace, installs that tarball into a fresh consumer project with native dependency build scripts enabled only for the reviewed native packages, verifies the published `ff` bin reports the expected protocol/version, then boots the published `ff-server` bin and checks both `/healthz` and the bundled web UI. `pnpm smoke:release-artifact` runs real `pnpm pack`, writes the CycloneDX `SBOM.cdx.json`, writes `SHA256SUMS` for both release evidence files, and runs the release artifact verifier against that complete artifact set so local release verification exercises the same artifact shape used by the release workflow.
 `pnpm smoke:docker-policy` proves the production Docker image refuses to start without `ALLOWED_ORIGINS` and without `SIGNALING_TOPOLOGY`, then boots it with both policies explicit, a loopback-only random host port, a read-only filesystem, dropped Linux capabilities, and `no-new-privileges`, and checks `/healthz`, origin policy, and the bundled web UI; a build-only Docker pass is not treated as enough for release. CI and release run the same checked script. Platform smoke runs the packed-install check on Linux, macOS, and Windows for each supported Node major because the CLI depends on native WebRTC bindings. Workflows use explicit hosted runner generations (`ubuntu-24.04`, `macos-15`, `windows-2025`) rather than floating `*-latest` labels.
 The release workflow is tag-only. Release artifacts, npm publishes, and GitHub Releases are produced only from `v*` tags that match `package.json` version and point to commits already reachable from `main`, not from manual workflow dispatches, branch-built artifacts, or off-main tag commits.
@@ -265,11 +301,12 @@ In GitHub:
 - enable OpenSSF Scorecard alerts; `.github/workflows/scorecard.yml` runs the pinned Scorecard action on pushes to `main` and a weekly schedule, then uploads SARIF to code scanning
 - keep dependency review required on pull requests; `.github/workflows/dependency-review.yml` runs the pinned GitHub dependency review action on pull requests and blocks vulnerable runtime or development dependency changes at low severity or higher
 - enable artifact attestations for the release workflow; `.github/workflows/release.yml` attests the same verifier-checked npm tarball and SBOM before publish
+- create an Actions secret named `RELEASE_PREFLIGHT_TOKEN` from a GitHub App token or fine-grained PAT with enough repository-administration/ruleset visibility to read exact ruleset bypass actors; the tag workflow runs the checked release preflight before installing dependencies, so `${{ github.token }}` is not enough for this gate
 
 In npm:
 
 - create or verify ownership of the `@victorhaine` scope
-- if `@victorhaine/p2p-transfer` does not exist yet, create the first package version through a controlled, one-time bootstrap publish of the verifier-checked tarball, then revoke that publish credential
+- if `@victorhaine/p2p-transfer` does not exist yet, create the package with a controlled, one-time bootstrap publish of a lower throwaway version such as `0.0.0-bootstrap.0`, then revoke that publish credential. Do not bootstrap `0.1.0` if the tag workflow is expected to publish `v0.1.0`; npm versions cannot be reused.
 - configure trusted publishing for package `@victorhaine/p2p-transfer`; npm currently requires the package to exist first, and `package.json` `repository.url` must exactly match this GitHub repository
 - set the trusted publisher to this GitHub repository, workflow `.github/workflows/release.yml`, environment `npm`
 
@@ -277,6 +314,7 @@ Release:
 
 ```sh
 pnpm install --frozen-lockfile
+pnpm exec playwright install --with-deps chromium
 pnpm verify:release
 gh auth refresh -h github.com -s workflow
 GITHUB_TOKEN="$(gh auth token)" pnpm release:preflight

@@ -6,6 +6,7 @@ This project handles cryptography, local files, and network handshakes. Keep cha
 
 ```sh
 pnpm install --frozen-lockfile
+pnpm exec playwright install --with-deps chromium
 pnpm verify:local
 ```
 
@@ -39,6 +40,7 @@ Before creating or pushing a release tag, run the full release gate and external
 release prerequisite preflight:
 
 ```sh
+pnpm exec playwright install --with-deps chromium
 pnpm verify:release
 gh auth refresh -h github.com -s workflow
 GITHUB_TOKEN="$(gh auth token)" pnpm release:preflight

@@ -404,8 +404,8 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.match(ciWorkflow, /windows-2025/);
   assert.doesNotMatch(ciWorkflow, /runs-on:\s*[a-z]+-latest|-\s+[a-z]+-latest/);
   assert.equal(packageJson.scripts?.["smoke:docker-policy"], "node scripts/smoke-docker-policy.mjs");
-  assert.match(ciWorkflow, /DOCKER_SMOKE_TAG=p2p-transfer:test pnpm smoke:docker-policy/);
-  assert.match(ciWorkflow, /production docker policy[\s\S]*actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3[\s\S]*corepack prepare pnpm@11\.1\.3 --activate[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:test pnpm smoke:docker-policy/);
+  assert.match(ciWorkflow, /DOCKER_SMOKE_TAG=p2p-transfer:test node scripts\/smoke-docker-policy\.mjs/);
+  assert.match(ciWorkflow, /production docker policy[\s\S]*actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3[\s\S]*corepack prepare pnpm@11\.1\.3 --activate[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:test node scripts\/smoke-docker-policy\.mjs/);
   assert.match(dockerPolicySmokeScript, /\["build", "-t", imageTag, "\."\]/);
   assert.match(dockerPolicySmokeScript, /"run", "--rm", "--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "-e", "SIGNALING_TOPOLOGY=single-instance", imageTag/);
   assert.match(dockerPolicySmokeScript, /"run", "--rm", "--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "-e", `ALLOWED_ORIGINS=\$\{PRODUCTION_ORIGIN\}`, imageTag/);
@@ -548,8 +548,8 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseArtifactSmokeScript, /await rm\(artifactDir, \{ recursive: true, force: true \}\)/);
   assert.match(releaseArtifactSmokeScript, /Release artifact smoke failed:/);
   assert.match(releaseArtifactSmokeScript, /realpathSync\(process\.argv\[1\]\) === realpathSync\(fileURLToPath\(import\.meta\.url\)\)/);
-  assert.match(releaseWorkflow, /DOCKER_SMOKE_TAG=p2p-transfer:release pnpm smoke:docker-policy/);
-  assert.match(releaseWorkflow, /release docker policy[\s\S]*actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3[\s\S]*corepack prepare pnpm@11\.1\.3 --activate[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:release pnpm smoke:docker-policy/);
+  assert.match(releaseWorkflow, /DOCKER_SMOKE_TAG=p2p-transfer:release node scripts\/smoke-docker-policy\.mjs/);
+  assert.match(releaseWorkflow, /release docker policy[\s\S]*actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3[\s\S]*corepack prepare pnpm@11\.1\.3 --activate[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:release node scripts\/smoke-docker-policy\.mjs/);
   assert.match(releaseWorkflow, /pnpm check:install-state[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed[\s\S]*pnpm test:e2e[\s\S]*pnpm test:browser[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures/);
   assert.match(releaseWorkflow, /Verify release notes[\s\S]*node scripts\/write-release-notes\.mjs --check[\s\S]*pack release artifact[\s\S]*node scripts\/smoke-release-artifact\.mjs --keep-artifacts/);
   assert.doesNotMatch(releaseWorkflow, /pack release artifact[\s\S]*(rm -rf release-artifacts|mkdir -p release-artifacts|pnpm --config\.ignore-scripts=true pack --pack-destination release-artifacts|node scripts\/write-release-checksum\.mjs)/);
@@ -742,7 +742,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.doesNotMatch(releaseWorkflow, /publish npm package[\s\S]*find release-artifacts/);
   assert.doesNotMatch(releaseWorkflow, /tgz="\$\(node scripts\/verify-release-artifact\.mjs --print-tarball\)"|printf 'tarball=%s\\n'|test -f "\$tgz"|PACKED_SMOKE_TARBALL="\$tgz" node scripts\/smoke-packed\.mjs|pnpm publish "\$tgz"|gh release create "\$GITHUB_REF_NAME"/);
   assert.doesNotMatch(releaseWorkflow, /sha256sum -c SHA256SUMS|execFileSync\('tar'/);
-  assert.match(releaseWorkflow, /DOCKER_SMOKE_TAG=p2p-transfer:release pnpm smoke:docker-policy/);
+  assert.match(releaseWorkflow, /DOCKER_SMOKE_TAG=p2p-transfer:release node scripts\/smoke-docker-policy\.mjs/);
   assert.match(dockerPolicySmokeScript, /"--read-only"/);
   assert.match(dockerPolicySmokeScript, /"--cap-drop=ALL"/);
   assert.match(dockerPolicySmokeScript, /"no-new-privileges"/);

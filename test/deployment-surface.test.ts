@@ -238,7 +238,7 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releaseMainScript, /\["merge-base", "--is-ancestor", sha, "origin\/main"\]/);
   assert.match(releaseMainScript, /release tag commit is not reachable from main\./);
   assert.match(securityPolicy, /release main reachability checks must signal timed-out Git subprocesses, arm a bounded `SIGKILL` fallback, and reject only after the child exits/);
-  assert.match(releaseWorkflow, /Release controls preflight[\s\S]*GITHUB_TOKEN: \$\{\{ github\.token \}\}[\s\S]*run: pnpm release:preflight[\s\S]*Install/);
+  assert.match(releaseWorkflow, /Release controls preflight[\s\S]*GITHUB_TOKEN: \$\{\{ secrets\.RELEASE_PREFLIGHT_TOKEN \}\}[\s\S]*run: node scripts\/check-release-readiness\.mjs[\s\S]*Install/);
   const ciVerifyJob = workflowJob(ciWorkflow, "verify");
   const ciBrowserInteropJob = workflowJob(ciWorkflow, "browser-interop");
   const ciPlatformSmokeJob = workflowJob(ciWorkflow, "platform-smoke");
@@ -264,9 +264,9 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.doesNotMatch(releasePlatformSmokeJob, /pnpm test:unit[\s\S]*pnpm build[\s\S]*pnpm smoke:native/);
   assert.match(ciWorkflow, /pnpm smoke:packed/);
   assert.match(ciWorkflow, /dependency audit[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures/);
-  assert.match(ciWorkflow, /DOCKER_SMOKE_TAG=p2p-transfer:test pnpm smoke:docker-policy/);
+  assert.match(ciWorkflow, /DOCKER_SMOKE_TAG=p2p-transfer:test node scripts\/smoke-docker-policy\.mjs/);
   assert.match(ciDockerJob, /actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3/);
-  assert.match(ciDockerJob, /corepack enable[\s\S]*corepack prepare pnpm@11\.1\.3 --activate[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:test pnpm smoke:docker-policy/);
+  assert.match(ciDockerJob, /corepack enable[\s\S]*corepack prepare pnpm@11\.1\.3 --activate[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:test node scripts\/smoke-docker-policy\.mjs/);
   assert.match(dockerPolicySmokeScript, /\["build", "-t", imageTag, "\."\]/);
   assert.match(dockerPolicySmokeScript, /"run", "--rm", "--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "-e", "SIGNALING_TOPOLOGY=single-instance", imageTag/);
   assert.match(dockerPolicySmokeScript, /"run", "--rm", "--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "-e", `ALLOWED_ORIGINS=\$\{PRODUCTION_ORIGIN\}`, imageTag/);
@@ -322,9 +322,9 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releaseNotesScript, /writeFile\(path\.join\(await verifiedArtifactDir\(\), "RELEASE_NOTES\.md"\), notes, \{ flag: "wx" \}\)/);
   assert.match(securityPolicy, /release checksum, SBOM, and release-notes writers must verify `release-artifacts` is a real directory inside the project root/);
   assert.doesNotMatch(releaseWorkflow, /pack release artifact[\s\S]*(find release-artifacts|basename "\$tgz"|sha256sum)/);
-  assert.match(releaseWorkflow, /DOCKER_SMOKE_TAG=p2p-transfer:release pnpm smoke:docker-policy/);
+  assert.match(releaseWorkflow, /DOCKER_SMOKE_TAG=p2p-transfer:release node scripts\/smoke-docker-policy\.mjs/);
   assert.match(releaseDockerJob, /actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3/);
-  assert.match(releaseDockerJob, /corepack enable[\s\S]*corepack prepare pnpm@11\.1\.3 --activate[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:release pnpm smoke:docker-policy/);
+  assert.match(releaseDockerJob, /corepack enable[\s\S]*corepack prepare pnpm@11\.1\.3 --activate[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:release node scripts\/smoke-docker-policy\.mjs/);
   assert.doesNotMatch(releaseWorkflow, /fetch\('http:\/\/127\.0\.0\.1:8787|body\.includes\('ff transfer'\)/);
   assert.doesNotMatch(releaseWorkflow, /ALLOW_ANY_ORIGIN/);
   assert.equal(releaseWorkflow.match(/id-token:\s*write/g)?.length, 2);
@@ -455,10 +455,11 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.equal(packageJson.scripts?.["release:preflight"], "node scripts/check-release-readiness.mjs");
   assert.match(readme, /gh auth refresh -h github\.com -s workflow/);
   assert.match(readme, /GITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
-  assert.match(contributing, /pnpm verify:release\ngh auth refresh -h github\.com -s workflow\nGITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
+  assert.match(contributing, /pnpm exec playwright install --with-deps chromium\npnpm verify:release\ngh auth refresh -h github\.com -s workflow\nGITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
   assert.match(securityPolicy, /local release preflight must fail before tagging when the GitHub token lacks `workflow` scope/);
   assert.match(securityPolicy, /branch\/tag rulesets have ref exclusions, unexpected or duplicate rules, or unexpected bypass actors/);
-  assert.match(securityPolicy, /release workflow preflight may run with the GitHub Actions token but must still verify remote `main`, rulesets, exact ref coverage, exact rule coverage, exact bypass policy, required status checks, and the npm environment approval gate before packaging/);
+  assert.match(securityPolicy, /release workflow preflight must run before dependency install through the checked Node script with an explicit `RELEASE_PREFLIGHT_TOKEN` secret/);
+  assert.match(securityPolicy, /exact bypass policy including bypass actors, required status checks, and the npm environment approval gate before packaging/);
   assert.match(releaseReadinessScript, /const REQUIRED_OAUTH_SCOPES = \["repo", "workflow"\]/);
   assert.match(releaseReadinessScript, /const MAX_ENV_VALUE_BYTES = 4_096/);
   assert.match(releaseReadinessScript, /function githubToken\(\)/);
@@ -608,8 +609,8 @@ test("dependency review blocks vulnerable dependency introductions", () => {
 
 test("documented release gates require a hardened Docker runtime smoke, not just image build", () => {
   for (const document of [readme, securityPolicy]) {
-    assert.match(document, /pnpm install --frozen-lockfile\npnpm verify:local/);
-    assert.match(document, /pnpm install --frozen-lockfile\npnpm verify:release/);
+    assert.match(document, /pnpm install --frozen-lockfile\npnpm exec playwright install --with-deps chromium\npnpm verify:local/);
+    assert.match(document, /pnpm install --frozen-lockfile\npnpm exec playwright install --with-deps chromium\npnpm verify:release/);
     assert.match(document, /pnpm smoke:docker-policy/);
     assert.match(document, /read-only filesystem, dropped Linux capabilities,[^.\n]+`no-new-privileges`/);
     assert.match(document, /refuses to start without `ALLOWED_ORIGINS` and without `SIGNALING_TOPOLOGY`/);
@@ -848,6 +849,16 @@ test("server deployment policy requires an explicit in-memory signaling topology
   assert.match(configSource, /SIGNALING_TOPOLOGY must be single-instance or sticky-sessions/);
   assert.match(readme, /Because rendezvous state is in memory[\s\S]*SIGNALING_TOPOLOGY=single-instance[\s\S]*SIGNALING_TOPOLOGY=sticky-sessions/);
   assert.match(securityPolicy, /production and non-loopback signaling deployments must explicitly declare `SIGNALING_TOPOLOGY=single-instance` or `SIGNALING_TOPOLOGY=sticky-sessions`/);
+  assert.match(readme, /create an Actions secret named `RELEASE_PREFLIGHT_TOKEN`/);
+  assert.match(readme, /`\$\{\{ github\.token \}\}` is not enough for this gate/);
+  assert.match(readme, /Use the released package after the first npm publish:[\s\S]*pnpm add -g @victorhaine\/p2p-transfer[\s\S]*ff recv[\s\S]*ff send <code> \.\/path\/to\/file/);
+  assert.match(readme, /Run the packaged server:[\s\S]*ff-server/);
+  assert.match(readme, /Production-shaped run, assuming TLS terminates at `https:\/\/files\.example\.com`/);
+  assert.match(readme, /Local browser smoke run, deliberately allowing the loopback HTTP origin:[\s\S]*ALLOW_INSECURE_ORIGINS=true/);
+  assert.match(readme, /The signaling server defaults to `PORT=8787`; if `PORT` is set, it must be a fixed integer between 1 and 65535/);
+  assert.match(readme, /Install Chromium with `pnpm exec playwright install --with-deps chromium`/);
+  assert.match(readme, /bootstrap publish of a lower throwaway version such as `0\.0\.0-bootstrap\.0`/);
+  assert.match(readme, /Do not bootstrap `0\.1\.0` if the tag workflow is expected to publish `v0\.1\.0`; npm versions cannot be reused/);
 });
 
 test("README documents the auto-accept consent tradeoff", () => {
