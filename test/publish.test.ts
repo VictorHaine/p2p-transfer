@@ -13,6 +13,7 @@ import { SAFE_FILE_NAME_BYTES, safeFileName } from "../src/shared/limits.js";
 
 const PART_FILE_SUFFIX = ".part";
 const RANDOM_PART_SUFFIX = /^ff-[a-f0-9]{32}\.part$/;
+const SAFE_PART_CREATE_FLAGS_FOR_TEST = fsSync.constants.O_CREAT | fsSync.constants.O_EXCL | fsSync.constants.O_WRONLY | fsSync.constants.O_NOFOLLOW | fsSync.constants.O_NONBLOCK;
 const sourceTransfer = fsSync.readFileSync(new URL("../src/cli/transfer.ts", import.meta.url), "utf8");
 const distTransfer = fsSync.readFileSync(new URL("../dist-node/cli/transfer.js", import.meta.url), "utf8");
 const sourceFiles = fsSync.readFileSync(new URL("../src/cli/files.ts", import.meta.url), "utf8");
@@ -483,7 +484,7 @@ test("reserveOutputFile rejects output directory replacement during partial crea
   let swapped = false;
   try {
     mutablePromises.open = async (target, flags, mode) => {
-      if (!swapped && typeof target === "string" && target.startsWith(dir + path.sep) && flags === "wx") {
+      if (!swapped && typeof target === "string" && target.startsWith(dir + path.sep) && flags === SAFE_PART_CREATE_FLAGS_FOR_TEST) {
         swapped = true;
         await fs.rename(dir, moved);
         await fs.mkdir(dir);
@@ -512,7 +513,7 @@ test("reserveOutputFile cleanup does not delete a replaced partial pathname", { 
   let raced = false;
   try {
     mutablePromises.open = async (target, flags, mode) => {
-      if (!swapped && typeof target === "string" && target.startsWith(dir + path.sep) && flags === "wx") {
+      if (!swapped && typeof target === "string" && target.startsWith(dir + path.sep) && flags === SAFE_PART_CREATE_FLAGS_FOR_TEST) {
         swapped = true;
         await fs.rename(dir, moved);
         await fs.mkdir(dir);
@@ -582,9 +583,17 @@ test("reserveOutputFile rejects hardlinked CLI resume partial files", { skip: pr
 
 test("CLI resume partial hardlink policy is documented and enforced", () => {
   assert.match(securityPolicy, /resumable partial files must reject multiple hard links before hashing, truncation, or restart truncation/);
+  assert.match(securityPolicy, /partial and resume-secret creation must use exclusive no-follow creation flags/);
+  assert.match(securityPolicy, /newly created resume secrets must be verified as private, fixed-size, and single-link before keying resumable names/);
   assert.match(securityPolicy, /resume secret file must reject multiple hard links before keying resumable names/);
   for (const source of [sourceFiles, distFiles]) {
     assert.match(source, /function assertSingleLink\(stat/);
+    assert.match(source, /const SAFE_PART_CREATE_FLAGS = fs\.constants\.O_CREAT \| fs\.constants\.O_EXCL \| fs\.constants\.O_WRONLY \| fs\.constants\.O_NOFOLLOW \| fs\.constants\.O_NONBLOCK/);
+    assert.match(source, /const SAFE_SECRET_CREATE_FLAGS = fs\.constants\.O_CREAT \| fs\.constants\.O_EXCL \| fs\.constants\.O_WRONLY \| fs\.constants\.O_NOFOLLOW \| fs\.constants\.O_NONBLOCK/);
+    assert.match(source, /fs\.promises\.open\(partPath, SAFE_PART_CREATE_FLAGS, 0o600\)/);
+    assert.match(source, /fs\.promises\.open\(secretPath, SAFE_SECRET_CREATE_FLAGS, 0o600\)/);
+    assert.match(source, /function assertResumeSecretStat\(stat/);
+    assert.match(source, /assertResumeSecretStat\(await handle\.stat\(\)\)/);
     assert.match(source, /Resume partial"\)/);
     assert.match(source, /Resume secret"\)/);
     assert.match(source, /multiple hard links/);
@@ -738,7 +747,8 @@ test("reserveOutputFile rejects unsafe runtime output directories before path jo
     assert.match(source, /path\.join\(outputDir, await resumablePartFileName\(outputDir, candidateName, resumeSize\)\)/);
     assert.match(source, /const RESUME_SECRET_FILE = "\.ff-resume-key"/);
     assert.match(source, /const SAFE_SECRET_READ_FLAGS = fs\.constants\.O_RDONLY \| fs\.constants\.O_NOFOLLOW \| fs\.constants\.O_NONBLOCK/);
-    assert.match(source, /fs\.promises\.open\(secretPath, "wx", 0o600\)/);
+    assert.match(source, /const SAFE_SECRET_CREATE_FLAGS = fs\.constants\.O_CREAT \| fs\.constants\.O_EXCL \| fs\.constants\.O_WRONLY \| fs\.constants\.O_NOFOLLOW \| fs\.constants\.O_NONBLOCK/);
+    assert.match(source, /fs\.promises\.open\(secretPath, SAFE_SECRET_CREATE_FLAGS, 0o600\)/);
     assert.match(source, /stat\.size !== RESUME_SECRET_BYTES/);
     assert.doesNotMatch(source, /path\.join\(dir, candidateName\)/);
     assert.doesNotMatch(source, /path\.join\(dir, randomPartFileName\(candidateName\)\)/);

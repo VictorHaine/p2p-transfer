@@ -13,6 +13,8 @@ const RESUME_SECRET_FILE = ".ff-resume-key";
 const RESUME_SECRET_BYTES = 32;
 const SAFE_READ_FLAGS = fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK;
 const SAFE_SECRET_READ_FLAGS = fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK;
+const SAFE_PART_CREATE_FLAGS = fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK;
+const SAFE_SECRET_CREATE_FLAGS = fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK;
 const MAX_SEND_PATH_BYTES = 4096;
 const MAX_OUTPUT_DIR_BYTES = 4096;
 const MAX_CLEANUP_QUARANTINE_ATTEMPTS = 16;
@@ -227,7 +229,7 @@ function resumeFileSize(size: unknown): number {
 
 async function createOutputPart(finalPath: string, partPath: string, outputDir: string, outputDirIdentity: FileIdentity): Promise<ReservedOutputFile> {
   await assertDirectoryIdentity(outputDir, outputDirIdentity);
-  const handle = await fs.promises.open(partPath, "wx", 0o600);
+  const handle = await fs.promises.open(partPath, SAFE_PART_CREATE_FLAGS, 0o600);
   let stat: fs.Stats | undefined;
   try {
     stat = await handle.stat();
@@ -344,8 +346,9 @@ async function readOrCreateResumeSecret(outputDir: string): Promise<Buffer> {
   const secret = randomBytes(RESUME_SECRET_BYTES);
   let handle: fs.promises.FileHandle | undefined;
   try {
-    handle = await fs.promises.open(secretPath, "wx", 0o600);
+    handle = await fs.promises.open(secretPath, SAFE_SECRET_CREATE_FLAGS, 0o600);
     await handle.writeFile(secret);
+    assertResumeSecretStat(await handle.stat());
     return Buffer.from(secret);
   } catch (error) {
     if (isNodeErrorCode(error, "EEXIST")) return readResumeSecret(secretPath);
@@ -359,10 +362,7 @@ async function readOrCreateResumeSecret(outputDir: string): Promise<Buffer> {
 async function readResumeSecret(secretPath: string): Promise<Buffer> {
   const handle = await fs.promises.open(secretPath, SAFE_SECRET_READ_FLAGS);
   try {
-    const stat = await handle.stat();
-    if (!stat.isFile() || stat.size !== RESUME_SECRET_BYTES) throw new Error("Resume secret is invalid.");
-    assertSingleLink(stat, "Resume secret");
-    if (process.platform !== "win32" && (stat.mode & 0o077) !== 0) throw new Error("Resume secret is not private.");
+    assertResumeSecretStat(await handle.stat());
     const secret = Buffer.alloc(RESUME_SECRET_BYTES);
     const { bytesRead } = await handle.read(secret, 0, secret.byteLength, 0);
     if (bytesRead !== secret.byteLength) throw new Error("Resume secret is invalid.");
@@ -372,6 +372,12 @@ async function readResumeSecret(secretPath: string): Promise<Buffer> {
   } finally {
     await handle.close().catch(() => {});
   }
+}
+
+function assertResumeSecretStat(stat: fs.Stats): void {
+  if (!stat.isFile() || stat.size !== RESUME_SECRET_BYTES) throw new Error("Resume secret is invalid.");
+  assertSingleLink(stat, "Resume secret");
+  if (process.platform !== "win32" && (stat.mode & 0o077) !== 0) throw new Error("Resume secret is not private.");
 }
 
 export function isMissingPathError(error: unknown): boolean {
