@@ -978,13 +978,19 @@ test("npm bootstrap script rejects ambiguous stdin and environment token sources
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-npm-bootstrap-"));
   const mock = path.join(tmp, "mock-npm-bootstrap-fetch.mjs");
   const log = path.join(tmp, "requests.log");
+  const envLog = path.join(tmp, "env.log");
   try {
     await fs.writeFile(
       mock,
       `
-import { appendFileSync } from "node:fs";
+import { appendFileSync, writeFileSync } from "node:fs";
 
 const log = process.env.FF_MOCK_NPM_BOOTSTRAP_LOG;
+const envLog = process.env.FF_MOCK_NPM_BOOTSTRAP_ENV_LOG;
+
+process.on("exit", () => {
+  writeFileSync(envLog, Object.hasOwn(process.env, "NPM_BOOTSTRAP_TOKEN") ? "present" : "cleared", "utf8");
+});
 
 globalThis.fetch = async (url, init = {}) => {
   const parsed = new URL(url);
@@ -999,6 +1005,7 @@ globalThis.fetch = async (url, init = {}) => {
       "scripts/bootstrap-npm-package.mjs",
       {
         FF_MOCK_NPM_BOOTSTRAP_LOG: log,
+        FF_MOCK_NPM_BOOTSTRAP_ENV_LOG: envLog,
         NPM_BOOTSTRAP_TOKEN: "env-token-that-must-not-be-used"
       },
       ["--apply", "--token-stdin"],
@@ -1009,12 +1016,59 @@ globalThis.fetch = async (url, init = {}) => {
       if (error.code === "ENOENT") return "";
       throw error;
     });
+    const environmentEvidence = await fs.readFile(envLog, "utf8");
 
     assert.notEqual(result.status, 0);
     assert.equal(result.stdout, "");
     assert.match(result.stderr, /npm bootstrap failed:\n- Do not set NPM_BOOTSTRAP_TOKEN when using --token-stdin\./);
     assert.doesNotMatch(result.stderr, /env-token-that-must-not-be-used|stdin-token-that-must-not-be-used|api\.github|registry\.npmjs|Error:/);
     assert.equal(requests, "");
+    assert.equal(environmentEvidence, "cleared");
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
+test("npm bootstrap script clears malformed ambiguous environment tokens before stdin token rejection", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-npm-bootstrap-stdin-clear-token-"));
+  const mock = path.join(tmp, "mock-npm-bootstrap-stdin-clear-token.mjs");
+  const log = path.join(tmp, "env.log");
+  try {
+    await fs.writeFile(
+      mock,
+      `
+import { writeFileSync } from "node:fs";
+
+const log = process.env.FF_MOCK_NPM_BOOTSTRAP_ENV_LOG;
+
+process.on("exit", () => {
+  writeFileSync(log, Object.hasOwn(process.env, "NPM_BOOTSTRAP_TOKEN") ? "present" : "cleared", "utf8");
+});
+
+globalThis.fetch = async () => {
+  throw new Error("unexpected network");
+};
+`,
+      "utf8"
+    );
+
+    const result = runScriptWithNodeArgs(
+      "scripts/bootstrap-npm-package.mjs",
+      {
+        FF_MOCK_NPM_BOOTSTRAP_ENV_LOG: log,
+        NPM_BOOTSTRAP_TOKEN: "env-token-that-must-not-be-used\nregistry=https://evil.example"
+      },
+      ["--apply", "--token-stdin"],
+      ["--import", mock],
+      "stdin-token-that-must-not-be-used"
+    );
+    const environmentEvidence = await fs.readFile(log, "utf8");
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /npm bootstrap failed:\n- NPM_BOOTSTRAP_TOKEN must be a non-empty control-free environment value under 8192 UTF-8 bytes\./);
+    assert.doesNotMatch(result.stderr, /env-token-that-must-not-be-used|stdin-token-that-must-not-be-used|evil\.example|unexpected network|Error:/);
+    assert.equal(environmentEvidence, "cleared");
   } finally {
     await fs.rm(tmp, { force: true, recursive: true });
   }

@@ -790,7 +790,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(npmBootstrapScript, /if \(options\.apply\) rejectAmbientNpmPublishEnv\(\);\n  const token = options\.apply \? await bootstrapToken\(options\) : undefined/);
   assert.match(npmBootstrapScript, /args\.length === 2 && args\.includes\("--apply"\) && args\.includes\("--token-stdin"\)/);
   assert.match(npmBootstrapScript, /function readStdinToken\(\)/);
-  assert.match(npmBootstrapScript, /if \(envString\("NPM_BOOTSTRAP_TOKEN"\)\) throw new Error\("Do not set NPM_BOOTSTRAP_TOKEN when using --token-stdin\."\)/);
+  assert.match(npmBootstrapScript, /if \(consumeOptionalEnvString\("NPM_BOOTSTRAP_TOKEN"\)\) throw new Error\("Do not set NPM_BOOTSTRAP_TOKEN when using --token-stdin\."\)/);
   assert.match(npmBootstrapScript, /if \(process\.stdin\.isTTY === true\) throw new Error\("Pipe npm bootstrap token stdin; interactive terminal stdin is not accepted for --token-stdin\."\)/);
   assert.match(npmBootstrapScript, /npm bootstrap token stdin must be a non-empty control-free value under \$\{MAX_ENV_VALUE_BYTES\} UTF-8 bytes\./);
   assert.match(npmBootstrapScript, /\/\[\\p\{Cc\}\\p\{Cf\}\]\/u\.test\(descriptor\.value\)/);

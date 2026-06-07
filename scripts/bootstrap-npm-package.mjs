@@ -341,8 +341,16 @@ function consumeEnvString(name) {
 
 async function bootstrapToken(options) {
   if (!options.tokenStdin) return consumeEnvString("NPM_BOOTSTRAP_TOKEN");
-  if (envString("NPM_BOOTSTRAP_TOKEN")) throw new Error("Do not set NPM_BOOTSTRAP_TOKEN when using --token-stdin.");
+  if (consumeOptionalEnvString("NPM_BOOTSTRAP_TOKEN")) throw new Error("Do not set NPM_BOOTSTRAP_TOKEN when using --token-stdin.");
   return readStdinToken();
+}
+
+function consumeOptionalEnvString(name) {
+  try {
+    return envString(name);
+  } finally {
+    delete process.env[name];
+  }
 }
 
 async function readStdinToken() {
