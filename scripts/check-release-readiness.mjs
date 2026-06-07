@@ -118,7 +118,7 @@ async function rulesetDetails(token, repository, id) {
 function assertMainRuleset(ruleset) {
   assertRulesetBase(ruleset, MAIN_RULESET_NAME, "branch", "refs/heads/main");
   assertNoBypassActors(ruleset, MAIN_RULESET_NAME);
-  const rules = rulesByType(ruleset);
+  const rules = rulesByType(ruleset, MAIN_RULESET_NAME, ["deletion", "non_fast_forward", "pull_request", "required_status_checks"]);
   assertRulePresent(rules, "deletion", MAIN_RULESET_NAME);
   assertRulePresent(rules, "non_fast_forward", MAIN_RULESET_NAME);
   const pullRequest = assertRulePresent(rules, "pull_request", MAIN_RULESET_NAME);
@@ -137,7 +137,7 @@ function assertMainRuleset(ruleset) {
 
 function assertTagRuleset(ruleset) {
   assertRulesetBase(ruleset, TAG_RULESET_NAME, "tag", "refs/tags/v*");
-  const rules = rulesByType(ruleset);
+  const rules = rulesByType(ruleset, TAG_RULESET_NAME, ["creation", "deletion", "non_fast_forward"]);
   assertRulePresent(rules, "creation", TAG_RULESET_NAME);
   assertRulePresent(rules, "deletion", TAG_RULESET_NAME);
   assertRulePresent(rules, "non_fast_forward", TAG_RULESET_NAME);
@@ -169,9 +169,18 @@ function assertTagBypassActors(ruleset, name) {
   }
 }
 
-function rulesByType(ruleset) {
+function rulesByType(ruleset, name, expectedTypes) {
   if (!Array.isArray(ruleset?.rules)) throw new Error(`GitHub ruleset has no rules: ${ruleset?.name ?? "unknown"}.`);
-  return new Map(ruleset.rules.map((rule) => [rule?.type, rule]));
+  if (ruleset.rules.length !== expectedTypes.length) throw new Error(`${name} rules are not exact.`);
+  const expected = new Set(expectedTypes);
+  const rules = new Map();
+  for (const rule of ruleset.rules) {
+    if (!rule || typeof rule !== "object" || typeof rule.type !== "string" || !expected.has(rule.type) || rules.has(rule.type)) {
+      throw new Error(`${name} rules are not exact.`);
+    }
+    rules.set(rule.type, rule);
+  }
+  return rules;
 }
 
 function assertRulePresent(rules, type, name) {

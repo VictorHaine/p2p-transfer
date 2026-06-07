@@ -367,8 +367,8 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(readme, /GITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
   assert.match(contributing, /pnpm verify:release\ngh auth refresh -h github\.com -s workflow\nGITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
   assert.match(securityPolicy, /local release preflight must fail before tagging when the GitHub token lacks `workflow` scope/);
-  assert.match(securityPolicy, /branch\/tag rulesets have ref exclusions or unexpected bypass actors/);
-  assert.match(securityPolicy, /release workflow preflight may run with the GitHub Actions token but must still verify remote `main`, rulesets, exact ref coverage, exact bypass policy, required status checks, and the npm environment approval gate before packaging/);
+  assert.match(securityPolicy, /branch\/tag rulesets have ref exclusions, unexpected or duplicate rules, or unexpected bypass actors/);
+  assert.match(securityPolicy, /release workflow preflight may run with the GitHub Actions token but must still verify remote `main`, rulesets, exact ref coverage, exact rule coverage, exact bypass policy, required status checks, and the npm environment approval gate before packaging/);
   assert.match(releaseReadinessScript, /const REQUIRED_OAUTH_SCOPES = \["repo", "workflow"\]/);
   assert.match(releaseReadinessScript, /const MAX_ENV_VALUE_BYTES = 4_096/);
   assert.match(releaseReadinessScript, /function githubToken\(\)/);
@@ -395,6 +395,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /function assertMainRuleset\(ruleset\)/);
   assert.match(releaseReadinessScript, /assertRulesetBase\(ruleset, MAIN_RULESET_NAME, "branch", "refs\/heads\/main"\)/);
   assert.match(releaseReadinessScript, /assertNoBypassActors\(ruleset, MAIN_RULESET_NAME\)/);
+  assert.match(releaseReadinessScript, /rulesByType\(ruleset, MAIN_RULESET_NAME, \["deletion", "non_fast_forward", "pull_request", "required_status_checks"\]\)/);
   assert.match(releaseReadinessScript, /includes\.length !== 1 \|\| includes\[0\] !== refName/);
   assert.doesNotMatch(releaseReadinessScript, /includes\.includes\(refName\)/);
   assert.match(releaseReadinessScript, /assertRulePresent\(rules, "deletion", MAIN_RULESET_NAME\)/);
@@ -407,8 +408,13 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /"dependency review"/);
   assert.match(releaseReadinessScript, /function assertTagRuleset\(ruleset\)/);
   assert.match(releaseReadinessScript, /assertRulesetBase\(ruleset, TAG_RULESET_NAME, "tag", "refs\/tags\/v\*"\)/);
+  assert.match(releaseReadinessScript, /rulesByType\(ruleset, TAG_RULESET_NAME, \["creation", "deletion", "non_fast_forward"\]\)/);
   assert.match(releaseReadinessScript, /assertTagBypassActors\(ruleset, TAG_RULESET_NAME\)/);
   assert.match(releaseReadinessScript, /assertRulePresent\(rules, "creation", TAG_RULESET_NAME\)/);
+  assert.match(releaseReadinessScript, /function rulesByType\(ruleset, name, expectedTypes\)/);
+  assert.match(releaseReadinessScript, /ruleset\.rules\.length !== expectedTypes\.length/);
+  assert.match(releaseReadinessScript, /!expected\.has\(rule\.type\) \|\| rules\.has\(rule\.type\)/);
+  assert.match(releaseReadinessScript, /\$\{name\} rules are not exact\./);
   assert.match(releaseReadinessScript, /GitHub ruleset ref coverage is not exact for \$\{refName\}: \$\{name\}\./);
   assert.match(releaseReadinessScript, /GitHub ruleset has ref exclusions: \$\{name\}\./);
   assert.match(releaseReadinessScript, /function assertNoBypassActors\(ruleset, name\)/);
