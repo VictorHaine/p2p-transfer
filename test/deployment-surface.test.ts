@@ -420,6 +420,9 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(publishJob, /needs:\n      - verify\n      - platform-smoke/);
   assert.doesNotMatch(publishJob, /pnpm install|pnpm build|pnpm smoke:native/);
   assert.match(releasePublishScript, /"--ignore-scripts"/);
+  assert.match(releasePublishScript, /verifiedTarballPath\(\{ \.\.\.childEnv, \.\.\.releaseVerifierEnv\(tag\) \}\)/);
+  assert.match(releasePublishScript, /function releaseVerifierEnv\(tag\) \{[\s\S]*GITHUB_REF_NAME: tag[\s\S]*GITHUB_REF_TYPE: "tag"[\s\S]*GITHUB_REF: `refs\/tags\/\$\{tag\}`/);
+  assert.doesNotMatch(releasePublishScript, /verifiedTarballPath\(\{ \.\.\.childEnv, GITHUB_REF_NAME: tag \}\)/);
   assert.doesNotMatch(publishJob, /NODE_AUTH_TOKEN|NPM_TOKEN/);
 });
 

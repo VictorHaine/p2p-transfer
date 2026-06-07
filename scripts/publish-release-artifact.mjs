@@ -44,7 +44,7 @@ async function main() {
   const tmp = await mkdtemp(path.join(tmpdir(), "ff-release-publish-"));
   try {
     const childEnv = await privateChildEnv(path.join(tmp, "home"));
-    const tarball = await verifiedTarballPath({ ...childEnv, GITHUB_REF_NAME: tag });
+    const tarball = await verifiedTarballPath({ ...childEnv, ...releaseVerifierEnv(tag) });
     await run(process.execPath, ["scripts/smoke-packed.mjs"], {
       env: { ...childEnv, PACKED_SMOKE_TARBALL: tarball },
       timeoutMs: CHILD_TIMEOUT_MS
@@ -108,6 +108,10 @@ function assertReleaseTagRef(tag) {
   if (requiredEnvString("GITHUB_REF_TYPE") !== "tag" || requiredEnvString("GITHUB_REF") !== `refs/tags/${tag}`) {
     throw new Error("release workflow ref must be the matching tag ref.");
   }
+}
+
+function releaseVerifierEnv(tag) {
+  return { GITHUB_REF_NAME: tag, GITHUB_REF_TYPE: "tag", GITHUB_REF: `refs/tags/${tag}` };
 }
 
 function rejectStaticNpmTokens() {

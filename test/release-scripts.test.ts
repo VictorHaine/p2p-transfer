@@ -481,6 +481,14 @@ test("release publish script rejects branch refs before artifact work", () => {
   assert.doesNotMatch(result.stderr, /refs\/heads|release artifact directory|pnpm publish|Error:/);
 });
 
+test("release publish script passes the full tag ref tuple into artifact verification", async () => {
+  const source = await fs.readFile(path.join(root, "scripts", "publish-release-artifact.mjs"), "utf8");
+
+  assert.match(source, /verifiedTarballPath\(\{ \.\.\.childEnv, \.\.\.releaseVerifierEnv\(tag\) \}\)/);
+  assert.match(source, /function releaseVerifierEnv\(tag\) \{[\s\S]*GITHUB_REF_NAME: tag[\s\S]*GITHUB_REF_TYPE: "tag"[\s\S]*GITHUB_REF: `refs\/tags\/\$\{tag\}`/);
+  assert.doesNotMatch(source, /verifiedTarballPath\(\{ \.\.\.childEnv, GITHUB_REF_NAME: tag \}\)/);
+});
+
 test("Docker publish script rejects prerelease tags before smoke or push", () => {
   const result = runScript("scripts/publish-docker-image.mjs", {
     ...releaseTagEnv("v0.1.0-alpha.1"),
