@@ -36,7 +36,7 @@ if (isMain()) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
-  const token = options.apply ? consumeEnvString("NPM_BOOTSTRAP_TOKEN") : undefined;
+  const token = options.apply ? await bootstrapToken(options) : undefined;
   if (options.apply) rejectAmbientNpmPublishEnv();
 
   const workspace = await readWorkspacePackage();
@@ -219,9 +219,10 @@ async function boundedResponseText(response) {
 
 function parseArgs(args) {
   if (args.length === 0) return { apply: false };
-  if (args.length === 1 && args[0] === "--apply") return { apply: true };
+  if (args.length === 1 && args[0] === "--apply") return { apply: true, tokenStdin: false };
+  if (args.length === 2 && args.includes("--apply") && args.includes("--token-stdin")) return { apply: true, tokenStdin: true };
   if (args.length === 1 && args[0] === "--dry-run") return { apply: false };
-  throw new Error("Usage: node scripts/bootstrap-npm-package.mjs [--dry-run|--apply]");
+  throw new Error("Usage: node scripts/bootstrap-npm-package.mjs [--dry-run|--apply [--token-stdin]]");
 }
 
 function run(command, args, options) {
@@ -296,6 +297,35 @@ function consumeEnvString(name) {
   const value = envString(name);
   delete process.env[name];
   if (!value) throw new Error(`Set ${name} to a one-time npm automation token before --apply.`);
+  return value;
+}
+
+async function bootstrapToken(options) {
+  if (!options.tokenStdin) return consumeEnvString("NPM_BOOTSTRAP_TOKEN");
+  if (envString("NPM_BOOTSTRAP_TOKEN")) throw new Error("Do not set NPM_BOOTSTRAP_TOKEN when using --token-stdin.");
+  return readStdinToken();
+}
+
+async function readStdinToken() {
+  const chunks = [];
+  let total = 0;
+  for await (const chunk of process.stdin) {
+    if (!Buffer.isBuffer(chunk) && !(chunk instanceof Uint8Array)) throw new Error("npm bootstrap token stdin was invalid.");
+    total += chunk.byteLength;
+    if (total > MAX_ENV_VALUE_BYTES + 2) throw new Error(`npm bootstrap token stdin must be a non-empty control-free value under ${MAX_ENV_VALUE_BYTES} UTF-8 bytes.`);
+    chunks.push(Buffer.from(chunk));
+  }
+  let value;
+  try {
+    value = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks, total));
+  } catch {
+    throw new Error("npm bootstrap token stdin must be valid UTF-8.");
+  }
+  if (value.endsWith("\r\n")) value = value.slice(0, -2);
+  else if (value.endsWith("\n")) value = value.slice(0, -1);
+  if (value.length < 1 || /[\p{Cc}\p{Cf}]/u.test(value) || utf8ByteLengthExceeds(value, MAX_ENV_VALUE_BYTES)) {
+    throw new Error(`npm bootstrap token stdin must be a non-empty control-free value under ${MAX_ENV_VALUE_BYTES} UTF-8 bytes.`);
+  }
   return value;
 }
 

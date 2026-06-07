@@ -333,10 +333,12 @@ In npm:
 
 ```sh
 pnpm bootstrap:npm --dry-run
-NPM_BOOTSTRAP_TOKEN=<one-time-npm-token> pnpm bootstrap:npm --apply
+read -rs NPM_BOOTSTRAP_TOKEN
+printf %s "$NPM_BOOTSTRAP_TOKEN" | pnpm bootstrap:npm --apply --token-stdin
+unset NPM_BOOTSTRAP_TOKEN
 ```
 
-  The helper publishes only a minimal temporary `0.0.0-bootstrap.0` package from a private temp directory under the non-default `bootstrap` dist-tag. It does not mutate this workspace, does not publish the real release artifact, does not publish the placeholder as `latest`, and refuses to run when the npm package already exists. Do not bootstrap `0.1.0` if the tag workflow is expected to publish `v0.1.0`; npm versions cannot be reused.
+  The helper publishes only a minimal temporary `0.0.0-bootstrap.0` package from a private temp directory under the non-default `bootstrap` dist-tag. It accepts the one-time token through bounded stdin with `--token-stdin` so the token does not need to appear in `ff`/pnpm process argv or exported environment. It does not mutate this workspace, does not publish the real release artifact, does not publish the placeholder as `latest`, and refuses to run when the npm package already exists. Do not bootstrap `0.1.0` if the tag workflow is expected to publish `v0.1.0`; npm versions cannot be reused.
 - configure trusted publishing for package `@victorhaine/p2p-transfer`; npm currently requires the package to exist first, and `package.json` `repository.url` must exactly match this GitHub repository
 - set the trusted publisher to this GitHub repository, workflow `.github/workflows/release.yml`, environment `npm`
 
