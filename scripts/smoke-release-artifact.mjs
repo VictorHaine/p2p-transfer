@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { constants, realpathSync } from "node:fs";
 import { lstat, open, rm } from "node:fs/promises";
 import path from "node:path";
@@ -9,6 +9,8 @@ import { safeChildEnv } from "./smoke-packed.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const artifactDir = path.join(root, "release-artifacts");
 const MAX_PACKAGE_JSON_BYTES = 128 * 1024;
+const CHILD_TIMEOUT_MS = 120_000;
+const CHILD_KILL_GRACE_MS = 5_000;
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 
 if (isMain()) {
@@ -27,9 +29,9 @@ async function main() {
   const version = requiredVersion(packageJson.version);
   await rm(artifactDir, { recursive: true, force: true });
   try {
-    run(pnpm, ["--config.ignore-scripts=true", "pack", "--pack-destination", "release-artifacts"], {});
-    run(process.execPath, ["scripts/write-release-checksum.mjs"], {});
-    run(process.execPath, ["scripts/verify-release-artifact.mjs"], { GITHUB_REF_NAME: `v${version}` });
+    await run(pnpm, ["--config.ignore-scripts=true", "pack", "--pack-destination", "release-artifacts"], {}, "release artifact pack");
+    await run(process.execPath, ["scripts/write-release-checksum.mjs"], {}, "release checksum generation");
+    await run(process.execPath, ["scripts/verify-release-artifact.mjs"], { GITHUB_REF_NAME: `v${version}` }, "release artifact verification");
   } finally {
     if (!options.keepArtifacts) await rm(artifactDir, { recursive: true, force: true }).catch(() => undefined);
   }
@@ -105,17 +107,61 @@ function parsePackageMetadata(bytes) {
   }
 }
 
-function run(command, args, env) {
-  const result = spawnSync(command, args, {
-    cwd: root,
-    encoding: "utf8",
-    env: { ...safeChildEnv(), ...env },
-    stdio: "pipe",
-    timeout: 120_000
+function run(command, args, env, label) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: root,
+      env: { ...safeChildEnv(), ...env },
+      stdio: "ignore"
+    });
+    let settled = false;
+    let killTimer;
+    let timeoutError;
+    const timer = setTimeout(() => {
+      timeoutError = new Error(`${label} timed out.`);
+      child.kill("SIGTERM");
+      killTimer = setTimeout(() => child.kill("SIGKILL"), CHILD_KILL_GRACE_MS);
+    }, CHILD_TIMEOUT_MS);
+
+    child.on("error", rejectOnce);
+    child.on("exit", (code, signal) => {
+      if (killTimer) clearTimeout(killTimer);
+      if (timeoutError) {
+        rejectOnce(timeoutError);
+        return;
+      }
+      if (code !== 0) {
+        rejectOnce(new Error(`${label} failed with ${childExitStatus(code, signal)}.`));
+        return;
+      }
+      resolveOnce();
+    });
+
+    function resolveOnce() {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve();
+    }
+
+    function rejectOnce(error) {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    }
+
+    function cleanup() {
+      clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
+    }
   });
-  if (result.status !== 0) {
-    throw new Error(`${command} ${args.join(" ")} failed.`);
-  }
+}
+
+function childExitStatus(code, signal) {
+  if (typeof code === "number") return `exit status ${code}`;
+  if (typeof signal === "string" && /^[A-Z0-9]+$/u.test(signal)) return `signal ${signal}`;
+  return "unknown child status";
 }
 
 function requiredVersion(value) {
