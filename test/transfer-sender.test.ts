@@ -1,4 +1,4 @@
-import test from "node:test";
+import test, { after } from "node:test";
 import assert from "node:assert/strict";
 import fsSync from "node:fs";
 import fs from "node:fs/promises";
@@ -26,6 +26,11 @@ const sourceFiles = fsSync.readFileSync(new URL("../src/cli/files.ts", import.me
 const distFiles = fsSync.readFileSync(new URL("../dist-node/cli/files.js", import.meta.url), "utf8");
 const securityPolicy = fsSync.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
 const VALID_SHA256 = "0".repeat(64);
+const testStartedAt = Date.now();
+
+after(async () => {
+  await removeCreatedTempDirs(["ff-send-"]);
+});
 
 test("CLI sender rejects files that grow beyond the accepted manifest size while streaming", async () => {
   const { senderKeys, receiverKeys } = await makeKeys("send-size-changed");
@@ -760,4 +765,19 @@ function sha256Hex(bytes: Uint8Array): string {
   const hash = createSha256();
   hash.update(bytes);
   return digestHex(hash);
+}
+
+async function removeCreatedTempDirs(prefixes: readonly string[]): Promise<void> {
+  const tmp = os.tmpdir();
+  const cutoff = testStartedAt - 1_000;
+  for (const entry of await fs.readdir(tmp, { withFileTypes: true })) {
+    if (!entry.isDirectory() || !prefixes.some((prefix) => entry.name.startsWith(prefix))) continue;
+    const fullPath = path.join(tmp, entry.name);
+    const stat = await fs.stat(fullPath).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return undefined;
+      throw error;
+    });
+    if (!stat || (stat.birthtimeMs < cutoff && stat.ctimeMs < cutoff && stat.mtimeMs < cutoff)) continue;
+    await fs.rm(fullPath, { recursive: true, force: true });
+  }
 }

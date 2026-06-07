@@ -1,4 +1,4 @@
-import test from "node:test";
+import test, { after } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import fsSync from "node:fs";
@@ -18,6 +18,12 @@ type FakeChannel = RTCDataChannel & {
   emit(data: unknown): Promise<void>;
   emitClose(): void;
 };
+
+const testStartedAt = Date.now();
+
+after(async () => {
+  await removeCreatedTempDirs(["ff-recv-"]);
+});
 
 test("CLI receiver accepts a valid encrypted single-file transfer without WebRTC sockets", async () => {
   const { senderKeys, receiverKeys } = await makeKeys("valid-receive");
@@ -722,4 +728,19 @@ function readDistWebBundle(): string {
   const bundleName = fsSync.readdirSync(distDir).find((entry) => /^index-.*\.js$/.test(entry));
   assert.ok(bundleName);
   return fsSync.readFileSync(new URL(bundleName, distDir), "utf8");
+}
+
+async function removeCreatedTempDirs(prefixes: readonly string[]): Promise<void> {
+  const tmp = os.tmpdir();
+  const cutoff = testStartedAt - 1_000;
+  for (const entry of await fs.readdir(tmp, { withFileTypes: true })) {
+    if (!entry.isDirectory() || !prefixes.some((prefix) => entry.name.startsWith(prefix))) continue;
+    const fullPath = path.join(tmp, entry.name);
+    const stat = await fs.stat(fullPath).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return undefined;
+      throw error;
+    });
+    if (!stat || (stat.birthtimeMs < cutoff && stat.ctimeMs < cutoff && stat.mtimeMs < cutoff)) continue;
+    await fs.rm(fullPath, { recursive: true, force: true });
+  }
 }

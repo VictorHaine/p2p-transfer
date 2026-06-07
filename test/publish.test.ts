@@ -1,4 +1,4 @@
-import test from "node:test";
+import test, { after } from "node:test";
 import assert from "node:assert/strict";
 import fsSync from "node:fs";
 import fs from "node:fs/promises";
@@ -19,6 +19,11 @@ const distTransfer = fsSync.readFileSync(new URL("../dist-node/cli/transfer.js",
 const sourceFiles = fsSync.readFileSync(new URL("../src/cli/files.ts", import.meta.url), "utf8");
 const distFiles = fsSync.readFileSync(new URL("../dist-node/cli/files.js", import.meta.url), "utf8");
 const securityPolicy = fsSync.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
+const testStartedAt = Date.now();
+
+after(async () => {
+  await removeCreatedTempDirs(["ff-publish-", "ff-reserve-", "ff-out-realpath-", "ff-collision-long-", "ff-symlink-send-"]);
+});
 
 test("publishPartFile atomically refuses to overwrite an existing file", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-publish-existing-"));
@@ -1028,3 +1033,18 @@ test("sender manifest opens candidates with no-follow and nonblocking flags", ()
     assert.doesNotMatch(source, /fs\.promises\.open\(filePath, "r"\)/);
   }
 });
+
+async function removeCreatedTempDirs(prefixes: readonly string[]): Promise<void> {
+  const tmp = os.tmpdir();
+  const cutoff = testStartedAt - 1_000;
+  for (const entry of await fs.readdir(tmp, { withFileTypes: true })) {
+    if (!entry.isDirectory() || !prefixes.some((prefix) => entry.name.startsWith(prefix))) continue;
+    const fullPath = path.join(tmp, entry.name);
+    const stat = await fs.stat(fullPath).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return undefined;
+      throw error;
+    });
+    if (!stat || (stat.birthtimeMs < cutoff && stat.ctimeMs < cutoff && stat.mtimeMs < cutoff)) continue;
+    await fs.rm(fullPath, { recursive: true, force: true });
+  }
+}
