@@ -363,6 +363,50 @@ test("built signaling server fatal listen errors do not print stacks or arbitrar
   assert.doesNotMatch(output, /Error:| at |stack|listen EADDRINUSE: address already in use|ALLOWED_ORIGINS|SIGNALING_TOPOLOGY/);
 });
 
+test("built signaling server startup failures do not print stacks or raw configuration evidence", async () => {
+  const root = process.cwd();
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-server-startup-log-"));
+  const secretWebRoot = path.join(tmp, "secret-web-root-token");
+
+  const badConfig = spawn(process.execPath, ["dist-node/server/index.js"], {
+    cwd: root,
+    env: {
+      ...testChildEnv(tmp),
+      PORT: "8787",
+      HOST: "127.0.0.1",
+      NODE_ENV: "production",
+      SIGNALING_TOPOLOGY: "single-instance"
+    }
+  });
+  const badConfigOutput = collectOutput(badConfig);
+  assert.equal(await waitForProcessExit(badConfig), 1);
+  await badConfigOutput.done;
+  const configText = badConfigOutput.text();
+  assert.match(configText, /ff signaling server startup failed: configuration/);
+  assert.doesNotMatch(configText, /Error:| at |stack|index\.(?:ts|js):|loadServerConfig|SIGNALING_TOPOLOGY|NODE_ENV/);
+
+  const badWebRoot = spawn(process.execPath, ["dist-node/server/index.js"], {
+    cwd: root,
+    env: {
+      ...testChildEnv(tmp),
+      PORT: "8787",
+      HOST: "127.0.0.1",
+      NODE_ENV: "production",
+      ALLOWED_ORIGINS: "http://127.0.0.1:8787",
+      SIGNALING_TOPOLOGY: "single-instance",
+      ALLOW_INSECURE_ORIGINS: "true",
+      WEB_ROOT: secretWebRoot
+    }
+  });
+  const badWebRootOutput = collectOutput(badWebRoot);
+  assert.equal(await waitForProcessExit(badWebRoot), 1);
+  await badWebRootOutput.done;
+  const webRootText = badWebRootOutput.text();
+  assert.match(webRootText, /ff signaling server startup failed: web root/);
+  assert.doesNotMatch(webRootText, /Error:| at |stack|index\.(?:ts|js):|realpath|secret-web-root-token/);
+  assert.equal(webRootText.includes(tmp), false);
+});
+
 function testChildEnv(tmp: string): NodeJS.ProcessEnv {
   const pathValue = requiredEnv("PATH");
   const env: NodeJS.ProcessEnv = {

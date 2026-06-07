@@ -34,7 +34,7 @@ import {
 import { isValidRendezvous, normalizeCode } from "../shared/wordlist.js";
 import { canCreateSession, canRegisterWaitingCode, staticFileWithinLimit } from "./capacity.js";
 import { websocketCloseReason } from "./close-reason.js";
-import { corsHeaders, iceServersForRequest, iceServersForUnauthenticatedRequest, loadServerConfig, originAllowedForRequest } from "./config.js";
+import { corsHeaders, iceServersForRequest, iceServersForUnauthenticatedRequest, loadServerConfig, originAllowedForRequest, type ServerConfig } from "./config.js";
 import { PACKAGE_NAME, PACKAGE_VERSION } from "../shared/package-info.js";
 import { applyHttpServerHardening } from "./http-hardening.js";
 import {
@@ -100,9 +100,9 @@ type Session = {
   remainingPrePairAttempts: number;
 };
 
-const serverConfig = loadServerConfig();
+const serverConfig = loadCheckedServerConfig();
 const { port, host, webRoot, allowedOrigins, browserAllowAnyWss, browserAllowLoopbackWs, trustedProxyHops, trustedProxyIps } = serverConfig;
-const realWebRoot = fs.realpath(webRoot).catch(() => webRoot);
+const realWebRoot = await checkedRealWebRoot(webRoot);
 const codes = new Map<string, WaitingCode>();
 const sessions = new Map<string, Session>();
 const rateLimits = new Map<string, number[]>();
@@ -232,6 +232,43 @@ expiryInterval.unref();
 server.listen(port, host, () => {
   console.log(`ff signaling server listening on http://${host}:${port}`);
 });
+
+function loadCheckedServerConfig(): ServerConfig {
+  try {
+    return loadServerConfig();
+  } catch (error) {
+    startupFailure("configuration", error);
+  }
+}
+
+async function checkedRealWebRoot(root: string): Promise<string> {
+  try {
+    const realRoot = await fs.realpath(root);
+    const stat = await fs.stat(realRoot);
+    if (!stat.isDirectory()) throw new Error("web root is not a directory");
+    return realRoot;
+  } catch (error) {
+    startupFailure("web root", error);
+  }
+}
+
+function startupFailure(scope: "configuration" | "web root", error: unknown): never {
+  console.error(`ff signaling server startup failed: ${scope} ${startupErrorSummary(error)}`);
+  process.exit(1);
+}
+
+function startupErrorSummary(error: unknown): string {
+  if (!error || typeof error !== "object") return "error";
+  const code = ownErrorData(error, "code");
+  if (typeof code === "string" && /^[A-Z0-9_]+$/.test(code)) return code;
+  const message = ownErrorData(error, "message");
+  if (typeof message === "string" && isSafeStartupMessage(message)) return message;
+  return "error";
+}
+
+function isSafeStartupMessage(message: string): boolean {
+  return message.length > 0 && message.length <= 200 && !/[\p{Cc}\p{Cf}/\\]|(?:^|\s)at\s/u.test(message);
+}
 
 function fatalServerError(error: Error): void {
   if (fatalErrorSeen) return;

@@ -15,11 +15,16 @@ test("server logging stays operational and does not log signaling payload fields
   const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
   const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
   const logCalls = [...serverSource.matchAll(/console\.(?:log|error|warn)\(([^)]*)\)/g)].map((match) => match[1] ?? "");
-  assert.equal(logCalls.length, 4);
+  assert.equal(logCalls.length, 5);
   for (const call of logCalls) {
     assert.doesNotMatch(call, /\b(?:message|payload|manifest|sealedManifest|pake|tag|sdp|candidate|code|sid|reason|peer|ip)\b/i);
   }
-  assert.match(securityPolicy, /server operational logs must not include signaling payloads, receiver codes, session ids, peer identifiers, peer IPs, arbitrary exception messages, or stack traces/);
+  assert.match(securityPolicy, /server operational logs must not include signaling payloads, receiver codes, session ids, peer identifiers, peer IPs, arbitrary exception messages, raw configuration values, raw static-root paths, or stack traces/);
+  assert.match(serverSource, /console\.error\(`ff signaling server startup failed: \$\{scope\} \$\{startupErrorSummary\(error\)\}`\)/);
+  const startupSummaryBody = extractFunctionBody(serverSource, "startupErrorSummary");
+  assert.match(startupSummaryBody, /ownErrorData\(error, "code"\)/);
+  assert.match(startupSummaryBody, /ownErrorData\(error, "message"\)/);
+  assert.doesNotMatch(startupSummaryBody, /error\.message|error\.stack|String\(error\)|String\(/);
   const summaryBody = extractFunctionBody(serverSource, "operationalErrorSummary");
   assert.match(summaryBody, /ownErrorData\(error, "code"\)/);
   assert.match(summaryBody, /ownErrorData\(error, "syscall"\)/);
