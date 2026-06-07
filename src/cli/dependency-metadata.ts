@@ -4,6 +4,7 @@ import path from "node:path";
 export type DependencyEvidence = {
   name: string;
   version: string;
+  metadata: Record<string, unknown>;
 };
 
 const MAX_PACKAGE_JSON_BYTES = 128 * 1024;
@@ -14,7 +15,7 @@ export function packageEvidenceFromResolvedFile(resolvedFile: string): Dependenc
   if (typeof evidence.name !== "string" || typeof evidence.version !== "string") {
     throw new Error("Dependency package metadata is invalid.");
   }
-  return { root, name: evidence.name, version: evidence.version };
+  return { root, name: evidence.name, version: evidence.version, metadata: evidence };
 }
 
 function packageRootFromResolvedFile(resolvedFile: string): string {

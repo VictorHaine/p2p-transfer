@@ -32,6 +32,7 @@ This package controls the local cryptographic transcript and integrity boundary:
 - Runtime dependency declarations reviewed: direct `dependencies`, `optionalDependencies`, and `peerDependencies` are absent in installed metadata.
 - Build policy reviewed: `pnpm-workspace.yaml` has `strictDepBuilds: true`; `@noble/hashes` is not in `allowBuilds`, so it must not require dependency build scripts in this project.
 - Registry source reviewed: lockfile package entries must stay registry tarballs with `sha512` integrity, not `git`, `github:`, `file:`, `link:`, `workspace:`, `http`, `https`, or custom tarball sources.
+- Runtime consumer-install hardening reviewed: CLI send and receive fail closed unless direct `@noble/hashes@2.2.0` package metadata, dependency declarations, consumer lifecycle-hook policy, and HKDF/HMAC/SHA-2 import surfaces match this artifact.
 
 ## Known Limitations
 
@@ -50,7 +51,7 @@ This package controls the local cryptographic transcript and integrity boundary:
 
 Release must stop if any of these are true:
 
-- `package.json`, `pnpm-lock.yaml`, or installed package metadata no longer agree on `@noble/hashes@2.2.0` without an updated review.
+- `package.json`, `pnpm-lock.yaml`, runtime dependency attestation, installed package metadata, reviewed dependency declarations, consumer lifecycle-hook policy, or reviewed import surfaces no longer agree on `@noble/hashes@2.2.0` without an updated review.
 - `@noble/hashes` adds `preinstall`, `install`, `postinstall`, `prepare`, or `prepublishOnly` hooks, requires build-script allowlisting, or changes to a non-registry source.
 - The package name, license, repository, homepage, exports, published files, or used cryptographic import surface changes without an updated review.
 - `pnpm audit --audit-level low`, `pnpm audit signatures`, dependency review, installed-state verification, package-surface tests, security protocol tests, or release-artifact verification fails.

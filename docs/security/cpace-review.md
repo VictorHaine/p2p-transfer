@@ -33,7 +33,7 @@ This package controls the untrusted-signaling trust boundary: if CPace is compro
 - Direct runtime dependencies reviewed: `@cipherman/pake-js@0.1.1` and `@noble/curves@1.9.7`.
 - Package runtime dependency declaration reviewed: `@noble/curves` is declared as `^1.6.0` upstream.
 - Consumer resolution hardening reviewed: this package also declares `@noble/curves@1.9.7` as a direct exact production dependency so normal consumer installers resolve the reviewed CPace curve implementation instead of floating only through the upstream `^1.6.0` range.
-- Runtime consumer-install hardening reviewed: CLI send and receive fail closed unless the resolved package graph matches `@cipherman/pake-js@0.1.1`, `@noble/curves@1.9.7` as resolved from `@cipherman/pake-js`, `@noble/hashes@1.8.0` as resolved from `@noble/curves`, and direct `@noble/hashes@2.2.0` for this project's HKDF/HMAC code.
+- Runtime consumer-install hardening reviewed: CLI send and receive fail closed unless the resolved package graph matches `@cipherman/pake-js@0.1.1`, `@noble/curves@1.9.7` as resolved from `@cipherman/pake-js`, `@noble/hashes@1.8.0` as resolved from `@noble/curves`, and direct `@noble/hashes@2.2.0` for this project's HKDF/HMAC code, including reviewed package metadata, dependency declarations, consumer lifecycle-hook policy, and CPace/curve/hash import surfaces.
 - Locked crypto dependency reviewed: `@noble/curves@1.9.7`, with `@noble/hashes@1.8.0` in the resolved CPace dependency set.
 - Reviewed lockfile integrity for `@cipherman/pake-js@0.1.1`: `sha512-iutxMCmRXYacl3fc19SKFisk1sRD1FNQi7+GWPlnQnFit6l3sUagYOCU2IgRPD8MF3s1HwnkSpqARFUp04+GVQ==`.
 - Reviewed lockfile integrity for CPace transitives: `@noble/curves@1.9.7` is `sha512-gbKGcRUYIjA3/zCCNaWDciTMFI0dCkvou3TL8Zmy5Nc7sJ47a0jtOeZoTaMxkuqRo9cRhjOdZJXegxYE5FN/xw==`; `@noble/hashes@1.8.0` is `sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A==`.
@@ -62,7 +62,7 @@ This package controls the untrusted-signaling trust boundary: if CPace is compro
 
 Release must stop if any of these are true:
 
-- `package.json`, `pnpm-lock.yaml`, runtime dependency attestation, or installed package metadata no longer agree on `@cipherman/pake-js@0.1.1`, `@noble/curves@1.9.7`, CPace-resolved `@noble/hashes@1.8.0`, and direct `@noble/hashes@2.2.0` without an updated review.
+- `package.json`, `pnpm-lock.yaml`, runtime dependency attestation, installed package metadata, reviewed dependency declarations, consumer lifecycle-hook policy, or reviewed import surfaces no longer agree on `@cipherman/pake-js@0.1.1`, `@noble/curves@1.9.7`, CPace-resolved `@noble/hashes@1.8.0`, and direct `@noble/hashes@2.2.0` without an updated review.
 - `@cipherman/pake-js` adds `preinstall`, `install`, `postinstall`, or `prepare` hooks, requires build-script allowlisting, or changes to a non-registry source.
 - The package name, license, repository, exports, published files, or CPace API surface changes without an updated review.
 - The lockfile adds, removes, or changes the CPace package's crypto dependencies without explicit review.
