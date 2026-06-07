@@ -6,6 +6,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const API = "https://api.github.com";
 const NPM_REGISTRY = "https://registry.npmjs.org";
+const BOOTSTRAP_VERSION = "0.0.0-bootstrap.0";
+const BOOTSTRAP_DIST_TAG = "bootstrap";
 const DEFAULT_REPOSITORY = "VictorHaine/p2p-transfer";
 const MAIN_RULESET_NAME = "p2p-transfer: protect main";
 const TAG_RULESET_NAME = "p2p-transfer: protect release tags";
@@ -257,6 +259,15 @@ async function assertNpmPackageReady(packageJson) {
   const versions = metadata?.versions;
   if (!versions || typeof versions !== "object" || Array.isArray(versions)) throw new Error("npm package metadata is invalid.");
   if (Object.hasOwn(versions, packageJson.version)) throw new Error("npm package version already exists; bump package.json before tagging.");
+  assertNpmBootstrapState(metadata, versions);
+}
+
+function assertNpmBootstrapState(metadata, versions) {
+  if (!Object.hasOwn(versions, BOOTSTRAP_VERSION)) return;
+  const distTags = metadata?.["dist-tags"];
+  if (!distTags || typeof distTags !== "object" || Array.isArray(distTags)) throw new Error("npm package dist-tags metadata is invalid.");
+  if (distTags[BOOTSTRAP_DIST_TAG] !== BOOTSTRAP_VERSION) throw new Error("npm bootstrap dist-tag does not point to the reviewed bootstrap version.");
+  if (distTags.latest === BOOTSTRAP_VERSION) throw new Error("npm bootstrap placeholder is tagged as latest; fix npm dist-tags before releasing.");
 }
 
 async function npmPackageMetadata(name) {

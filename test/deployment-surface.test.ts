@@ -648,7 +648,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(readme, /GITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
   assert.match(contributing, /pnpm exec playwright install --with-deps chromium\npnpm verify:release\nnode scripts\/write-release-notes\.mjs --check\nDOCKER_SMOKE_TAG=p2p-transfer:test pnpm smoke:docker-policy\ngh auth refresh -h github\.com -s workflow\nGITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
   assert.match(contributing, /make sure `main` already exists on\nGitHub, then run the full release gate/);
-  assert.match(securityPolicy, /local release preflight must fail before tagging when the npm package is missing, the target npm version already exists, the GitHub token lacks `workflow` scope/);
+  assert.match(securityPolicy, /local release preflight must fail before tagging when the npm package is missing, the target npm version already exists, the bootstrap placeholder exists without the exact `bootstrap` dist-tag or with `latest` pointing to it, the GitHub token lacks `workflow` scope/);
   assert.match(securityPolicy, /current `main` commit lacks a successful CodeQL, Scorecard, or dependency-integrity workflow run/);
   assert.match(securityPolicy, /the `RELEASE_PREFLIGHT_TOKEN` repository secret is missing/);
   assert.match(securityPolicy, /GitHub `npm` environment lacks required reviewers, lacks a non-self user reviewer with write, maintain, or admin repository permission, allows self-review, allows admin bypass, allows branch deployments, lacks the exact `v\*\.\*\.\*` tag deployment policy, or has the authenticated release operator or release tag pusher as its sole required reviewer/);
@@ -664,9 +664,9 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(securityPolicy, /release workflow preflight must run before dependency install through the checked Node script with an explicit `RELEASE_PREFLIGHT_TOKEN` secret/);
   assert.match(securityPolicy, /must reject classic PAT, OAuth, refresh, user, or unknown-prefix token classes in GitHub Actions before package or network work/);
   assert.match(securityPolicy, /must validate `GITHUB_ACTOR` before package reads or network work after token-class validation/);
-  assert.match(securityPolicy, /must still verify the npm package exists without the target version, remote `main`, successful CodeQL, Scorecard, and dependency-integrity runs for current `main`, rulesets/);
+  assert.match(securityPolicy, /must still verify the npm package exists without the target version, any bootstrap placeholder is not `latest`, remote `main`, successful CodeQL, Scorecard, and dependency-integrity runs for current `main`, rulesets/);
   assert.match(securityPolicy, /no branch\/tag bypass actors, required status checks, and the npm environment approval\/tag-only deployment gate before packaging/);
-  assert.match(readme, /verifies the npm package already exists and the target version has not been published/);
+  assert.match(readme, /verifies the npm package already exists, verifies any bootstrap placeholder is not tagged as `latest`, verifies the target version has not been published/);
   assert.match(readme, /pnpm bootstrap:npm --dry-run/);
   assert.match(readme, /read -rs NPM_BOOTSTRAP_TOKEN\nprintf %s "\$NPM_BOOTSTRAP_TOKEN" \| pnpm bootstrap:npm --apply --token-stdin\nunset NPM_BOOTSTRAP_TOKEN/);
   assert.match(readme, /The helper publishes only a minimal temporary `0\.0\.0-bootstrap\.0` package from a private temp directory under the non-default `bootstrap` dist-tag/);
@@ -726,6 +726,8 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /collectReadinessFailureSync\(failures, \(\) => \{[\s\S]*assertTokenScopes\(auth\.headers, runningInGitHubActions\)/);
   assert.match(releaseReadinessScript, /await collectGitHubRepositoryReadiness\(failures, token, options\.repository, authenticatedLogin, releaseActorLogin\)/);
   assert.match(releaseReadinessScript, /const NPM_REGISTRY = "https:\/\/registry\.npmjs\.org"/);
+  assert.match(releaseReadinessScript, /const BOOTSTRAP_VERSION = "0\.0\.0-bootstrap\.0"/);
+  assert.match(releaseReadinessScript, /const BOOTSTRAP_DIST_TAG = "bootstrap"/);
   assert.match(releaseReadinessScript, /const MAX_PACKAGE_JSON_BYTES = 128 \* 1024/);
   assert.match(releaseReadinessScript, /const MAX_NPM_REGISTRY_RESPONSE_BYTES = 1024 \* 1024/);
   assert.match(releaseReadinessScript, /const NPM_REGISTRY_TIMEOUT_MS = 20_000/);
@@ -736,6 +738,10 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /await assertNpmPackageReady\(packageJson\)/);
   assert.match(releaseReadinessScript, /npm package is missing; bootstrap a lower throwaway version before trusted publishing/);
   assert.match(releaseReadinessScript, /npm package version already exists; bump package\.json before tagging/);
+  assert.match(releaseReadinessScript, /function assertNpmBootstrapState\(metadata, versions\)/);
+  assert.match(releaseReadinessScript, /distTags\[BOOTSTRAP_DIST_TAG\] !== BOOTSTRAP_VERSION/);
+  assert.match(releaseReadinessScript, /distTags\.latest === BOOTSTRAP_VERSION/);
+  assert.match(releaseReadinessScript, /npm bootstrap placeholder is tagged as latest; fix npm dist-tags before releasing\./);
   assert.match(releaseReadinessScript, /function boundedNpmResponseText\(response\)/);
   assert.match(releaseReadinessScript, /npm registry response exceeded the byte limit/);
   assert.match(releaseReadinessScript, /npm registry response was not valid UTF-8/);

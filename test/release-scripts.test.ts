@@ -1710,7 +1710,7 @@ globalThis.fetch = async (url, init = {}) => {
   const path = parsed.pathname + parsed.search;
   record(method, parsed.origin, path);
   const json = (status, body, headers = {}) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
-  if (parsed.origin === "https://registry.npmjs.org" && method === "GET" && path === "/%40victorhaine%2Fp2p-transfer") return json(200, { versions: { "0.0.0-bootstrap.0": {} } });
+  if (parsed.origin === "https://registry.npmjs.org" && method === "GET" && path === "/%40victorhaine%2Fp2p-transfer") return json(200, { versions: { "0.0.0-bootstrap.0": {} }, "dist-tags": { bootstrap: "0.0.0-bootstrap.0" } });
   if (parsed.origin !== "https://api.github.com") return json(500, {});
   if (method === "GET" && path === "/user") return json(200, { login: "operator" }, { "x-oauth-scopes": "repo" });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer") return json(200, { id: 1 });
@@ -1835,7 +1835,7 @@ globalThis.fetch = async (url, init = {}) => {
   const path = parsed.pathname + parsed.search;
   record(method, parsed.origin, path);
   const json = (status, body, headers = {}) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
-  if (parsed.origin === "https://registry.npmjs.org" && method === "GET" && path === "/%40victorhaine%2Fp2p-transfer") return json(200, { versions: { "0.0.0-bootstrap.0": {} } });
+  if (parsed.origin === "https://registry.npmjs.org" && method === "GET" && path === "/%40victorhaine%2Fp2p-transfer") return json(200, { versions: { "0.0.0-bootstrap.0": {} }, "dist-tags": { bootstrap: "0.0.0-bootstrap.0" } });
   if (parsed.origin !== "https://api.github.com") return json(500, {});
   if (method === "GET" && path === "/user") return json(200, { login: "operator" }, { "x-oauth-scopes": "repo" });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer") return json(200, { id: 1 });
@@ -1905,6 +1905,7 @@ import { appendFileSync } from "node:fs";
 const log = process.env.FF_MOCK_PREFLIGHT_LOG;
 const requiredChecks = ${JSON.stringify(REQUIRED_RELEASE_CHECKS)};
 const tagRulesetRef = process.env.FF_MOCK_TAG_RULESET_REF ?? "refs/tags/v*.*.*";
+const bootstrapLatest = process.env.FF_MOCK_BOOTSTRAP_LATEST === "true";
 const mainSha = "0123456789abcdef0123456789abcdef01234567";
 const codeqlRunSha = process.env.FF_MOCK_CODEQL_STALE === "true" ? "ffffffffffffffffffffffffffffffffffffffff" : mainSha;
 
@@ -1963,7 +1964,12 @@ globalThis.fetch = async (url, init = {}) => {
   const path = parsed.pathname + parsed.search;
   record(method, parsed.origin, path);
   const json = (status, body, headers = {}) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
-  if (parsed.origin === "https://registry.npmjs.org" && method === "GET" && path === "/%40victorhaine%2Fp2p-transfer") return json(200, { versions: { "0.0.0-bootstrap.0": {} } });
+  if (parsed.origin === "https://registry.npmjs.org" && method === "GET" && path === "/%40victorhaine%2Fp2p-transfer") {
+    return json(200, {
+      versions: { "0.0.0-bootstrap.0": {} },
+      "dist-tags": bootstrapLatest ? { bootstrap: "0.0.0-bootstrap.0", latest: "0.0.0-bootstrap.0" } : { bootstrap: "0.0.0-bootstrap.0" }
+    });
+  }
   if (parsed.origin !== "https://api.github.com") return json(500, {});
   if (method === "GET" && path === "/user") return json(200, { login: "operator" }, { "x-oauth-scopes": "repo" });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer") return json(200, { id: 1 });
@@ -2059,6 +2065,23 @@ globalThis.fetch = async (url, init = {}) => {
     assert.equal(staleCodeqlResult.stdout, "");
     assert.match(staleCodeqlResult.stderr, /GitHub codeql workflow latest successful main run is not current main\./);
     assert.doesNotMatch(staleCodeqlResult.stderr, /token-that-must-not-be-printed|ffffffffffffffffffffffffffffffffffffffff|api\.github|registry\.npmjs|Error:/);
+
+    const bootstrapLatestResult = runScriptWithNodeArgs(
+      "scripts/check-release-readiness.mjs",
+      {
+        FF_MOCK_PREFLIGHT_LOG: log,
+        FF_MOCK_BOOTSTRAP_LATEST: "true",
+        GITHUB_ACTIONS: "true",
+        GITHUB_ACTOR: "tagger",
+        GITHUB_TOKEN: "ghs_token-that-must-not-be-printed"
+      },
+      [],
+      ["--import", mock]
+    );
+    assert.notEqual(bootstrapLatestResult.status, 0);
+    assert.equal(bootstrapLatestResult.stdout, "");
+    assert.match(bootstrapLatestResult.stderr, /npm bootstrap placeholder is tagged as latest; fix npm dist-tags before releasing\./);
+    assert.doesNotMatch(bootstrapLatestResult.stderr, /token-that-must-not-be-printed|0\.0\.0-bootstrap|api\.github|registry\.npmjs|Error:/);
   } finally {
     await fs.rm(tmp, { force: true, recursive: true });
   }
