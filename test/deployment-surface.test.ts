@@ -210,10 +210,10 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.doesNotMatch(releaseWorkflow, /workflow_dispatch/);
   assert.match(releaseWorkflow, /^concurrency:\n  group: release-\$\{\{ github\.ref \}\}\n  cancel-in-progress: false$/m);
   assert.match(releaseWorkflow, /^on:\n  push:\n    tags:\n      - "v\*\.\*\.\*"$/m);
-  assert.match(securityPolicy, /release tags matching `v\*` must be protected by the checked GitHub repository ruleset before publishing/);
+  assert.match(securityPolicy, /release tags matching `v\*\.\*\.\*` must be protected by the checked GitHub repository ruleset before publishing/);
   assert.match(securityPolicy, /classic tag protection is not validated by release preflight/);
-  assert.match(readme, /exact repository rulesets that release preflight requires for `main` and `v\*` release tags/);
-  assert.match(readme, /The checked repository ruleset for `v\*` tags must be active before the first release/);
+  assert.match(readme, /exact repository rulesets that release preflight requires for `main` and `v\*\.\*\.\*` release tags/);
+  assert.match(readme, /The checked repository ruleset for `v\*\.\*\.\*` tags must be active before the first release/);
   assert.match(securityPolicy, /release tag and package-version matching must use the checked release tag verifier/);
   assert.match(releaseWorkflow, /Verify tag matches package version[\s\S]*run: node scripts\/check-release-tag\.mjs[\s\S]*Verify release tag is on main/);
   assert.doesNotMatch(releaseWorkflow, /readFileSync\('package\.json'|node -p|test "\$\{GITHUB_REF_NAME\}" = "v\$\{version\}"/);
@@ -398,6 +398,8 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(githubReleaseControlsScript, /"PUT", `\/repos\/\$\{options\.repository\}\/environments\/\$\{encodeURIComponent\(NPM_ENVIRONMENT\)\}`/);
   assert.match(githubReleaseControlsScript, /reviewers: await Promise\.all\(options\.npmReviewers\.map\(async \(login\) => \(\{ type: "User", id: await npmReviewerUserId\(token, options\.repository, login\) \}\)\)\)/);
   assert.match(githubReleaseControlsScript, /const NPM_DEPLOYMENT_TAG_POLICY = "v\*\.\*\.\*"/);
+  assert.match(githubReleaseControlsScript, /const RELEASE_TAG_REF_PATTERN = `refs\/tags\/\$\{NPM_DEPLOYMENT_TAG_POLICY\}`/);
+  assert.match(githubReleaseControlsScript, /conditions: \{ ref_name: \{ include: \[RELEASE_TAG_REF_PATTERN\], exclude: \[\] \} \}/);
   assert.match(githubReleaseControlsScript, /can_admins_bypass: false/);
   assert.match(githubReleaseControlsScript, /prevent_self_review: true/);
   assert.match(githubReleaseControlsScript, /deployment_branch_policy: \{ protected_branches: false, custom_branch_policies: true \}/);
@@ -426,7 +428,7 @@ test("checked GitHub release controls setup matches the protected release surfac
   }
 
   assert.match(githubReleaseControlsScript, /conditions: \{ ref_name: \{ include: \["refs\/heads\/main"\], exclude: \[\] \} \}/);
-  assert.match(githubReleaseControlsScript, /conditions: \{ ref_name: \{ include: \["refs\/tags\/v\*"\], exclude: \[\] \} \}/);
+  assert.match(githubReleaseControlsScript, /conditions: \{ ref_name: \{ include: \[RELEASE_TAG_REF_PATTERN\], exclude: \[\] \} \}/);
   assert.match(githubReleaseControlsScript, /type: "pull_request"[\s\S]*require_code_owner_review: true[\s\S]*require_last_push_approval: true[\s\S]*required_approving_review_count: 1[\s\S]*required_review_thread_resolution: true/);
   assert.match(githubReleaseControlsScript, /type: "required_status_checks"[\s\S]*do_not_enforce_on_create: true[\s\S]*strict_required_status_checks_policy: true[\s\S]*required_status_checks: REQUIRED_CI_CHECKS\.map\(\(context\) => \(\{ context, integration_id: GITHUB_ACTIONS_INTEGRATION_ID \}\)\)/);
   assert.match(githubReleaseControlsScript, /bypass_actors: \[\{ actor_type: "RepositoryRole", actor_id: REPOSITORY_ADMIN_ROLE_BYPASS_ACTOR_ID, bypass_mode: "always" \}\]/);
@@ -523,9 +525,9 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(readme, /Once those controls are active, do not direct-push release changes to `main`/);
   assert.match(readme, /For normal releases, fetch `origin\/main` and tag that exact remote commit after the protected pull request has merged/);
   assert.doesNotMatch(readme, /git push -u origin main\nGITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
-  assert.match(readme, /the exact repository rulesets that release preflight requires for `main` and `v\*` release tags/);
+  assert.match(readme, /the exact repository rulesets that release preflight requires for `main` and `v\*\.\*\.\*` release tags/);
   assert.match(readme, /read repository metadata, the `main` branch, Actions secret metadata, repository rulesets including bypass actors, repository environments, and deployment branch policies/);
-  assert.match(readme, /The checked repository ruleset for `v\*` tags must be active before the first release/);
+  assert.match(readme, /The checked repository ruleset for `v\*\.\*\.\*` tags must be active before the first release/);
   assert.doesNotMatch(readme, /create branch protection for `main`|tag protection rule or repository ruleset/);
   assert.match(readme, /GITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
   assert.match(contributing, /pnpm exec playwright install --with-deps chromium\npnpm verify:release\nnode scripts\/write-release-notes\.mjs --check\nDOCKER_SMOKE_TAG=p2p-transfer:test pnpm smoke:docker-policy\ngh auth refresh -h github\.com -s workflow\nGITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
@@ -652,7 +654,8 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /"codeql analyze"/);
   assert.match(releaseReadinessScript, /"dependency review"/);
   assert.match(releaseReadinessScript, /function assertTagRuleset\(ruleset\)/);
-  assert.match(releaseReadinessScript, /assertRulesetBase\(ruleset, TAG_RULESET_NAME, "tag", "refs\/tags\/v\*"\)/);
+  assert.match(releaseReadinessScript, /const RELEASE_TAG_REF_PATTERN = `refs\/tags\/\$\{NPM_DEPLOYMENT_TAG_POLICY\}`/);
+  assert.match(releaseReadinessScript, /assertRulesetBase\(ruleset, TAG_RULESET_NAME, "tag", RELEASE_TAG_REF_PATTERN\)/);
   assert.match(releaseReadinessScript, /rulesByType\(ruleset, TAG_RULESET_NAME, \["creation", "deletion", "non_fast_forward"\]\)/);
   assert.match(releaseReadinessScript, /assertTagBypassActors\(ruleset, TAG_RULESET_NAME\)/);
   assert.match(releaseReadinessScript, /assertRulePresent\(rules, "creation", TAG_RULESET_NAME\)/);
@@ -688,7 +691,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
 
 test("security-sensitive surfaces require code owner review", () => {
   assert.match(securityPolicy, /security-sensitive crypto, protocol, release, dependency, dependency-review artifacts, Docker, server, CLI input\/privacy, browser file-write, and file-publish surfaces must be covered by `\.github\/CODEOWNERS`/);
-  assert.match(readme, /exact repository rulesets that release preflight requires for `main` and `v\*` release tags/);
+  assert.match(readme, /exact repository rulesets that release preflight requires for `main` and `v\*\.\*\.\*` release tags/);
   for (const path of [
     "/.github/",
     "/Dockerfile",
@@ -806,7 +809,7 @@ test("documented release gates require a hardened Docker runtime smoke, not just
   assert.match(securityPolicy, /packed-install smoke that verifier-emitted downloaded tarball path/);
   assert.match(securityPolicy, /pass the verifier-emitted tarball path to packed smoke and `pnpm publish` instead of rediscovering the artifact with `find` or a shell glob after verification/);
   assert.match(securityPolicy, /The release workflow must not support manual dispatch/);
-  assert.match(securityPolicy, /release artifacts, npm publishes, and GitHub Releases must only be produced from `v\*` tag refs that match `package\.json` version/);
+  assert.match(securityPolicy, /release artifacts, npm publishes, and GitHub Releases must only be produced from `v\*\.\*\.\*` tag refs that match `package\.json` version/);
   assert.match(securityPolicy, /package-surface tests must run after the release build/);
   assert.match(securityPolicy, /checked release-artifact verifier/);
   assert.match(securityPolicy, /publish that resolved tarball path with `--ignore-scripts`/);

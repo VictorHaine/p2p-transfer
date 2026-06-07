@@ -571,6 +571,7 @@ import { appendFileSync } from "node:fs";
 
 const log = process.env.FF_MOCK_PREFLIGHT_LOG;
 const requiredChecks = ${JSON.stringify(REQUIRED_RELEASE_CHECKS)};
+const tagRulesetRef = process.env.FF_MOCK_TAG_RULESET_REF ?? "refs/tags/v*.*.*";
 
 function record(method, origin, path) {
   appendFileSync(log, method + " " + origin + path + "\\n", "utf8");
@@ -616,7 +617,7 @@ function tagRuleset() {
     target: "tag",
     enforcement: "active",
     bypass_actors: [{ actor_type: "RepositoryRole", actor_id: 5, bypass_mode: "always" }],
-    conditions: { ref_name: { include: ["refs/tags/v*"], exclude: [] } },
+    conditions: { ref_name: { include: [tagRulesetRef], exclude: [] } },
     rules: [{ type: "creation" }, { type: "deletion" }, { type: "non_fast_forward" }]
   };
 }
@@ -671,6 +672,25 @@ globalThis.fetch = async (url, init = {}) => {
     assert.match(requests, /GET https:\/\/api\.github\.com\/repos\/VictorHaine\/p2p-transfer\/rulesets\/101\n/);
     assert.match(requests, /GET https:\/\/api\.github\.com\/repos\/VictorHaine\/p2p-transfer\/rulesets\/202\n/);
     assert.match(requests, /GET https:\/\/api\.github\.com\/repos\/VictorHaine\/p2p-transfer\/environments\/npm\/deployment-branch-policies\?per_page=100\n$/);
+
+    const broadTagRulesetResult = runScriptWithNodeArgs(
+      "scripts/check-release-readiness.mjs",
+      {
+        FF_MOCK_PREFLIGHT_LOG: log,
+        FF_MOCK_TAG_RULESET_REF: "refs/tags/v*",
+        GITHUB_ACTIONS: "true",
+        GITHUB_TOKEN: "token-that-must-not-be-printed"
+      },
+      [],
+      ["--import", mock]
+    );
+    assert.notEqual(broadTagRulesetResult.status, 0);
+    assert.equal(broadTagRulesetResult.stdout, "");
+    assert.match(
+      broadTagRulesetResult.stderr,
+      /GitHub ruleset ref coverage is not exact for refs\/tags\/v\*\.\*\.\*: p2p-transfer: protect release tags\./
+    );
+    assert.doesNotMatch(broadTagRulesetResult.stderr, /token-that-must-not-be-printed|refs\/tags\/v\*[^.]/);
   } finally {
     await fs.rm(tmp, { force: true, recursive: true });
   }

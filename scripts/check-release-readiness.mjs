@@ -11,6 +11,7 @@ const MAIN_RULESET_NAME = "p2p-transfer: protect main";
 const TAG_RULESET_NAME = "p2p-transfer: protect release tags";
 const NPM_ENVIRONMENT = "npm";
 const NPM_DEPLOYMENT_TAG_POLICY = "v*.*.*";
+const RELEASE_TAG_REF_PATTERN = `refs/tags/${NPM_DEPLOYMENT_TAG_POLICY}`;
 const RELEASE_PREFLIGHT_SECRET = "RELEASE_PREFLIGHT_TOKEN";
 const REPOSITORY_ADMIN_ROLE_BYPASS_ACTOR_ID = 5;
 const GITHUB_ACTIONS_INTEGRATION_ID = 15368;
@@ -389,7 +390,7 @@ function assertMainRuleset(ruleset) {
 }
 
 function assertTagRuleset(ruleset) {
-  assertRulesetBase(ruleset, TAG_RULESET_NAME, "tag", "refs/tags/v*");
+  assertRulesetBase(ruleset, TAG_RULESET_NAME, "tag", RELEASE_TAG_REF_PATTERN);
   const rules = rulesByType(ruleset, TAG_RULESET_NAME, ["creation", "deletion", "non_fast_forward"]);
   assertRulePresent(rules, "creation", TAG_RULESET_NAME);
   assertRulePresent(rules, "deletion", TAG_RULESET_NAME);
