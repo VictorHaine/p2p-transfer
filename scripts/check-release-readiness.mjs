@@ -149,7 +149,7 @@ function assertRulesetBase(ruleset, name, target, refName) {
   if (ruleset.name !== name || ruleset.target !== target || ruleset.enforcement !== "active") throw new Error(`GitHub ruleset details are not active for ${target}: ${name}.`);
   const refConditions = ruleset.conditions?.ref_name;
   const includes = refConditions?.include;
-  if (!Array.isArray(includes) || !includes.includes(refName)) throw new Error(`GitHub ruleset does not protect ${refName}: ${name}.`);
+  if (!Array.isArray(includes) || includes.length !== 1 || includes[0] !== refName) throw new Error(`GitHub ruleset ref coverage is not exact for ${refName}: ${name}.`);
   const excludes = refConditions?.exclude;
   if (!Array.isArray(excludes) || excludes.length !== 0) throw new Error(`GitHub ruleset has ref exclusions: ${name}.`);
 }
