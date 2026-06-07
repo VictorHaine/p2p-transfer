@@ -112,6 +112,10 @@ test("browser interop tests fail closed unless browser skipping is explicit", ()
   assert.match(browserInteropTest, /context\.skip\(missingChromium\)/);
   assert.match(browserInteropTest, /assert\.fail\(missingChromium\)/);
   assert.match(browserInteropTest, /function hasPlaywrightChromium\(\): boolean/);
+  assert.match(browserInteropTest, /async function removeTestTemp\(dir: string\): Promise<void>/);
+  assert.match(browserInteropTest, /await fs\.rm\(dir, \{ recursive: true, force: true \}\);/);
+  assert.doesNotMatch(browserInteropTest, /removeTestTemp[\s\S]*catch\(\(\) => undefined\)/);
+  assert.equal(browserInteropTest.match(/await removeTestTemp\(tmp\);/g)?.length, 12);
   assert.doesNotMatch(browserInteropTest, /skip: chromiumPath \? false : "No Chromium executable found"/);
 });
 

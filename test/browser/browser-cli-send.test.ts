@@ -64,6 +64,7 @@ test("browser sender interoperates with CLI receiver", browserTestOptions, async
   } finally {
     await browser?.close();
     server.kill();
+    await removeTestTemp(tmp);
   }
 });
 
@@ -146,6 +147,7 @@ test("browser sender resumes into CLI receiver partials", browserTestOptions, as
     await ignoreSettled(secondReceiverDone);
     await browser?.close();
     server.kill();
+    await removeTestTemp(tmp);
   }
 });
 
@@ -194,6 +196,7 @@ test("CLI sender interoperates with browser receiver", browserTestOptions, async
   } finally {
     await browser?.close();
     server.kill();
+    await removeTestTemp(tmp);
   }
 });
 
@@ -245,6 +248,7 @@ test("CLI sender interoperates with browser opaque-name download receiver", brow
   } finally {
     await browser?.close();
     server.kill();
+    await removeTestTemp(tmp);
   }
 });
 
@@ -304,6 +308,7 @@ test("CLI sender interoperates with browser folder-only receiver", browserTestOp
   } finally {
     await browser?.close();
     server.kill();
+    await removeTestTemp(tmp);
   }
 });
 
@@ -352,6 +357,7 @@ test("browser folder receiver redacts native filesystem error names", browserTes
     await ignoreSettled(senderDone);
     await browser?.close();
     server.kill();
+    await removeTestTemp(tmp);
   }
 });
 
@@ -399,6 +405,7 @@ test("browser folder receiver does not expose resume for multi-file manifests", 
   } finally {
     await browser?.close();
     server.kill();
+    await removeTestTemp(tmp);
   }
 });
 
@@ -455,6 +462,7 @@ test("CLI sender interoperates with browser opaque-name folder receiver", browse
   } finally {
     await browser?.close();
     server.kill();
+    await removeTestTemp(tmp);
   }
 });
 
@@ -531,6 +539,7 @@ test("browser folder receiver restarts after a corrupted saved partial", browser
   } finally {
     await browser?.close();
     server.kill();
+    await removeTestTemp(tmp);
   }
 });
 
@@ -614,6 +623,7 @@ test("browser folder receiver resumes from a valid saved partial", browserTestOp
   } finally {
     await browser?.close();
     server.kill();
+    await removeTestTemp(tmp);
   }
 });
 
@@ -650,6 +660,7 @@ test("browser startup scrubs legacy resume registry metadata", browserTestOption
   } finally {
     await browser?.close();
     server.kill();
+    await removeTestTemp(tmp);
   }
 });
 
@@ -681,6 +692,7 @@ test("browser clear resume records removes origin resume registry and key store"
   } finally {
     await browser?.close();
     server.kill();
+    await removeTestTemp(tmp);
   }
 });
 
@@ -762,6 +774,10 @@ function terminateChild(child: ChildProcessWithoutNullStreams | undefined): void
 async function ignoreSettled(promise: Promise<unknown> | undefined): Promise<void> {
   if (!promise) return;
   await Promise.race([promise.catch(() => {}), new Promise<void>((resolve) => setTimeout(resolve, 1_000))]);
+}
+
+async function removeTestTemp(dir: string): Promise<void> {
+  await fs.rm(dir, { recursive: true, force: true });
 }
 
 async function waitForCliResumePartial(dir: string): Promise<{ path: string; size: number }> {
