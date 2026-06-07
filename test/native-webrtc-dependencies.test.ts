@@ -4,7 +4,7 @@ import fs from "node:fs";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { assertNoNativeFallbackSurfaces, assertReviewedNativeWebRtcDependencies, nativeWebRtc } from "../src/cli/native-webrtc.js";
+import { assertNoNativeFallbackSurfaces, assertReviewedNativeDependencyEvidence, assertReviewedNativeWebRtcDependencies, nativeWebRtc, type ReviewedNativeDependency } from "../src/cli/native-webrtc.js";
 
 const nativeWebrtcSource = fs.readFileSync(new URL("../src/cli/native-webrtc.ts", import.meta.url), "utf8");
 
@@ -17,6 +17,42 @@ test("native WebRTC loader exposes required constructors after attestation", () 
   assert.equal(typeof wrtc.RTCPeerConnection, "function");
   assert.equal(typeof wrtc.RTCDataChannel, "function");
   assert.equal(typeof wrtc.RTCIceCandidate, "function");
+});
+
+test("native WebRTC attestation rejects changed reviewed metadata", () => {
+  const reviewed: ReviewedNativeDependency = {
+    name: "@scope/native",
+    version: "1.2.3",
+    license: "BSD-2-Clause",
+    repository: { type: "git", url: "git+https://example.invalid/native.git" },
+    homepage: "https://example.invalid/native",
+    bugs: "https://example.invalid/native/issues",
+    main: "lib/index.js",
+    types: "types/index.d.ts",
+    browser: "lib/browser.js",
+    files: ["lib", "types"],
+    scripts: { prepare: "husky" },
+    optionalDependencies: { "@scope/native-darwin-arm64": "1.2.3" }
+  };
+  const packageJson = {
+    name: "@scope/native",
+    version: "1.2.3",
+    license: "BSD-2-Clause",
+    repository: { type: "git", url: "git+https://example.invalid/native.git" },
+    homepage: "https://example.invalid/native",
+    bugs: "https://example.invalid/native/issues",
+    main: "lib/index.js",
+    types: "types/index.d.ts",
+    browser: "lib/browser.js",
+    files: ["lib", "types"],
+    scripts: { prepare: "husky" },
+    optionalDependencies: { "@scope/native-darwin-arm64": "1.2.3" }
+  };
+
+  assert.doesNotThrow(() => assertReviewedNativeDependencyEvidence(nativeEvidence(packageJson), reviewed));
+  assert.throws(() => assertReviewedNativeDependencyEvidence(nativeEvidence({ ...packageJson, scripts: { prepare: "node install.js" } }), reviewed), /evidence/);
+  assert.throws(() => assertReviewedNativeDependencyEvidence(nativeEvidence({ ...packageJson, optionalDependencies: { "@scope/native-darwin-arm64": "^1.2.3" } }), reviewed), /evidence/);
+  assert.throws(() => assertReviewedNativeDependencyEvidence(nativeEvidence({ ...packageJson, dependencies: { "left-pad": "1.3.0" } }), reviewed), /evidence/);
 });
 
 test("native WebRTC attestation rejects local build output precedence", async () => {
@@ -47,3 +83,12 @@ test("native WebRTC attestation rejects nested prebuilt fallback precedence", as
   assert.match(nativeWebrtcSource, /assertResolvedFileWithinPackageRoot\(prebuiltBinary, prebuilt\.root, "Reviewed native WebRTC prebuilt binary"\)/);
   assert.match(nativeWebrtcSource, /assertLoadReviewedNativePrebuilt\(prebuiltBinary\)/);
 });
+
+function nativeEvidence(metadata: Record<string, unknown>) {
+  return {
+    root: "/tmp/reviewed-native-package",
+    name: metadata.name as string,
+    version: metadata.version as string,
+    metadata
+  };
+}
