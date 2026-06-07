@@ -366,6 +366,9 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(githubReleaseControlsScript, /Object\.getOwnPropertyDescriptor\(process\.env, name\)/);
   assert.match(githubReleaseControlsScript, /\$\{name\} must be a non-empty control-free string under/);
   assert.doesNotMatch(githubReleaseControlsScript, /process\.env\.GITHUB_TOKEN|process\.env\.GH_TOKEN|process\.env\.GITHUB_REPOSITORY/);
+  assert.match(githubReleaseControlsScript, /const authenticatedLogin = requiredAuthenticatedLogin\(await github\(token, "GET", "\/user"\)\)/);
+  assert.match(githubReleaseControlsScript, /assertNoSelfReviewDeadlock\(options\.npmReviewers, authenticatedLogin\)/);
+  assert.match(githubReleaseControlsScript, /assertEnvironmentDoesNotSelfReviewDeadlock\(environment, authenticatedLogin\)/);
   assert.ok(
     githubReleaseControlsScript.indexOf("class GitHubApiError") < githubReleaseControlsScript.indexOf("if (isMain())"),
     "GitHub API errors must be initialized before the direct entrypoint can run"
@@ -410,11 +413,22 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(githubReleaseControlsScript, /Push main before applying GitHub release controls\./);
   assert.match(githubReleaseControlsScript, /The npm environment exists but has no required reviewers protection rule\./);
   assert.match(githubReleaseControlsScript, /The npm environment must prevent self-review\./);
+  assert.match(githubReleaseControlsScript, /function requiredAuthenticatedLogin\(user\)/);
+  assert.match(githubReleaseControlsScript, /Authenticated GitHub user response was invalid\./);
+  assert.match(githubReleaseControlsScript, /function assertNoSelfReviewDeadlock\(reviewers, authenticatedLogin\)/);
+  assert.match(githubReleaseControlsScript, /Npm environment sole reviewer must not be the authenticated release setup operator\./);
+  assert.match(githubReleaseControlsScript, /function assertEnvironmentDoesNotSelfReviewDeadlock\(environment, authenticatedLogin\)/);
+  assert.match(githubReleaseControlsScript, /The npm environment sole required reviewer is the authenticated release setup operator\./);
+  assert.match(githubReleaseControlsScript, /function reviewerLogin\(reviewerEntry\)/);
   assert.match(githubReleaseControlsScript, /--npm-reviewer/);
   assert.match(githubReleaseControlsScript, /--prevent-self-review/);
   assert.match(githubReleaseControlsScript, /GitHub npm environment self-review must stay disabled\./);
   assert.doesNotMatch(githubReleaseControlsScript, /\[--prevent-self-review\|--allow-self-review\]|options\.preventSelfReview/);
   assert.match(githubReleaseControlsScript, /Npm environment reviewer must be a GitHub username\./);
+  assert.match(githubReleaseControlsScript, /npmReviewerKeys: new Set\(\)/);
+  assert.match(githubReleaseControlsScript, /const reviewerKey = value\.toLowerCase\(\)/);
+  assert.match(githubReleaseControlsScript, /if \(options\.npmReviewerKeys\.has\(reviewerKey\)\) throw new Error\("Npm environment reviewers must be unique\."\)/);
+  assert.match(githubReleaseControlsScript, /delete options\.npmReviewerKeys/);
   assert.match(githubReleaseControlsScript, /Npm environment reviewers must be unique\./);
   assert.match(githubReleaseControlsScript, /Npm environment can have at most \$\{MAX_NPM_ENVIRONMENT_REVIEWERS\} reviewers\./);
   assert.ok(
@@ -429,12 +443,15 @@ test("checked GitHub release controls setup matches the protected release surfac
   );
 
   assert.match(readme, /create the `npm` environment[\s\S]*required reviewers with self-review prevention/);
-  assert.match(readme, /scripts\/configure-github-release-controls\.mjs --apply --npm-reviewer <github-login>/);
+  assert.match(readme, /scripts\/configure-github-release-controls\.mjs --apply --npm-reviewer <release-approver-login>/);
   assert.match(readme, /creates\/updates the `npm` environment approval gate with self-review prevention plus the branch and release-tag rulesets/);
-  assert.match(readme, /refuses to mutate repository rulesets if the `npm` environment still has no required-reviewer protection/);
+  assert.match(readme, /refuses to create a sole-reviewer self-approval deadlock/);
+  assert.match(readme, /refuses to mutate repository rulesets if the `npm` environment still has no required-reviewer protection or still has the authenticated setup operator as its sole required reviewer/);
   assert.match(securityPolicy, /setup script must be able to create or update the `npm` environment approval gate from explicit reviewers with self-review prevention/);
   assert.match(securityPolicy, /must not expose an option that writes `prevent_self_review: false`/);
-  assert.match(securityPolicy, /setup script must[\s\S]*fail before mutating repository rulesets when the `npm` environment is missing required-reviewer protection/);
+  assert.match(securityPolicy, /release setup must reject malformed or duplicate GitHub rulesets list entries/);
+  assert.match(securityPolicy, /setup script must reject sole-reviewer self-approval deadlocks/);
+  assert.match(securityPolicy, /fail before mutating repository rulesets when the `npm` environment is missing required-reviewer protection or has the authenticated setup operator as its sole required reviewer/);
   assert.match(securityPolicy, /GitHub release setup and release preflight scripts must read token and repository environment variables through own data descriptors[\s\S]*send GitHub API requests with an abort deadline/);
   assert.match(securityPolicy, /byte-cap and fatal-UTF-8\/JSON-decode GitHub API responses with setup-owned deterministic errors/);
   assert.match(securityPolicy, /avoid echoing token, malformed environment values, remote response messages, or raw API response bodies in errors/);

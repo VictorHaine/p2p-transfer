@@ -47,12 +47,14 @@ if (isMain()) {
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   const token = githubToken();
+  const authenticatedLogin = requiredAuthenticatedLogin(await github(token, "GET", "/user"));
 
   const repo = await github(token, "GET", `/repos/${options.repository}`);
   if (!repo || typeof repo.id !== "number") throw new Error("GitHub repository response was invalid.");
   if (options.requireMain) await requireRemoteMain(token, options.repository);
 
   const desired = [mainRuleset(), tagRuleset()];
+  assertNoSelfReviewDeadlock(options.npmReviewers, authenticatedLogin);
   const desiredEnvironment = options.npmReviewers.length > 0 ? await npmEnvironmentConfig(token, options) : undefined;
   let environment = await github(token, "GET", `/repos/${options.repository}/environments/${encodeURIComponent(NPM_ENVIRONMENT)}`).catch((error) => {
     if (error instanceof GitHubApiError && error.status === 404) return undefined;
@@ -77,6 +79,7 @@ async function main() {
   if (!status.preventsSelfReview) {
     throw new Error("The npm environment must prevent self-review.");
   }
+  assertEnvironmentDoesNotSelfReviewDeadlock(environment, authenticatedLogin);
 
   for (const ruleset of desired) {
     const existing = existingByName.get(ruleset.name);
@@ -175,6 +178,33 @@ async function userId(token, login) {
   return user.id;
 }
 
+function requiredAuthenticatedLogin(user) {
+  const login = user?.login;
+  if (typeof login !== "string" || !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(login)) throw new Error("Authenticated GitHub user response was invalid.");
+  return login;
+}
+
+function assertNoSelfReviewDeadlock(reviewers, authenticatedLogin) {
+  if (reviewers.length === 1 && reviewers[0].toLowerCase() === authenticatedLogin.toLowerCase()) {
+    throw new Error("Npm environment sole reviewer must not be the authenticated release setup operator.");
+  }
+}
+
+function assertEnvironmentDoesNotSelfReviewDeadlock(environment, authenticatedLogin) {
+  const requiredReviewers = Array.isArray(environment?.protection_rules) ? environment.protection_rules.find((rule) => rule?.type === "required_reviewers") : undefined;
+  const reviewers = requiredReviewers?.reviewers;
+  if (Array.isArray(reviewers) && reviewers.length === 1 && reviewerLogin(reviewers[0])?.toLowerCase() === authenticatedLogin.toLowerCase()) {
+    throw new Error("The npm environment sole required reviewer is the authenticated release setup operator.");
+  }
+}
+
+function reviewerLogin(reviewerEntry) {
+  const type = reviewerEntry?.type ?? reviewerEntry?.reviewer?.type;
+  if (type !== "User") return undefined;
+  const login = reviewerEntry?.reviewer?.login ?? reviewerEntry?.login;
+  return typeof login === "string" ? login : undefined;
+}
+
 function environmentStatus(environment) {
   const requiredReviewers = Array.isArray(environment?.protection_rules) ? environment.protection_rules.find((rule) => rule?.type === "required_reviewers") : undefined;
   return {
@@ -270,7 +300,7 @@ function githubApiErrorMessage(status) {
 }
 
 function parseArgs(args) {
-  const options = { apply: false, repository: repositoryInput(envString("GITHUB_REPOSITORY") || DEFAULT_REPOSITORY), requireMain: true, npmReviewers: [] };
+  const options = { apply: false, repository: repositoryInput(envString("GITHUB_REPOSITORY") || DEFAULT_REPOSITORY), requireMain: true, npmReviewers: [], npmReviewerKeys: new Set() };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === "--apply") {
@@ -285,8 +315,10 @@ function parseArgs(args) {
     } else if (arg === "--npm-reviewer") {
       const value = args[++index];
       if (!value || !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(value)) throw new Error("Npm environment reviewer must be a GitHub username.");
-      if (options.npmReviewers.includes(value)) throw new Error("Npm environment reviewers must be unique.");
+      const reviewerKey = value.toLowerCase();
+      if (options.npmReviewerKeys.has(reviewerKey)) throw new Error("Npm environment reviewers must be unique.");
       if (options.npmReviewers.length >= MAX_NPM_ENVIRONMENT_REVIEWERS) throw new Error(`Npm environment can have at most ${MAX_NPM_ENVIRONMENT_REVIEWERS} reviewers.`);
+      options.npmReviewerKeys.add(reviewerKey);
       options.npmReviewers.push(value);
     } else if (arg === "--prevent-self-review") {
       continue;
@@ -296,6 +328,7 @@ function parseArgs(args) {
       throw new Error("Usage: node scripts/configure-github-release-controls.mjs [--dry-run|--apply] [--repo owner/name] [--allow-missing-main] [--npm-reviewer login] [--prevent-self-review]");
     }
   }
+  delete options.npmReviewerKeys;
   return options;
 }
 
