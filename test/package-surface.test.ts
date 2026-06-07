@@ -38,6 +38,7 @@ const releaseArtifactSmokeScript = fs.readFileSync(new URL("../scripts/smoke-rel
 const dockerPolicySmokeScript = fs.readFileSync(new URL("../scripts/smoke-docker-policy.mjs", import.meta.url), "utf8");
 const nativeSmokeScript = fs.readFileSync(new URL("../scripts/smoke-native.mjs", import.meta.url), "utf8");
 const installStateScript = fs.readFileSync(new URL("../scripts/check-install-state.mjs", import.meta.url), "utf8");
+const cliCryptoDependenciesSource = fs.readFileSync(new URL("../src/cli/crypto-dependencies.ts", import.meta.url), "utf8");
 const releaseTagScript = fs.readFileSync(new URL("../scripts/check-release-tag.mjs", import.meta.url), "utf8");
 const releaseMainScript = fs.readFileSync(new URL("../scripts/check-release-main.mjs", import.meta.url), "utf8");
 const releaseArtifactScript = fs.readFileSync(new URL("../scripts/verify-release-artifact.mjs", import.meta.url), "utf8");
@@ -889,6 +890,18 @@ test("critical PAKE dependency identity and install surface stay reviewed", () =
   assert.match(cpaceReview, /Direct runtime dependencies reviewed: `@cipherman\/pake-js@0\.1\.1` and `@noble\/curves@1\.9\.7`/);
   assert.match(cpaceReview, /Package runtime dependency declaration reviewed: `@noble\/curves` is declared as `\^1\.6\.0` upstream/);
   assert.match(cpaceReview, /Consumer resolution hardening reviewed: this package also declares `@noble\/curves@1\.9\.7` as a direct exact production dependency/);
+  assert.match(cpaceReview, /Runtime consumer-install hardening reviewed: CLI send and receive fail closed unless the resolved package graph matches/);
+  assert.match(cliCryptoDependenciesSource, /const REVIEWED_CRYPTO_DEPENDENCIES = \{/);
+  assert.match(cliCryptoDependenciesSource, /pake: \{ name: "@cipherman\/pake-js", version: "0\.1\.1" \}/);
+  assert.match(cliCryptoDependenciesSource, /pakeCurves: \{ name: "@noble\/curves", version: "1\.9\.7" \}/);
+  assert.match(cliCryptoDependenciesSource, /curvesHashes: \{ name: "@noble\/hashes", version: "1\.8\.0" \}/);
+  assert.match(cliCryptoDependenciesSource, /directHashes: \{ name: "@noble\/hashes", version: "2\.2\.0" \}/);
+  assert.match(cliCryptoDependenciesSource, /requireFromCli\.resolve\("@cipherman\/pake-js"\)/);
+  assert.match(cliCryptoDependenciesSource, /requireFromPake\.resolve\("@noble\/curves\/ed25519\.js"\)/);
+  assert.match(cliCryptoDependenciesSource, /requireFromCurves\.resolve\("@noble\/hashes\/sha2\.js"\)/);
+  assert.match(cliCryptoDependenciesSource, /requireFromCli\.resolve\("@noble\/hashes\/hkdf\.js"\)/);
+  assert.match(cliCryptoDependenciesSource, /Reviewed cryptographic dependency versions are not installed\./);
+  assert.doesNotMatch(cliCryptoDependenciesSource, /console\.|process\.exit|resolvedFile\}/);
   assert.match(cpaceReview, /Locked crypto dependency reviewed: `@noble\/curves@1\.9\.7`, with `@noble\/hashes@1\.8\.0`/);
   assert.match(cpaceReview, new RegExp(`Reviewed lockfile integrity for \`@cipherman/pake-js@0\\.1\\.1\`: \`${escapeRegExp(reviewedPakeIntegrity)}\``));
   assert.match(

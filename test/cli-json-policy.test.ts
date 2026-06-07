@@ -54,12 +54,16 @@ test("CLI exit handling does not truncate piped output with direct process.exit"
 
 test("CLI receive validates supplied codes before filesystem or signaling side effects", () => {
   assert.match(securityPolicy, /CLI receive codes supplied with `recv --code` must be validated before output-directory creation or signaling connection setup/);
+  assert.match(securityPolicy, /CLI send and receive commands must verify the reviewed runtime cryptographic dependency graph before opening local send files, creating receive output directories, or connecting to signaling/);
   assert.match(securityPolicy, /interactive receive flows must emit a generic no-values warning to human stderr when `recv --code` accepts a supplied receive code from argv unless JSON or quiet output is selected/);
   for (const source of [cliSource, distCliSource]) {
     const recvBody = extractFunctionBody(source, "recv");
     assert.match(recvBody, /const suppliedCode = await resolveRecvCode\(options\)/);
+    assert.match(recvBody, /assertReviewedCryptoDependencies\(\)/);
     assert.equal(recvBody.indexOf("resolveRecvCode(options)") < recvBody.indexOf("ensureOutputDir(options.out)"), true);
+    assert.equal(recvBody.indexOf("assertReviewedCryptoDependencies()") < recvBody.indexOf("ensureOutputDir(options.out)"), true);
     assert.equal(recvBody.indexOf("resolveRecvCode(options)") < recvBody.indexOf("openSignaling(options.server)"), true);
+    assert.equal(recvBody.indexOf("assertReviewedCryptoDependencies()") < recvBody.indexOf("openSignaling(options.server)"), true);
     assert.match(recvBody, /registerReceiver\(signaling, suppliedCode\)/);
 
     assert.match(source, /function resolveRecvCode/);
@@ -77,6 +81,12 @@ test("CLI send supports non-argv code and file path input", () => {
   assert.match(securityPolicy, /interactive send flows must emit a generic no-values warning to human stderr whenever a receive code or local file path is still accepted from argv unless JSON or quiet output is selected/);
   assert.match(securityPolicy, /interactive receive flows must emit a generic no-values warning to human stderr when `recv --code` accepts a supplied receive code from argv unless JSON or quiet output is selected/);
   for (const source of [cliSource, distCliSource]) {
+    const sendBody = extractFunctionBody(source, "send");
+    assert.match(sendBody, /const parsedCode = parseRequiredCode\(code\)/);
+    assert.match(sendBody, /assertReviewedCryptoDependencies\(\)/);
+    assert.equal(sendBody.indexOf("parseRequiredCode(code)") < sendBody.indexOf("assertReviewedCryptoDependencies()"), true);
+    assert.equal(sendBody.indexOf("assertReviewedCryptoDependencies()") < sendBody.indexOf("buildManifest(paths)"), true);
+    assert.equal(sendBody.indexOf("assertReviewedCryptoDependencies()") < sendBody.indexOf("openSignaling(options.server)"), true);
     assert.match(source, /process\.title = "ff"/);
     assert.match(source, /\.option\("--out <dir>", "output directory"\)/);
     assert.match(source, /out: options\.out \?\? process\.cwd\(\)/);

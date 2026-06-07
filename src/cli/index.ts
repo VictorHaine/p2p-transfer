@@ -20,6 +20,7 @@ import { PACKAGE_VERSION } from "../shared/package-info.js";
 import { generateCode, normalizeCode, parseCode } from "../shared/wordlist.js";
 import { openManifest, pairDecisionAuthTag, sdpAuthTag, sealManifest, verifyPairDecisionAuthTag, verifySignalAuthTag, wipeSessionKeys, type SessionKeys } from "../shared/security.js";
 import { cloneIceServers } from "../shared/ice.js";
+import { assertReviewedCryptoDependencies } from "./crypto-dependencies.js";
 import { buildManifest, closeSendFiles, ensureOutputDir } from "./files.js";
 import { classifyExitCode, safeErrorMessage } from "./exit-codes.js";
 import { onInterrupt, withInterrupt } from "./interrupt.js";
@@ -122,6 +123,7 @@ program.parse();
 
 async function recv(options: RecvOptions): Promise<void> {
   const suppliedCode = await resolveRecvCode(options);
+  assertReviewedCryptoDependencies();
   const outDir = await ensureOutputDir(options.out);
 
   const signaling = await openSignaling(options.server);
@@ -291,6 +293,7 @@ async function getIceServersAfterAccept(signaling: SignalingClient, fallback: RT
 
 async function send(code: string, paths: string[], options: CommonOptions): Promise<void> {
   const parsedCode = parseRequiredCode(code);
+  assertReviewedCryptoDependencies();
   const { files, manifest } = await buildManifest(paths);
   let signaling: SignalingClient | undefined;
   let peer: ReturnType<typeof createPeer> | undefined;
