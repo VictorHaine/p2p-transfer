@@ -2228,7 +2228,18 @@ function idbTransactionDone(transaction: IDBTransaction): Promise<void> {
 function isBrowserResumeLookupKey(value: unknown): value is CryptoKey {
   if (typeof CryptoKey === "undefined" || !(value instanceof CryptoKey)) return false;
   const algorithm = value.algorithm;
-  return value.type === "secret" && value.extractable === false && algorithm.name === "HMAC" && value.usages.length === 1 && value.usages[0] === "sign";
+  const hash = (algorithm as HmacKeyAlgorithm).hash;
+  return (
+    value.type === "secret" &&
+    value.extractable === false &&
+    algorithm.name === "HMAC" &&
+    (algorithm as HmacKeyAlgorithm).length === 256 &&
+    typeof hash === "object" &&
+    hash !== null &&
+    hash.name === "SHA-256" &&
+    value.usages.length === 1 &&
+    value.usages[0] === "sign"
+  );
 }
 
 function hexBytes(bytes: Uint8Array): string {

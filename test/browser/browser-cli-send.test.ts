@@ -122,6 +122,8 @@ test("CLI sender interoperates with browser folder-only receiver", { skip: chrom
     browser = await chromium.launch(chromiumLaunchOptions());
     const page = await browser.newPage();
     await installFolderPickerMock(page);
+    await page.goto(`http://127.0.0.1:${port}/healthz`);
+    await seedInvalidBrowserResumeState(page);
     await page.goto(`http://127.0.0.1:${port}/`);
     assert.deepEqual(await folderPickerProbe(page), { hasMock: true, pickerType: "function", hasGetFileHandle: true });
     await page.locator("#serverUrl").fill(serverUrl);
@@ -149,6 +151,8 @@ test("CLI sender interoperates with browser folder-only receiver", { skip: chrom
     assert.equal(folder.pickerCalls, 2);
     assert.deepEqual(folder.partFiles, []);
     assert.equal(folder.removed.some((name) => /\.part$/.test(name)), true);
+    assert.equal(await browserResumeRegistry(page), null);
+    assert.deepEqual(await browserResumeLookupKeyAlgorithm(page), { name: "HMAC", hash: "SHA-256", length: 256 });
   } finally {
     await browser?.close();
     server.kill();
@@ -416,6 +420,61 @@ function folderPickerProbe(page: Page): Promise<{ hasMock: boolean; pickerType: 
     const hasMock = Boolean(probeWindow.__ffTestFs);
     const directory = hasMock ? await probeWindow.showDirectoryPicker?.() : undefined;
     return { hasMock, pickerType: typeof probeWindow.showDirectoryPicker, hasGetFileHandle: typeof directory?.getFileHandle === "function" };
+  });
+}
+
+async function seedInvalidBrowserResumeState(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const invalidKey = await crypto.subtle.generateKey({ name: "HMAC", hash: "SHA-1", length: 256 }, false, ["sign"]);
+    const request = indexedDB.open("ff.browserReceiveResume.keys.v1", 1);
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onupgradeneeded = () => request.result.createObjectStore("keys");
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      const transaction = db.transaction("keys", "readwrite");
+      transaction.objectStore("keys").put(invalidKey, "lookup");
+      await new Promise<void>((resolve, reject) => {
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error);
+        transaction.onabort = () => reject(transaction.error);
+      });
+    } finally {
+      db.close();
+    }
+    localStorage.setItem(
+      "ff.browserReceiveResume.v1",
+      JSON.stringify({
+        [`ff.resume.v2:${"a".repeat(64)}`]: { partName: `ff-${"b".repeat(32)}.part`, updatedAt: 1 }
+      })
+    );
+  });
+}
+
+function browserResumeRegistry(page: Page): Promise<string | null> {
+  return page.evaluate(() => localStorage.getItem("ff.browserReceiveResume.v1"));
+}
+
+function browserResumeLookupKeyAlgorithm(page: Page): Promise<{ name: string; hash: string; length: number | undefined }> {
+  return page.evaluate(async () => {
+    const request = indexedDB.open("ff.browserReceiveResume.keys.v1", 1);
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      const transaction = db.transaction("keys", "readonly");
+      const key = await new Promise<CryptoKey>((resolve, reject) => {
+        const get = transaction.objectStore("keys").get("lookup");
+        get.onsuccess = () => resolve(get.result as CryptoKey);
+        get.onerror = () => reject(get.error);
+      });
+      const algorithm = key.algorithm as HmacKeyAlgorithm;
+      return { name: algorithm.name, hash: algorithm.hash.name, length: algorithm.length };
+    } finally {
+      db.close();
+    }
   });
 }
 

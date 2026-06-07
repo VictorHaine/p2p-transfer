@@ -117,6 +117,7 @@ async function rulesetDetails(token, repository, id) {
 
 function assertMainRuleset(ruleset) {
   assertRulesetBase(ruleset, MAIN_RULESET_NAME, "branch", "refs/heads/main");
+  assertNoBypassActors(ruleset, MAIN_RULESET_NAME);
   const rules = rulesByType(ruleset);
   assertRulePresent(rules, "deletion", MAIN_RULESET_NAME);
   assertRulePresent(rules, "non_fast_forward", MAIN_RULESET_NAME);
@@ -140,16 +141,32 @@ function assertTagRuleset(ruleset) {
   assertRulePresent(rules, "creation", TAG_RULESET_NAME);
   assertRulePresent(rules, "deletion", TAG_RULESET_NAME);
   assertRulePresent(rules, "non_fast_forward", TAG_RULESET_NAME);
-  const bypass = Array.isArray(ruleset?.bypass_actors) ? ruleset.bypass_actors : [];
-  const adminBypass = bypass.find((actor) => actor?.actor_type === "RepositoryRole" && actor?.actor_id === REPOSITORY_ADMIN_ROLE_BYPASS_ACTOR_ID && actor?.bypass_mode === "always");
-  if (!adminBypass) throw new Error(`${TAG_RULESET_NAME} admin bypass policy is not configured.`);
+  assertTagBypassActors(ruleset, TAG_RULESET_NAME);
 }
 
 function assertRulesetBase(ruleset, name, target, refName) {
   if (!ruleset || typeof ruleset !== "object") throw new Error(`GitHub ruleset details are invalid: ${name}.`);
   if (ruleset.name !== name || ruleset.target !== target || ruleset.enforcement !== "active") throw new Error(`GitHub ruleset details are not active for ${target}: ${name}.`);
-  const includes = ruleset.conditions?.ref_name?.include;
+  const refConditions = ruleset.conditions?.ref_name;
+  const includes = refConditions?.include;
   if (!Array.isArray(includes) || !includes.includes(refName)) throw new Error(`GitHub ruleset does not protect ${refName}: ${name}.`);
+  const excludes = refConditions?.exclude;
+  if (!Array.isArray(excludes) || excludes.length !== 0) throw new Error(`GitHub ruleset has ref exclusions: ${name}.`);
+}
+
+function assertNoBypassActors(ruleset, name) {
+  if (!Array.isArray(ruleset?.bypass_actors) || ruleset.bypass_actors.length !== 0) {
+    throw new Error(`${name} must not allow bypass actors.`);
+  }
+}
+
+function assertTagBypassActors(ruleset, name) {
+  const bypass = ruleset?.bypass_actors;
+  if (!Array.isArray(bypass) || bypass.length !== 1) throw new Error(`${name} bypass policy is not exact.`);
+  const actor = bypass[0];
+  if (actor?.actor_type !== "RepositoryRole" || actor?.actor_id !== REPOSITORY_ADMIN_ROLE_BYPASS_ACTOR_ID || actor?.bypass_mode !== "always") {
+    throw new Error(`${name} admin bypass policy is not configured.`);
+  }
 }
 
 function rulesByType(ruleset) {

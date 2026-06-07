@@ -5,6 +5,7 @@ import fs from "node:fs";
 const webSource = fs.readFileSync(new URL("../src/web/main.ts", import.meta.url), "utf8");
 const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
 const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
+const browserInteropTest = fs.readFileSync(new URL("./browser/browser-cli-send.test.ts", import.meta.url), "utf8");
 const distWebBundle = readDistWebBundle();
 
 test("browser UI prevents overlapping send and receive operations from one tab", () => {
@@ -248,7 +249,7 @@ test("browser receive resume is explicit and limited to saved opaque folder part
   assert.match(resumeKeyBody, /return `\$\{BROWSER_RESUME_KEY_PREFIX\}\$\{hexBytes\(mac\)\}`;/);
   assert.doesNotMatch(resumeKeyBody, /return JSON\.stringify/);
   assert.match(webSource, /function canonicalBrowserResumeIdentity\(manifest: FileManifest, file: TransferManifest\["files"\]\[number\]\): string/);
-  assert.match(securityPolicy, /browser receive resume registry keys must be HMAC identifiers over canonical manifest identity using a non-extractable browser-held lookup key/);
+  assert.match(securityPolicy, /browser receive resume registry keys must be HMAC identifiers over canonical manifest identity using a non-extractable browser-held HMAC-SHA-256 lookup key with 256-bit key material/);
   assert.match(securityPolicy, /production browser deployments that use browser resume should run on a dedicated origin/);
   assert.match(readme, /Host the browser client on a dedicated origin/);
   assert.match(securityPolicy, /missing, invalid, or unavailable browser resume lookup keys must clear the resume registry before a fresh key is used/);
@@ -263,7 +264,11 @@ test("browser receive resume is explicit and limited to saved opaque folder part
   assert.doesNotMatch(webSource, /rememberBrowserResumePartial\(resumeKey, \{(?:(?!\}\);)[\s\S])*(?:finalName|size)/);
   assert.match(webSource, /const \{ name: partName, handle \} = await createAvailableBrowserFile\(directory, opaqueBrowserPartName\(\), browserPartCandidateName\)/);
   assert.equal(webSource.includes("const BROWSER_RESUME_STORAGE_ENTRY_KEY = /^ff\\.resume\\.v2:[a-f0-9]{64}$/;"), true);
-  assert.match(webSource, /function isBrowserResumeLookupKey\(value: unknown\): value is CryptoKey \{[\s\S]*value\.type === "secret"[\s\S]*value\.extractable === false[\s\S]*algorithm\.name === "HMAC"/);
+  assert.match(webSource, /function isBrowserResumeLookupKey\(value: unknown\): value is CryptoKey \{[\s\S]*value\.type === "secret"[\s\S]*value\.extractable === false[\s\S]*algorithm\.name === "HMAC"[\s\S]*length === 256[\s\S]*hash\.name === "SHA-256"/);
+  assert.match(browserInteropTest, /seedInvalidBrowserResumeState\(page\)/);
+  assert.match(browserInteropTest, /hash: "SHA-1"/);
+  assert.match(browserInteropTest, /browserResumeRegistry\(page\), null/);
+  assert.match(browserInteropTest, /browserResumeLookupKeyAlgorithm\(page\), \{ name: "HMAC", hash: "SHA-256", length: 256 \}/);
   assert.match(webSource, /pruneBrowserResumeRegistry\(\);[\s\S]*const app = document\.querySelector/);
   assert.match(webSource, /function sanitizeBrowserResumeRegistry\(registry: Record<string, unknown>\): Record<string, unknown>/);
   assert.match(webSource, /if \(!BROWSER_RESUME_STORAGE_ENTRY_KEY\.test\(entryKey\)\) \{[\s\S]*changed = true;[\s\S]*continue;/);
