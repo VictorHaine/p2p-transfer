@@ -145,7 +145,7 @@ unset FF_RECEIVE_CODE
 `--code-env` only avoids argv and shell-history exposure. Environment variables are not a secrecy boundary against process-environment telemetry, same-user inspection windows, privileged endpoint tools, or MDM/EDR.
 Interactive send commands print a generic warning on stderr whenever the receive code or local file paths are still accepted from argv. `recv --code` prints the same kind of generic warning for supplied receive codes in argv. The warnings never include the code or paths, and they are suppressed for `--json`, `--quiet`, and non-TTY stderr.
 Use `--require-private-input` in automation that must fail closed instead of accepting receive codes or send code/file paths from argv.
-Use `--local-private-mode` when you want the local CLI privacy preset: it enables `--require-private-input` and `--redact-output`, and for `recv` also enables `--opaque-output-names`.
+Use `--local-private-mode` when you want the local CLI privacy preset: it enables `--require-private-input` and `--redact-output`, and for `recv` also enables `--opaque-output-names`. Because generated receive codes would be redacted, `recv --local-private-mode` requires `--code-stdin` or `--code-env`.
 
 Useful CLI flags:
 
@@ -154,7 +154,7 @@ Useful CLI flags:
 - `--quiet`: suppress human-readable progress.
 - `--redact-output`: redact transfer codes, SAS, file names, MIME types, file counts, byte counts, and per-file placeholders from local CLI output, JSON events, and error text for log-collected automation. It does not hide signaling/server metadata, peer-visible metadata, endpoint telemetry, ICE candidates, timing, or traffic shape.
 - `--require-private-input`: reject `recv --code`, `send <code>`, and send file paths supplied through argv; use `--code-stdin`/`--code-env` plus `--files-stdin` instead.
-- `--local-private-mode`: enable the local privacy preset (`--require-private-input`, `--redact-output`, and `recv --opaque-output-names`). It is a local CLI guardrail only, not protection from privileged endpoint monitoring or network metadata.
+- `--local-private-mode`: enable the local privacy preset (`--require-private-input`, `--redact-output`, and `recv --opaque-output-names`). It is a local CLI guardrail only, not protection from privileged endpoint monitoring or network metadata. Receivers must supply a private code with `recv --code-stdin` or `recv --code-env` because generated codes are intentionally redacted.
 - `--relay`: force relay-only ICE when TURN is configured, reducing local and public endpoint candidate exposure to peers and signaling logs.
 - `--no-server-ice`: ignore signaling-provided STUN/TURN endpoints and use only the built-in public STUN defaults. This reduces trust in the rendezvous operator's ICE configuration, but disables that server's TURN fallback.
 - `send --code-stdin`: read the receive code from piped stdin instead of argv.

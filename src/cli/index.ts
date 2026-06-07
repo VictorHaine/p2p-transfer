@@ -443,6 +443,7 @@ async function send(code: string, paths: string[], options: CommonOptions): Prom
 
 async function resolveRecvCode(options: RecvOptions): Promise<ResolvedRecvCode | undefined> {
   const sourceCount = Number(options.code !== undefined) + Number(Boolean(options.codeStdin)) + Number(options.codeEnv !== undefined);
+  if (sourceCount === 0 && options.localPrivateMode) throw new Error("Receive code stdin or environment input is required by --local-private-mode.");
   if (sourceCount === 0) return undefined;
   if (sourceCount > 1) throw new Error("Use only one receive code input source.");
   if (options.code !== undefined) {
