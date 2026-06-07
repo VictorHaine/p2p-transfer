@@ -26,15 +26,19 @@ test("CLI json mode emits structured sanitized error events instead of plain std
 });
 
 test("CLI redacted output mode removes file metadata from JSON and progress events", () => {
-  assert.match(securityPolicy, /CLI `--redact-output` must remove file names, MIME types, and byte counts from CLI JSON, human transfer output, and error output/);
-  assert.match(readme, /`--redact-output`: redact file names, MIME types, and byte counts from CLI output, JSON events, and error text/);
+  assert.match(securityPolicy, /CLI `--redact-output` must remove transfer codes, rendezvous prefixes, SAS values, file names, MIME types, exact file counts, per-file placeholder counts, and byte counts from CLI JSON, human transfer output, and error output/);
+  assert.match(readme, /`--redact-output`: redact transfer codes, SAS, file names, MIME types, file counts, byte counts, and per-file placeholders from local CLI output, JSON events, and error text/);
+  assert.match(readme, /It does not hide signaling\/server metadata, peer-visible metadata, endpoint telemetry, ICE candidates, timing, or traffic shape/);
   assert.match(readme, /CLI output is metadata-bearing by default for consent, progress, and detailed failures/);
-  assert.match(cliSource, /\.option\("--redact-output", "redact file names, MIME types, and byte counts from CLI output, JSON events, and error text"\)/);
-  assert.match(cliSource, /options\.redactOutput \? \{ event: "pair_requested", sid: joined\.sid, fileCount: manifest\.fileCount \} : \{ event: "pair_requested", sid: joined\.sid, files: manifest\.fileCount, totalBytes: manifest\.totalBytes \}/);
-  assert.match(cliSource, /options\.redactOutput \? `Waiting for receiver to accept \$\{manifest\.fileCount\} file\(s\)\. SAS \$\{keys\.sas\}` : `Waiting for receiver to accept \$\{manifest\.fileCount\} file\(s\), \$\{formatBytes\(manifest\.totalBytes\)\}\. SAS \$\{keys\.sas\}`/);
-  assert.match(cliSource, /options\.redactOutput \? \{ event: "pair_request", fileCount: manifest\.fileCount \} : \{ event: "pair_request", files: manifest\.files, totalBytes: manifest\.totalBytes \}/);
-  assert.match(cliSource, /options\.redactOutput \? `Incoming transfer: \$\{manifest\.fileCount\} file\(s\)\. SAS \$\{sas\}` : `Incoming transfer: \$\{manifest\.fileCount\} file\(s\), \$\{formatBytes\(manifest\.totalBytes\)\}\. SAS \$\{sas\}`/);
-  assert.match(cliSource, /console\.log\(options\.redactOutput \? "  - \[redacted\]" : `  - \$\{safeFileName\(file\.name\)\} \(\$\{formatBytes\(file\.size\)\}\)`\)/);
+  assert.match(cliSource, /\.option\("--redact-output", "redact transfer codes, SAS, file metadata, and byte counts from CLI output, JSON events, and error text"\)/);
+  assert.match(cliSource, /options\.redactOutput \? \{ event: "pair_requested", manifestRedacted: true \} : \{ event: "pair_requested", sid: joined\.sid, files: manifest\.fileCount, totalBytes: manifest\.totalBytes \}/);
+  assert.match(cliSource, /options\.redactOutput \? "Waiting for receiver to accept transfer\. SAS \[redacted\]" : `Waiting for receiver to accept \$\{manifest\.fileCount\} file\(s\), \$\{formatBytes\(manifest\.totalBytes\)\}\. SAS \$\{keys\.sas\}`/);
+  assert.match(cliSource, /options\.redactOutput \? \{ event: "pair_request", manifestRedacted: true, sasRedacted: true \} : \{ event: "pair_request", files: manifest\.files, totalBytes: manifest\.totalBytes \}/);
+  assert.match(cliSource, /options\.redactOutput \? "Incoming transfer\. SAS \[redacted\]" : `Incoming transfer: \$\{manifest\.fileCount\} file\(s\), \$\{formatBytes\(manifest\.totalBytes\)\}\. SAS \$\{sas\}`/);
+  assert.match(cliSource, /if \(options\.redactOutput\) console\.log\("  - \[redacted file list\]"\)/);
+  assert.doesNotMatch(cliSource, /options\.redactOutput \? \{ event: "pair_requested", sid: joined\.sid, fileCount: manifest\.fileCount \}/);
+  assert.doesNotMatch(cliSource, /options\.redactOutput \? \{ event: "pair_request", fileCount: manifest\.fileCount \}/);
+  assert.doesNotMatch(cliSource, /options\.redactOutput \? `(?:Waiting|Incoming)[^`]*\$\{manifest\.fileCount\}[^`]*SAS \$\{(?:keys\.sas|sas)\}`/);
   assert.match(cliSource, /sendFiles\(control, bulk, keys, files, options\.json, options\.quiet, Boolean\(options\.redactOutput\)\)/);
   assert.match(cliSource, /receiveFiles\(control, bulk, keys, outDir, options\.json, options\.quiet, undefined, manifest, Boolean\(options\.resume\), Boolean\(options\.redactOutput\)\)/);
   for (const source of [cliSource, distCliSource]) {
@@ -151,6 +155,7 @@ test("CLI private receive-code inputs are not echoed back into local telemetry",
   for (const source of [cliSource, distCliSource]) {
     assert.match(source, /function printRegisteredReceiver/);
     assert.match(source, /codeSupplied: true/);
+    assert.match(source, /codeRedacted: true/);
     assert.match(source, /Ready to receive with the supplied code/);
     assert.match(source, /printRegisteredReceiver\(options, parsedCode\.handle, registered, registeredCode\.supplied\)/);
     assert.doesNotMatch(source, /code: parsedCode\.handle, rendezvous: registered\.code, expiresInSec: registered\.expiresInSec \}\);[\s\S]*Ready to receive\. Share this code/);

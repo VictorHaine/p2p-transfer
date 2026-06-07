@@ -71,11 +71,16 @@ jobs:
           if-no-files-found: error
 
   docker:
-    name: release docker policy
+    name: release docker image
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     needs:
-      - verify
+      - publish
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -86,8 +91,16 @@ jobs:
       - name: Enable pnpm
         run: |
           node scripts/prepare-checked-pnpm.mjs
-      - name: Build image
-        run: DOCKER_SMOKE_TAG=p2p-transfer:release node scripts/smoke-docker-policy.mjs
+      - name: Build, smoke, and push image
+        id: docker_image
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/publish-docker-image.mjs
+      - uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-name: ${{ steps.docker_image.outputs.image }}
+          subject-digest: ${{ steps.docker_image.outputs.digest }}
+          push-to-registry: true
 
   platform-smoke:
     name: platform smoke / ${{ matrix.os }} / node ${{ matrix.node }}
@@ -128,47 +141,18 @@ jobs:
       - name: Packed install smoke
         run: pnpm smoke:packed
 
-  attest:
-    name: attest release artifact
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    needs:
-      - verify
-    permissions:
-      contents: read
-      id-token: write
-      attestations: write
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: 22.22.3
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: npm-tarball
-          path: release-artifacts
-      - name: verify downloaded release artifact
-        id: verify_artifact
-        run: node scripts/verify-release-artifact.mjs --github-output tarball
-      - uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
-        with:
-          subject-checksums: release-artifacts/SHA256SUMS
-
   publish:
     name: publish npm package
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     needs:
       - verify
-      - attest
-      - docker
       - platform-smoke
     environment: npm
     permissions:
       contents: read
       id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -184,6 +168,12 @@ jobs:
         with:
           name: npm-tarball
           path: release-artifacts
+      - name: verify downloaded release artifact
+        id: verify_artifact
+        run: node scripts/verify-release-artifact.mjs --github-output tarball
+      - uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-checksums: release-artifacts/SHA256SUMS
       - name: verify, smoke, and publish release artifact
         run: node scripts/publish-release-artifact.mjs
 
@@ -193,6 +183,7 @@ jobs:
     timeout-minutes: 10
     needs:
       - publish
+      - docker
     permissions:
       contents: write
     steps:

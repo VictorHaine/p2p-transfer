@@ -98,7 +98,7 @@ program
   .option("--no-server-ice", "ignore signaling-provided ICE servers and use built-in public STUN only")
   .option("--json", "emit machine-readable events")
   .option("--quiet", "suppress human-readable progress output")
-  .option("--redact-output", "redact file names, MIME types, and byte counts from CLI output, JSON events, and error text")
+  .option("--redact-output", "redact transfer codes, SAS, file metadata, and byte counts from CLI output, JSON events, and error text")
   .option("--no-color", "disable color output")
   .option("--verbose", "show debug details");
 
@@ -187,7 +187,7 @@ async function recv(options: RecvOptions): Promise<void> {
           const joined = await waitForConfirmedReceiverSession(runtime, signaling, parsedCode.handle, options);
           sid = joined.sid;
           keys = joined.keys;
-          print(options, { event: "secure_session", sas: keys.sas });
+          printSecureSession(options, keys.sas);
           let manifest: FileManifest;
           let sealedManifest: string;
           try {
@@ -203,7 +203,7 @@ async function recv(options: RecvOptions): Promise<void> {
             sid = undefined;
             const restored = await waitForMessage(signaling, "registered", CONNECT_TIMEOUT_MS);
             assertRegisteredRendezvous(restored, parsedCode.rendezvous);
-            print(options, { event: "prepair_retry", attempt: pairRequestRetry + 1, rendezvous: restored.code });
+            printPrepairRetry(options, pairRequestRetry + 1, restored.code);
             human(options, "Ignored an invalid transfer request. Still waiting...");
             continue;
           }
@@ -265,6 +265,11 @@ async function registerReceiver(
 }
 
 function printRegisteredReceiver(options: RecvOptions, handle: string, registered: Extract<ServerMessage, { type: "registered" }>, supplied: boolean): void {
+  if (options.redactOutput) {
+    print(options, supplied ? { event: "registered", codeSupplied: true, codeRedacted: true, expiresInSec: registered.expiresInSec } : { event: "registered", codeRedacted: true, expiresInSec: registered.expiresInSec });
+    human(options, supplied ? "Ready to receive with the supplied code. Code redacted." : "Ready to receive. Code redacted.");
+    return;
+  }
   if (supplied) {
     print(options, { event: "registered", codeSupplied: true, rendezvous: registered.code, expiresInSec: registered.expiresInSec });
     human(options, "Ready to receive with the supplied code.");
@@ -290,11 +295,19 @@ async function waitForConfirmedReceiverSession(
       safeSend(signaling, { type: "bye", sid: joined.sid, reason: "prepair_retry" });
       const registered = await waitForMessage(signaling, "registered", CONNECT_TIMEOUT_MS);
       assertRegisteredRendezvous(registered, expectedRendezvous);
-      print(options, { event: "prepair_retry", attempt, rendezvous: registered.code });
+      printPrepairRetry(options, attempt, registered.code);
       human(options, "Ignored an invalid pairing attempt. Still waiting...");
     }
   }
   throw new Error("Too many invalid pairing attempts.");
+}
+
+function printPrepairRetry(options: CommonOptions, attempt: number, rendezvous: string): void {
+  print(options, options.redactOutput ? { event: "prepair_retry", attempt, rendezvousRedacted: true } : { event: "prepair_retry", attempt, rendezvous });
+}
+
+function printSecureSession(options: CommonOptions, sas: string): void {
+  print(options, options.redactOutput ? { event: "secure_session", sasRedacted: true } : { event: "secure_session", sas });
 }
 
 function isPrePairRetryable(error: unknown): boolean {
@@ -359,9 +372,9 @@ async function send(code: string, paths: string[], options: CommonOptions): Prom
           const publicManifest = redactManifest(manifest);
           const sealedManifest = await runtime.security.sealManifest(keys, manifest);
           signaling.send({ type: "pair-request", sid: joined.sid, manifest: publicManifest, sealedManifest });
-          print(options, options.redactOutput ? { event: "pair_requested", sid: joined.sid, fileCount: manifest.fileCount } : { event: "pair_requested", sid: joined.sid, files: manifest.fileCount, totalBytes: manifest.totalBytes });
-          print(options, { event: "secure_session", sas: keys.sas });
-          human(options, options.redactOutput ? `Waiting for receiver to accept ${manifest.fileCount} file(s). SAS ${keys.sas}` : `Waiting for receiver to accept ${manifest.fileCount} file(s), ${formatBytes(manifest.totalBytes)}. SAS ${keys.sas}`);
+          print(options, options.redactOutput ? { event: "pair_requested", manifestRedacted: true } : { event: "pair_requested", sid: joined.sid, files: manifest.fileCount, totalBytes: manifest.totalBytes });
+          printSecureSession(options, keys.sas);
+          human(options, options.redactOutput ? "Waiting for receiver to accept transfer. SAS [redacted]" : `Waiting for receiver to accept ${manifest.fileCount} file(s), ${formatBytes(manifest.totalBytes)}. SAS ${keys.sas}`);
           await waitForPairAccept(runtime, signaling, joined.sid, keys, sealedManifest);
           iceServers = await getIceServersAfterAccept(signaling, iceServers, useServerIce);
 
@@ -510,10 +523,11 @@ async function openSignaling(url: string): Promise<SignalingClient> {
 }
 
 async function showManifestAndMaybeAccept(manifest: FileManifest, options: RecvOptions, sas: string): Promise<boolean> {
-  print(options, options.redactOutput ? { event: "pair_request", fileCount: manifest.fileCount } : { event: "pair_request", files: manifest.files, totalBytes: manifest.totalBytes });
+  print(options, options.redactOutput ? { event: "pair_request", manifestRedacted: true, sasRedacted: true } : { event: "pair_request", files: manifest.files, totalBytes: manifest.totalBytes });
   if (!options.json && !options.quiet) {
-    console.log(options.redactOutput ? `Incoming transfer: ${manifest.fileCount} file(s). SAS ${sas}` : `Incoming transfer: ${manifest.fileCount} file(s), ${formatBytes(manifest.totalBytes)}. SAS ${sas}`);
-    for (const file of manifest.files) console.log(options.redactOutput ? "  - [redacted]" : `  - ${safeFileName(file.name)} (${formatBytes(file.size)})`);
+    console.log(options.redactOutput ? "Incoming transfer. SAS [redacted]" : `Incoming transfer: ${manifest.fileCount} file(s), ${formatBytes(manifest.totalBytes)}. SAS ${sas}`);
+    if (options.redactOutput) console.log("  - [redacted file list]");
+    else for (const file of manifest.files) console.log(`  - ${safeFileName(file.name)} (${formatBytes(file.size)})`);
   }
   if (options.yes) return true;
   if (!input.isTTY) {
