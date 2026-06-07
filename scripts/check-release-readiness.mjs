@@ -87,20 +87,18 @@ async function main() {
     await assertNpmPackageReady(packageJson);
   });
 
-  if (token) {
-    let authenticatedLogin;
-    const auth = await collectReadinessValue(failures, () => githubWithHeaders(token, "GET", "/user"));
-    if (auth) {
-      collectReadinessFailureSync(failures, () => {
-        authenticatedLogin = requiredAuthenticatedLogin(auth.data);
-      });
-      collectReadinessFailureSync(failures, () => {
-        assertTokenScopes(auth.headers, runningInGitHubActions);
-      });
-    }
-    if (authenticatedLogin) {
-      await collectGitHubRepositoryReadiness(failures, token, options.repository, authenticatedLogin, releaseActorLogin);
-    }
+  let authenticatedLogin;
+  const auth = await collectReadinessValue(failures, () => githubWithHeaders(token, "GET", "/user"));
+  if (auth) {
+    collectReadinessFailureSync(failures, () => {
+      authenticatedLogin = requiredAuthenticatedLogin(auth.data);
+    });
+    collectReadinessFailureSync(failures, () => {
+      assertTokenScopes(auth.headers, runningInGitHubActions);
+    });
+  }
+  if (authenticatedLogin) {
+    await collectGitHubRepositoryReadiness(failures, token, options.repository, authenticatedLogin, releaseActorLogin);
   }
 
   if (failures.length > 0) throw new ReleaseReadinessFailure(failures);

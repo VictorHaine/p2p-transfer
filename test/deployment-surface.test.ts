@@ -670,7 +670,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(contributing, /make sure `main` already exists on\nGitHub, then run the full release gate/);
   assert.match(securityPolicy, /local release preflight must fail before tagging when the npm package is missing, the target npm version already exists, the bootstrap placeholder exists without the exact `bootstrap` dist-tag or with `latest` pointing to it, private vulnerability reporting is disabled/);
   assert.match(securityPolicy, /GitHub repository `security_and_analysis` is missing or reports disabled secret scanning, disabled secret scanning push protection, or disabled Dependabot security updates/);
-  assert.match(securityPolicy, /the GitHub token lacks `workflow` scope/);
+  assert.match(securityPolicy, /the GitHub token is missing or lacks `workflow` scope/);
   assert.match(securityPolicy, /current `main` commit lacks a successful CodeQL, Scorecard, or dependency-integrity workflow run/);
   assert.match(securityPolicy, /the `RELEASE_PREFLIGHT_TOKEN` repository secret is missing/);
   assert.match(securityPolicy, /GitHub `npm` environment lacks required reviewers, lacks a non-self user reviewer with write, maintain, or admin repository permission, allows self-review, allows admin bypass, allows branch deployments, lacks the exact `v\*\.\*\.\*` tag deployment policy, or has the authenticated release operator or release tag pusher as its sole required reviewer/);
@@ -685,7 +685,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(securityPolicy, /branch\/tag rulesets have ref exclusions, unexpected or duplicate rules, or any bypass actors/);
   assert.match(securityPolicy, /release workflow preflight must run before dependency install through the checked Node script with an explicit `RELEASE_PREFLIGHT_TOKEN` secret/);
   assert.match(securityPolicy, /repository-administration\/ruleset, private-vulnerability-reporting, repository security-analysis, and Actions workflow-run visibility/);
-  assert.match(securityPolicy, /must reject classic PAT, OAuth, refresh, user, or unknown-prefix token classes in GitHub Actions before package or network work/);
+  assert.match(securityPolicy, /must reject missing GitHub tokens, classic PAT, OAuth, refresh, user, or unknown-prefix token classes in GitHub Actions before package or network work/);
   assert.match(securityPolicy, /must validate `GITHUB_ACTOR` before package reads or network work after token-class validation/);
   assert.match(securityPolicy, /must still verify the npm package exists without the target version, any bootstrap placeholder is not `latest`, private vulnerability reporting is enabled, repository secret scanning, push protection, and Dependabot security updates are enabled, remote `main`, successful CodeQL, Scorecard, and dependency-integrity runs for current `main`, rulesets/);
   assert.match(securityPolicy, /no branch\/tag bypass actors, required status checks, and the npm environment approval\/tag-only deployment gate before packaging/);
