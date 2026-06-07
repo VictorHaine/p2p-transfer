@@ -154,14 +154,14 @@ function run(command, args, options) {
       stderr = appendBoundedOutput(stderr, chunk);
     });
     child.on("error", rejectOnce);
-    child.on("exit", (code) => {
+    child.on("exit", (code, signal) => {
       if (killTimer) clearTimeout(killTimer);
       if (timeoutError) {
         rejectOnce(timeoutError);
         return;
       }
       if (code === 0) resolveOnce({ stdout, stderr });
-      else rejectOnce(new Error(`release publish subprocess failed with ${code}.\nstdout:\n${stdout}\nstderr:\n${stderr}`));
+      else rejectOnce(new Error(`release publish subprocess failed with ${childExitStatus(code, signal)}.`));
     });
     function resolveOnce(value) {
       if (settled) return;
@@ -178,6 +178,12 @@ function run(command, args, options) {
       reject(error);
     }
   });
+}
+
+function childExitStatus(code, signal) {
+  if (typeof code === "number") return `exit code ${code}`;
+  if (typeof signal === "string" && /^[A-Z0-9]+$/.test(signal)) return `signal ${signal}`;
+  return "unknown status";
 }
 
 function releasePublishErrorMessage(error) {

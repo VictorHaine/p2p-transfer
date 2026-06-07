@@ -659,6 +659,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(securityPolicy, /release publishing must pass the verifier-emitted tarball path to packed smoke and `pnpm publish` instead of rediscovering the artifact with `find` or a shell glob after verification/);
   assert.match(securityPolicy, /release publishing and GitHub Release creation must run through checked Node scripts/);
   assert.match(securityPolicy, /release publishing and GitHub Release creation subprocess timeouts must signal the child, arm a bounded `SIGKILL` fallback, and reject only after the subprocess exits/);
+  assert.match(securityPolicy, /nonzero release subprocess exits must report only the exit status or signal and must not embed captured child stdout or stderr in release logs/);
   assert.match(releaseWorkflow, /publish npm package[\s\S]*verify, smoke, and publish release artifact[\s\S]*node scripts\/publish-release-artifact\.mjs/);
   assert.match(releasePublishScript, /rejectStaticNpmTokens\(\)/);
   assert.match(releasePublishScript, /STATIC_NPM_TOKEN_ENV = \["NODE_AUTH_TOKEN", "NPM_TOKEN"\]/);
@@ -668,7 +669,10 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releasePublishScript, /PACKED_SMOKE_TARBALL: tarball/);
   assert.match(releasePublishScript, /\["publish", tarball, "--provenance", "--access", "public", "--ignore-scripts"\]/);
   assert.match(releasePublishScript, /timeoutError = new Error\("release publish subprocess timed out\."\);\s*child\.kill\("SIGTERM"\);\s*killTimer = setTimeout\(\(\) => child\.kill\("SIGKILL"\), 5_000\);/s);
-  assert.match(releasePublishScript, /child\.on\("exit", \(code\) => \{[\s\S]*if \(killTimer\) clearTimeout\(killTimer\);[\s\S]*if \(timeoutError\) \{[\s\S]*rejectOnce\(timeoutError\);[\s\S]*return;[\s\S]*\}/);
+  assert.match(releasePublishScript, /child\.on\("exit", \(code, signal\) => \{[\s\S]*if \(killTimer\) clearTimeout\(killTimer\);[\s\S]*if \(timeoutError\) \{[\s\S]*rejectOnce\(timeoutError\);[\s\S]*return;[\s\S]*\}/);
+  assert.match(releasePublishScript, /release publish subprocess failed with \$\{childExitStatus\(code, signal\)\}\./);
+  assert.doesNotMatch(releasePublishScript, /release publish subprocess failed[\s\S]*stdout:/);
+  assert.doesNotMatch(releasePublishScript, /release publish subprocess failed[\s\S]*stderr:/);
   assert.doesNotMatch(releasePublishScript, /env: \{ \.\.\.process\.env|process\.env\.NODE_AUTH_TOKEN|process\.env\.NPM_TOKEN/);
   assert.match(securityPolicy, /GitHub Release job must run only after npm publishing succeeds, re-verify the downloaded tarball through `scripts\/create-github-release\.mjs`, generate version-scoped release notes from the checked changelog/);
   assert.match(releaseWorkflow, /github-release:[\s\S]*needs:\n      - publish[\s\S]*permissions:\n      contents: write[\s\S]*node scripts\/create-github-release\.mjs/);
@@ -678,7 +682,10 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(githubReleaseScript, /assertArtifactFile\("release-artifacts\/SHA256SUMS", MAX_CHECKSUM_BYTES, "SHA256SUMS"\)/);
   assert.match(githubReleaseScript, /\[\s+"release",\s+"create",\s+tag,\s+tarball,\s+"release-artifacts\/SHA256SUMS"[\s\S]*"--notes-file",\s+"release-artifacts\/RELEASE_NOTES\.md"[\s\S]*"--repo",\s+repository/s);
   assert.match(githubReleaseScript, /timeoutError = new Error\("GitHub Release subprocess timed out\."\);\s*child\.kill\("SIGTERM"\);\s*killTimer = setTimeout\(\(\) => child\.kill\("SIGKILL"\), 5_000\);/s);
-  assert.match(githubReleaseScript, /child\.on\("exit", \(code\) => \{[\s\S]*if \(killTimer\) clearTimeout\(killTimer\);[\s\S]*if \(timeoutError\) \{[\s\S]*rejectOnce\(timeoutError\);[\s\S]*return;[\s\S]*\}/);
+  assert.match(githubReleaseScript, /child\.on\("exit", \(code, signal\) => \{[\s\S]*if \(killTimer\) clearTimeout\(killTimer\);[\s\S]*if \(timeoutError\) \{[\s\S]*rejectOnce\(timeoutError\);[\s\S]*return;[\s\S]*\}/);
+  assert.match(githubReleaseScript, /GitHub Release subprocess failed with \$\{childExitStatus\(code, signal\)\}\./);
+  assert.doesNotMatch(githubReleaseScript, /GitHub Release subprocess failed[\s\S]*stdout:/);
+  assert.doesNotMatch(githubReleaseScript, /GitHub Release subprocess failed[\s\S]*stderr:/);
   assert.doesNotMatch(githubReleaseScript, /env: \{ \.\.\.process\.env|--notes-file",\s+"CHANGELOG\.md"/);
   assert.doesNotMatch(releaseWorkflow, /--notes-file CHANGELOG\.md/);
   assert.doesNotMatch(releaseWorkflow, /pnpm publish release-artifacts\/\*\.tgz/);
