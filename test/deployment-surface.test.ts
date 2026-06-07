@@ -266,6 +266,10 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(githubReleaseControlsScript, /const NPM_ENVIRONMENT = "npm"/);
   assert.match(githubReleaseControlsScript, /const REPOSITORY_ADMIN_ROLE_BYPASS_ACTOR_ID = 5/);
   assert.match(githubReleaseControlsScript, /const MAX_NPM_ENVIRONMENT_REVIEWERS = 6/);
+  assert.ok(
+    githubReleaseControlsScript.indexOf("class GitHubApiError") < githubReleaseControlsScript.indexOf("if (isMain())"),
+    "GitHub API errors must be initialized before the direct entrypoint can run"
+  );
   assert.match(githubReleaseControlsScript, /realpathSync\(process\.argv\[1\]\) === realpathSync\(fileURLToPath\(import\.meta\.url\)\)/);
   assert.doesNotMatch(githubReleaseControlsScript, /endsWith\("\/configure-github-release-controls\.mjs"\)/);
   assert.match(githubReleaseControlsScript, /"PUT", `\/repos\/\$\{options\.repository\}\/rulesets\/\$\{existing\.id\}`/);
@@ -292,7 +296,9 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(githubReleaseControlsScript, /type: "pull_request"[\s\S]*require_code_owner_review: true[\s\S]*require_last_push_approval: true[\s\S]*required_approving_review_count: 1[\s\S]*required_review_thread_resolution: true/);
   assert.match(githubReleaseControlsScript, /type: "required_status_checks"[\s\S]*do_not_enforce_on_create: true[\s\S]*strict_required_status_checks_policy: true[\s\S]*required_status_checks: REQUIRED_CI_CHECKS\.map\(\(context\) => \(\{ context \}\)\)/);
   assert.match(githubReleaseControlsScript, /bypass_actors: \[\{ actor_type: "RepositoryRole", actor_id: REPOSITORY_ADMIN_ROLE_BYPASS_ACTOR_ID, bypass_mode: "always" \}\]/);
-  assert.match(githubReleaseControlsScript, /type: "creation"[\s\S]*type: "deletion"[\s\S]*type: "non_fast_forward"[\s\S]*type: "tag_name_pattern"[\s\S]*pattern: "\^v\[0-9\]\+\\\\\.\[0-9\]\+\\\\\.\[0-9\]\+\$"/);
+  assert.match(githubReleaseControlsScript, /type: "creation"[\s\S]*type: "deletion"[\s\S]*type: "non_fast_forward"/);
+  assert.doesNotMatch(githubReleaseControlsScript, /tag_name_pattern/);
+  assert.match(releaseWorkflow, /^on:\n  push:\n    tags:\n      - "v\*\.\*\.\*"$/m);
   assert.match(githubReleaseControlsScript, /Push main before applying GitHub release controls\./);
   assert.match(githubReleaseControlsScript, /The npm environment exists but has no protection rules/);
   assert.match(githubReleaseControlsScript, /--npm-reviewer/);

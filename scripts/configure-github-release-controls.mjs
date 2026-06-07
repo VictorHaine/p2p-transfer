@@ -22,6 +22,13 @@ const REQUIRED_CI_CHECKS = [
   "platform smoke / windows-2025 / node 24.13.1"
 ];
 
+class GitHubApiError extends Error {
+  constructor(status, data) {
+    super(githubApiErrorMessage(status, data));
+    this.status = status;
+  }
+}
+
 if (isMain()) {
   try {
     await main();
@@ -119,16 +126,7 @@ function tagRuleset() {
     rules: [
       { type: "creation" },
       { type: "deletion" },
-      { type: "non_fast_forward" },
-      {
-        type: "tag_name_pattern",
-        parameters: {
-          name: "semantic release tags only",
-          negate: false,
-          operator: "regex",
-          pattern: "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
-        }
-      }
+      { type: "non_fast_forward" }
     ]
   };
 }
@@ -181,13 +179,6 @@ async function github(token, method, path, body) {
   const data = text.length > 0 ? JSON.parse(text) : undefined;
   if (!response.ok) throw new GitHubApiError(response.status, data);
   return data;
-}
-
-class GitHubApiError extends Error {
-  constructor(status, data) {
-    super(githubApiErrorMessage(status, data));
-    this.status = status;
-  }
 }
 
 function githubApiErrorMessage(status, data) {
