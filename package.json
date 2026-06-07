@@ -45,6 +45,7 @@
     "test:unit": "node --import tsx --test test/*.test.ts",
     "test:e2e": "node --import tsx --test test/e2e/*.test.ts",
     "test:browser": "node --import tsx --test test/browser/*.test.ts",
+    "security:dependencies": "node --import tsx --test test/crypto-dependencies.test.ts test/cpace-vectors.test.ts test/native-webrtc-dependencies.test.ts",
     "security:audit": "pnpm audit --audit-level low",
     "security:signatures": "pnpm audit signatures"
   },

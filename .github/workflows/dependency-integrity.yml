@@ -34,6 +34,8 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Check installed dependency tree
         run: pnpm check:install-state
+      - name: Reviewed dependency attestations
+        run: pnpm security:dependencies
       - name: Dependency audit
         run: pnpm security:audit
       - name: Registry signature audit
