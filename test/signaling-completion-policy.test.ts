@@ -82,7 +82,7 @@ test("authenticated WebRTC signal failures stay visible during connection setup"
 
 test("transfers stop depending on signaling after WebRTC is connected", () => {
   assert.match(securityPolicy, /after WebRTC is connected and both DataChannels are open, transfers must not race file streaming against signaling liveness/);
-  assert.match(cliSource, /runtime\.rtc\.waitForDataChannelOpen\(control\), runtime\.rtc\.waitForDataChannelOpen\(bulk\), peer\.waitConnected\(\)[\s\S]*signalWire\.failure\]\);[\s\S]*signalWire\.dispose\(\);[\s\S]*unwireSignals = undefined;[\s\S]*await runtime\.transfer\.receiveFiles\(control, bulk, keys,/);
+  assert.match(cliSource, /runtime\.rtc\.waitForDataChannelOpen\(control\), runtime\.rtc\.waitForDataChannelOpen\(bulk\), peer\.waitConnected\(\)[\s\S]*signalWire\.failure\]\);[\s\S]*signalWire\.dispose\(\);[\s\S]*unwireSignals = undefined;[\s\S]*await runtime\.transfer\.receiveFiles\([\s\S]*control,[\s\S]*bulk,[\s\S]*keys,/);
   assert.match(cliSource, /runtime\.rtc\.waitForDataChannelOpen\(control\), runtime\.rtc\.waitForDataChannelOpen\(bulk\), peer\.waitConnected\(\)[\s\S]*signalWire\.failure\]\);[\s\S]*signalWire\.dispose\(\);[\s\S]*unwireSignals = undefined;[\s\S]*await runtime\.transfer\.sendFiles\(control, bulk, keys,/);
   assert.match(webSource, /waitOpen\(control\), waitOpen\(bulk\), waitPeerConnected\(pc\)[\s\S]*signalWire\.failure\]\);[\s\S]*signalWire\.dispose\(\);[\s\S]*unwireSignals = undefined;[\s\S]*await sendBrowserFiles\(control, bulk, keys,/);
   assert.match(webSource, /waitOpen\(control\), waitOpen\(bulk\), waitPeerConnected\(pc\)[\s\S]*signalWire\.failure\]\);[\s\S]*signalWire\.dispose\(\);[\s\S]*unwireSignals = undefined;[\s\S]*await receiveBrowserFiles\(control, bulk, keys,/);

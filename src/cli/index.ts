@@ -47,6 +47,7 @@ type RecvOptions = CommonOptions & {
   codeStdin?: boolean;
   codeEnv?: string;
   resume?: boolean;
+  opaqueOutputNames?: boolean;
 };
 
 type SendOptions = CommonOptions & {
@@ -108,6 +109,7 @@ program
   .option("--out <dir>", "output directory")
   .option("-y, --yes", "auto-accept incoming transfers")
   .option("--resume", "resume from chunk-aligned CLI partial files left in the output directory")
+  .option("--opaque-output-names", "write received files to opaque ff-<token> names instead of peer-supplied basenames")
   .option("--code <code>", "use a supplied code like 12345678-two-words")
   .option("--code-stdin", "read a supplied receive code from piped stdin")
   .option("--code-env <name>", "read a supplied receive code from an environment variable")
@@ -226,7 +228,19 @@ async function recv(options: RecvOptions): Promise<void> {
           signalWire.dispose();
           unwireSignals = undefined;
           human(options, "Connected. Receiving files...");
-          await runtime.transfer.receiveFiles(control, bulk, keys, outDir, options.json, options.quiet, undefined, manifest, Boolean(options.resume), Boolean(options.redactOutput));
+          await runtime.transfer.receiveFiles(
+            control,
+            bulk,
+            keys,
+            outDir,
+            options.json,
+            options.quiet,
+            undefined,
+            manifest,
+            Boolean(options.resume),
+            Boolean(options.redactOutput),
+            Boolean(options.opaqueOutputNames)
+          );
           safeSend(signaling, { type: "bye", sid: joined.sid, reason: "complete" });
           completed = true;
           break;

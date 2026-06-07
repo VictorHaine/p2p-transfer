@@ -417,6 +417,41 @@ test("reserveOutputFile uses collision-resistant partial names instead of predic
   }
 });
 
+test("reserveOutputFile can publish received files under opaque final names", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-reserve-opaque-"));
+  const reserved = await reserveOutputFile(dir, "private-name.txt", { opaqueName: true });
+  try {
+    const finalName = path.basename(reserved.finalPath);
+    assert.match(finalName, /^ff-[a-f0-9]{32}$/);
+    assert.equal(finalName.includes("private-name"), false);
+    assert.equal(path.basename(reserved.partPath).includes("private-name"), false);
+  } finally {
+    await reserved.handle.close();
+  }
+});
+
+test("reserveOutputFile uses stable opaque final names for CLI resume", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-reserve-opaque-resume-"));
+  const first = await reserveOutputFile(dir, "private-name.txt", { resume: true, size: "partial".length, opaqueName: true });
+  try {
+    const finalName = path.basename(first.finalPath);
+    assert.match(finalName, /^ff-[a-f0-9]{32}$/);
+    assert.equal(finalName.includes("private-name"), false);
+    await first.handle.writeFile(Buffer.from("partial"));
+  } finally {
+    await first.handle.close();
+  }
+
+  const second = await reserveOutputFile(dir, "private-name.txt", { resume: true, size: "partial".length, opaqueName: true });
+  try {
+    assert.equal(second.finalPath, first.finalPath);
+    assert.equal(second.partPath, first.partPath);
+    assert.equal(second.resumeBytes, "partial".length);
+  } finally {
+    await second.handle.close();
+  }
+});
+
 test("reserveOutputFile uses opaque deterministic CLI resume partial names", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-reserve-resume-"));
   const first = await reserveOutputFile(dir, "private-name.txt", { resume: true, size: "partial".length });
@@ -547,7 +582,7 @@ test("reserveOutputFile rejects hardlinked CLI resume partial files", { skip: pr
 
 test("CLI resume partial hardlink policy is documented and enforced", () => {
   assert.match(securityPolicy, /resumable partial files must reject multiple hard links before hashing, truncation, or restart truncation/);
-  assert.match(securityPolicy, /resume secret file must reject multiple hard links before keying resumable partial names/);
+  assert.match(securityPolicy, /resume secret file must reject multiple hard links before keying resumable names/);
   for (const source of [sourceFiles, distFiles]) {
     assert.match(source, /function assertSingleLink\(stat/);
     assert.match(source, /Resume partial"\)/);
@@ -700,7 +735,7 @@ test("reserveOutputFile rejects unsafe runtime output directories before path jo
     assert.match(source, /const outputDir = path\.resolve\(outputDirInput\(dir\)\)/);
     assert.match(source, /path\.join\(outputDir, candidateName\)/);
     assert.match(source, /path\.join\(outputDir, randomPartFileName\(\)\)/);
-    assert.match(source, /path\.join\(outputDir, await resumablePartFileName\(outputDir, candidateName, options\.size\)\)/);
+    assert.match(source, /path\.join\(outputDir, await resumablePartFileName\(outputDir, candidateName, resumeSize\)\)/);
     assert.match(source, /const RESUME_SECRET_FILE = "\.ff-resume-key"/);
     assert.match(source, /const SAFE_SECRET_READ_FLAGS = fs\.constants\.O_RDONLY \| fs\.constants\.O_NOFOLLOW \| fs\.constants\.O_NONBLOCK/);
     assert.match(source, /fs\.promises\.open\(secretPath, "wx", 0o600\)/);

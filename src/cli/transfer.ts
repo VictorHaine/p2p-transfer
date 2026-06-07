@@ -356,7 +356,8 @@ export async function receiveFiles(
   idleTimeoutMs = TRANSFER_CONTROL_TIMEOUT_MS,
   acceptedManifest?: FileManifest,
   resume = false,
-  redactOutput = false
+  redactOutput = false,
+  opaqueOutputNames = false
 ): Promise<void> {
   const files = new Map<number, ReceiveState>();
   let manifest: TransferManifest | undefined;
@@ -493,7 +494,11 @@ export async function receiveFiles(
         if (files.has(message.id)) throw new Error(`Duplicate file-begin for file ${message.id}`);
         if (expected.name !== message.name || expected.size !== message.size) throw new Error(`file-begin does not match manifest for file ${message.id}`);
         assertFileWithinLimits(message.name, message.size);
-        const { finalPath, partPath, handle, dev, ino, dirDev, dirIno, resumeBytes = 0, resumeHash } = await reserveOutputFile(outDir, message.name, { resume, size: message.size });
+        const { finalPath, partPath, handle, dev, ino, dirDev, dirIno, resumeBytes = 0, resumeHash } = await reserveOutputFile(outDir, message.name, {
+          resume,
+          size: message.size,
+          opaqueName: opaqueOutputNames
+        });
         const state: ReceiveState = {
           id: message.id,
           name: path.basename(finalPath),

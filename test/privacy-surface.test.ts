@@ -6,6 +6,7 @@ const serverSource = fs.readFileSync(new URL("../src/server/index.ts", import.me
 const cliSource = fs.readFileSync(new URL("../src/cli/index.ts", import.meta.url), "utf8");
 const distCliSource = fs.readFileSync(new URL("../dist-node/cli/index.js", import.meta.url), "utf8");
 const cliTransferSource = fs.readFileSync(new URL("../src/cli/transfer.ts", import.meta.url), "utf8");
+const cliFilesSource = fs.readFileSync(new URL("../src/cli/files.ts", import.meta.url), "utf8");
 const webSource = fs.readFileSync(new URL("../src/web/main.ts", import.meta.url), "utf8");
 const sharedTransferSource = fs.readFileSync(new URL("../src/shared/transfer.ts", import.meta.url), "utf8");
 const distWebBundle = readDistWebBundle();
@@ -122,6 +123,21 @@ test("README documents endpoint-visible local path and browser filename limits",
   assert.match(readme, /`Folder only` protects streaming behavior and partial-overwrite handling, not final filename opacity/);
   assert.match(readme, /final browser output name still includes the sanitized original basename plus the random reservation token/);
   assert.match(readme, /browser DOM previews, browser download behavior, final output names/);
+});
+
+test("CLI opaque output names avoid peer basenames in final receive paths", () => {
+  const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
+  const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
+  assert.match(securityPolicy, /`recv --opaque-output-names` must publish final CLI receive paths as `ff-<token>` names/);
+  assert.match(securityPolicy, /stable per-output-directory HMAC-derived opaque names instead of peer-supplied basenames/);
+  assert.match(readme, /`recv --opaque-output-names`: publish received files as `ff-<token>` names instead of peer-supplied basenames/);
+  assert.match(readme, /avoids peer basenames in final CLI receive paths/);
+  assert.match(cliSource, /\.option\("--opaque-output-names", "write received files to opaque ff-<token> names instead of peer-supplied basenames"\)/);
+  assert.match(cliSource, /Boolean\(options\.opaqueOutputNames\)/);
+  assert.match(cliTransferSource, /opaqueName: opaqueOutputNames/);
+  assert.match(cliFilesSource, /async function opaqueOutputFileName\(outputDir: string, name: string, size: number \| undefined\)/);
+  assert.match(cliFilesSource, /return `ff-\$\{randomBytes\(PART_FILE_TOKEN_HEX_CHARS \/ 2\)\.toString\("hex"\)\}`/);
+  assert.match(cliFilesSource, /createHmac\("sha256", secret\)\.update\("ff-output-v1\\0"\)\.update\(name\)\.update\("\\0"\)\.update\(String\(size\)\)\.digest\("hex"\)\.slice\(0, PART_FILE_TOKEN_HEX_CHARS\)/);
 });
 
 test("remote encrypted abort reasons are not promoted to local user-facing errors", () => {

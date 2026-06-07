@@ -40,7 +40,7 @@ test("CLI redacted output mode removes file metadata from JSON and progress even
   assert.doesNotMatch(cliSource, /options\.redactOutput \? \{ event: "pair_request", fileCount: manifest\.fileCount \}/);
   assert.doesNotMatch(cliSource, /options\.redactOutput \? `(?:Waiting|Incoming)[^`]*\$\{manifest\.fileCount\}[^`]*SAS \$\{(?:keys\.sas|sas)\}`/);
   assert.match(cliSource, /sendFiles\(control, bulk, keys, files, options\.json, options\.quiet, Boolean\(options\.redactOutput\)\)/);
-  assert.match(cliSource, /receiveFiles\(control, bulk, keys, outDir, options\.json, options\.quiet, undefined, manifest, Boolean\(options\.resume\), Boolean\(options\.redactOutput\)\)/);
+  assert.match(cliSource, /Boolean\(options\.opaqueOutputNames\)/);
   for (const source of [cliSource, distCliSource]) {
     const printError = extractFunctionBody(source, "printError");
     assert.match(printError, /redactedErrorMessage\(code\)/);

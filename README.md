@@ -160,6 +160,7 @@ Useful CLI flags:
 - `recv --code <code>`: use a supplied code like `12345678-two-words` instead of generating one.
 - `recv --code-stdin` / `recv --code-env <name>`: provide that supplied receive code without putting it directly in argv. Supplied receive codes are not reprinted in the CLI registered event or human output.
 - `recv --resume`: keep failed CLI partials and resume a later attempt from the last verified chunk boundary. The final SHA-256 still has to match before publish.
+- `recv --opaque-output-names`: publish received files as `ff-<token>` names instead of peer-supplied basenames. With `--resume`, the final name is a stable HMAC-derived opaque name in that output directory.
   CLI resume also keeps a private `.ff-resume-key` in the output directory so resumable `.part` file names stay opaque; delete that key together with stale `ff-resume-*.part` files to reset local resume state.
 
 The browser client has matching ICE controls in the header. `Relay only` sets WebRTC `iceTransportPolicy` to `relay`, which requires TURN and may reduce connectivity, but avoids exposing direct host/server-reflexive ICE candidates to the peer.
@@ -364,7 +365,7 @@ MIT. See `LICENSE`.
 
 ## Known limitations
 
-- A local MDM/EDR administrator can still observe selected files through endpoint controls, including file picker choices, CLI file opens, writes, renames, browser DOM previews, browser download behavior, final output names, and local plaintext before encryption or after decryption. `send --code-stdin`, `send --code-env`, and `send --files-stdin` reduce shell-history and `ff` process-argv exposure, but they are not protection from a privileged endpoint monitor.
+- A local MDM/EDR administrator can still observe selected files through endpoint controls, including file picker choices, CLI file opens, writes, renames, browser DOM previews, browser download behavior, final output names, and local plaintext before encryption or after decryption. `send --code-stdin`, `send --code-env`, and `send --files-stdin` reduce shell-history and `ff` process-argv exposure, and `recv --opaque-output-names` avoids peer basenames in final CLI receive paths, but none of those options protect from a privileged endpoint monitor.
 - Environment variables are local process metadata. `--code-env` deletes the variable after capture, but local process telemetry or privileged observers may still see it briefly; use `--code-stdin` when you need to avoid both argv and environment exposure.
 - CLI output is metadata-bearing by default for consent, progress, and detailed failures. Use `--redact-output` for log-collected automation; it redacts local CLI output only and does not hide metadata from the signaling server, peer, endpoint telemetry, ICE candidates, timing, or the network.
 - `--files-stdin` protects the `ff` process argv only. The command that produces the file list can still leak local paths through its own argv, shell history, terminal logs, or endpoint telemetry; use operational controls around the producer command when that matters.

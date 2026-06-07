@@ -178,10 +178,12 @@ function utf8ByteLengthExceeds(value: string, maxBytes: number): boolean {
   return false;
 }
 
-export async function reserveOutputFile(dir: string, name: string, options?: { resume?: boolean; size?: number }): Promise<ReservedOutputFile> {
+export async function reserveOutputFile(dir: string, name: string, options?: { resume?: boolean; size?: number; opaqueName?: boolean }): Promise<ReservedOutputFile> {
   const outputDir = path.resolve(outputDirInput(dir));
   const outputDirIdentity = await directoryIdentity(outputDir);
-  const safeName = safeFileName(name);
+  const resume = Boolean(options?.resume);
+  const resumeSize = resume ? resumeFileSize(options?.size) : undefined;
+  const safeName = options?.opaqueName ? await opaqueOutputFileName(outputDir, name, resumeSize) : safeFileName(name);
   for (let i = 0; i < MAX_OUTPUT_NAME_ATTEMPTS; i += 1) {
     await assertDirectoryIdentity(outputDir, outputDirIdentity);
     const candidateName = safeCollisionFileName(safeName, i);
@@ -192,11 +194,11 @@ export async function reserveOutputFile(dir: string, name: string, options?: { r
     } catch (error) {
       if (!isMissingPathError(error)) throw error;
     }
-    if (options?.resume) {
-      if (!Number.isSafeInteger(options.size) || typeof options.size !== "number" || options.size < 0 || options.size > MAX_FILE_BYTES) throw new Error("Resume file size is invalid.");
-      const partPath = path.join(outputDir, await resumablePartFileName(outputDir, candidateName, options.size));
+    if (resume) {
+      if (resumeSize === undefined) throw new Error("Resume file size is invalid.");
+      const partPath = path.join(outputDir, await resumablePartFileName(outputDir, candidateName, resumeSize));
       try {
-        return await reserveExistingResumablePart(finalPath, partPath, outputDir, outputDirIdentity, options.size);
+        return await reserveExistingResumablePart(finalPath, partPath, outputDir, outputDirIdentity, resumeSize);
       } catch (error) {
         if (!isMissingPathError(error)) throw error;
       }
@@ -216,6 +218,11 @@ export async function reserveOutputFile(dir: string, name: string, options?: { r
     }
   }
   throw new Error(`Could not reserve an output name for ${safeName} after ${MAX_OUTPUT_NAME_ATTEMPTS} attempts.`);
+}
+
+function resumeFileSize(size: unknown): number {
+  if (!Number.isSafeInteger(size) || typeof size !== "number" || size < 0 || size > MAX_FILE_BYTES) throw new Error("Resume file size is invalid.");
+  return size;
 }
 
 async function createOutputPart(finalPath: string, partPath: string, outputDir: string, outputDirIdentity: FileIdentity): Promise<ReservedOutputFile> {
@@ -302,6 +309,18 @@ function sameFileIdentity(stat: fs.Stats, expected: FileIdentity): boolean {
 
 function randomPartFileName(): string {
   return `ff-${randomBytes(PART_FILE_TOKEN_HEX_CHARS / 2).toString("hex")}${PART_FILE_SUFFIX}`;
+}
+
+async function opaqueOutputFileName(outputDir: string, name: string, size: number | undefined): Promise<string> {
+  safeFileName(name);
+  if (size === undefined) return `ff-${randomBytes(PART_FILE_TOKEN_HEX_CHARS / 2).toString("hex")}`;
+  const secret = await readOrCreateResumeSecret(outputDir);
+  try {
+    const digest = createHmac("sha256", secret).update("ff-output-v1\0").update(name).update("\0").update(String(size)).digest("hex").slice(0, PART_FILE_TOKEN_HEX_CHARS);
+    return `ff-${digest}`;
+  } finally {
+    secret.fill(0);
+  }
 }
 
 async function resumablePartFileName(outputDir: string, finalName: string, size: number): Promise<string> {
