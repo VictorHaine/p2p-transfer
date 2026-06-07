@@ -676,11 +676,31 @@ function parseArgs(args) {
 
 async function githubToken(options) {
   if (options.tokenStdin) {
-    if (envString("GITHUB_TOKEN") || envString("GH_TOKEN")) throw new Error("Do not set GITHUB_TOKEN or GH_TOKEN when using --token-stdin.");
+    if (consumeOptionalGitHubTokenEnv()) throw new Error("Do not set GITHUB_TOKEN or GH_TOKEN when using --token-stdin.");
     return readStdinToken();
   }
   const token = envString("GITHUB_TOKEN") || envString("GH_TOKEN");
   if (!token) throw new Error("Set GITHUB_TOKEN or GH_TOKEN, or pipe a token with --token-stdin, with repository administration permission.");
+  return token;
+}
+
+function consumeOptionalGitHubTokenEnv() {
+  let token;
+  let failure;
+  try {
+    token = envString("GITHUB_TOKEN");
+  } catch (error) {
+    failure = error;
+  }
+  try {
+    token ||= envString("GH_TOKEN");
+  } catch (error) {
+    failure ??= error;
+  } finally {
+    delete process.env["GITHUB_TOKEN"];
+    delete process.env["GH_TOKEN"];
+  }
+  if (failure) throw failure;
   return token;
 }
 

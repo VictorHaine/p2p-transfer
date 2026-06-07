@@ -1644,13 +1644,19 @@ test("GitHub release controls reject ambiguous stdin and environment tokens befo
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-controls-stdin-ambiguous-"));
   const mock = path.join(tmp, "mock-release-controls-stdin-ambiguous.mjs");
   const log = path.join(tmp, "requests.log");
+  const envLog = path.join(tmp, "env.log");
   try {
     await fs.writeFile(
       mock,
       `
-import { appendFileSync } from "node:fs";
+import { appendFileSync, writeFileSync } from "node:fs";
 
 const log = process.env.FF_MOCK_RELEASE_CONTROLS_STDIN_AMBIGUOUS_LOG;
+const envLog = process.env.FF_MOCK_RELEASE_CONTROLS_STDIN_AMBIGUOUS_ENV_LOG;
+
+process.on("exit", () => {
+  writeFileSync(envLog, Object.hasOwn(process.env, "GITHUB_TOKEN") || Object.hasOwn(process.env, "GH_TOKEN") ? "present" : "cleared", "utf8");
+});
 
 globalThis.fetch = async (url, init = {}) => {
   const parsed = new URL(url);
@@ -1665,6 +1671,7 @@ globalThis.fetch = async (url, init = {}) => {
       "scripts/configure-github-release-controls.mjs",
       {
         FF_MOCK_RELEASE_CONTROLS_STDIN_AMBIGUOUS_LOG: log,
+        FF_MOCK_RELEASE_CONTROLS_STDIN_AMBIGUOUS_ENV_LOG: envLog,
         GITHUB_TOKEN: "env-token-that-must-not-be-used"
       },
       ["--dry-run", "--token-stdin"],
@@ -1675,12 +1682,14 @@ globalThis.fetch = async (url, init = {}) => {
       if (error.code === "ENOENT") return "";
       throw error;
     });
+    const environmentEvidence = await fs.readFile(envLog, "utf8");
 
     assert.notEqual(result.status, 0);
     assert.equal(result.stdout, "");
     assert.match(result.stderr, /GitHub release control setup failed:\n- Do not set GITHUB_TOKEN or GH_TOKEN when using --token-stdin\./);
     assert.doesNotMatch(result.stderr, /env-token-that-must-not-be-used|stdin-token-that-must-not-be-used|unexpected network|api\.github|Error:/);
     assert.equal(requests, "");
+    assert.equal(environmentEvidence, "cleared");
   } finally {
     await fs.rm(tmp, { force: true, recursive: true });
   }
@@ -2635,13 +2644,19 @@ test("release preflight rejects ambiguous stdin and environment GitHub tokens be
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-preflight-stdin-ambiguous-"));
   const mock = path.join(tmp, "mock-release-preflight-stdin-ambiguous.mjs");
   const log = path.join(tmp, "requests.log");
+  const envLog = path.join(tmp, "env.log");
   try {
     await fs.writeFile(
       mock,
       `
-import { appendFileSync } from "node:fs";
+import { appendFileSync, writeFileSync } from "node:fs";
 
 const log = process.env.FF_MOCK_PREFLIGHT_STDIN_AMBIGUOUS_LOG;
+const envLog = process.env.FF_MOCK_PREFLIGHT_STDIN_AMBIGUOUS_ENV_LOG;
+
+process.on("exit", () => {
+  writeFileSync(envLog, Object.hasOwn(process.env, "GITHUB_TOKEN") || Object.hasOwn(process.env, "GH_TOKEN") ? "present" : "cleared", "utf8");
+});
 
 globalThis.fetch = async (url, init = {}) => {
   const parsed = new URL(url);
@@ -2656,6 +2671,7 @@ globalThis.fetch = async (url, init = {}) => {
       "scripts/check-release-readiness.mjs",
       {
         FF_MOCK_PREFLIGHT_STDIN_AMBIGUOUS_LOG: log,
+        FF_MOCK_PREFLIGHT_STDIN_AMBIGUOUS_ENV_LOG: envLog,
         GITHUB_TOKEN: "env-token-that-must-not-be-used"
       },
       ["--token-stdin"],
@@ -2666,12 +2682,14 @@ globalThis.fetch = async (url, init = {}) => {
       if (error.code === "ENOENT") return "";
       throw error;
     });
+    const environmentEvidence = await fs.readFile(envLog, "utf8");
 
     assert.notEqual(result.status, 0);
     assert.equal(result.stdout, "");
     assert.match(result.stderr, /Release readiness check failed:\n- Do not set GITHUB_TOKEN or GH_TOKEN when using --token-stdin\./);
     assert.doesNotMatch(result.stderr, /env-token-that-must-not-be-used|stdin-token-that-must-not-be-used|unexpected network|api\.github|registry\.npmjs|Error:/);
     assert.equal(requests, "");
+    assert.equal(environmentEvidence, "cleared");
   } finally {
     await fs.rm(tmp, { force: true, recursive: true });
   }

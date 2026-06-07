@@ -501,8 +501,10 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(githubReleaseControlsScript, /async function githubToken\(options\)/);
   assert.match(githubReleaseControlsScript, /--token-stdin/);
   assert.match(githubReleaseControlsScript, /function readStdinToken\(\)/);
+  assert.match(githubReleaseControlsScript, /if \(consumeOptionalGitHubTokenEnv\(\)\) throw new Error\("Do not set GITHUB_TOKEN or GH_TOKEN when using --token-stdin\."\)/);
   assert.match(githubReleaseControlsScript, /Pipe GitHub token stdin; interactive terminal stdin is not accepted for --token-stdin\./);
   assert.match(githubReleaseControlsScript, /Do not set GITHUB_TOKEN or GH_TOKEN when using --token-stdin\./);
+  assert.match(githubReleaseControlsScript, /delete process\.env\["GITHUB_TOKEN"\];\n    delete process\.env\["GH_TOKEN"\]/);
   assert.match(githubReleaseControlsScript, /Object\.getOwnPropertyDescriptor\(process\.env, name\)/);
   assert.match(githubReleaseControlsScript, /\$\{name\} must be a non-empty control-free string under/);
   assert.doesNotMatch(githubReleaseControlsScript, /process\.env\.GITHUB_TOKEN|process\.env\.GH_TOKEN|process\.env\.GITHUB_REPOSITORY/);
@@ -859,8 +861,10 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /async function githubToken\(options\)/);
   assert.match(releaseReadinessScript, /--token-stdin/);
   assert.match(releaseReadinessScript, /function readStdinToken\(\)/);
+  assert.match(releaseReadinessScript, /if \(consumeOptionalGitHubTokenEnv\(\)\) throw new Error\("Do not set GITHUB_TOKEN or GH_TOKEN when using --token-stdin\."\)/);
   assert.match(releaseReadinessScript, /Pipe GitHub token stdin; interactive terminal stdin is not accepted for --token-stdin\./);
   assert.match(releaseReadinessScript, /Do not set GITHUB_TOKEN or GH_TOKEN when using --token-stdin\./);
+  assert.match(releaseReadinessScript, /delete process\.env\["GITHUB_TOKEN"\];\n    delete process\.env\["GH_TOKEN"\]/);
   assert.match(releaseReadinessScript, /Object\.getOwnPropertyDescriptor\(process\.env, name\)/);
   assert.match(releaseReadinessScript, /\$\{name\} must be a non-empty control-free string under/);
   assert.match(releaseReadinessScript, /const GITHUB_API_TIMEOUT_MS = 30_000/);
@@ -1105,7 +1109,7 @@ test("documented release gates require a hardened Docker runtime smoke, not just
     assert.match(document, /read-only filesystem, dropped Linux capabilities,[^.\n]+`no-new-privileges`/);
     assert.match(document, /refuses to start without `ALLOWED_ORIGINS` and without `SIGNALING_TOPOLOGY`/);
   }
-  assert.match(securityPolicy, /local release setup and preflight must also accept bounded `--token-stdin` input, reject interactive terminal stdin, reject ambiguous stdin-plus-environment token input, and reject malformed stdin tokens before package reads, npm registry requests, GitHub API requests, or repository mutation/);
+  assert.match(securityPolicy, /local release setup and preflight must also accept bounded `--token-stdin` input, reject interactive terminal stdin, reject and clear ambiguous stdin-plus-environment token input, and reject malformed stdin tokens before package reads, npm registry requests, GitHub API requests, or repository mutation/);
   assert.match(securityPolicy, /CI, release, Docker, and documented source builds must prepare pnpm through `scripts\/prepare-checked-pnpm\.mjs`, which byte-caps and no-follow-opens `package\.json` with pre\/post-read identity and mutation-metadata checks/);
   assert.match(securityPolicy, /runs Corepack and tar with a private package-manager home plus a minimal allowlisted child environment/);
   assert.match(readme, /Build from source:[\s\S]*node scripts\/prepare-checked-pnpm\.mjs\npnpm install --frozen-lockfile\npnpm build\npnpm test/);
