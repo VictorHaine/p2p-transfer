@@ -809,6 +809,50 @@ globalThis.fetch = async (url, init = {}) => {
   }
 });
 
+test("npm bootstrap script clears malformed environment tokens after rejection", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-npm-bootstrap-clear-token-"));
+  const mock = path.join(tmp, "mock-npm-bootstrap-clear-token.mjs");
+  const log = path.join(tmp, "env.log");
+  try {
+    await fs.writeFile(
+      mock,
+      `
+import { writeFileSync } from "node:fs";
+
+const log = process.env.FF_MOCK_NPM_BOOTSTRAP_ENV_LOG;
+
+process.on("exit", () => {
+  writeFileSync(log, Object.hasOwn(process.env, "NPM_BOOTSTRAP_TOKEN") ? "present" : "cleared", "utf8");
+});
+
+globalThis.fetch = async () => {
+  throw new Error("unexpected network");
+};
+`,
+      "utf8"
+    );
+
+    const result = runScriptWithNodeArgs(
+      "scripts/bootstrap-npm-package.mjs",
+      {
+        FF_MOCK_NPM_BOOTSTRAP_ENV_LOG: log,
+        NPM_BOOTSTRAP_TOKEN: "token-that-must-not-be-used\nregistry=https://evil.example"
+      },
+      ["--apply"],
+      ["--import", mock]
+    );
+    const environmentEvidence = await fs.readFile(log, "utf8");
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /npm bootstrap failed:\n- NPM_BOOTSTRAP_TOKEN must be a non-empty control-free environment value under 8192 UTF-8 bytes\./);
+    assert.doesNotMatch(result.stderr, /token-that-must-not-be-used|evil\.example|unexpected network|Error:/);
+    assert.equal(environmentEvidence, "cleared");
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
 test("npm bootstrap script rejects control-bearing stdin tokens before package, registry, npmrc, or publish work", async () => {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-npm-bootstrap-"));
   const mock = path.join(tmp, "mock-npm-bootstrap-fetch.mjs");

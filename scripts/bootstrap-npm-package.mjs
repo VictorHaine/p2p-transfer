@@ -329,8 +329,12 @@ function envString(name) {
 }
 
 function consumeEnvString(name) {
-  const value = envString(name);
-  delete process.env[name];
+  let value;
+  try {
+    value = envString(name);
+  } finally {
+    delete process.env[name];
+  }
   if (!value) throw new Error(`Set ${name} to a one-time npm automation token before --apply.`);
   return value;
 }
