@@ -10,13 +10,14 @@ type PackageJson = {
   homepage?: string;
   bugs?: { url?: string } | string;
   license?: string;
-  repository?: { type?: string; url?: string };
+  repository?: { type?: string; url?: string; directory?: string };
   packageManager?: string;
   engines?: { node?: string };
   bin?: Record<string, string>;
   files?: string[];
   type?: string;
   main?: string;
+  module?: string;
   types?: string;
   exports?: unknown;
   browser?: string;
@@ -58,6 +59,7 @@ const cpaceReview = fs.readFileSync(new URL("../docs/security/cpace-review.md", 
 const cpaceVectorTest = fs.readFileSync(new URL("./cpace-vectors.test.ts", import.meta.url), "utf8");
 const nobleHashesReview = fs.readFileSync(new URL("../docs/security/noble-hashes-review.md", import.meta.url), "utf8");
 const nativeWebrtcReview = fs.readFileSync(new URL("../docs/security/native-webrtc-review.md", import.meta.url), "utf8");
+const buildToolchainNativeReview = fs.readFileSync(new URL("../docs/security/build-toolchain-native-review.md", import.meta.url), "utf8");
 const dependabotConfig = fs.readFileSync(new URL("../.github/dependabot.yml", import.meta.url), "utf8");
 const ciWorkflow = fs.readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
 const releaseWorkflow = fs.readFileSync(new URL("../.github/workflows/release.yml", import.meta.url), "utf8");
@@ -65,6 +67,16 @@ const conformanceFiles = fs.readdirSync(new URL("../conformance", import.meta.ur
 const pakePackageJson = JSON.parse(fs.readFileSync(new URL("../node_modules/@cipherman/pake-js/package.json", import.meta.url), "utf8")) as PackageJson;
 const nobleHashesPackageJson = JSON.parse(fs.readFileSync(new URL("../node_modules/@noble/hashes/package.json", import.meta.url), "utf8")) as PackageJson;
 const wrtcPackageJson = JSON.parse(fs.readFileSync(new URL("../node_modules/@roamhq/wrtc/package.json", import.meta.url), "utf8")) as PackageJson;
+const vitePackageJson = JSON.parse(fs.readFileSync(new URL("../node_modules/vite/package.json", import.meta.url), "utf8")) as PackageJson;
+const esbuildPackageJson = JSON.parse(
+  fs.readFileSync(new URL("../node_modules/.pnpm/esbuild@0.28.0/node_modules/esbuild/package.json", import.meta.url), "utf8")
+) as PackageJson;
+const rolldownPackageJson = JSON.parse(
+  fs.readFileSync(new URL("../node_modules/.pnpm/rolldown@1.0.2/node_modules/rolldown/package.json", import.meta.url), "utf8")
+) as PackageJson;
+const lightningCssPackageJson = JSON.parse(
+  fs.readFileSync(new URL("../node_modules/.pnpm/lightningcss@1.32.0/node_modules/lightningcss/package.json", import.meta.url), "utf8")
+) as PackageJson;
 
 const reviewedWrtcPrebuiltPackages = [
   "@roamhq/wrtc-darwin-arm64",
@@ -88,6 +100,70 @@ const reviewedWrtcPrebuiltIntegrities: Record<string, string> = {
 };
 const reviewedDomexceptionIntegrity = "sha512-A2is4PLG+eeSfoTMA95/s4pvAoSo2mKtiM5jlHkAVewmiO8ISFTFKZjH7UAM1Atli/OT/7JHOrJRJiMKUZKYBw==";
 const reviewedWebidlConversionsIntegrity = "sha512-VwddBukDzu71offAQR975unBIGqfKZpM+8ZX6ySk8nYhVoo5CYaZyzt3YBvYtRtO+aoGlqxPg/B87NGVZ/fu6g==";
+const reviewedBuildToolchainIntegrities: Record<string, string> = {
+  "vite@8.0.14": "sha512-s4BJJ+5y1pYL6Otw51FHhVJQhPnuRinKig64g/1+EUNaJsd3gCKdD31IPFvswUgW9/60QT9oFHbZHbQK5imcxw==",
+  "esbuild@0.28.0": "sha512-sNR9MHpXSUV/XB4zmsFKN+QgVG82Cc7+/aaxJ8Adi8hyOac+EXptIp45QBPaVyX3N70664wRbTcLTOemCAnyqw==",
+  "rolldown@1.0.2": "sha512-oZx5zVDtVB44AW3eaifgDml1gWRDZGvjcfdxonE4swNPG98PrrXjaO/KrnUjzlMnztCCRVlUueA1kCXhARGk6g==",
+  "lightningcss@1.32.0": "sha512-NXYBzinNrblfraPGyrbPoD19C1h9lfI/1mzgWYvXUTe414Gz/X1FD2XBZSZM7rRTrMA8JL3OtAaGifrIKhQ5yQ=="
+};
+const reviewedEsbuildOptionalPackages = [
+  "@esbuild/aix-ppc64",
+  "@esbuild/android-arm",
+  "@esbuild/android-arm64",
+  "@esbuild/android-x64",
+  "@esbuild/darwin-arm64",
+  "@esbuild/darwin-x64",
+  "@esbuild/freebsd-arm64",
+  "@esbuild/freebsd-x64",
+  "@esbuild/linux-arm",
+  "@esbuild/linux-arm64",
+  "@esbuild/linux-ia32",
+  "@esbuild/linux-loong64",
+  "@esbuild/linux-mips64el",
+  "@esbuild/linux-ppc64",
+  "@esbuild/linux-riscv64",
+  "@esbuild/linux-s390x",
+  "@esbuild/linux-x64",
+  "@esbuild/netbsd-arm64",
+  "@esbuild/netbsd-x64",
+  "@esbuild/openbsd-arm64",
+  "@esbuild/openbsd-x64",
+  "@esbuild/openharmony-arm64",
+  "@esbuild/sunos-x64",
+  "@esbuild/win32-arm64",
+  "@esbuild/win32-ia32",
+  "@esbuild/win32-x64"
+];
+const reviewedRolldownOptionalPackages = [
+  "@rolldown/binding-android-arm64",
+  "@rolldown/binding-darwin-arm64",
+  "@rolldown/binding-darwin-x64",
+  "@rolldown/binding-freebsd-x64",
+  "@rolldown/binding-linux-arm-gnueabihf",
+  "@rolldown/binding-linux-arm64-gnu",
+  "@rolldown/binding-linux-arm64-musl",
+  "@rolldown/binding-linux-ppc64-gnu",
+  "@rolldown/binding-linux-s390x-gnu",
+  "@rolldown/binding-linux-x64-gnu",
+  "@rolldown/binding-linux-x64-musl",
+  "@rolldown/binding-openharmony-arm64",
+  "@rolldown/binding-wasm32-wasi",
+  "@rolldown/binding-win32-arm64-msvc",
+  "@rolldown/binding-win32-x64-msvc"
+];
+const reviewedLightningCssOptionalPackages = [
+  "lightningcss-android-arm64",
+  "lightningcss-darwin-arm64",
+  "lightningcss-darwin-x64",
+  "lightningcss-freebsd-x64",
+  "lightningcss-linux-arm-gnueabihf",
+  "lightningcss-linux-arm64-gnu",
+  "lightningcss-linux-arm64-musl",
+  "lightningcss-linux-x64-gnu",
+  "lightningcss-linux-x64-musl",
+  "lightningcss-win32-arm64-msvc",
+  "lightningcss-win32-x64-msvc"
+];
 
 test("npm package surface is restricted to built artifacts and required docs", () => {
   assert.deepEqual(packageJson.files, [
@@ -912,6 +988,122 @@ test("package install scripts are restricted to the required native tooling", ()
   assert.match(pnpmWorkspace, /^strictDepBuilds: true$/m);
   assert.deepEqual([...allowedBuilds].sort(), ["@roamhq/wrtc", "esbuild"]);
   assert.match(nativeWebrtcReview, /`@roamhq\/wrtc` is in `allowBuilds` because this native dependency is the only production package allowed to run reviewed dependency build tooling/);
+  assert.match(buildToolchainNativeReview, /`pnpm-workspace\.yaml` has `strictDepBuilds: true`/);
+  assert.match(buildToolchainNativeReview, /The only allowed dependency build scripts are `@roamhq\/wrtc` and `esbuild`/);
+  assert.match(buildToolchainNativeReview, /`esbuild` is allowed because its registry consumer install uses `postinstall: node install\.js`/);
+  assert.match(buildToolchainNativeReview, /`rolldown` and `lightningcss` are not in `allowBuilds`/);
+});
+
+test("build-time native toolchain identity and install surface stay reviewed", () => {
+  assert.match(
+    securityPolicy,
+    /release build-time native and wasm-capable tooling metadata, optional native\/wasm package sets, lifecycle hooks, allowed build-script surface, and lockfile integrity must stay reviewed/
+  );
+  assert.equal(packageJson.devDependencies?.vite, "8.0.14");
+
+  assert.equal(vitePackageJson.name, "vite");
+  assert.equal(vitePackageJson.version, packageJson.devDependencies?.vite);
+  assert.equal(vitePackageJson.license, "MIT");
+  assert.deepEqual(vitePackageJson.repository, {
+    type: "git",
+    url: "git+https://github.com/vitejs/vite.git",
+    directory: "packages/vite"
+  });
+  assert.equal(vitePackageJson.type, "module");
+  assert.deepEqual(vitePackageJson.bin, { vite: "bin/vite.js" });
+  assert.deepEqual(vitePackageJson.files, ["bin", "dist", "misc/**/*.js", "client.d.ts", "types"]);
+  assert.equal(vitePackageJson.dependencies?.lightningcss, "^1.32.0");
+  assert.equal(vitePackageJson.dependencies?.rolldown, "1.0.2");
+  assert.equal(vitePackageJson.dependencies?.postcss, "^8.5.15");
+  assert.equal(vitePackageJson.dependencies?.picomatch, "^4.0.4");
+  assert.equal(vitePackageJson.dependencies?.tinyglobby, "^0.2.16");
+  assert.equal(vitePackageJson.optionalDependencies?.fsevents, "~2.3.3");
+  for (const lifecycle of ["preinstall", "install", "postinstall"]) {
+    assert.equal(vitePackageJson.scripts?.[lifecycle], undefined);
+  }
+
+  assert.equal(esbuildPackageJson.name, "esbuild");
+  assert.equal(esbuildPackageJson.version, "0.28.0");
+  assert.equal(esbuildPackageJson.license, "MIT");
+  assert.deepEqual(esbuildPackageJson.repository, {
+    type: "git",
+    url: "git+https://github.com/evanw/esbuild.git"
+  });
+  assert.equal(esbuildPackageJson.main, "lib/main.js");
+  assert.equal(esbuildPackageJson.types, "lib/main.d.ts");
+  assert.deepEqual(esbuildPackageJson.bin, { esbuild: "bin/esbuild" });
+  assert.deepEqual(esbuildPackageJson.scripts, { postinstall: "node install.js" });
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(esbuildPackageJson.optionalDependencies ?? {}).sort()),
+    Object.fromEntries(reviewedEsbuildOptionalPackages.map((name) => [name, "0.28.0"]).sort())
+  );
+
+  assert.equal(rolldownPackageJson.name, "rolldown");
+  assert.equal(rolldownPackageJson.version, "1.0.2");
+  assert.equal(rolldownPackageJson.license, "MIT");
+  assert.deepEqual(rolldownPackageJson.repository, {
+    type: "git",
+    url: "git+https://github.com/rolldown/rolldown.git",
+    directory: "packages/rolldown"
+  });
+  assert.equal(rolldownPackageJson.type, "module");
+  assert.equal(rolldownPackageJson.main, "./dist/index.mjs");
+  assert.equal(rolldownPackageJson.module, "./dist/index.mjs");
+  assert.equal(rolldownPackageJson.types, "./dist/index.d.mts");
+  assert.deepEqual(rolldownPackageJson.bin, { rolldown: "./bin/cli.mjs" });
+  assert.deepEqual(rolldownPackageJson.files, ["bin", "cli", "dist", "!dist/*.node"]);
+  assert.equal(rolldownPackageJson.dependencies?.["@rolldown/pluginutils"], "^1.0.0");
+  assert.equal(rolldownPackageJson.dependencies?.["@oxc-project/types"], "=0.132.0");
+  for (const lifecycle of ["preinstall", "install", "postinstall"]) {
+    assert.equal(rolldownPackageJson.scripts?.[lifecycle], undefined);
+  }
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(rolldownPackageJson.optionalDependencies ?? {}).sort()),
+    Object.fromEntries(reviewedRolldownOptionalPackages.map((name) => [name, "1.0.2"]).sort())
+  );
+
+  assert.equal(lightningCssPackageJson.name, "lightningcss");
+  assert.equal(lightningCssPackageJson.version, "1.32.0");
+  assert.equal(lightningCssPackageJson.license, "MPL-2.0");
+  assert.deepEqual(lightningCssPackageJson.repository, {
+    type: "git",
+    url: "https://github.com/parcel-bundler/lightningcss.git"
+  });
+  assert.equal(lightningCssPackageJson.main, "node/index.js");
+  assert.equal(lightningCssPackageJson.types, "node/index.d.ts");
+  assert.deepEqual(lightningCssPackageJson.files, ["node/*.js", "node/*.mjs", "node/*.d.ts", "node/*.flow"]);
+  assert.equal(lightningCssPackageJson.dependencies?.["detect-libc"], "^2.0.3");
+  for (const lifecycle of ["preinstall", "install", "postinstall"]) {
+    assert.equal(lightningCssPackageJson.scripts?.[lifecycle], undefined);
+  }
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(lightningCssPackageJson.optionalDependencies ?? {}).sort()),
+    Object.fromEntries(reviewedLightningCssOptionalPackages.map((name) => [name, "1.32.0"]).sort())
+  );
+
+  for (const [name, integrity] of Object.entries(reviewedBuildToolchainIntegrities)) {
+    const [packageName, version] = splitPackageNameAndVersion(name);
+    assert.match(pnpmLock, lockfilePackageIntegrityPattern(packageName, version, integrity));
+    assert.match(buildToolchainNativeReview, new RegExp(`Lockfile integrity reviewed for \`${escapeRegExp(name)}\`: \`${escapeRegExp(integrity)}\``));
+  }
+  for (const name of reviewedEsbuildOptionalPackages) {
+    assert.match(buildToolchainNativeReview, new RegExp(`\`${escapeRegExp(name)}@0\\.28\\.0\``));
+  }
+  for (const name of reviewedRolldownOptionalPackages) {
+    assert.match(buildToolchainNativeReview, new RegExp(`\`${escapeRegExp(name)}@1\\.0\\.2\``));
+  }
+  for (const name of reviewedLightningCssOptionalPackages) {
+    assert.match(buildToolchainNativeReview, new RegExp(`\`${escapeRegExp(name)}@1\\.32\\.0\``));
+  }
+  assert.match(buildToolchainNativeReview, /# Build Toolchain Native Review/);
+  assert.match(buildToolchainNativeReview, /Direct build tool: `vite@8\.0\.14`/);
+  assert.match(buildToolchainNativeReview, /Vite build transformer peer\/tool: `esbuild@0\.28\.0`/);
+  assert.match(buildToolchainNativeReview, /Vite bundler dependency: `rolldown@1\.0\.2`/);
+  assert.match(buildToolchainNativeReview, /Vite CSS dependency: `lightningcss@1\.32\.0`/);
+  assert.match(buildToolchainNativeReview, /release build runs `vite build`/);
+  assert.match(buildToolchainNativeReview, /This repo does not contain a formal independent audit certificate for Vite, esbuild, Rolldown, Lightning CSS, their native binaries, or their wasm bindings/);
+  assert.match(buildToolchainNativeReview, /Release must stop if any of these are true:/);
+  assert.match(buildToolchainNativeReview, /`package\.json`, `pnpm-lock\.yaml`, installed package metadata, or this artifact no longer agree/);
 });
 
 test("pnpm project policy keeps installs strict and resists fresh package compromises", () => {
@@ -1436,6 +1628,17 @@ function lockfileSection(lockfile: string, start: string, end: string): string {
 
 function yamlPackageKey(name: string): string {
   return name.startsWith("@") ? `'${name}'` : name;
+}
+
+function splitPackageNameAndVersion(packageAndVersion: string): [string, string] {
+  const separatorIndex = packageAndVersion.lastIndexOf("@");
+  assert.notEqual(separatorIndex, -1);
+  return [packageAndVersion.slice(0, separatorIndex), packageAndVersion.slice(separatorIndex + 1)];
+}
+
+function lockfilePackageIntegrityPattern(name: string, version: string, integrity: string): RegExp {
+  const key = name.startsWith("@") ? `'${escapeRegExp(name)}@${escapeRegExp(version)}'` : `${escapeRegExp(name)}@${escapeRegExp(version)}`;
+  return new RegExp(`^  ${key}:\\n    resolution: \\{integrity: ${escapeRegExp(integrity)}\\}`, "m");
 }
 
 function sourcePathForBuiltBin(relativePath: string): URL {
