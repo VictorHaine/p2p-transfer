@@ -13,6 +13,7 @@ const MAX_ENV_VALUE_BYTES = 8_192;
 const MAX_TARBALL_OUTPUT_BYTES = 512;
 const CHILD_TIMEOUT_MS = 240_000;
 const NPM_REGISTRY = "https://registry.npmjs.org";
+const EXPECTED_GITHUB_REPOSITORY = "VictorHaine/p2p-transfer";
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const REQUIRED_PUBLISH_ENV = [
   "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
@@ -41,6 +42,7 @@ async function main() {
   rejectStaticNpmTokens();
   const tag = requiredReleaseTag(requiredEnvString("GITHUB_REF_NAME"));
   assertReleaseTagRef(tag);
+  const publishEnv = requiredPublishEnv();
   await assertLiveReleaseRefFromEnv();
   const tmp = await mkdtemp(path.join(tmpdir(), "ff-release-publish-"));
   try {
@@ -51,7 +53,7 @@ async function main() {
       timeoutMs: CHILD_TIMEOUT_MS
     });
     await run(pnpm, ["publish", tarball, "--provenance", "--access", "public", "--registry", NPM_REGISTRY, "--tag", "latest", "--ignore-scripts"], {
-      env: { ...childEnv, ...requiredPublishEnv() },
+      env: { ...childEnv, ...publishEnv },
       timeoutMs: CHILD_TIMEOUT_MS
     });
   } finally {
@@ -95,6 +97,8 @@ function requiredPublishEnv() {
   const out = {};
   for (const name of REQUIRED_PUBLISH_ENV) out[name] = requiredEnvString(name);
   if (out.GITHUB_ACTIONS !== "true") throw new Error("GITHUB_ACTIONS must be true for trusted publishing.");
+  if (out.GITHUB_REPOSITORY !== EXPECTED_GITHUB_REPOSITORY) throw new Error("GITHUB_REPOSITORY must match the trusted publishing repository.");
+  if (!/^[1-9]\d{0,19}$/.test(out.GITHUB_RUN_ID)) throw new Error("GITHUB_RUN_ID must be a positive decimal GitHub Actions run id.");
   return out;
 }
 

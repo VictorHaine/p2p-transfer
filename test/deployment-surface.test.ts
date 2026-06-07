@@ -415,12 +415,17 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releaseWorkflow, /publish npm package[\s\S]*verify, smoke, and publish release artifact[\s\S]*GITHUB_TOKEN: \$\{\{ github\.token \}\}[\s\S]*node scripts\/publish-release-artifact\.mjs/);
   assert.match(releasePublishScript, /rejectStaticNpmTokens\(\)/);
   assert.match(releasePublishScript, /import \{ assertLiveReleaseRefFromEnv \} from "\.\/verify-live-release-ref\.mjs"/);
-  assert.match(releasePublishScript, /assertReleaseTagRef\(tag\);\n  await assertLiveReleaseRefFromEnv\(\);\n  const tmp = await mkdtemp/);
+  assert.match(releasePublishScript, /const EXPECTED_GITHUB_REPOSITORY = "VictorHaine\/p2p-transfer"/);
+  assert.match(releasePublishScript, /assertReleaseTagRef\(tag\);\n  const publishEnv = requiredPublishEnv\(\);\n  await assertLiveReleaseRefFromEnv\(\);\n  const tmp = await mkdtemp/);
   assert.match(releasePublishScript, /ACTIONS_ID_TOKEN_REQUEST_TOKEN/);
+  assert.match(releasePublishScript, /if \(out\.GITHUB_REPOSITORY !== EXPECTED_GITHUB_REPOSITORY\) throw new Error\("GITHUB_REPOSITORY must match the trusted publishing repository\."\)/);
+  assert.match(releasePublishScript, /if \(!\/\^\[1-9\]\\d\{0,19\}\$\/\.test\(out\.GITHUB_RUN_ID\)\) throw new Error\("GITHUB_RUN_ID must be a positive decimal GitHub Actions run id\."\)/);
+  assert.match(securityPolicy, /must reject static npm token variables and malformed trusted-publishing repository or run-id context before trusted publishing or artifact work/);
   assert.match(releasePublishScript, /isolatedChildEnv\(privateHome\)/);
   assert.match(releasePublishScript, /PACKED_SMOKE_TARBALL: tarball/);
   assert.match(releasePublishScript, /const NPM_REGISTRY = "https:\/\/registry\.npmjs\.org"/);
   assert.match(releasePublishScript, /\["publish", tarball, "--provenance", "--access", "public", "--registry", NPM_REGISTRY, "--tag", "latest", "--ignore-scripts"\]/);
+  assert.match(releasePublishScript, /env: \{ \.\.\.childEnv, \.\.\.publishEnv \}/);
   assert.match(releaseWorkflow, /github-release:[\s\S]*needs:\n      - publish\n      - docker[\s\S]*permissions:\n      contents: write[\s\S]*node scripts\/create-github-release\.mjs/);
   assert.match(githubReleaseScript, /requiredReleaseTag\(requiredEnvString\("GITHUB_REF_NAME"\)\)/);
   assert.match(githubReleaseScript, /const sha = requiredCommitSha\(requiredEnvString\("GITHUB_SHA"\)\)/);

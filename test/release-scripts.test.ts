@@ -68,6 +68,26 @@ test("release publish script rejects control-bearing env before artifact work", 
   assert.doesNotMatch(result.stderr, /with-control|release artifact directory|pnpm publish|Error:/);
 });
 
+test("release publish script rejects malformed trusted-publishing env before artifact work", () => {
+  for (const env of [
+    { GITHUB_REPOSITORY: "Attacker/p2p-transfer", GITHUB_RUN_ID: "12345" },
+    { GITHUB_REPOSITORY: "VictorHaine/p2p-transfer", GITHUB_RUN_ID: "not-a-run-id" }
+  ]) {
+    const result = runScript("scripts/publish-release-artifact.mjs", {
+      ...releaseTagEnv("v0.1.0"),
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: "oidc-token-that-must-not-be-used",
+      ACTIONS_ID_TOKEN_REQUEST_URL: "https://pipelines.actions.githubusercontent.com/example",
+      GITHUB_ACTIONS: "true",
+      ...env
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Release publish failed:\n- GITHUB_(?:REPOSITORY must match the trusted publishing repository|RUN_ID must be a positive decimal GitHub Actions run id)\./);
+    assert.doesNotMatch(result.stderr, /oidc-token-that-must-not-be-used|Attacker|not-a-run-id|api\.github|release artifact directory|pnpm publish|Error:/);
+  }
+});
+
 test("GitHub release script rejects control-bearing env before artifact or GitHub API work", () => {
   const result = runScript("scripts/create-github-release.mjs", {
     GITHUB_REF_NAME: "v0.1.0\nwith-control",
