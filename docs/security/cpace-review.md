@@ -25,10 +25,13 @@ This package controls the untrusted-signaling trust boundary: if CPace is compro
 
 - Import surface used by this project: package root import `@cipherman/pake-js`, using the exported `cpace` namespace and the `ristretto255` CPace API.
 - Package exports reviewed: `.`, `./spake2plus`, and `./cpace`; this project only depends on CPace behavior.
+- Entrypoints reviewed in installed metadata: `type` is `module`, `main` is `./dist/index.cjs`, and `types` is `./dist/index.d.ts`.
 - Published files reviewed in installed metadata: `dist`, `README.md`, `SECURITY.md`, `THREAT_MODEL.md`, `CHANGELOG.md`, and `LICENSE`.
+- Side-effect metadata reviewed: `sideEffects` is `false`.
 - Consumer install lifecycle hooks reviewed: `preinstall`, `install`, `postinstall`, `prepare`, and `prepublish` are absent. `prepublishOnly` is present upstream but is not run during consumer installs.
 - Build policy reviewed: `pnpm-workspace.yaml` has `strictDepBuilds: true`; `@cipherman/pake-js` is not in `allowBuilds`, so it must not require dependency build scripts in this project.
 - Direct runtime dependency reviewed: `@cipherman/pake-js@0.1.1`.
+- Package runtime dependency declaration reviewed: `@noble/curves` is declared as `^1.6.0` upstream.
 - Locked transitive crypto dependency reviewed: `@noble/curves@1.9.7`, with `@noble/hashes@1.8.0` in the resolved transitive set.
 - Registry source reviewed: lockfile package entries must stay registry tarballs with `sha512` integrity, not `git`, `github:`, `file:`, `link:`, `workspace:`, `http`, `https`, or custom tarball sources.
 

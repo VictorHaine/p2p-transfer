@@ -15,11 +15,13 @@ type PackageJson = {
   engines?: { node?: string };
   bin?: Record<string, string>;
   files?: string[];
+  type?: string;
   main?: string;
   types?: string;
   exports?: unknown;
   browser?: string;
   scripts?: Record<string, string>;
+  sideEffects?: boolean;
   publishConfig?: Record<string, unknown>;
   pnpm?: Record<string, unknown>;
   dependencies?: Record<string, string>;
@@ -634,6 +636,29 @@ test("critical PAKE dependency identity and install surface stay reviewed", () =
   assert.equal(pakePackageJson.name, "@cipherman/pake-js");
   assert.equal(pakePackageJson.version, pakePin);
   assert.equal(pakePackageJson.license, "MIT");
+  assert.equal(pakePackageJson.type, "module");
+  assert.equal(pakePackageJson.main, "./dist/index.cjs");
+  assert.equal(pakePackageJson.types, "./dist/index.d.ts");
+  assert.equal(pakePackageJson.sideEffects, false);
+  assert.deepEqual(pakePackageJson.files, ["dist", "README.md", "SECURITY.md", "THREAT_MODEL.md", "CHANGELOG.md", "LICENSE"]);
+  assert.deepEqual(pakePackageJson.exports, {
+    ".": {
+      types: "./dist/index.d.ts",
+      import: "./dist/index.js",
+      require: "./dist/index.cjs"
+    },
+    "./spake2plus": {
+      types: "./dist/spake2plus/index.d.ts",
+      import: "./dist/spake2plus/index.js",
+      require: "./dist/spake2plus/index.cjs"
+    },
+    "./cpace": {
+      types: "./dist/cpace/index.d.ts",
+      import: "./dist/cpace/index.js",
+      require: "./dist/cpace/index.cjs"
+    }
+  });
+  assert.deepEqual(pakePackageJson.dependencies, { "@noble/curves": "^1.6.0" });
   assert.deepEqual(pakePackageJson.repository, {
     type: "git",
     url: "git+https://github.com/alicommit-malp/pake-js.git"
@@ -654,9 +679,14 @@ test("critical PAKE dependency identity and install surface stay reviewed", () =
   assert.match(cpaceReview, /`cpace\.ristretto255\.init`/);
   assert.match(cpaceReview, /`cpace\.ristretto255\.deriveIskInitiatorResponder`/);
   assert.match(cpaceReview, /untrusted-signaling trust boundary/);
+  assert.match(cpaceReview, /Package exports reviewed: `.`, `\.\/spake2plus`, and `\.\/cpace`; this project only depends on CPace behavior/);
+  assert.match(cpaceReview, /Entrypoints reviewed in installed metadata: `type` is `module`, `main` is `\.\/dist\/index\.cjs`, and `types` is `\.\/dist\/index\.d\.ts`/);
+  assert.match(cpaceReview, /Published files reviewed in installed metadata: `dist`, `README\.md`, `SECURITY\.md`, `THREAT_MODEL\.md`, `CHANGELOG\.md`, and `LICENSE`/);
+  assert.match(cpaceReview, /Side-effect metadata reviewed: `sideEffects` is `false`/);
   assert.match(cpaceReview, /Consumer install lifecycle hooks reviewed: `preinstall`, `install`, `postinstall`, `prepare`, and `prepublish` are absent/);
   assert.match(cpaceReview, /`prepublishOnly` is present upstream but is not run during consumer installs/);
   assert.match(cpaceReview, /`strictDepBuilds: true`; `@cipherman\/pake-js` is not in `allowBuilds`/);
+  assert.match(cpaceReview, /Package runtime dependency declaration reviewed: `@noble\/curves` is declared as `\^1\.6\.0` upstream/);
   assert.match(cpaceReview, /Locked transitive crypto dependency reviewed: `@noble\/curves@1\.9\.7`, with `@noble\/hashes@1\.8\.0`/);
   assert.match(cpaceReview, /This repo does not contain a formal independent audit certificate for `@cipherman\/pake-js`/);
   assert.match(cpaceReview, /Dependabot must keep `@cipherman\/pake-js` in the `critical-pake-dependency` production group and excluded from the bulk production dependency group/);
