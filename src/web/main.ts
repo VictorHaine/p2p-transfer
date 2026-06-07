@@ -58,7 +58,7 @@ import {
 import { abortControlMessage, assertControlMessage, assertSenderControlMessage, assertTransferManifestMatchesAccepted, remoteAbortError, type TransferManifest, type ControlMessage } from "../shared/transfer.js";
 import { assertBrowserOpaquePartFileName, createAvailableBrowserFile, ignoreNotFoundError, isNotFoundError } from "./file-system.js";
 import { generateCode, normalizeCode, parseCode } from "../shared/wordlist.js";
-import { browserFinalCandidateName, browserPartCandidateName, opaqueBrowserPartName, randomizedBrowserOutputName } from "./file-names.js";
+import { browserFinalCandidateName, browserPartCandidateName, opaqueBrowserOutputName, opaqueBrowserPartName, randomizedBrowserOutputName } from "./file-names.js";
 import "./styles.css";
 
 type BrowserReceiveState = {
@@ -80,7 +80,7 @@ type BrowserReceiveState = {
   finalizing: boolean;
 };
 
-type BrowserReceiveAccept = { accepted: true; directory?: FileSystemDirectoryHandle; resume: boolean } | { accepted: false };
+type BrowserReceiveAccept = { accepted: true; directory?: FileSystemDirectoryHandle; resume: boolean; opaqueNames: boolean } | { accepted: false };
 
 type BrowserResumePartialRecord = {
   partName: string;
@@ -170,6 +170,10 @@ app.innerHTML = staticTrustedHtml`
           <input id="folderOnly" type="checkbox" />
           <span>Folder only</span>
         </label>
+        <label class="serverIce">
+          <input id="opaqueNames" type="checkbox" />
+          <span>Opaque names</span>
+        </label>
       </div>
     </header>
 
@@ -210,6 +214,7 @@ serverUrl.value = defaultBrowserServerUrl();
 const serverIce = byId<HTMLInputElement>("serverIce");
 const relayOnly = byId<HTMLInputElement>("relayOnly");
 const folderOnly = byId<HTMLInputElement>("folderOnly");
+const opaqueNames = byId<HTMLInputElement>("opaqueNames");
 const sendForm = byId<HTMLFormElement>("sendForm");
 const sendCode = byId<HTMLInputElement>("sendCode");
 const fileInput = byId<HTMLInputElement>("fileInput");
@@ -315,6 +320,7 @@ async function sendFromBrowser(): Promise<void> {
 async function receiveInBrowser(): Promise<void> {
   setStatus(recvStatus, "Registering");
   const requireFolderReceive = shouldRequireBrowserFolderReceive();
+  const opaqueOutputNames = shouldUseBrowserOpaqueNames();
   if (requireFolderReceive && !canPickBrowserDirectory()) throw new Error("Folder-only receive requires File System Access.");
   let signaling: BrowserSignaling | undefined;
   let pc: RTCPeerConnection | undefined;
@@ -353,7 +359,7 @@ async function receiveInBrowser(): Promise<void> {
         setLog(recvLog, "Ignored an invalid transfer request. Still waiting...");
         continue;
       }
-      const accept = await promptForBrowserAccept(manifest, keys.sas, requireFolderReceive);
+      const accept = await promptForBrowserAccept(manifest, keys.sas, requireFolderReceive, opaqueOutputNames);
       if (!accept.accepted) {
         safeBrowserSend(signaling, { type: "pair-reject", sid: joined.sid, reason: "user_declined", auth: pairDecisionAuthTag(keys.signalAuthKey, joined.sid, "receiver", "reject", sealedManifest, "user_declined") });
         finished = true;
@@ -375,7 +381,7 @@ async function receiveInBrowser(): Promise<void> {
       signalWire.dispose();
       unwireSignals = undefined;
       setStatus(recvStatus, "Receiving");
-      await receiveBrowserFiles(control, bulk, keys, recvLog, manifest, accept.accepted ? accept.directory : undefined, accept.accepted ? accept.resume : false);
+      await receiveBrowserFiles(control, bulk, keys, recvLog, manifest, accept.accepted ? accept.directory : undefined, accept.accepted ? accept.resume : false, accept.accepted ? accept.opaqueNames : false);
       safeBrowserSend(signaling, { type: "bye", sid: joined.sid, reason: "complete" });
       finished = true;
       setStatus(recvStatus, "Done");
@@ -753,7 +759,8 @@ async function receiveBrowserFiles(
   log: HTMLElement,
   acceptedManifest: FileManifest,
   directory?: FileSystemDirectoryHandle,
-  resume = false
+  resume = false,
+  opaqueOutputNames = false
 ): Promise<void> {
   const states = new Map<number, BrowserReceiveState>();
   let manifest: TransferManifest | undefined;
@@ -892,10 +899,12 @@ async function receiveBrowserFiles(
         if (states.has(message.id)) throw new Error(`Duplicate file-begin for file ${message.id}`);
         if (expected.name !== message.name || expected.size !== message.size) throw new Error(`file-begin does not match manifest for file ${message.id}`);
         assertFileWithinLimits(message.name, message.size);
-        const name = directory ? safeFileName(message.name) : randomizedBrowserOutputName(message.name);
-        const writableState: Partial<BrowserWritableReceiveFile> = directory
-          ? await createBrowserReceiveFile(directory, message.name, message.size, await browserResumeKey(acceptedManifest, expected), resume)
-          : {};
+        const name = browserFinalOutputName(message.name, opaqueOutputNames);
+        let writableState: Partial<BrowserWritableReceiveFile> = {};
+        if (directory) {
+          const resumeKey = await browserResumeKey(acceptedManifest, expected);
+          writableState = await createBrowserReceiveFile(directory, message.name, message.size, resumeKey, resume, opaqueOutputNames);
+        }
         states.set(message.id, {
           id: message.id,
           name,
@@ -1085,7 +1094,7 @@ function wipeChunks(chunks: Uint8Array[]): void {
   for (const chunk of chunks) chunk.fill(0);
 }
 
-async function promptForBrowserAccept(manifest: FileManifest, sas: string, requireFolderReceive = false): Promise<BrowserReceiveAccept> {
+async function promptForBrowserAccept(manifest: FileManifest, sas: string, requireFolderReceive = false, opaqueOutputNames = false): Promise<BrowserReceiveAccept> {
   const canUseMemoryFallback = !requireFolderReceive && manifest.totalBytes <= BROWSER_BLOB_FALLBACK_MAX_BYTES;
   const hasDirectoryPicker = canPickBrowserDirectory();
   requestBox.hidden = false;
@@ -1139,14 +1148,14 @@ async function promptForBrowserAccept(manifest: FileManifest, sas: string, requi
     if (acceptButton) {
       acceptButton.onclick = () => {
         requestBox.hidden = true;
-        resolve({ accepted: true, resume: false });
+        resolve({ accepted: true, resume: false, opaqueNames: opaqueOutputNames });
       };
     }
     if (folderButton) {
       folderButton.onclick = async () => {
         requestBox.hidden = true;
         try {
-          resolve({ accepted: true, directory: await window.showDirectoryPicker!(), resume: false });
+          resolve({ accepted: true, directory: await window.showDirectoryPicker!(), resume: false, opaqueNames: opaqueOutputNames });
         } catch {
           resolve({ accepted: false });
         }
@@ -1156,7 +1165,7 @@ async function promptForBrowserAccept(manifest: FileManifest, sas: string, requi
       resumeButton.onclick = async () => {
         requestBox.hidden = true;
         try {
-          resolve({ accepted: true, directory: await window.showDirectoryPicker!(), resume: true });
+          resolve({ accepted: true, directory: await window.showDirectoryPicker!(), resume: true, opaqueNames: opaqueOutputNames });
         } catch {
           resolve({ accepted: false });
         }
@@ -1413,6 +1422,10 @@ function shouldUseBrowserRelayOnly(): boolean {
 
 function shouldRequireBrowserFolderReceive(): boolean {
   return folderOnly.checked;
+}
+
+function shouldUseBrowserOpaqueNames(): boolean {
+  return opaqueNames.checked;
 }
 
 function canPickBrowserDirectory(): boolean {
@@ -2083,18 +2096,19 @@ async function createBrowserReceiveFile(
   name: string,
   size: number,
   resumeKey: string,
-  resume: boolean
+  resume: boolean,
+  opaqueOutputNames: boolean
 ): Promise<BrowserWritableReceiveFile> {
   if (resume) {
-    const resumed = await resumeBrowserPartialFile(directory, name, size, resumeKey);
+    const resumed = await resumeBrowserPartialFile(directory, name, size, resumeKey, opaqueOutputNames);
     if (resumed) return resumed;
   }
-  const created = await createWritableFile(directory, name);
+  const created = await createWritableFile(directory, name, opaqueOutputNames, resume ? resumeKey : undefined);
   if (resume) rememberBrowserResumePartial(resumeKey, { partName: created.partName, updatedAt: Date.now() });
   return resume ? { ...created, resumeKey } : created;
 }
 
-async function resumeBrowserPartialFile(directory: FileSystemDirectoryHandle, name: string, size: number, resumeKey: string): Promise<BrowserWritableReceiveFile | undefined> {
+async function resumeBrowserPartialFile(directory: FileSystemDirectoryHandle, name: string, size: number, resumeKey: string, opaqueOutputNames: boolean): Promise<BrowserWritableReceiveFile | undefined> {
   const record = readBrowserResumePartial(resumeKey);
   if (!record) return undefined;
   assertBrowserOpaquePartFileName(record.partName);
@@ -2122,7 +2136,7 @@ async function resumeBrowserPartialFile(directory: FileSystemDirectoryHandle, na
     throw error;
   }
   return {
-    name: randomizedBrowserOutputName(name),
+    name: browserFinalOutputName(name, opaqueOutputNames, resumeKey),
     partName: record.partName,
     writable,
     fileHandle: handle,
@@ -2136,9 +2150,11 @@ async function resumeBrowserPartialFile(directory: FileSystemDirectoryHandle, na
 
 async function createWritableFile(
   directory: FileSystemDirectoryHandle,
-  name: string
+  name: string,
+  opaqueOutputNames: boolean,
+  stableOpaqueKey?: string
 ): Promise<{ name: string; partName: string; writable: FileSystemWritableFileStream; fileHandle: FileSystemFileHandle; directory: FileSystemDirectoryHandle }> {
-  const finalName = randomizedBrowserOutputName(name);
+  const finalName = browserFinalOutputName(name, opaqueOutputNames, stableOpaqueKey);
   const { name: partName, handle } = await createAvailableBrowserFile(directory, opaqueBrowserPartName(), browserPartCandidateName);
   try {
     return { name: finalName, partName, writable: await handle.createWritable({ keepExistingData: false }), fileHandle: handle, directory };
@@ -2146,6 +2162,16 @@ async function createWritableFile(
     await directory.removeEntry(partName).catch(ignoreNotFoundError);
     throw error;
   }
+}
+
+function browserFinalOutputName(name: string, opaqueOutputNames: boolean, stableOpaqueKey?: string): string {
+  if (!opaqueOutputNames) return randomizedBrowserOutputName(name);
+  return opaqueBrowserOutputName(stableOpaqueKey === undefined ? undefined : browserOpaqueOutputToken(stableOpaqueKey));
+}
+
+function browserOpaqueOutputToken(stableOpaqueKey: string): string {
+  if (!BROWSER_RESUME_STORAGE_ENTRY_KEY.test(stableOpaqueKey)) throw new Error("Browser opaque output key is invalid.");
+  return stableOpaqueKey.slice(BROWSER_RESUME_KEY_PREFIX.length, BROWSER_RESUME_KEY_PREFIX.length + 32);
 }
 
 function browserResumeOffset(partialSize: number, expectedSize: number): number {
@@ -2587,6 +2613,7 @@ function updateOperationControls(): void {
   serverIce.disabled = busy;
   relayOnly.disabled = busy;
   folderOnly.disabled = busy;
+  opaqueNames.disabled = busy;
   sendCode.disabled = busy;
   fileInput.disabled = busy;
   sendButton.disabled = busy;

@@ -7,6 +7,7 @@ import {
   isOpaqueBrowserPartName,
   MAX_BROWSER_FINAL_NAME_BYTES,
   MAX_BROWSER_OUTPUT_NAME_BYTES,
+  opaqueBrowserOutputName,
   opaqueBrowserPartName,
   randomizedBrowserOutputName
 } from "../src/web/file-names.js";
@@ -67,6 +68,14 @@ test("browser resume partial names are opaque tokenized part files", () => {
   assert.throws(() => assertBrowserOpaquePartFileName("report (ff-0123456789abcdef0123456789abcdef).txt.part"), /opaque/);
 });
 
+test("browser opaque output names do not embed peer-supplied basenames", () => {
+  assert.equal(opaqueBrowserOutputName("0123456789abcdef0123456789abcdef"), "ff-0123456789abcdef0123456789abcdef");
+  assert.match(opaqueBrowserOutputName(), /^ff-[a-f0-9]{32}$/);
+  assert.doesNotMatch(opaqueBrowserOutputName("abcdef0123456789abcdef0123456789"), /photo|jpg|secret|txt/);
+  assert.throws(() => opaqueBrowserOutputName("short"), /token/);
+  assert.throws(() => opaqueBrowserOutputName("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"), /token/);
+});
+
 test("browser collision names stay bounded and preserve random suffixes", () => {
   const output = randomizedBrowserOutputName("a".repeat(220), "0123456789abcdef0123456789abcdef");
   const collision = browserFinalCandidateName(output, 255);
@@ -101,6 +110,7 @@ test("browser output name helpers reject hostile runtime values before coercion"
 
   assert.throws(() => randomizedBrowserOutputName(hostile as never, "0123456789abcdef0123456789abcdef"), /Browser output name/);
   assert.throws(() => randomizedBrowserOutputName("safe.txt", hostile as never), /Browser output token/);
+  assert.throws(() => opaqueBrowserOutputName(hostile as never), /Browser output token/);
   assert.throws(() => browserPartName(hostile as never), /Browser output name/);
   assert.throws(() => browserFinalCandidateName(hostile as never, 1), /Browser output name/);
   assert.throws(() => browserPartCandidateName(hostile as never, 1), /Browser output name/);

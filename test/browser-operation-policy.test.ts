@@ -18,6 +18,7 @@ test("browser UI prevents overlapping send and receive operations from one tab",
   assert.match(webSource, /serverIce\.disabled = busy;/);
   assert.match(webSource, /relayOnly\.disabled = busy;/);
   assert.match(webSource, /folderOnly\.disabled = busy;/);
+  assert.match(webSource, /opaqueNames\.disabled = busy;/);
   assert.match(webSource, /sendButton\.disabled = busy;/);
   assert.match(webSource, /receiveButton\.disabled = busy;/);
 });
@@ -49,11 +50,29 @@ test("browser exposes folder-only receive to avoid Blob fallback plaintext reten
   assert.match(webSource, /function canPickBrowserDirectory\(\): boolean \{[\s\S]*return typeof window\.showDirectoryPicker === "function";/);
   assert.match(receiveBody, /const requireFolderReceive = shouldRequireBrowserFolderReceive\(\);[\s\S]*if \(requireFolderReceive && !canPickBrowserDirectory\(\)\) throw new Error\("Folder-only receive requires File System Access\."\);/);
   assert.equal(receiveBody.indexOf("shouldRequireBrowserFolderReceive()") < receiveBody.indexOf("openSignaling()"), true);
-  assert.match(receiveBody, /promptForBrowserAccept\(manifest, keys\.sas, requireFolderReceive\)/);
-  assert.match(webSource, /async function promptForBrowserAccept\(manifest: FileManifest, sas: string, requireFolderReceive = false\): Promise<BrowserReceiveAccept>/);
+  assert.match(receiveBody, /promptForBrowserAccept\(manifest, keys\.sas, requireFolderReceive, opaqueOutputNames\)/);
+  assert.match(webSource, /async function promptForBrowserAccept\(manifest: FileManifest, sas: string, requireFolderReceive = false, opaqueOutputNames = false\): Promise<BrowserReceiveAccept>/);
   assert.match(promptBody, /const canUseMemoryFallback = !requireFolderReceive && manifest\.totalBytes <= BROWSER_BLOB_FALLBACK_MAX_BYTES;/);
   assert.match(promptBody, /const acceptButton = canUseMemoryFallback \? makeButton\("acceptButton", "Accept"\) : undefined;/);
   assert.match(promptBody, /requireFolderReceive \? "Folder-only receive requires folder streaming\." : "Large transfers require folder streaming\."/);
+});
+
+test("browser exposes opaque receive output names", () => {
+  const receiveBody = extractFunctionBody(webSource, "receiveInBrowser");
+  const promptBody = extractFunctionBody(webSource, "promptForBrowserAccept");
+  const outputNameBody = extractFunctionBody(webSource, "browserFinalOutputName");
+
+  assert.match(securityPolicy, /browser receive must expose an explicit opaque-names mode for sensitive receives/);
+  assert.match(readme, /Enable `Opaque names` before starting receive/);
+  assert.match(webSource, /<input id="opaqueNames" type="checkbox" \/>/);
+  assert.match(webSource, /<span>Opaque names<\/span>/);
+  assert.match(webSource, /const opaqueNames = byId<HTMLInputElement>\("opaqueNames"\);/);
+  assert.match(webSource, /function shouldUseBrowserOpaqueNames\(\): boolean \{[\s\S]*return opaqueNames\.checked;/);
+  assert.match(receiveBody, /const opaqueOutputNames = shouldUseBrowserOpaqueNames\(\);/);
+  assert.match(receiveBody, /receiveBrowserFiles\(control, bulk, keys, recvLog, manifest, accept\.accepted \? accept\.directory : undefined, accept\.accepted \? accept\.resume : false, accept\.accepted \? accept\.opaqueNames : false\)/);
+  assert.match(promptBody, /opaqueNames: opaqueOutputNames/);
+  assert.match(outputNameBody, /if \(!opaqueOutputNames\) return randomizedBrowserOutputName\(name\);/);
+  assert.match(outputNameBody, /return opaqueBrowserOutputName\(stableOpaqueKey === undefined \? undefined : browserOpaqueOutputToken\(stableOpaqueKey\)\);/);
 });
 
 test("browser bootstrap HTML uses the named Trusted Types policy", () => {
@@ -215,9 +234,9 @@ test("browser sender rejects too many files before hashing", () => {
   assert.match(fileInputsBody, /throw new Error\(`Too many files\. Limit is \$\{MAX_FILES_PER_SESSION\}\.`\);/);
 });
 
-test("browser download fallback uses randomized output names", () => {
-  assert.match(webSource, /const name = directory \? safeFileName\(message\.name\) : randomizedBrowserOutputName\(message\.name\);/);
-  assert.match(webSource, /const writableState: Partial<BrowserWritableReceiveFile> = directory[\s\S]*await createBrowserReceiveFile\(directory, message\.name, message\.size, await browserResumeKey\(acceptedManifest, expected\), resume\)/);
+test("browser download fallback uses the selected final output name policy", () => {
+  assert.match(webSource, /const name = browserFinalOutputName\(message\.name, opaqueOutputNames\);/);
+  assert.match(webSource, /let writableState: Partial<BrowserWritableReceiveFile> = \{\};[\s\S]*if \(directory\) \{[\s\S]*const resumeKey = await browserResumeKey\(acceptedManifest, expected\);[\s\S]*writableState = await createBrowserReceiveFile\(directory, message\.name, message\.size, resumeKey, resume, opaqueOutputNames\);[\s\S]*\}/);
   assert.match(webSource, /anchor\.download = state\.name;/);
 });
 
@@ -229,12 +248,12 @@ test("browser receive resume is explicit and limited to saved opaque folder part
   const lookupKeyBody = extractFunctionBody(webSource, "loadBrowserResumeLookupKey");
   const promptBody = extractFunctionBody(webSource, "promptForBrowserAccept");
 
-  assert.match(webSource, /type BrowserReceiveAccept = \{ accepted: true; directory\?: FileSystemDirectoryHandle; resume: boolean \} \| \{ accepted: false \};/);
+  assert.match(webSource, /type BrowserReceiveAccept = \{ accepted: true; directory\?: FileSystemDirectoryHandle; resume: boolean; opaqueNames: boolean \} \| \{ accepted: false \};/);
   assert.match(promptBody, /makeButton\("resumeButton", "Resume in folder", "secondary"\)/);
   assert.match(promptBody, /Resume in folder keeps opaque tokenized \.part files after failures/);
-  assert.match(webSource, /receiveBrowserFiles\(control, bulk, keys, recvLog, manifest, accept\.accepted \? accept\.directory : undefined, accept\.accepted \? accept\.resume : false\)/);
-  assert.match(webSource, /resume = false\s*\): Promise<void> \{/);
-  assert.match(receiveBody, /await browserResumeKey\(acceptedManifest, expected\), resume/);
+  assert.match(webSource, /receiveBrowserFiles\(control, bulk, keys, recvLog, manifest, accept\.accepted \? accept\.directory : undefined, accept\.accepted \? accept\.resume : false, accept\.accepted \? accept\.opaqueNames : false\)/);
+  assert.match(webSource, /resume = false,\n  opaqueOutputNames = false\s*\): Promise<void> \{/);
+  assert.match(receiveBody, /createBrowserReceiveFile\(directory, message\.name, message\.size, resumeKey, resume, opaqueOutputNames\)/);
   assert.match(receiveBody, /hash: writableState\.hash \?\? createSha256\(\)/);
   assert.match(receiveBody, /bytes: writableState\.bytes \?\? 0/);
   assert.match(receiveBody, /expectedSeq: writableState\.expectedSeq \?\? 0/);
@@ -245,10 +264,10 @@ test("browser receive resume is explicit and limited to saved opaque folder part
   assert.match(receiveBody, /if \(state\.resume\) \{[\s\S]*await preserveBrowserPartialFile\(state\);[\s\S]*\} else \{[\s\S]*await discardBrowserPartialFile\(state\)/);
   assert.match(webSource, /async function preserveBrowserPartialFile\(state: BrowserReceiveState\): Promise<void> \{[\s\S]*await state\.writable\.close\(\);[\s\S]*await state\.writable\.abort\(\);/);
   assert.match(webSource, /if \(actual !== state\.expectedSha256\) \{[\s\S]*state\.resume = false;[\s\S]*forgetBrowserResumePartial\(state\.resumeKey\);[\s\S]*Hash mismatch/);
-  assert.match(fileFactoryBody, /if \(resume\) \{[\s\S]*const resumed = await resumeBrowserPartialFile\(directory, name, size, resumeKey\);[\s\S]*if \(resumed\) return resumed;/);
+  assert.match(fileFactoryBody, /if \(resume\) \{[\s\S]*const resumed = await resumeBrowserPartialFile\(directory, name, size, resumeKey, opaqueOutputNames\);[\s\S]*if \(resumed\) return resumed;/);
   assert.match(fileFactoryBody, /rememberBrowserResumePartial\(resumeKey, \{ partName: created\.partName, updatedAt: Date\.now\(\) \}\)/);
   assert.match(resumeBody, /assertBrowserOpaquePartFileName\(record\.partName\);/);
-  assert.match(resumeBody, /name: randomizedBrowserOutputName\(name\)/);
+  assert.match(resumeBody, /name: browserFinalOutputName\(name, opaqueOutputNames, resumeKey\)/);
   assert.match(resumeBody, /const bytes = browserResumeOffset\(file\.size, size\);/);
   assert.match(resumeBody, /const hash = await hashBrowserPartialPrefix\(file, bytes, name\);/);
   assert.match(resumeBody, /await writable\.write\(\{ type: "truncate", size: bytes \}\);/);

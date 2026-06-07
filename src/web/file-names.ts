@@ -23,6 +23,12 @@ export function randomizedBrowserOutputName(name: string, token = randomNameToke
   return `${base}${suffix}${ext}`;
 }
 
+export function opaqueBrowserOutputName(token = randomNameToken()): string {
+  if (typeof token !== "string") throw new Error("Browser output token is invalid.");
+  if (!/^[a-f0-9]{32}$/.test(token)) throw new Error("Browser output token is invalid.");
+  return `ff-${token}`;
+}
+
 export function browserPartName(finalName: string): string {
   assertBrowserNameInput(finalName);
   if (utf8ByteLength(finalName) > MAX_BROWSER_FINAL_NAME_BYTES) throw new Error("Browser final output name is too long.");
