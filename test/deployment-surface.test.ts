@@ -18,6 +18,7 @@ const dependencyReviewWorkflow = fs.readFileSync(new URL("../.github/workflows/d
 const codeowners = fs.readFileSync(new URL("../.github/CODEOWNERS", import.meta.url), "utf8");
 const pullRequestTemplate = fs.readFileSync(new URL("../.github/pull_request_template.md", import.meta.url), "utf8");
 const httpProbeScript = fs.readFileSync(new URL("../scripts/probe-http.mjs", import.meta.url), "utf8");
+const releaseTagScript = fs.readFileSync(new URL("../scripts/check-release-tag.mjs", import.meta.url), "utf8");
 const releaseArtifactScript = fs.readFileSync(new URL("../scripts/verify-release-artifact.mjs", import.meta.url), "utf8");
 const releaseChecksumScript = fs.readFileSync(new URL("../scripts/write-release-checksum.mjs", import.meta.url), "utf8");
 const releaseNotesScript = fs.readFileSync(new URL("../scripts/write-release-notes.mjs", import.meta.url), "utf8");
@@ -206,6 +207,14 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(securityPolicy, /release tags matching `v\*` must be protected by a GitHub tag protection rule or repository ruleset/);
   assert.match(readme, /tag protection rule or repository ruleset for `v\*` release tags/);
   assert.match(readme, /Protect `v\*` tags with a ruleset\/tag-protection rule before the first release/);
+  assert.match(securityPolicy, /release tag and package-version matching must use the checked release tag verifier/);
+  assert.match(releaseWorkflow, /Verify tag matches package version[\s\S]*run: node scripts\/check-release-tag\.mjs[\s\S]*Verify release tag is on main/);
+  assert.doesNotMatch(releaseWorkflow, /readFileSync\('package\.json'|node -p|test "\$\{GITHUB_REF_NAME\}" = "v\$\{version\}"/);
+  assert.match(releaseTagScript, /const MAX_PACKAGE_JSON_BYTES = 128 \* 1024/);
+  assert.match(releaseTagScript, /const MAX_RELEASE_ENV_VALUE_BYTES = 256/);
+  assert.match(releaseTagScript, /await open\(file, constants\.O_RDONLY \| \(constants\.O_NOFOLLOW \?\? 0\)\)/);
+  assert.match(releaseTagScript, /Object\.getOwnPropertyDescriptor\(process\.env, name\)/);
+  assert.match(releaseTagScript, /release tag does not match package version\./);
   assert.match(securityPolicy, /release tag commit must be reachable from protected `main` before release artifact packaging, attestation, npm publish, or GitHub Release creation/);
   assert.match(releaseWorkflow, /fetch-depth: 0/);
   assert.match(releaseWorkflow, /Verify release tag is on main[\s\S]*git fetch --no-tags --prune origin \+refs\/heads\/main:refs\/remotes\/origin\/main[\s\S]*git merge-base --is-ancestor "\$GITHUB_SHA" origin\/main/);
