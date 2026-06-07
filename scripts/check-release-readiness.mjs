@@ -34,6 +34,7 @@ const MAX_GITHUB_API_RESPONSE_BYTES = 1024 * 1024;
 const MAX_NPM_REGISTRY_RESPONSE_BYTES = 1024 * 1024;
 const GITHUB_API_TIMEOUT_MS = 30_000;
 const NPM_REGISTRY_TIMEOUT_MS = 20_000;
+const GITHUB_ACTIONS_REQUIRED_OAUTH_SCOPES = ["repo"];
 const REPOSITORY_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const PACKAGE_NAME_RE = /^(?:@[a-z0-9][a-z0-9._-]{0,213}\/)?[a-z0-9][a-z0-9._-]{0,213}$/;
 const SEMVER_RE = /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/;
@@ -268,17 +269,17 @@ async function npmPackageMetadata(name) {
 function assertTokenScopes(headers) {
   const rawScopes = headers.get("x-oauth-scopes") ?? "";
   if (rawScopes === "" && envString("GITHUB_ACTIONS") === "true") return;
-  assertOAuthScopes(rawScopes);
+  assertOAuthScopes(rawScopes, envString("GITHUB_ACTIONS") === "true" ? GITHUB_ACTIONS_REQUIRED_OAUTH_SCOPES : REQUIRED_OAUTH_SCOPES);
 }
 
-function assertOAuthScopes(rawScopes) {
+function assertOAuthScopes(rawScopes, requiredScopes = REQUIRED_OAUTH_SCOPES) {
   const scopes = new Set(
     rawScopes
       .split(",")
       .map((scope) => scope.trim())
       .filter((scope) => scope.length > 0)
   );
-  for (const scope of REQUIRED_OAUTH_SCOPES) {
+  for (const scope of requiredScopes) {
     if (!scopes.has(scope)) {
       const refresh = scope === "workflow" ? " Run `gh auth refresh -h github.com -s workflow`, then rerun release preflight." : "";
       throw new Error(`GitHub token is missing ${scope} scope.${refresh}`);

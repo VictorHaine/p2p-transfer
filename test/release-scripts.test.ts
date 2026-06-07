@@ -293,7 +293,7 @@ globalThis.fetch = async (url, init = {}) => {
   }
 });
 
-test("release preflight verifies the full remote release gate before succeeding", async () => {
+test("release workflow preflight verifies the full remote gate with a repo-scoped token", async () => {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-preflight-"));
   const mock = path.join(tmp, "mock-release-preflight-fetch.mjs");
   const log = path.join(tmp, "requests.log");
@@ -363,7 +363,7 @@ globalThis.fetch = async (url, init = {}) => {
   const json = (status, body, headers = {}) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
   if (parsed.origin === "https://registry.npmjs.org" && method === "GET" && path === "/%40victorhaine%2Fp2p-transfer") return json(200, { versions: { "0.0.0-bootstrap.0": {} } });
   if (parsed.origin !== "https://api.github.com") return json(500, {});
-  if (method === "GET" && path === "/user") return json(200, { login: "operator" }, { "x-oauth-scopes": "repo, workflow" });
+  if (method === "GET" && path === "/user") return json(200, { login: "operator" }, { "x-oauth-scopes": "repo" });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer") return json(200, { id: 1 });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/branches/main") return json(200, { name: "main" });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/actions/secrets/RELEASE_PREFLIGHT_TOKEN") return json(200, { name: "RELEASE_PREFLIGHT_TOKEN", created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z" });
@@ -389,6 +389,7 @@ globalThis.fetch = async (url, init = {}) => {
       "scripts/check-release-readiness.mjs",
       {
         FF_MOCK_PREFLIGHT_LOG: log,
+        GITHUB_ACTIONS: "true",
         GITHUB_TOKEN: "token-that-must-not-be-printed"
       },
       [],

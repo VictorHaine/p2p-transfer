@@ -527,6 +527,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(npmBootstrapScript, /\["--config\.ignore-scripts=true", "publish", "--access", "public", "--no-git-checks", "--registry", NPM_REGISTRY\]/);
   assert.doesNotMatch(npmBootstrapScript, /writeFile\(path\.join\(root, "package\.json"\)|pnpm, \["publish"\], \{ cwd: root/);
   assert.match(releaseReadinessScript, /const REQUIRED_OAUTH_SCOPES = \["repo", "workflow"\]/);
+  assert.match(releaseReadinessScript, /const GITHUB_ACTIONS_REQUIRED_OAUTH_SCOPES = \["repo"\]/);
   assert.match(releaseReadinessScript, /const RELEASE_PREFLIGHT_SECRET = "RELEASE_PREFLIGHT_TOKEN"/);
   assert.match(releaseReadinessScript, /class ReleaseReadinessFailure extends Error/);
   assert.match(releaseReadinessScript, /const failures = \[\]/);
@@ -575,6 +576,9 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.doesNotMatch(releaseReadinessScript, /process\.env\.GITHUB_TOKEN|process\.env\.GH_TOKEN|process\.env\.GITHUB_REPOSITORY/);
   assert.match(releaseReadinessScript, /headers\.get\("x-oauth-scopes"\)/);
   assert.match(releaseReadinessScript, /if \(rawScopes === "" && envString\("GITHUB_ACTIONS"\) === "true"\) return;/);
+  assert.match(releaseReadinessScript, /assertOAuthScopes\(rawScopes, envString\("GITHUB_ACTIONS"\) === "true" \? GITHUB_ACTIONS_REQUIRED_OAUTH_SCOPES : REQUIRED_OAUTH_SCOPES\)/);
+  assert.match(releaseReadinessScript, /function assertOAuthScopes\(rawScopes, requiredScopes = REQUIRED_OAUTH_SCOPES\)/);
+  assert.match(releaseReadinessScript, /for \(const scope of requiredScopes\)/);
   assert.match(releaseReadinessScript, /GitHub token is missing \$\{scope\} scope\.\$\{refresh\}/);
   assert.match(releaseReadinessScript, /gh auth refresh -h github\.com -s workflow/);
   assert.match(releaseReadinessScript, /async function collectGitHubRepositoryReadiness\(failures, token, repository, authenticatedLogin\)/);
