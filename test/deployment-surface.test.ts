@@ -291,8 +291,8 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(githubReleaseControlsScript, /"PUT", `\/repos\/\$\{options\.repository\}\/rulesets\/\$\{existing\.id\}`/);
   assert.match(githubReleaseControlsScript, /"PUT", `\/repos\/\$\{options\.repository\}\/environments\/\$\{encodeURIComponent\(NPM_ENVIRONMENT\)\}`/);
   assert.match(githubReleaseControlsScript, /reviewers: await Promise\.all\(options\.npmReviewers\.map\(async \(login\) => \(\{ type: "User", id: await userId\(token, login\) \}\)\)\)/);
-  assert.match(githubReleaseControlsScript, /prevent_self_review: options\.preventSelfReview/);
-  assert.match(githubReleaseControlsScript, /preventSelfReview: true/);
+  assert.match(githubReleaseControlsScript, /prevent_self_review: true/);
+  assert.doesNotMatch(githubReleaseControlsScript, /prevent_self_review: options\.preventSelfReview|preventSelfReview: false|options\.preventSelfReview = false/);
 
   for (const check of [
     "verify",
@@ -322,7 +322,8 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(githubReleaseControlsScript, /The npm environment must prevent self-review\./);
   assert.match(githubReleaseControlsScript, /--npm-reviewer/);
   assert.match(githubReleaseControlsScript, /--prevent-self-review/);
-  assert.match(githubReleaseControlsScript, /--allow-self-review/);
+  assert.match(githubReleaseControlsScript, /GitHub npm environment self-review must stay disabled\./);
+  assert.doesNotMatch(githubReleaseControlsScript, /\[--prevent-self-review\|--allow-self-review\]|options\.preventSelfReview/);
   assert.match(githubReleaseControlsScript, /Npm environment reviewer must be a GitHub username\./);
   assert.match(githubReleaseControlsScript, /Npm environment reviewers must be unique\./);
   assert.match(githubReleaseControlsScript, /Npm environment can have at most \$\{MAX_NPM_ENVIRONMENT_REVIEWERS\} reviewers\./);
@@ -342,6 +343,7 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(readme, /creates\/updates the `npm` environment approval gate with self-review prevention plus the branch and release-tag rulesets/);
   assert.match(readme, /refuses to mutate repository rulesets if the `npm` environment still has no required-reviewer protection/);
   assert.match(securityPolicy, /setup script must be able to create or update the `npm` environment approval gate from explicit reviewers with self-review prevention/);
+  assert.match(securityPolicy, /must not expose an option that writes `prevent_self_review: false`/);
   assert.match(securityPolicy, /setup script must[\s\S]*fail before mutating repository rulesets when the `npm` environment is missing required-reviewer protection/);
   assert.match(securityPolicy, /GitHub release setup and release preflight scripts must read token and repository environment variables through own data descriptors[\s\S]*send GitHub API requests with an abort deadline/);
   assert.match(githubReleaseControlsScript, /const GITHUB_API_TIMEOUT_MS = 30_000/);

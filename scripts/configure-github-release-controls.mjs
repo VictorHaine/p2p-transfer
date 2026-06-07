@@ -149,7 +149,7 @@ async function requireRemoteMain(token, repository) {
 async function npmEnvironmentConfig(token, options) {
   return {
     wait_timer: 0,
-    prevent_self_review: options.preventSelfReview,
+    prevent_self_review: true,
     reviewers: await Promise.all(options.npmReviewers.map(async (login) => ({ type: "User", id: await userId(token, login) }))),
     deployment_branch_policy: null
   };
@@ -213,7 +213,7 @@ function githubApiErrorMessage(status, data) {
 }
 
 function parseArgs(args) {
-  const options = { apply: false, repository: repositoryInput(envString("GITHUB_REPOSITORY") || DEFAULT_REPOSITORY), requireMain: true, npmReviewers: [], preventSelfReview: true };
+  const options = { apply: false, repository: repositoryInput(envString("GITHUB_REPOSITORY") || DEFAULT_REPOSITORY), requireMain: true, npmReviewers: [] };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === "--apply") {
@@ -232,11 +232,11 @@ function parseArgs(args) {
       if (options.npmReviewers.length >= MAX_NPM_ENVIRONMENT_REVIEWERS) throw new Error(`Npm environment can have at most ${MAX_NPM_ENVIRONMENT_REVIEWERS} reviewers.`);
       options.npmReviewers.push(value);
     } else if (arg === "--prevent-self-review") {
-      options.preventSelfReview = true;
+      continue;
     } else if (arg === "--allow-self-review") {
-      options.preventSelfReview = false;
+      throw new Error("GitHub npm environment self-review must stay disabled.");
     } else {
-      throw new Error("Usage: node scripts/configure-github-release-controls.mjs [--dry-run|--apply] [--repo owner/name] [--allow-missing-main] [--npm-reviewer login] [--prevent-self-review|--allow-self-review]");
+      throw new Error("Usage: node scripts/configure-github-release-controls.mjs [--dry-run|--apply] [--repo owner/name] [--allow-missing-main] [--npm-reviewer login] [--prevent-self-review]");
     }
   }
   return options;
