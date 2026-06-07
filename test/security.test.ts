@@ -50,7 +50,7 @@ import {
   parseJsonMessage as distParseJsonMessage,
   serializeMessage as distSerializeMessage
 } from "../dist-node/shared/messages.js";
-import type { PakeRole } from "../src/shared/security.js";
+import type { PakeRole, SessionKeys } from "../src/shared/security.js";
 
 const vectors = JSON.parse(fs.readFileSync(new URL("../conformance/protocol-v5.json", import.meta.url), "utf8")) as {
   pairDecisionAuth: {
@@ -61,6 +61,23 @@ const vectors = JSON.parse(fs.readFileSync(new URL("../conformance/protocol-v5.j
     sealedManifest: string;
     reason?: string;
     tagBase64: string;
+  }[];
+  encryptedJsonAead: {
+    name: string;
+    keyHex: string;
+    sid: string;
+    kind: "manifest" | "control";
+    sealedBase64: string;
+    plaintext: unknown;
+  }[];
+  bulkAead: {
+    name: string;
+    keyHex: string;
+    sid: string;
+    fileId: number;
+    chunkSeq: number;
+    payloadHex: string;
+    sealedPayloadHex: string;
   }[];
   signalAuth: {
     keyHex: string;
@@ -1076,6 +1093,37 @@ test("pair decision authentication matches conformance vectors", () => {
   }
 });
 
+test("AEAD helpers match conformance vectors", async () => {
+  assert.equal(vectors.encryptedJsonAead.some((vector) => vector.kind === "manifest"), true);
+  assert.equal(vectors.encryptedJsonAead.some((vector) => vector.kind === "control"), true);
+  assert.equal(vectors.bulkAead.length >= 1, true);
+
+  for (const vector of vectors.encryptedJsonAead) {
+    const keys = await vectorSessionKeys(vector.sid, vector.keyHex, "decrypt");
+    if (vector.kind === "manifest") {
+      assert.deepEqual(await openManifest(keys, vector.sealedBase64), vector.plaintext, vector.name);
+      assert.deepEqual(await distOpenManifest(keys, vector.sealedBase64), vector.plaintext, vector.name);
+    } else {
+      assert.deepEqual(await openControl(keys, vector.sealedBase64), vector.plaintext, vector.name);
+      assert.deepEqual(await distOpenControl(keys, vector.sealedBase64), vector.plaintext, vector.name);
+    }
+  }
+
+  for (const vector of vectors.bulkAead) {
+    const encryptKeys = await vectorSessionKeys(vector.sid, vector.keyHex, "encrypt");
+    const decryptKeys = await vectorSessionKeys(vector.sid, vector.keyHex, "decrypt");
+    const payload = new Uint8Array(Buffer.from(vector.payloadHex, "hex"));
+    const expectedSealed = Buffer.from(vector.sealedPayloadHex, "hex");
+    const sealed = await sealBulk(encryptKeys, vector.fileId, vector.chunkSeq, payload);
+    const distSealed = await distSealBulk(encryptKeys, vector.fileId, vector.chunkSeq, payload);
+
+    assert.equal(Buffer.from(sealed).toString("hex"), vector.sealedPayloadHex, vector.name);
+    assert.equal(Buffer.from(distSealed).toString("hex"), vector.sealedPayloadHex, vector.name);
+    assert.deepEqual(await openBulk(decryptKeys, vector.fileId, vector.chunkSeq, expectedSealed), payload, vector.name);
+    assert.deepEqual(await distOpenBulk(decryptKeys, vector.fileId, vector.chunkSeq, expectedSealed), payload, vector.name);
+  }
+});
+
 test("bulk AEAD rejects tampered ciphertext and chunk metadata", async () => {
   const sid = "bulk-session";
   const sender = startPake("sender", "123456-apple-anchor", sid);
@@ -1763,6 +1811,29 @@ async function sealRawManifestWrapperForTest(keys: { sid: string; manifestKey?: 
   sealed.set(nonce);
   sealed.set(ciphertext, nonce.byteLength);
   return bytesToBase64(sealed);
+}
+
+async function vectorSessionKeys(sid: string, keyHex: string, role: "encrypt" | "decrypt"): Promise<SessionKeys> {
+  const parsed = Buffer.from(keyHex, "hex");
+  const raw = new Uint8Array(parsed.length);
+  raw.set(parsed);
+  assert.equal(raw.byteLength, 32);
+  return {
+    sid,
+    role: role === "encrypt" ? "sender" : "receiver",
+    sas: "vector",
+    destroyed: false,
+    signalAuthKey: new Uint8Array(32),
+    manifestKey: await importAesVectorKey(raw, ["decrypt"]),
+    controlSendKey: await importAesVectorKey(raw, ["encrypt"]),
+    controlRecvKey: await importAesVectorKey(raw, ["decrypt"]),
+    bulkSendKey: await importAesVectorKey(raw, ["encrypt"]),
+    bulkRecvKey: await importAesVectorKey(raw, ["decrypt"])
+  };
+}
+
+async function importAesVectorKey(raw: Uint8Array<ArrayBuffer>, usages: KeyUsage[]): Promise<CryptoKey> {
+  return crypto.subtle.importKey("raw", raw, "AES-GCM", false, usages);
 }
 
 function readDistWebBundle(): string {

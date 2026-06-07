@@ -204,6 +204,51 @@
       "tagBase64": "MfDx6FsCe7rulk8ycqXZ1gC7qSS7pvb4CIVXU/UKxdM="
     }
   ],
+  "encryptedJsonAead": [
+    {
+      "name": "sealed manifest wrapper",
+      "kind": "manifest",
+      "keyHex": "2222222222222222222222222222222222222222222222222222222222222222",
+      "sid": "sid-fixture",
+      "sealedBase64": "AAECAwQFBgcICQoLPeLjPYEP+KVRRDjkJTLKHBE6tXVtgwnigUsT1+Vrn/oAFkXhecFBog/O1jHwpOGiiUOVFzafcv214EtRdoYcDoLV9y2qyEFDPhBZha5BPNQ/eBMfKwBAzqtwecMfUxtH4vzXAAqb000XzLJ0KgY2V28iJ2/h5kLH5CAbkc22w7iEzgW00eiWlYOznsBxjffbTb1V",
+      "plaintext": {
+        "fileCount": 1,
+        "totalBytes": 5,
+        "files": [
+          {
+            "id": 0,
+            "name": "secret.txt",
+            "size": 5,
+            "mime": "text/plain"
+          }
+        ]
+      }
+    },
+    {
+      "name": "sealed control message",
+      "kind": "control",
+      "keyHex": "2222222222222222222222222222222222222222222222222222222222222222",
+      "sid": "sid-fixture",
+      "sealedBase64": "DA0ODxAREhMUFRYXr6f4UYWSdjvx0LGt8bsnX/5rO54NcTImwTuX5MKA9FICbVav09DU9tX6644Z+xjjiKDidhpgSP1K0O0KYnVc7smpznDt5Q==",
+      "plaintext": {
+        "t": "file-begin",
+        "id": 0,
+        "name": "secret.txt",
+        "size": 5
+      }
+    }
+  ],
+  "bulkAead": [
+    {
+      "name": "sender bulk chunk",
+      "keyHex": "3333333333333333333333333333333333333333333333333333333333333333",
+      "sid": "sid-fixture",
+      "fileId": 7,
+      "chunkSeq": 42,
+      "payloadHex": "7061796c6f6164",
+      "sealedPayloadHex": "2858d5cdc21ebeed756ef5ed488ca08261a2bd5ce1fde9"
+    }
+  ],
   "signalAuth": [
     {
       "name": "sender offer auth",
