@@ -350,6 +350,7 @@ async function ensureRepositorySecurity(token, repository, status) {
   if (status.dependabotSecurityUpdates !== "enabled") {
     await github(token, "PUT", `/repos/${repository}/automated-security-fixes`);
   }
+  assertDependabotAutomatedSecurityFixes(await github(token, "GET", `/repos/${repository}/automated-security-fixes`));
   return assertRepositorySecurityStatus(repositorySecurityStatus(await github(token, "GET", `/repos/${repository}`)));
 }
 
@@ -358,6 +359,14 @@ function assertRepositorySecurityStatus(status) {
   if (status.secretScanningPushProtection !== "enabled") throw new Error("GitHub repository secret scanning push protection must be enabled.");
   if (status.dependabotSecurityUpdates !== "enabled") throw new Error("GitHub repository Dependabot security updates must be enabled.");
   return status;
+}
+
+function assertDependabotAutomatedSecurityFixes(status) {
+  if (!status || typeof status !== "object" || Array.isArray(status) || typeof status.enabled !== "boolean" || typeof status.paused !== "boolean") {
+    throw new Error("GitHub Dependabot security updates status response was invalid.");
+  }
+  if (!status.enabled) throw new Error("GitHub repository Dependabot security updates must be enabled.");
+  if (status.paused) throw new Error("GitHub repository Dependabot security updates must not be paused.");
 }
 
 function assertNpmEnvironmentStatus(status) {
