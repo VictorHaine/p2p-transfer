@@ -178,7 +178,7 @@ async function npmEnvironmentConfig(token, options) {
     wait_timer: 0,
     can_admins_bypass: false,
     prevent_self_review: true,
-    reviewers: await Promise.all(options.npmReviewers.map(async (login) => ({ type: "User", id: await userId(token, login) }))),
+    reviewers: await Promise.all(options.npmReviewers.map(async (login) => ({ type: "User", id: await npmReviewerUserId(token, options.repository, login) }))),
     deployment_branch_policy: { protected_branches: false, custom_branch_policies: true }
   };
 }
@@ -215,6 +215,22 @@ async function userId(token, login) {
   const user = await github(token, "GET", `/users/${encodeURIComponent(login)}`);
   if (!user || typeof user.id !== "number") throw new Error("GitHub reviewer response was invalid.");
   return user.id;
+}
+
+async function npmReviewerUserId(token, repository, login) {
+  await assertNpmReviewerCanApprove(token, repository, login);
+  return userId(token, login);
+}
+
+async function assertNpmReviewerCanApprove(token, repository, login) {
+  const response = await github(token, "GET", `/repos/${repository}/collaborators/${encodeURIComponent(login)}/permission`).catch((error) => {
+    if (error instanceof GitHubApiError && error.status === 404) throw new Error("Npm environment reviewer must be a repository collaborator with write, maintain, or admin permission.");
+    throw error;
+  });
+  const permission = response?.permission;
+  if (permission !== "admin" && permission !== "maintain" && permission !== "write") {
+    throw new Error("Npm environment reviewer must have write, maintain, or admin repository permission.");
+  }
 }
 
 function requiredAuthenticatedLogin(user) {

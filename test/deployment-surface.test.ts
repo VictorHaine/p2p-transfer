@@ -386,7 +386,7 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(githubReleaseControlsScript, /if \(byName\.has\(ruleset\.name\)\) throw new Error\("GitHub rulesets response contained duplicate names\."\)/);
   assert.doesNotMatch(githubReleaseControlsScript, /new Map\(Array\.isArray\(existingRulesets\) \? existingRulesets\.map/);
   assert.match(githubReleaseControlsScript, /"PUT", `\/repos\/\$\{options\.repository\}\/environments\/\$\{encodeURIComponent\(NPM_ENVIRONMENT\)\}`/);
-  assert.match(githubReleaseControlsScript, /reviewers: await Promise\.all\(options\.npmReviewers\.map\(async \(login\) => \(\{ type: "User", id: await userId\(token, login\) \}\)\)\)/);
+  assert.match(githubReleaseControlsScript, /reviewers: await Promise\.all\(options\.npmReviewers\.map\(async \(login\) => \(\{ type: "User", id: await npmReviewerUserId\(token, options\.repository, login\) \}\)\)\)/);
   assert.match(githubReleaseControlsScript, /const NPM_DEPLOYMENT_TAG_POLICY = "v\*\.\*\.\*"/);
   assert.match(githubReleaseControlsScript, /can_admins_bypass: false/);
   assert.match(githubReleaseControlsScript, /prevent_self_review: true/);
@@ -432,6 +432,11 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(githubReleaseControlsScript, /Authenticated GitHub user response was invalid\./);
   assert.match(githubReleaseControlsScript, /function assertNoSelfReviewDeadlock\(reviewers, authenticatedLogin\)/);
   assert.match(githubReleaseControlsScript, /Npm environment sole reviewer must not be the authenticated release setup operator\./);
+  assert.match(githubReleaseControlsScript, /async function npmReviewerUserId\(token, repository, login\)/);
+  assert.match(githubReleaseControlsScript, /async function assertNpmReviewerCanApprove\(token, repository, login\)/);
+  assert.match(githubReleaseControlsScript, /\/repos\/\$\{repository\}\/collaborators\/\$\{encodeURIComponent\(login\)\}\/permission/);
+  assert.match(githubReleaseControlsScript, /Npm environment reviewer must be a repository collaborator with write, maintain, or admin permission\./);
+  assert.match(githubReleaseControlsScript, /Npm environment reviewer must have write, maintain, or admin repository permission\./);
   assert.match(githubReleaseControlsScript, /function assertEnvironmentDoesNotSelfReviewDeadlock\(environment, authenticatedLogin\)/);
   assert.match(githubReleaseControlsScript, /The npm environment sole required reviewer is the authenticated release setup operator\./);
   assert.match(githubReleaseControlsScript, /function reviewerLogin\(reviewerEntry\)/);
@@ -458,14 +463,16 @@ test("checked GitHub release controls setup matches the protected release surfac
   );
 
   assert.match(readme, /create the `npm` environment[\s\S]*required reviewers with self-review prevention/);
+  assert.match(readme, /reviewer with write, maintain, or admin repository permission/);
   assert.match(readme, /scripts\/configure-github-release-controls\.mjs --apply --npm-reviewer <release-approver-login>/);
   assert.match(readme, /creates\/updates the `npm` environment approval gate with self-review prevention, admin bypass disabled, and `v\*\.\*\.\*` tag-only deployment/);
+  assert.match(readme, /refuses read-only or unknown reviewers/);
   assert.match(readme, /refuses to create a sole-reviewer self-approval deadlock/);
   assert.match(readme, /refuses to mutate repository rulesets if the `npm` environment still has no required-reviewer protection, still allows admin bypass or branch deployments, lacks the exact release-tag deployment policy, or still has the authenticated setup operator as its sole required reviewer/);
-  assert.match(securityPolicy, /setup script must be able to create or update the `npm` environment approval gate from explicit reviewers with self-review prevention, admin bypass disabled, and a single `v\*\.\*\.\*` tag deployment policy/);
+  assert.match(securityPolicy, /setup script must be able to create or update the `npm` environment approval gate from explicit reviewers with write, maintain, or admin repository permission, self-review prevention, admin bypass disabled, and a single `v\*\.\*\.\*` tag deployment policy/);
   assert.match(securityPolicy, /must not expose an option that writes `prevent_self_review: false`/);
   assert.match(securityPolicy, /release setup must reject malformed or duplicate GitHub rulesets list entries/);
-  assert.match(securityPolicy, /setup script must reject sole-reviewer self-approval deadlocks/);
+  assert.match(securityPolicy, /setup script must reject unknown or read-only reviewers and sole-reviewer self-approval deadlocks/);
   assert.match(securityPolicy, /fail before mutating repository rulesets when the `npm` environment is missing required-reviewer protection, allows admin bypass or branch deployments, lacks the exact release-tag deployment policy, or has the authenticated setup operator as its sole required reviewer/);
   assert.match(securityPolicy, /GitHub release setup and release preflight scripts must read token and repository environment variables through own data descriptors[\s\S]*send GitHub API requests with an abort deadline/);
   assert.match(securityPolicy, /byte-cap and fatal-UTF-8\/JSON-decode GitHub API responses with setup-owned deterministic errors/);
@@ -506,7 +513,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(readme, /pnpm bootstrap:npm --dry-run/);
   assert.match(readme, /NPM_BOOTSTRAP_TOKEN=<one-time-npm-token> pnpm bootstrap:npm --apply/);
   assert.match(readme, /The helper publishes only a minimal temporary `0\.0\.0-bootstrap\.0` package from a private temp directory/);
-  assert.match(readme, /ensure the `npm` environment has at least one reviewer other than the person or token owner that will push the release tag/);
+  assert.match(readme, /ensure the `npm` environment has at least one reviewer with write, maintain, or admin repository permission other than the person or token owner that will push the release tag/);
   assert.doesNotMatch(releaseWorkflow, /bootstrap-npm-package|bootstrap:npm|NPM_BOOTSTRAP_TOKEN/);
   assert.match(npmBootstrapScript, /const BOOTSTRAP_VERSION = "0\.0\.0-bootstrap\.0"/);
   assert.match(npmBootstrapScript, /const EXPECTED_REPOSITORY_URL = "git\+https:\/\/github\.com\/VictorHaine\/p2p-transfer\.git"/);
