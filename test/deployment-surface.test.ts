@@ -78,6 +78,15 @@ test("Docker runtime image keeps a minimal non-root production surface", () => {
   const pnpmVersion = packageJson.packageManager?.replace(/^pnpm@/, "");
   assert.ok(pnpmVersion);
   assert.match(checkedPnpmScript, /EXPECTED_PNPM_COREPACK_HASH = "sha512\.c85357fe17ca12dd23dd7071822666dfd7e3cb76fe214e3370b5ea2fb34f2a231185509b63e717f3cd0acb38dd3f8d82bcd5e8172400ae678b70ea4fbed0896d"/);
+  assert.match(checkedPnpmScript, /readCheckedText\(path\.join\(root, "package\.json"\), MAX_PACKAGE_JSON_BYTES, "package metadata"\)/);
+  assert.match(checkedPnpmScript, /await lstat\(file\)/);
+  assert.match(checkedPnpmScript, /constants\.O_RDONLY \| \(constants\.O_NOFOLLOW \?\? 0\)/);
+  assert.match(checkedPnpmScript, /left\.mtimeMs === right\.mtimeMs && left\.ctimeMs === right\.ctimeMs/);
+  assert.match(checkedPnpmScript, /const childEnv = await privateChildEnv\(path\.join\(tmp, "home"\)\)/);
+  assert.match(checkedPnpmScript, /\["PATH", true\]/);
+  assert.match(checkedPnpmScript, /const descriptor = Object\.getOwnPropertyDescriptor\(process\.env, name\)/);
+  assert.match(checkedPnpmScript, /spawn\(command, args, \{ cwd: options\.cwd, env: options\.env, stdio: \["ignore", "pipe", "pipe"\] \}\)/);
+  assert.doesNotMatch(checkedPnpmScript, /readFile\(path\.join\(root, "package\.json"\)|readFileSync\(path\.join\(root, "package\.json"\)/);
   assert.match(dockerfile, /^COPY package\.json \.\/\nCOPY scripts\/prepare-checked-pnpm\.mjs \.\/scripts\/prepare-checked-pnpm\.mjs\nRUN node scripts\/prepare-checked-pnpm\.mjs\nCOPY pnpm-lock\.yaml pnpm-workspace\.yaml \.\//m);
   assert.match(dockerfile, new RegExp(`^FROM ${escapeRegExp(PINNED_NODE_IMAGE_REF)} AS build$`, "m"));
   assert.match(dockerfile, new RegExp(`^FROM ${escapeRegExp(PINNED_NODE_IMAGE_REF)}$`, "m"));
@@ -906,7 +915,8 @@ test("documented release gates require a hardened Docker runtime smoke, not just
     assert.match(document, /read-only filesystem, dropped Linux capabilities,[^.\n]+`no-new-privileges`/);
     assert.match(document, /refuses to start without `ALLOWED_ORIGINS` and without `SIGNALING_TOPOLOGY`/);
   }
-  assert.match(securityPolicy, /CI, release, Docker, and documented source builds must prepare pnpm through `scripts\/prepare-checked-pnpm\.mjs`/);
+  assert.match(securityPolicy, /CI, release, Docker, and documented source builds must prepare pnpm through `scripts\/prepare-checked-pnpm\.mjs`, which byte-caps and no-follow-opens `package\.json` with pre\/post-read identity and mutation-metadata checks/);
+  assert.match(securityPolicy, /runs Corepack and tar with a private package-manager home plus a minimal allowlisted child environment/);
   assert.match(readme, /Build from source:[\s\S]*node scripts\/prepare-checked-pnpm\.mjs\npnpm install --frozen-lockfile\npnpm build\npnpm test/);
   assert.doesNotMatch(readme, /Build from source:[\s\S]*```sh\npnpm install\n/);
   assert.match(contributing, /## Local Setup[\s\S]*node scripts\/prepare-checked-pnpm\.mjs\npnpm install --frozen-lockfile\npnpm exec playwright install --with-deps chromium\npnpm verify:local/);
@@ -1153,7 +1163,7 @@ test("server deployment policy requires an explicit in-memory signaling topology
   assert.match(readme, /GitHub App installation token or fine-grained PAT/);
   assert.match(readme, /classic PATs, OAuth tokens, refresh tokens, and user access tokens are rejected in the release workflow before package or network work/);
   assert.match(readme, /`\$\{\{ github\.token \}\}` is not enough for this gate/);
-  assert.match(readme, /Use the released package after the first npm publish:[\s\S]*pnpm add -g @victorhaine\/p2p-transfer[\s\S]*ff recv[\s\S]*ff send <code> \.\/path\/to\/file/);
+  assert.match(readme, /Use the released package after the first npm publish:[\s\S]*pnpm add -g @victorhaine\/p2p-transfer[\s\S]*ff recv[\s\S]*ff send --code-stdin --files-stdin/);
   assert.match(readme, /Run the packaged server:[\s\S]*ff-server/);
   assert.match(readme, /Production-shaped run, assuming TLS terminates at `https:\/\/files\.example\.com`/);
   assert.match(readme, /Local browser smoke run, deliberately allowing the loopback HTTP origin:[\s\S]*ALLOW_INSECURE_ORIGINS=true/);

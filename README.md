@@ -36,7 +36,9 @@ Use the released package after the first npm publish:
 ```sh
 pnpm add -g @victorhaine/p2p-transfer
 ff recv
-ff send <code> ./path/to/file
+read -rs FF_CODE </dev/tty
+find ./to-send -maxdepth 1 -type f | { printf '%s\n' "$FF_CODE"; cat; } | ff send --code-stdin --files-stdin
+unset FF_CODE
 ```
 
 Run the packaged server:
@@ -79,7 +81,9 @@ pnpm dev:cli -- recv
 Send from the CLI:
 
 ```sh
-pnpm dev:cli -- send <code> ./path/to/file
+read -rs FF_CODE </dev/tty
+find ./to-send -maxdepth 1 -type f | { printf '%s\n' "$FF_CODE"; cat; } | pnpm dev:cli -- send --code-stdin --files-stdin
+unset FF_CODE
 ```
 
 Run the browser client:
@@ -125,7 +129,9 @@ Use the built CLI:
 
 ```sh
 node dist-node/cli/index.js recv --out ./downloads
-node dist-node/cli/index.js send <code> ./file.zip
+read -rs FF_CODE </dev/tty
+find ./to-send -maxdepth 1 -type f | { printf '%s\n' "$FF_CODE"; cat; } | node dist-node/cli/index.js send --code-stdin --files-stdin
+unset FF_CODE
 ```
 
 If local shell history or process-argument telemetry matters, avoid putting the full code or local paths in argv. Read the code without echo, pass file paths through stdin, and clear the environment variable after the child process starts:

@@ -551,6 +551,17 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.match(ciWorkflow, /DOCKER_SMOKE_TAG=p2p-transfer:test node scripts\/smoke-docker-policy\.mjs/);
   assert.match(checkedPnpmScript, /corepack", \["pack", `pnpm@\$\{version\}`, "-o", archive\]/);
   assert.match(checkedPnpmScript, /Corepack pnpm package hash did not match the reviewed integrity/);
+  assert.match(checkedPnpmScript, /readCheckedText\(path\.join\(root, "package\.json"\), MAX_PACKAGE_JSON_BYTES, "package metadata"\)/);
+  assert.match(checkedPnpmScript, /await lstat\(file\)/);
+  assert.match(checkedPnpmScript, /constants\.O_RDONLY \| \(constants\.O_NOFOLLOW \?\? 0\)/);
+  assert.match(checkedPnpmScript, /sameFile\(info\.stat, afterRead\)/);
+  assert.match(checkedPnpmScript, /left\.mtimeMs === right\.mtimeMs && left\.ctimeMs === right\.ctimeMs/);
+  assert.match(checkedPnpmScript, /const childEnv = await privateChildEnv\(path\.join\(tmp, "home"\)\)/);
+  assert.match(checkedPnpmScript, /HOME: home[\s\S]*PNPM_HOME: path\.join\(home, "pnpm-home"\)[\s\S]*COREPACK_HOME: path\.join\(home, "corepack-home"\)/);
+  assert.match(checkedPnpmScript, /\["PATH", true\]/);
+  assert.match(checkedPnpmScript, /const descriptor = Object\.getOwnPropertyDescriptor\(process\.env, name\)/);
+  assert.match(checkedPnpmScript, /spawn\(command, args, \{ cwd: options\.cwd, env: options\.env, stdio: \["ignore", "pipe", "pipe"\] \}\)/);
+  assert.doesNotMatch(checkedPnpmScript, /readFile\(path\.join\(root, "package\.json"\)|readFileSync\(path\.join\(root, "package\.json"\)/);
   assert.match(ciWorkflow, /production docker policy[\s\S]*actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3[\s\S]*node scripts\/prepare-checked-pnpm\.mjs[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:test node scripts\/smoke-docker-policy\.mjs/);
   assert.doesNotMatch(ciWorkflow, /corepack prepare pnpm@/);
   assert.match(dockerPolicySmokeScript, /\["build", "-t", imageTag, "\."\]/);
