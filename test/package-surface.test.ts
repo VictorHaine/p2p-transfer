@@ -98,7 +98,7 @@ test("published bin entrypoints are executable Node CLIs", () => {
 });
 
 test("package ships only the current protocol conformance fixture", () => {
-  assert.deepEqual(conformanceFiles, ["protocol-v4.json"]);
+  assert.deepEqual(conformanceFiles, ["protocol-v5.json"]);
 });
 
 test("package publishing config keeps provenance and reproducible dependency pins", () => {
@@ -219,7 +219,7 @@ test("packed package smoke installs and executes published bins", () => {
   assert.doesNotMatch(packedSmokeScript, /readFile\(file, "utf8"\)|import\("node:fs\/promises"\)\.then/);
   assert.match(packedSmokeScript, /pnpm.*add/s);
   assert.match(packedSmokeScript, /pnpm.*exec", "ff", "--version"/);
-  assert.match(packedSmokeScript, /const protocolVersion = requiredProtocolVersion\(parseJsonEvidence\(await readText\(path\.join\(root, "conformance", "protocol-v4\.json"\), MAX_CONFORMANCE_JSON_BYTES\), "conformance\/protocol-v4\.json"\)\.protocolVersion\)/);
+  assert.match(packedSmokeScript, /const protocolVersion = requiredProtocolVersion\(parseJsonEvidence\(await readText\(path\.join\(root, "conformance", "protocol-v5\.json"\), MAX_CONFORMANCE_JSON_BYTES\), "conformance\/protocol-v5\.json"\)\.protocolVersion\)/);
   assert.match(packedSmokeScript, /const packageVersion = requiredPackageVersion\(packageJson\.version\)/);
   assert.match(packedSmokeScript, /function requiredPackageVersion\(value\)/);
   assert.match(packedSmokeScript, /function requiredProtocolVersion\(value\)/);
@@ -364,6 +364,7 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.doesNotMatch(ciWorkflow, /runs-on:\s*[a-z]+-latest|-\s+[a-z]+-latest/);
   assert.equal(packageJson.scripts?.["smoke:docker-policy"], "node scripts/smoke-docker-policy.mjs");
   assert.match(ciWorkflow, /DOCKER_SMOKE_TAG=p2p-transfer:test pnpm smoke:docker-policy/);
+  assert.match(ciWorkflow, /production docker policy[\s\S]*actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3[\s\S]*corepack prepare pnpm@11\.1\.1 --activate[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:test pnpm smoke:docker-policy/);
   assert.match(dockerPolicySmokeScript, /\["build", "-t", imageTag, "\."\]/);
   assert.match(dockerPolicySmokeScript, /"run", "--rm", "--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "-e", "SIGNALING_TOPOLOGY=single-instance", imageTag/);
   assert.match(dockerPolicySmokeScript, /"run", "--rm", "--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "-e", `ALLOWED_ORIGINS=\$\{PRODUCTION_ORIGIN\}`, imageTag/);
@@ -402,12 +403,18 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseArtifactSmokeScript, /import \{ safeChildEnv \} from "\.\/smoke-packed\.mjs"/);
   assert.match(releaseArtifactSmokeScript, /env: \{ \.\.\.safeChildEnv\(\), \.\.\.env \}/);
   assert.doesNotMatch(releaseArtifactSmokeScript, /env: \{ \.\.\.process\.env/);
+  assert.match(releaseArtifactSmokeScript, /const MAX_PACKAGE_JSON_BYTES = 128 \* 1024/);
+  assert.match(releaseArtifactSmokeScript, /await lstat\(filePath\)[\s\S]*await open\(filePath, noFollowReadFlags\(\)\)[\s\S]*if \(!sameFile\(info, stat\)\)/);
+  assert.match(releaseArtifactSmokeScript, /new TextDecoder\("utf-8", \{ fatal: true \}\)\.decode\(bytes\)/);
+  assert.doesNotMatch(releaseArtifactSmokeScript, /readFile\(path\.join\(root, "package\.json"\)/);
   assert.match(securityPolicy, /release-artifact smoke must run `pnpm pack`, checksum generation, and release-artifact verification with the same minimal allowlisted child environment/);
   assert.match(releaseArtifactSmokeScript, /await rm\(artifactDir, \{ recursive: true, force: true \}\)/);
   assert.match(releaseArtifactSmokeScript, /Release artifact smoke failed:/);
   assert.match(releaseArtifactSmokeScript, /realpathSync\(process\.argv\[1\]\) === realpathSync\(fileURLToPath\(import\.meta\.url\)\)/);
   assert.match(releaseWorkflow, /DOCKER_SMOKE_TAG=p2p-transfer:release pnpm smoke:docker-policy/);
+  assert.match(releaseWorkflow, /release docker policy[\s\S]*actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3[\s\S]*corepack prepare pnpm@11\.1\.1 --activate[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:release pnpm smoke:docker-policy/);
   assert.match(releaseWorkflow, /pnpm check:install-state[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed[\s\S]*pnpm test:e2e[\s\S]*pnpm test:browser[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures/);
+  assert.match(releaseWorkflow, /Verify release notes[\s\S]*node scripts\/write-release-notes\.mjs --check[\s\S]*pack release artifact/);
   assert.match(releaseWorkflow, /pnpm --config\.ignore-scripts=true pack --pack-destination release-artifacts/);
   assert.match(releaseWorkflow, /node scripts\/write-release-checksum\.mjs/);
   assert.match(releaseChecksumScript, /return `\$\{packedPackageName\(name\)\}-\$\{version\}\.tgz`[\s\S]*const expectedTarballName = expectedTarballNameFor\(packageJson\)[\s\S]*entries\.length !== 1 \|\| !entries\[0\]\?\.isFile\(\) \|\| entries\[0\]\.name !== expectedTarballName[\s\S]*createHash\("sha256"\)[\s\S]*writeFile\(path\.join\(artifactDir, "SHA256SUMS"\), `\$\{checksum\}  \$\{expectedTarballName\}\\n`, \{ flag: "wx" \}\)/);

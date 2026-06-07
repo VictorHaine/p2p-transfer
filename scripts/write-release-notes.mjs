@@ -35,10 +35,10 @@ function noFollowReadFlags() {
   return constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0);
 }
 
-function assertNoArgs(args) {
-  if (args.length !== 0) {
-    throw new Error("Unsupported release notes arguments.");
-  }
+function parseArgs(args) {
+  if (args.length === 0) return { check: false };
+  if (args.length === 1 && args[0] === "--check") return { check: true };
+  throw new Error("Unsupported release notes arguments.");
 }
 
 function assertEntrypoint() {
@@ -156,12 +156,13 @@ function extractReleaseNotes(changelog, version) {
 }
 
 async function writeReleaseNotes() {
-  assertNoArgs(process.argv.slice(2));
+  const options = parseArgs(process.argv.slice(2));
   assertEntrypoint();
 
   const version = parseReleaseVersion(await readBoundedRegularText(path.join(projectRoot, "package.json"), MAX_PACKAGE_JSON_BYTES, "package metadata"));
   const changelog = await readBoundedRegularText(path.join(projectRoot, "CHANGELOG.md"), MAX_CHANGELOG_BYTES, "changelog");
   const notes = extractReleaseNotes(changelog, version);
+  if (options.check) return;
   await writeFile(path.join(projectRoot, "release-artifacts", "RELEASE_NOTES.md"), notes, { flag: "wx" });
 }
 

@@ -211,7 +211,9 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releaseWorkflow, /Verify release tag is on main[\s\S]*git fetch --no-tags --prune origin \+refs\/heads\/main:refs\/remotes\/origin\/main[\s\S]*git merge-base --is-ancestor "\$GITHUB_SHA" origin\/main/);
   const ciVerifyJob = workflowJob(ciWorkflow, "verify");
   const ciPlatformSmokeJob = workflowJob(ciWorkflow, "platform-smoke");
+  const ciDockerJob = workflowJob(ciWorkflow, "docker");
   const releasePlatformSmokeJob = workflowJob(releaseWorkflow, "platform-smoke");
+  const releaseDockerJob = workflowJob(releaseWorkflow, "docker");
   for (const runner of PINNED_RUNNERS) {
     assert.match(ciWorkflow, new RegExp(escapeRegExp(runner)));
     assert.match(releaseWorkflow, new RegExp(escapeRegExp(runner)));
@@ -227,6 +229,8 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(ciWorkflow, /pnpm smoke:packed/);
   assert.match(ciWorkflow, /dependency audit[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures/);
   assert.match(ciWorkflow, /DOCKER_SMOKE_TAG=p2p-transfer:test pnpm smoke:docker-policy/);
+  assert.match(ciDockerJob, /actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3/);
+  assert.match(ciDockerJob, /corepack enable[\s\S]*corepack prepare pnpm@11\.1\.1 --activate[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:test pnpm smoke:docker-policy/);
   assert.match(dockerPolicySmokeScript, /\["build", "-t", imageTag, "\."\]/);
   assert.match(dockerPolicySmokeScript, /"run", "--rm", "--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "-e", "SIGNALING_TOPOLOGY=single-instance", imageTag/);
   assert.match(dockerPolicySmokeScript, /"run", "--rm", "--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "-e", `ALLOWED_ORIGINS=\$\{PRODUCTION_ORIGIN\}`, imageTag/);
@@ -240,11 +244,16 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releaseVerifyJob, /pnpm check:install-state[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed[\s\S]*pnpm test:e2e[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures/);
   assert.doesNotMatch(releaseVerifyJob, /pnpm test:unit[\s\S]*pnpm build[\s\S]*pnpm smoke:native/);
   assert.match(releaseWorkflow, /pack release artifact[\s\S]*pnpm --config\.ignore-scripts=true pack --pack-destination release-artifacts[\s\S]*node scripts\/write-release-checksum\.mjs/);
+  assert.match(releaseWorkflow, /Verify release notes[\s\S]*node scripts\/write-release-notes\.mjs --check[\s\S]*pack release artifact/);
   assert.match(releaseChecksumScript, /return `\$\{packedPackageName\(name\)\}-\$\{version\}\.tgz`[\s\S]*const expectedTarballName = expectedTarballNameFor\(packageJson\)[\s\S]*entries\.length !== 1 \|\| !entries\[0\]\?\.isFile\(\) \|\| entries\[0\]\.name !== expectedTarballName[\s\S]*createHash\("sha256"\)[\s\S]*writeFile\(path\.join\(artifactDir, "SHA256SUMS"\), `\$\{checksum\}  \$\{expectedTarballName\}\\n`, \{ flag: "wx" \}\)/);
   assert.match(releaseNotesScript, /const headingPattern = \/\^##\\s\+\(\?:\\\[\(\?<bracketVersion>/);
+  assert.match(releaseNotesScript, /if \(args\.length === 1 && args\[0\] === "--check"\) return \{ check: true \}/);
+  assert.match(releaseNotesScript, /if \(options\.check\) return/);
   assert.match(releaseNotesScript, /writeFile\(path\.join\(projectRoot, "release-artifacts", "RELEASE_NOTES\.md"\), notes, \{ flag: "wx" \}\)/);
   assert.doesNotMatch(releaseWorkflow, /pack release artifact[\s\S]*(find release-artifacts|basename "\$tgz"|sha256sum)/);
   assert.match(releaseWorkflow, /DOCKER_SMOKE_TAG=p2p-transfer:release pnpm smoke:docker-policy/);
+  assert.match(releaseDockerJob, /actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3/);
+  assert.match(releaseDockerJob, /corepack enable[\s\S]*corepack prepare pnpm@11\.1\.1 --activate[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:release pnpm smoke:docker-policy/);
   assert.doesNotMatch(releaseWorkflow, /fetch\('http:\/\/127\.0\.0\.1:8787|body\.includes\('ff transfer'\)/);
   assert.doesNotMatch(releaseWorkflow, /ALLOW_ANY_ORIGIN/);
   assert.equal(releaseWorkflow.match(/id-token:\s*write/g)?.length, 2);
@@ -377,6 +386,8 @@ test("security-sensitive surfaces require code owner review", () => {
     "/src/cli/secure.ts",
     "/src/cli/transfer.ts",
     "/src/server/",
+    "/src/web/main.ts",
+    "/src/web/file-names.ts",
     "/src/web/file-system.ts",
     "/test/security.test.ts",
     "/test/package-surface.test.ts",

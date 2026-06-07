@@ -16,6 +16,8 @@
 /src/cli/secure.ts @VictorHaine
 /src/cli/transfer.ts @VictorHaine
 /src/server/ @VictorHaine
+/src/web/main.ts @VictorHaine
+/src/web/file-names.ts @VictorHaine
 /src/web/file-system.ts @VictorHaine
 /test/security.test.ts @VictorHaine
 /test/package-surface.test.ts @VictorHaine

@@ -53,6 +53,34 @@ test("release notes writer emits only the current package changelog section", as
   }
 });
 
+test("release notes writer check mode validates notes without writing", async () => {
+  const { artifactDir, root, script } = await createFixture();
+  try {
+    const result = spawnSync(process.execPath, [script, "--check"], { encoding: "utf8" });
+    assert.equal(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.equal(result.stderr, "");
+    await assert.rejects(() => fs.readFile(path.join(artifactDir, "RELEASE_NOTES.md"), "utf8"), { code: "ENOENT" });
+  } finally {
+    await fs.rm(root, { force: true, recursive: true });
+  }
+});
+
+test("release notes writer check mode rejects missing notes before artifact creation", async () => {
+  const { artifactDir, root, script } = await createFixture({
+    changelog: "# Changelog\n\n## 9.9.9 - 2026-06-06\n\nWrong release.\n"
+  });
+  try {
+    const result = spawnSync(process.execPath, [script, "--check"], { encoding: "utf8" });
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Release notes generation failed:\nchangelog does not contain release notes for the package version\./);
+    await assert.rejects(() => fs.readFile(path.join(artifactDir, "RELEASE_NOTES.md"), "utf8"), { code: "ENOENT" });
+  } finally {
+    await fs.rm(root, { force: true, recursive: true });
+  }
+});
+
 test("release notes writer accepts bracketed changelog version headings", async () => {
   const { artifactDir, root, script } = await createFixture({
     changelog: "# Changelog\n\n## [1.2.3] - 2026-06-06\n\nBracketed release.\n"

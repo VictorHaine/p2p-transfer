@@ -121,7 +121,7 @@ test("browser signaling error rendering does not read hostile message accessors"
   assert.doesNotMatch(emitBody, /error instanceof Error \? error\.message/);
   assert.match(webSource, /function ownStringDataProperty/);
   assert.match(webSource, /Object\.getOwnPropertyDescriptor\(current, key\)/);
-  assert.match(distWebBundle, /message:\w+\(e\)/);
+  assert.match(distWebBundle, /message:[$\w]+\(e\)/);
   assert.doesNotMatch(distWebBundle, /message:e instanceof Error\?e\.message/);
   assert.match(distWebBundle, /Object\.getOwnPropertyDescriptor\(\w+,t\)/);
 });
