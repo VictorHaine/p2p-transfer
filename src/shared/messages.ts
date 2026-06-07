@@ -22,6 +22,8 @@ export type FileManifest = {
   totalBytes: number;
 };
 
+export type PairRejectReason = "user_declined";
+
 export type ClientMessage =
   | { type: "register"; role: "receiver"; code: string; protocolVersion: number }
   | { type: "connect"; role: "sender"; code: string; protocolVersion: number }
@@ -29,7 +31,7 @@ export type ClientMessage =
   | { type: "confirm"; sid: string; tag: string }
   | { type: "pair-request"; sid: string; manifest: FileManifest; sealedManifest: string }
   | { type: "pair-accept"; sid: string; auth: string }
-  | { type: "pair-reject"; sid: string; auth: string; reason?: string }
+  | { type: "pair-reject"; sid: string; auth: string; reason: PairRejectReason }
   | { type: "signal"; sid: string; signal: SignalPayload }
   | { type: "bye"; sid?: string; reason?: string };
 
@@ -40,7 +42,7 @@ export type ServerMessage =
   | { type: "confirm"; sid: string; tag: string }
   | { type: "pair-request"; sid: string; manifest: FileManifest; sealedManifest: string }
   | { type: "pair-accept"; sid: string; auth: string }
-  | { type: "pair-reject"; sid: string; auth: string; reason?: string }
+  | { type: "pair-reject"; sid: string; auth: string; reason: PairRejectReason }
   | { type: "signal"; sid: string; signal: SignalPayload }
   | { type: "peer-left"; sid: string; reason?: string }
   | { type: "ice-config"; iceServers: RTCIceServer[] }
@@ -95,6 +97,7 @@ export function signalingErrorDisplayMessage(code: ErrorCode): string {
 const MAX_SID_CHARS = 128;
 const MAX_PAKE_BYTES = 4096;
 const MAX_REASON_CHARS = 1000;
+const PAIR_REJECT_REASON: PairRejectReason = "user_declined";
 const MAX_SEALED_MANIFEST_CHARS = ENCRYPTED_JSON_MAX_CHARS;
 const MAX_SDP_BYTES = 128 * 1024;
 const MAX_CANDIDATE_BYTES = 4096;
@@ -190,7 +193,7 @@ export function isClientMessage(value: unknown): value is ClientMessage {
     case "pair-accept":
       return hasOnlyKeys(value, ["type", "sid", "auth"]) && isSessionId(ownDataValue(value, "sid")) && isBase64EncodedBytes(ownDataValue(value, "auth"), HMAC_SHA256_BYTES);
     case "pair-reject":
-      return hasOnlyKeys(value, ["type", "sid", "reason", "auth"]) && isSessionId(ownDataValue(value, "sid")) && isBase64EncodedBytes(ownDataValue(value, "auth"), HMAC_SHA256_BYTES) && optionalSafeReason(ownDataValue(value, "reason"));
+      return hasOnlyKeys(value, ["type", "sid", "reason", "auth"]) && isSessionId(ownDataValue(value, "sid")) && isBase64EncodedBytes(ownDataValue(value, "auth"), HMAC_SHA256_BYTES) && isPairRejectReason(ownDataValue(value, "reason"));
     case "signal":
       return hasOnlyKeys(value, ["type", "sid", "signal"]) && isSessionId(ownDataValue(value, "sid")) && isSignalPayload(ownDataValue(value, "signal"));
     case "bye":
@@ -218,7 +221,7 @@ export function isServerMessage(value: unknown): value is ServerMessage {
     case "pair-accept":
       return hasOnlyKeys(value, ["type", "sid", "auth"]) && isSessionId(ownDataValue(value, "sid")) && isBase64EncodedBytes(ownDataValue(value, "auth"), HMAC_SHA256_BYTES);
     case "pair-reject":
-      return hasOnlyKeys(value, ["type", "sid", "reason", "auth"]) && isSessionId(ownDataValue(value, "sid")) && isBase64EncodedBytes(ownDataValue(value, "auth"), HMAC_SHA256_BYTES) && optionalSafeReason(ownDataValue(value, "reason"));
+      return hasOnlyKeys(value, ["type", "sid", "reason", "auth"]) && isSessionId(ownDataValue(value, "sid")) && isBase64EncodedBytes(ownDataValue(value, "auth"), HMAC_SHA256_BYTES) && isPairRejectReason(ownDataValue(value, "reason"));
     case "signal":
       return hasOnlyKeys(value, ["type", "sid", "signal"]) && isSessionId(ownDataValue(value, "sid")) && isSignalPayload(ownDataValue(value, "signal"));
     case "peer-left":
@@ -383,6 +386,10 @@ function optionalSessionId(value: unknown): boolean {
 
 function optionalSafeReason(value: unknown): boolean {
   return value === undefined || isSafeBoundedString(value, MAX_REASON_CHARS);
+}
+
+function isPairRejectReason(value: unknown): value is PairRejectReason {
+  return value === PAIR_REJECT_REASON;
 }
 
 function arrayEvery<T>(values: T[], predicate: (value: T) => boolean): boolean {

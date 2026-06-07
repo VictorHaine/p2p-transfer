@@ -62,7 +62,7 @@ const MAX_PAKE_CONTEXT_CHARS = 256;
 const MAX_AUTH_SDP_BYTES = 128 * 1024;
 const MAX_AUTH_CANDIDATE_BYTES = 4096;
 const MAX_AUTH_TOKEN_BYTES = 256;
-const MAX_PAIR_DECISION_REASON_CHARS = 1000;
+const PAIR_REJECT_REASON = "user_declined";
 const AES_GCM_TAG_BYTES = 16;
 const MAX_BULK_SEALED_BYTES = CHUNK_SIZE + AES_GCM_TAG_BYTES;
 const MAX_ENCRYPTED_JSON_PLAINTEXT_BYTES = Math.floor(ENCRYPTED_JSON_MAX_CHARS / 4) * 3 - 12 - AES_GCM_TAG_BYTES;
@@ -319,7 +319,10 @@ function canonicalPairDecisionForAuth(sid: string, fromRole: PakeRole, decision:
   if (!isNonEmptyByteBoundedString(sealedManifest, ENCRYPTED_JSON_MAX_CHARS) || !SAFE_ASCII_TOKEN.test(sealedManifest)) {
     throw new Error("Pair decision manifest is invalid.");
   }
-  if (reason !== undefined && (!isSafeByteBoundedString(reason, MAX_PAIR_DECISION_REASON_CHARS) || reason.length === 0)) {
+  if (decision === "accept" && reason !== undefined) {
+    throw new Error("Pair decision reason is invalid.");
+  }
+  if (decision === "reject" && reason !== PAIR_REJECT_REASON) {
     throw new Error("Pair decision reason is invalid.");
   }
   const sealedManifestSha256 = bytesToHex(sha256(text.encode(sealedManifest)));

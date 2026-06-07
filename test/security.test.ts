@@ -53,6 +53,15 @@ import {
 import type { PakeRole } from "../src/shared/security.js";
 
 const vectors = JSON.parse(fs.readFileSync(new URL("../conformance/protocol-v5.json", import.meta.url), "utf8")) as {
+  pairDecisionAuth: {
+    keyHex: string;
+    sid: string;
+    fromRole: PakeRole;
+    decision: "accept" | "reject";
+    sealedManifest: string;
+    reason?: string;
+    tagBase64: string;
+  }[];
   signalAuth: {
     keyHex: string;
     sid: string;
@@ -774,6 +783,9 @@ test("pair decisions are authenticated and bound to the sealed manifest", async 
   assert.equal(distVerifyPairDecisionAuthTag(senderKeys.signalAuthKey, sid, "receiver", "reject", sealedManifest, "user_declined", rejectAuth), true);
   assert.equal(verifyPairDecisionAuthTag(senderKeys.signalAuthKey, sid, "receiver", "reject", sealedManifest, "other_reason", rejectAuth), false);
   assert.equal(verifyPairDecisionAuthTag(senderKeys.signalAuthKey, sid, "receiver", "reject", sealedManifest, undefined, rejectAuth), false);
+  assert.throws(() => pairDecisionAuthTag(receiverKeys.signalAuthKey, sid, "receiver", "reject", sealedManifest, "other_reason"), /Pair decision reason is invalid/);
+  assert.throws(() => distPairDecisionAuthTag(receiverKeys.signalAuthKey, sid, "receiver", "reject", sealedManifest, "other_reason"), /Pair decision reason is invalid/);
+  assert.throws(() => pairDecisionAuthTag(receiverKeys.signalAuthKey, sid, "receiver", "accept", sealedManifest, "user_declined"), /Pair decision reason is invalid/);
 });
 
 test("WebRTC signal authentication also binds ICE candidates", async () => {
@@ -1054,6 +1066,13 @@ test("WebRTC signal authentication matches conformance vectors", () => {
 test("PAKE confirmation tags match conformance vectors", () => {
   for (const vector of vectors.sessionConfirm) {
     assert.equal(sessionConfirmTag(Buffer.from(vector.keyHex, "hex"), vector.sid, vector.fromRole), vector.tagBase64);
+  }
+});
+
+test("pair decision authentication matches conformance vectors", () => {
+  assert.equal(vectors.pairDecisionAuth.some((vector) => vector.decision === "reject" && vector.reason === "user_declined"), true);
+  for (const vector of vectors.pairDecisionAuth) {
+    assert.equal(pairDecisionAuthTag(Buffer.from(vector.keyHex, "hex"), vector.sid, vector.fromRole, vector.decision, vector.sealedManifest, vector.reason), vector.tagBase64);
   }
 });
 
@@ -1341,7 +1360,9 @@ test("signaling schema rejects malformed signal and manifest fields", () => {
   assert.equal(isClientMessage({ type: "pair-accept", sid: "sid", auth: "auth" }), false);
   assert.equal(isClientMessage({ type: "pair-reject", sid: "" }), false);
   assert.equal(isClientMessage({ type: "pair-reject", sid: "sid", reason: "user_declined" }), false);
+  assert.equal(isClientMessage({ type: "pair-reject", sid: "sid", auth: validTag }), false);
   assert.equal(isClientMessage({ type: "pair-reject", sid: "sid", auth: validTag, reason: "user_declined" }), true);
+  assert.equal(isClientMessage({ type: "pair-reject", sid: "sid", auth: validTag, reason: "peer_wrote_this" }), false);
   assert.equal(isClientMessage({ type: "pair-reject", sid: "sid", auth: validTag, reason: "\u001b[31mnope" }), false);
   assert.equal(isClientMessage({ type: "signal", sid: "", signal: { kind: "offer", sdp: "v=0\r\n", auth: validTag } }), false);
   assert.equal(isClientMessage({ type: "bye", sid: "" }), false);
@@ -1447,7 +1468,9 @@ test("signaling schema rejects malformed signal and manifest fields", () => {
   assert.equal(isServerMessage({ type: "pair-accept", sid: "sid" }), false);
   assert.equal(isServerMessage({ type: "pair-accept", sid: "sid", auth: validTag }), true);
   assert.equal(isServerMessage({ type: "pair-reject", sid: "" }), false);
+  assert.equal(isServerMessage({ type: "pair-reject", sid: "sid", auth: validTag }), false);
   assert.equal(isServerMessage({ type: "pair-reject", sid: "sid", auth: validTag, reason: "user_declined" }), true);
+  assert.equal(isServerMessage({ type: "pair-reject", sid: "sid", auth: validTag, reason: "peer_wrote_this" }), false);
   assert.equal(isServerMessage({ type: "peer-left", sid: "" }), false);
   assert.equal(isServerMessage({ type: "peer-left", sid: "sid", reason: "\u202ereason" }), false);
   assert.equal(isServerMessage({ type: "signal", sid: "sid", signal: { kind: "candidate", candidate: { candidate: "candidate:0 1 UDP 1 127.0.0.1 9 typ host" }, auth: validTag } }), false);

@@ -78,6 +78,13 @@ test("control-message conformance vectors cover the transfer state machine", () 
 
 test("signaling-message conformance vectors validate schema and canonical serialization", () => {
   assert.equal(vectors.signalingMessages.length >= 4, true);
+  assert.equal(
+    vectors.signalingMessages.some((vector) => {
+      const message = vector.message as { type?: unknown; reason?: unknown };
+      return message.type === "pair-reject" && message.reason === "user_declined";
+    }),
+    true
+  );
   for (const vector of vectors.signalingMessages) {
     assert.equal(vector.direction === "client" ? isClientMessage(vector.message) : isServerMessage(vector.message), true, vector.name);
     assert.equal(serializeMessage(vector.message as never), vector.json, vector.name);

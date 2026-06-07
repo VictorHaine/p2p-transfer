@@ -1038,7 +1038,7 @@ test("README reports implemented release capabilities without stale MVP-gap lang
   assert.match(readme, /saved opaque partial record and browser-held lookup key/);
   assert.match(readme, /scrub legacy metadata-bearing resume records/);
   assert.doesNotMatch(readme, /saved tokenized partial record/);
-  assert.match(readme, /The conformance fixture covers chunk framing, transfer control-message schemas used inside the encrypted channel including resume offsets, canonical signaling-message serialization, PAKE confirmation tags, SDP offer\/answer authentication, and ICE candidate authentication including username fragments/);
+  assert.match(readme, /The conformance fixture covers chunk framing, transfer control-message schemas used inside the encrypted channel including resume offsets, canonical signaling-message serialization, authenticated pair decisions with the fixed reject reason, PAKE confirmation tags, SDP offer\/answer authentication, and ICE candidate authentication including username fragments/);
 });
 
 test("interop tests run the signaling server behind an explicit origin policy", () => {
