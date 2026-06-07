@@ -81,7 +81,7 @@ test("release artifact verifier rejects SBOMs that disconnect direct WebSocket d
   const sbom = cloneJson(fixtureSbom("@victorhaine/p2p-transfer", "1.2.3"));
   const root = sbom.dependencies.find((entry: { ref: string }) => entry.ref === "pkg:npm/%40victorhaine/p2p-transfer@1.2.3");
   assert.ok(root);
-  root.dependsOn = root.dependsOn.filter((ref: string) => ref !== "pkg:npm/ws@8.20.1");
+  root.dependsOn = root.dependsOn.filter((ref: string) => ref !== "pkg:npm/ws@8.21.0");
 
   const result = await runVerifierInFixture({
     packageName: "@victorhaine/p2p-transfer",
@@ -94,7 +94,7 @@ test("release artifact verifier rejects SBOMs that disconnect direct WebSocket d
 
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /release SBOM production dependency inventory does not match package\.json and pnpm-lock\.yaml\./);
-  assert.doesNotMatch(result.stderr, /ws@8\.20\.1|WebSocket/);
+  assert.doesNotMatch(result.stderr, /ws@8\.21\.0|WebSocket/);
 });
 
 test("release artifact verifier rejects SBOMs that omit transitive dependency edges", async () => {
@@ -651,7 +651,7 @@ function fixtureProductionGraph(packageName: string, version: string) {
     "domexception@4.0.0": { dependencies: { "webidl-conversions": "7.0.0" } },
     "nanoid@5.1.11": {},
     "webidl-conversions@7.0.0": {},
-    "ws@8.20.1": {}
+    "ws@8.21.0": {}
   };
   delete snapshotDependencies.commander;
 
@@ -799,7 +799,7 @@ function fixturePackageJson(packageName: string, version: string) {
       "@scure/bip39": "2.2.0",
       commander: "14.0.3",
       nanoid: "5.1.11",
-      ws: "8.20.1"
+      ws: "8.21.0"
     }
   };
 }

@@ -860,7 +860,7 @@ test("pnpm project policy keeps installs strict and resists fresh package compro
 
 test("known vulnerable dependency versions cannot be reintroduced", () => {
   assertAtLeast(packageJson.dependencies?.ws, "8.20.1", "ws must include the CVE-2026-45736 fix.");
-  assert.equal(packageJson.dependencies?.ws, "8.20.1", "ws must stay on the reviewed patched floor until newer releases satisfy the pnpm minimum-release-age policy.");
+  assert.equal(packageJson.dependencies?.ws, "8.21.0", "ws must stay on the reviewed patched floor until newer releases satisfy the pnpm minimum-release-age policy.");
   assertAtLeast(packageJson.devDependencies?.vite, "8.0.5", "vite must include the CVE-2026-39363/CVE-2026-39364/CVE-2026-39365 fixes.");
   assertAtLeast(packageJson.dependencies?.nanoid, "5.0.9", "nanoid must include the CVE-2024-55565 fix.");
   for (const resolved of lockfileResolvedPackages(pnpmLock).filter((entry) => entry.startsWith("nanoid@"))) {
@@ -1276,7 +1276,7 @@ test("lockfile resolved package set is explicitly reviewed", () => {
     "undici-types@6.19.1",
     "vite@8.0.14",
     "webidl-conversions@7.0.0",
-    "ws@8.20.1"
+    "ws@8.21.0"
   ]);
 });
 
