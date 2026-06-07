@@ -5,6 +5,7 @@ import fs from "node:fs";
 type PackageJson = {
   packageManager?: string;
   engines?: { node?: string };
+  scripts?: Record<string, string>;
 };
 
 const dockerfile = fs.readFileSync(new URL("../Dockerfile", import.meta.url), "utf8");
@@ -21,6 +22,7 @@ const releaseArtifactScript = fs.readFileSync(new URL("../scripts/verify-release
 const releaseChecksumScript = fs.readFileSync(new URL("../scripts/write-release-checksum.mjs", import.meta.url), "utf8");
 const releaseNotesScript = fs.readFileSync(new URL("../scripts/write-release-notes.mjs", import.meta.url), "utf8");
 const githubReleaseControlsScript = fs.readFileSync(new URL("../scripts/configure-github-release-controls.mjs", import.meta.url), "utf8");
+const releaseReadinessScript = fs.readFileSync(new URL("../scripts/check-release-readiness.mjs", import.meta.url), "utf8");
 const dependabotConfig = fs.readFileSync(new URL("../.github/dependabot.yml", import.meta.url), "utf8");
 const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
 const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
@@ -324,6 +326,23 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(readme, /refuses to mutate repository rulesets if the `npm` environment still has no protection rules/);
   assert.match(securityPolicy, /setup script must be able to create or update the `npm` environment approval gate from explicit reviewers/);
   assert.match(securityPolicy, /setup script must[\s\S]*fail before mutating repository rulesets when the `npm` environment is missing approval protection/);
+});
+
+test("release preflight checks external GitHub release prerequisites", () => {
+  assert.equal(packageJson.scripts?.["release:preflight"], "node scripts/check-release-readiness.mjs");
+  assert.match(readme, /GITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
+  assert.match(securityPolicy, /local release preflight must fail before tagging when the GitHub token lacks `workflow` scope/);
+  assert.match(releaseReadinessScript, /const REQUIRED_OAUTH_SCOPES = \["repo", "workflow"\]/);
+  assert.match(releaseReadinessScript, /headers\.get\("x-oauth-scopes"\)/);
+  assert.match(releaseReadinessScript, /GitHub token is missing \$\{scope\} scope\./);
+  assert.match(releaseReadinessScript, /\/repos\/\$\{options\.repository\}\/branches\/main/);
+  assert.match(releaseReadinessScript, /Remote main branch is missing\. Push main before releasing\./);
+  assert.match(releaseReadinessScript, /assertRequiredRuleset\(rulesets, MAIN_RULESET_NAME, "branch"\)/);
+  assert.match(releaseReadinessScript, /assertRequiredRuleset\(rulesets, TAG_RULESET_NAME, "tag"\)/);
+  assert.match(releaseReadinessScript, /ruleset\.target !== target \|\| ruleset\.enforcement !== "active"/);
+  assert.match(releaseReadinessScript, /GitHub npm environment has no protection rules\./);
+  assert.match(releaseReadinessScript, /realpathSync\(process\.argv\[1\]\) === realpathSync\(fileURLToPath\(import\.meta\.url\)\)/);
+  assert.doesNotMatch(releaseReadinessScript, /NPM_TOKEN|NODE_AUTH_TOKEN|npm publish|git tag/);
 });
 
 test("security-sensitive surfaces require code owner review", () => {
