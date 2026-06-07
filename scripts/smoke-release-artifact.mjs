@@ -4,6 +4,7 @@ import { realpathSync } from "node:fs";
 import { readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { safeChildEnv } from "./smoke-packed.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const artifactDir = path.join(root, "release-artifacts");
@@ -35,7 +36,7 @@ function run(command, args, env) {
   const result = spawnSync(command, args, {
     cwd: root,
     encoding: "utf8",
-    env: { ...process.env, ...env },
+    env: { ...safeChildEnv(), ...env },
     stdio: "pipe",
     timeout: 120_000
   });

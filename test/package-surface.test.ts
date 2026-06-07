@@ -399,6 +399,10 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseArtifactSmokeScript, /"scripts\/write-release-checksum\.mjs"/);
   assert.match(releaseArtifactSmokeScript, /"scripts\/verify-release-artifact\.mjs"/);
   assert.match(releaseArtifactSmokeScript, /GITHUB_REF_NAME: `v\$\{version\}`/);
+  assert.match(releaseArtifactSmokeScript, /import \{ safeChildEnv \} from "\.\/smoke-packed\.mjs"/);
+  assert.match(releaseArtifactSmokeScript, /env: \{ \.\.\.safeChildEnv\(\), \.\.\.env \}/);
+  assert.doesNotMatch(releaseArtifactSmokeScript, /env: \{ \.\.\.process\.env/);
+  assert.match(securityPolicy, /release-artifact smoke must run `pnpm pack`, checksum generation, and release-artifact verification with the same minimal allowlisted child environment/);
   assert.match(releaseArtifactSmokeScript, /await rm\(artifactDir, \{ recursive: true, force: true \}\)/);
   assert.match(releaseArtifactSmokeScript, /Release artifact smoke failed:/);
   assert.match(releaseArtifactSmokeScript, /realpathSync\(process\.argv\[1\]\) === realpathSync\(fileURLToPath\(import\.meta\.url\)\)/);
