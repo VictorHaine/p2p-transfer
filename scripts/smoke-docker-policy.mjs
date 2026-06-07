@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { connect as connectTcp } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -13,6 +14,11 @@ const COMMAND_TIMEOUT_MS = 120_000;
 const BUILD_TIMEOUT_MS = 600_000;
 const PROBE_ATTEMPTS = 10;
 const MAX_CHILD_ENV_VALUE_BYTES = 8_192;
+const MAX_COMMAND_OUTPUT_BYTES = 1024 * 1024;
+const MAX_DOCKER_FAILURE_EVIDENCE_CHARS = 128 * 1024;
+const MAX_EXPECTED_EVIDENCE_CHARS = 512;
+const WEBSOCKET_PROBE_TIMEOUT_MS = 10_000;
+const MAX_WEBSOCKET_HANDSHAKE_BYTES = 8_192;
 const PRODUCTION_ORIGIN = "https://files.example.com";
 const BAD_ORIGIN = "https://evil.example";
 const VERBOSE_ENV = "DOCKER_SMOKE_VERBOSE";
@@ -38,13 +44,13 @@ async function main() {
     expectDockerFailure(
       ["run", "--rm", "--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "-e", "SIGNALING_TOPOLOGY=single-instance", imageTag],
       "container without ALLOWED_ORIGINS",
-      "ALLOWED_ORIGINS",
+      "Error: ALLOWED_ORIGINS is required in production.",
       dockerEnv
     );
     expectDockerFailure(
       ["run", "--rm", "--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "-e", `ALLOWED_ORIGINS=${PRODUCTION_ORIGIN}`, imageTag],
       "container without SIGNALING_TOPOLOGY",
-      "SIGNALING_TOPOLOGY",
+      "Error: SIGNALING_TOPOLOGY must be single-instance or sticky-sessions for production or non-loopback deployments.",
       dockerEnv
     );
 
@@ -76,7 +82,10 @@ async function main() {
       const port = publishedPort(containerName, dockerEnv);
       await waitForProbe(`http://127.0.0.1:${port}/healthz`, "200");
       probe(`http://127.0.0.1:${port}/`, "200", { contains: "ff transfer", maxBytes: "1048576" });
+      probe(`http://127.0.0.1:${port}/v1/ice`, "200", { origin: PRODUCTION_ORIGIN, contains: "\"iceServers\"" });
       probe(`http://127.0.0.1:${port}/v1/ice`, "403", { origin: BAD_ORIGIN });
+      await probeWebSocketOrigin(port, PRODUCTION_ORIGIN, true);
+      await probeWebSocketOrigin(port, BAD_ORIGIN, false);
     } finally {
       run("docker", ["rm", "-f", containerName], "container cleanup", COMMAND_TIMEOUT_MS, { allowFailure: true, env: dockerEnv });
     }
@@ -102,9 +111,10 @@ function assertContainerName(value) {
 }
 
 function expectDockerFailure(args, label, requiredEvidence, env) {
+  assertExpectedEvidenceLine(requiredEvidence);
   const result = run("docker", args, label, COMMAND_TIMEOUT_MS, { allowFailure: true, env });
   if (result.status === 0) throw new Error(`${label} unexpectedly started.`);
-  if (!combinedOutput(result).includes(requiredEvidence)) throw new Error(`${label} did not fail with the expected production policy evidence.`);
+  if (!hasExactOutputLine(result, requiredEvidence)) throw new Error(`${label} did not fail with the expected production policy evidence.`);
 }
 
 function publishedPort(containerName, env) {
@@ -138,11 +148,83 @@ function probe(url, status, options = {}) {
   run(process.execPath, ["scripts/probe-http.mjs"], "HTTP probe", COMMAND_TIMEOUT_MS, { env });
 }
 
+function probeWebSocketOrigin(port, origin, expectedAccepted) {
+  return new Promise((resolve, reject) => {
+    const socket = connectTcp({ host: "127.0.0.1", port });
+    let settled = false;
+    let response = "";
+    const timer = setTimeout(() => {
+      fail(new Error("WebSocket origin probe timed out."));
+    }, WEBSOCKET_PROBE_TIMEOUT_MS);
+
+    function finish() {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      socket.destroy();
+      resolve();
+    }
+
+    function fail(error) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      socket.destroy();
+      reject(error);
+    }
+
+    socket.setTimeout(WEBSOCKET_PROBE_TIMEOUT_MS, () => {
+      fail(new Error("WebSocket origin probe timed out."));
+    });
+    socket.on("error", () => {
+      fail(new Error("WebSocket origin probe failed."));
+    });
+    socket.on("connect", () => {
+      socket.write(webSocketHandshakeRequest(port, origin));
+    });
+    socket.on("data", (chunk) => {
+      if (!Buffer.isBuffer(chunk)) {
+        fail(new Error("WebSocket origin probe returned malformed data."));
+        return;
+      }
+      response += chunk.toString("latin1");
+      if (response.length > MAX_WEBSOCKET_HANDSHAKE_BYTES) {
+        fail(new Error("WebSocket origin probe exceeded the response limit."));
+        return;
+      }
+      const headerEnd = response.indexOf("\r\n\r\n");
+      if (headerEnd < 0) return;
+      const statusLine = response.slice(0, headerEnd).split("\r\n", 1)[0] ?? "";
+      const accepted = /^HTTP\/1\.1 101(?:\s|$)/u.test(statusLine);
+      if (accepted !== expectedAccepted) {
+        fail(new Error("WebSocket origin probe did not match the expected policy decision."));
+        return;
+      }
+      finish();
+    });
+  });
+}
+
+function webSocketHandshakeRequest(port, origin) {
+  return [
+    "GET /v1/ws HTTP/1.1",
+    `Host: 127.0.0.1:${port}`,
+    "Upgrade: websocket",
+    "Connection: Upgrade",
+    "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+    "Sec-WebSocket-Version: 13",
+    `Origin: ${origin}`,
+    "",
+    ""
+  ].join("\r\n");
+}
+
 function run(command, args, label, timeout, options = {}) {
   const result = spawnSync(command, args, {
     cwd: root,
     encoding: "utf8",
     env: { ...safeChildEnv(), ...(options.env ?? {}) },
+    maxBuffer: MAX_COMMAND_OUTPUT_BYTES,
     stdio: verboseEnabled() && !options.allowFailure ? "inherit" : "pipe",
     timeout
   });
@@ -186,8 +268,30 @@ function isSafeChildEnvValue(value) {
   return typeof value === "string" && value.length > 0 && !value.includes("\0") && !utf8ByteLengthExceeds(value, MAX_CHILD_ENV_VALUE_BYTES);
 }
 
-function combinedOutput(result) {
-  return `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+function assertExpectedEvidenceLine(value) {
+  if (
+    typeof value !== "string" ||
+    value.length < 1 ||
+    value.length > MAX_EXPECTED_EVIDENCE_CHARS ||
+    /[\r\n\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u.test(value)
+  ) {
+    throw new Error("docker policy smoke expected evidence line is invalid.");
+  }
+}
+
+function hasExactOutputLine(result, expectedLine) {
+  return boundedCombinedOutput(result)
+    .split(/\r?\n/u)
+    .some((line) => line.trim() === expectedLine);
+}
+
+function boundedCombinedOutput(result) {
+  return `${boundedOutputText(result.stdout)}\n${boundedOutputText(result.stderr)}`;
+}
+
+function boundedOutputText(value) {
+  if (typeof value !== "string") return "";
+  return value.length > MAX_DOCKER_FAILURE_EVIDENCE_CHARS ? value.slice(-MAX_DOCKER_FAILURE_EVIDENCE_CHARS) : value;
 }
 
 function delay(ms) {

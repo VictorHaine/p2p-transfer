@@ -235,10 +235,22 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(dockerPolicySmokeScript, /\["build", "-t", imageTag, "\."\]/);
   assert.match(dockerPolicySmokeScript, /"run", "--rm", "--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "-e", "SIGNALING_TOPOLOGY=single-instance", imageTag/);
   assert.match(dockerPolicySmokeScript, /"run", "--rm", "--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "-e", `ALLOWED_ORIGINS=\$\{PRODUCTION_ORIGIN\}`, imageTag/);
+  assert.match(dockerPolicySmokeScript, /"Error: ALLOWED_ORIGINS is required in production\."/);
+  assert.match(dockerPolicySmokeScript, /"Error: SIGNALING_TOPOLOGY must be single-instance or sticky-sessions for production or non-loopback deployments\."/);
+  assert.match(dockerPolicySmokeScript, /function hasExactOutputLine\(result, expectedLine\)/);
+  assert.match(dockerPolicySmokeScript, /line\.trim\(\) === expectedLine/);
+  assert.match(dockerPolicySmokeScript, /MAX_DOCKER_FAILURE_EVIDENCE_CHARS = 128 \* 1024/);
+  assert.match(dockerPolicySmokeScript, /maxBuffer: MAX_COMMAND_OUTPUT_BYTES/);
+  assert.doesNotMatch(dockerPolicySmokeScript, /combinedOutput\(result\)\.includes\(requiredEvidence\)/);
   assert.match(dockerPolicySmokeScript, /"127\.0\.0\.1::8787"/);
   assert.match(dockerPolicySmokeScript, /waitForProbe\(`http:\/\/127\.0\.0\.1:\$\{port\}\/healthz`, "200"\)/);
   assert.match(dockerPolicySmokeScript, /probe\(`http:\/\/127\.0\.0\.1:\$\{port\}\/`, "200", \{ contains: "ff transfer", maxBytes: "1048576" \}\)/);
+  assert.match(dockerPolicySmokeScript, /probe\(`http:\/\/127\.0\.0\.1:\$\{port\}\/v1\/ice`, "200", \{ origin: PRODUCTION_ORIGIN, contains: "\\"iceServers\\"" \}\)/);
   assert.match(dockerPolicySmokeScript, /probe\(`http:\/\/127\.0\.0\.1:\$\{port\}\/v1\/ice`, "403", \{ origin: BAD_ORIGIN \}\)/);
+  assert.match(dockerPolicySmokeScript, /await probeWebSocketOrigin\(port, PRODUCTION_ORIGIN, true\)/);
+  assert.match(dockerPolicySmokeScript, /await probeWebSocketOrigin\(port, BAD_ORIGIN, false\)/);
+  assert.match(dockerPolicySmokeScript, /function webSocketHandshakeRequest\(port, origin\)/);
+  assert.match(dockerPolicySmokeScript, /"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ=="/);
   assert.doesNotMatch(ciWorkflow, /fetch\('http:\/\/127\.0\.0\.1:8787|body\.includes\('ff transfer'\)/);
   assert.doesNotMatch(ciWorkflow, /ALLOW_ANY_ORIGIN/);
   const releaseVerifyJob = workflowJob(releaseWorkflow, "verify");
@@ -537,6 +549,7 @@ test("documented release gates require a hardened Docker runtime smoke, not just
   assert.match(securityPolicy, /must not use static npm tokens/);
   assert.match(securityPolicy, /checked Docker policy smoke script that proves the production Docker image independently refuses to start without `ALLOWED_ORIGINS` and without `SIGNALING_TOPOLOGY`/);
   assert.match(securityPolicy, /verifies `\/healthz`, origin policy, and the bundled web UI from that running container/);
+  assert.match(securityPolicy, /accepts the configured production origin and rejects an untrusted origin on both the HTTP ICE endpoint and the WebSocket signaling upgrade path/);
   assert.match(securityPolicy, /explicit signaling topology/);
 });
 
