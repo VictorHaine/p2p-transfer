@@ -854,6 +854,11 @@ async function receiveBrowserFiles(
     rejectDone(error instanceof Error ? error : new Error(safeErrorMessage(error)));
   };
 
+  const throwIfReceiveStopped = () => {
+    if (failed) throw new Error("Transfer stopped during local browser receive work.");
+    if (completed) throw new Error("Transfer completed during local browser receive work.");
+  };
+
   const resetReceiveTimeout = () => {
     clearReceiveTimeout();
     if (failed || completed || localReceiveWorkDepth > 0) return;
@@ -866,7 +871,9 @@ async function receiveBrowserFiles(
     localReceiveWorkDepth += 1;
     clearReceiveTimeout();
     try {
-      return await work();
+      const result = await work();
+      throwIfReceiveStopped();
+      return result;
     } finally {
       localReceiveWorkDepth -= 1;
       resetReceiveTimeout();
@@ -970,7 +977,7 @@ async function receiveBrowserFiles(
         if (!state) throw new Error(`Unknown file ${message.id}`);
         if (state.expectedSha256) throw new Error(`Duplicate file-end for file ${message.id}`);
         state.expectedSha256 = message.sha256;
-        await withLocalReceiveWork(() => maybeDownload(state, control, keys));
+        await withLocalReceiveWork(() => maybeDownload(state, control, keys, throwIfReceiveStopped));
         await maybeResolveDone();
       } else if (message.t === "all-done") {
         if (!manifest) throw new Error("all-done arrived before manifest.");
@@ -1021,7 +1028,7 @@ async function receiveBrowserFiles(
         state.bytes += copy.byteLength;
         transferred += copy.byteLength;
         updateProgress(log, "received", transferred, totalBytes, startedAt);
-        await withLocalReceiveWork(() => maybeDownload(state, control, keys));
+        await withLocalReceiveWork(() => maybeDownload(state, control, keys, throwIfReceiveStopped));
         await maybeResolveDone();
       } finally {
         copy.fill(0);
@@ -1070,7 +1077,7 @@ async function receiveBrowserFiles(
   }
 }
 
-async function maybeDownload(state: BrowserReceiveState, control: RTCDataChannel, keys: SessionKeys): Promise<void> {
+async function maybeDownload(state: BrowserReceiveState, control: RTCDataChannel, keys: SessionKeys, throwIfReceiveStopped: () => void): Promise<void> {
   if (state.done || state.finalizing || !state.expectedSha256 || state.bytes < state.size) return;
   state.finalizing = true;
   try {
@@ -1082,9 +1089,12 @@ async function maybeDownload(state: BrowserReceiveState, control: RTCDataChannel
     }
     if (state.writable) {
       await state.writable.close();
+      throwIfReceiveStopped();
       if (!state.fileHandle || !state.partName) throw new Error(`Missing partial file handle for ${state.name}`);
       await verifyWritableFile(state.fileHandle, state.partName, state.size, actual);
+      throwIfReceiveStopped();
       state.name = await publishBrowserPartFile(state, actual);
+      throwIfReceiveStopped();
       if (state.resumeKey) forgetBrowserResumePartial(state.resumeKey);
     } else {
       const blob = new Blob(state.chunks, { type: "application/octet-stream" });
@@ -1098,6 +1108,7 @@ async function maybeDownload(state: BrowserReceiveState, control: RTCDataChannel
       } finally {
         setTimeout(() => URL.revokeObjectURL(url), 30_000);
       }
+      throwIfReceiveStopped();
     }
     state.done = true;
     state.chunks = [];

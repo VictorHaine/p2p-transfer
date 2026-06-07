@@ -373,15 +373,21 @@ test("browser download fallback always schedules Blob URL revocation", () => {
 
 test("browser receive local filesystem work does not trip the peer idle watchdog", () => {
   const receiveBody = extractFunctionBody(webSource, "receiveBrowserFiles");
+  const maybeDownloadBody = extractFunctionBody(webSource, "maybeDownload");
 
   assert.match(securityPolicy, /browser receive local filesystem, hash, and publish work must not trip the peer-data idle watchdog/);
+  assert.match(securityPolicy, /browser receive local filesystem, hash, and publish work must re-check transfer failure before publishing final files, marking files done, or sending final acknowledgements/);
+  assert.match(receiveBody, /const throwIfReceiveStopped = \(\) => \{[\s\S]*if \(failed\) throw new Error\("Transfer stopped during local browser receive work\."\);[\s\S]*if \(completed\) throw new Error\("Transfer completed during local browser receive work\."\);[\s\S]*\};/);
   assert.match(receiveBody, /let localReceiveWorkDepth = 0;/);
   assert.match(receiveBody, /if \(failed \|\| completed \|\| localReceiveWorkDepth > 0\) return;/);
-  assert.match(receiveBody, /const withLocalReceiveWork = async <T>\(work: \(\) => Promise<T>\): Promise<T> => \{[\s\S]*localReceiveWorkDepth \+= 1;[\s\S]*clearReceiveTimeout\(\);[\s\S]*return await work\(\);[\s\S]*localReceiveWorkDepth -= 1;[\s\S]*resetReceiveTimeout\(\);[\s\S]*\};/);
+  assert.match(receiveBody, /const withLocalReceiveWork = async <T>\(work: \(\) => Promise<T>\): Promise<T> => \{[\s\S]*localReceiveWorkDepth \+= 1;[\s\S]*clearReceiveTimeout\(\);[\s\S]*const result = await work\(\);[\s\S]*throwIfReceiveStopped\(\);[\s\S]*return result;[\s\S]*localReceiveWorkDepth -= 1;[\s\S]*resetReceiveTimeout\(\);[\s\S]*\};/);
   assert.match(receiveBody, /withLocalReceiveWork\(\(\) => createBrowserReceiveFile\(directory, message\.name, message\.size, resumeKey, resume, opaqueOutputNames\)\)/);
   assert.match(receiveBody, /withLocalReceiveWork\(\(\) => restartBrowserReceiveState\(state\)\)/);
   assert.match(receiveBody, /withLocalReceiveWork\(\(\) => state\.writable!\.write\(writeCopy\)\)/);
-  assert.equal(receiveBody.match(/withLocalReceiveWork\(\(\) => maybeDownload\(state, control, keys\)\)/g)?.length, 2);
+  assert.equal(receiveBody.match(/withLocalReceiveWork\(\(\) => maybeDownload\(state, control, keys, throwIfReceiveStopped\)\)/g)?.length, 2);
+  assert.match(webSource, /async function maybeDownload\(state: BrowserReceiveState, control: RTCDataChannel, keys: SessionKeys, throwIfReceiveStopped: \(\) => void\): Promise<void>/);
+  assert.match(maybeDownloadBody, /await state\.writable\.close\(\);[\s\S]*throwIfReceiveStopped\(\);[\s\S]*await verifyWritableFile\(state\.fileHandle, state\.partName, state\.size, actual\);[\s\S]*throwIfReceiveStopped\(\);[\s\S]*state\.name = await publishBrowserPartFile\(state, actual\);[\s\S]*throwIfReceiveStopped\(\);/);
+  assert.match(maybeDownloadBody, /anchor\.click\(\);[\s\S]*setTimeout\(\(\) => URL\.revokeObjectURL\(url\), 30_000\);[\s\S]*throwIfReceiveStopped\(\);[\s\S]*state\.done = true;[\s\S]*await sendControl\(control, keys, \{ t: "file-ok", id: state\.id \}\);/);
 });
 
 test("browser folder receive removes a created partial if writable stream creation fails", () => {
