@@ -117,6 +117,7 @@ unset FF_RECEIVE_CODE
 ```
 
 `--code-env` only avoids argv and shell-history exposure. Environment variables are not a secrecy boundary against process-environment telemetry, same-user inspection windows, privileged endpoint tools, or MDM/EDR.
+Interactive `send <code> <file...>` prints a generic warning on stderr because that convenience form exposes the receive code and local paths to shell history, process listings, and endpoint telemetry. The warning never includes the code or paths, and it is suppressed for `--json`, `--quiet`, and the stdin/env input flows.
 
 Useful CLI flags:
 

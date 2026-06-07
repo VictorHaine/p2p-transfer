@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import readline from "node:readline/promises";
-import { stdin as input, stdout as output } from "node:process";
+import { stdin as input, stdout as output, stderr } from "node:process";
 import { Command } from "commander";
 import {
   CONNECT_TIMEOUT_MS,
@@ -68,6 +68,7 @@ const RECEIVE_CODE_GENERATION_ATTEMPTS = 10;
 const ICE_CONFIG_GRACE_MS = 1_000;
 const CLI_STDIN_MAX_BYTES = 512 * 1024;
 const ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const SEND_ARGV_TELEMETRY_WARNING = "Warning: receiver codes and local file paths passed as arguments can be captured by shell history, process lists, or endpoint telemetry. Use --code-stdin/--code-env and --files-stdin for private input.";
 
 process.title = "ff";
 
@@ -380,6 +381,7 @@ async function resolveSendInputs(code: string | undefined, files: string[], opti
   if (!options.codeStdin && options.codeEnv === undefined && !options.filesStdin) {
     if (!code) throw new Error("Receiver code is required.");
     if (files.length === 0) throw new Error("Choose at least one file.");
+    warnSensitiveSendArgv(options);
     return { code, files };
   }
 
@@ -785,6 +787,11 @@ function print(options: CommonOptions, event: Record<string, unknown>): void {
 
 function human(options: CommonOptions, message: string): void {
   if (!options.json && !options.quiet) console.log(sanitizeDisplayText(message));
+}
+
+function warnSensitiveSendArgv(options: CommonOptions): void {
+  if (options.json || options.quiet || stderr.isTTY !== true) return;
+  console.error(sanitizeDisplayText(SEND_ARGV_TELEMETRY_WARNING));
 }
 
 async function runWithExit(fn: () => Promise<void>, options: CommonOptions): Promise<void> {
