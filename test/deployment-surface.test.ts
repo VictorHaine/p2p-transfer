@@ -402,6 +402,7 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(securityPolicy, /setup script must[\s\S]*fail before mutating repository rulesets when the `npm` environment is missing required-reviewer protection/);
   assert.match(securityPolicy, /GitHub release setup and release preflight scripts must read token and repository environment variables through own data descriptors[\s\S]*send GitHub API requests with an abort deadline/);
   assert.match(securityPolicy, /byte-cap and fatal-UTF-8\/JSON-decode GitHub API responses with setup-owned deterministic errors/);
+  assert.match(securityPolicy, /avoid echoing token, malformed environment values, remote response messages, or raw API response bodies in errors/);
   assert.match(securityPolicy, /release setup must reject malformed or duplicate GitHub rulesets list entries before deciding whether to create or update rulesets/);
   assert.match(githubReleaseControlsScript, /const GITHUB_API_TIMEOUT_MS = 30_000/);
   assert.match(githubReleaseControlsScript, /const MAX_GITHUB_API_RESPONSE_BYTES = 1024 \* 1024/);
@@ -414,6 +415,8 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(githubReleaseControlsScript, /if \(total > MAX_GITHUB_API_RESPONSE_BYTES\) throw new Error\("GitHub API response exceeded the byte limit\."\)/);
   assert.match(githubReleaseControlsScript, /new TextDecoder\("utf-8", \{ fatal: true \}\)\.decode\(body\)/);
   assert.match(githubReleaseControlsScript, /GitHub API response was not valid JSON\./);
+  assert.match(githubReleaseControlsScript, /function githubApiErrorMessage\(status\) \{[\s\S]*return `GitHub API returned \$\{status\}\.`;[\s\S]*\}/);
+  assert.doesNotMatch(githubReleaseControlsScript, /data\.message|GitHub API returned \$\{status\}:/);
   assert.doesNotMatch(githubReleaseControlsScript, /response\.text\(\)/);
 });
 
@@ -441,6 +444,8 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /if \(total > MAX_GITHUB_API_RESPONSE_BYTES\) throw new Error\("GitHub API response exceeded the byte limit\."\)/);
   assert.match(releaseReadinessScript, /new TextDecoder\("utf-8", \{ fatal: true \}\)\.decode\(body\)/);
   assert.match(releaseReadinessScript, /GitHub API response was not valid JSON\./);
+  assert.match(releaseReadinessScript, /function githubApiErrorMessage\(status\) \{[\s\S]*return `GitHub API returned \$\{status\}\.`;[\s\S]*\}/);
+  assert.doesNotMatch(releaseReadinessScript, /data\.message|GitHub API returned \$\{status\}:/);
   assert.doesNotMatch(releaseReadinessScript, /response\.text\(\)/);
   assert.doesNotMatch(releaseReadinessScript, /process\.env\.GITHUB_TOKEN|process\.env\.GH_TOKEN|process\.env\.GITHUB_REPOSITORY/);
   assert.match(releaseReadinessScript, /headers\.get\("x-oauth-scopes"\)/);

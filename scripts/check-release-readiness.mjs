@@ -27,8 +27,8 @@ const GITHUB_API_TIMEOUT_MS = 30_000;
 const REPOSITORY_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 
 class GitHubApiError extends Error {
-  constructor(status, data) {
-    super(githubApiErrorMessage(status, data));
+  constructor(status) {
+    super(githubApiErrorMessage(status));
     this.status = status;
   }
 }
@@ -238,7 +238,7 @@ async function githubWithHeaders(token, method, path, body) {
     clearTimeout(timer);
   }
   const data = await githubJson(response);
-  if (!response.ok) throw new GitHubApiError(response.status, data);
+  if (!response.ok) throw new GitHubApiError(response.status);
   return { data, headers: response.headers };
 }
 
@@ -293,10 +293,7 @@ function isAbortError(error) {
   return error instanceof Error && error.name === "AbortError";
 }
 
-function githubApiErrorMessage(status, data) {
-  if (data && typeof data === "object" && typeof data.message === "string" && data.message.length > 0 && data.message.length < 256) {
-    return `GitHub API returned ${status}: ${data.message}`;
-  }
+function githubApiErrorMessage(status) {
   return `GitHub API returned ${status}.`;
 }
 
