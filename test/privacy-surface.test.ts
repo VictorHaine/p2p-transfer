@@ -75,6 +75,19 @@ test("CLI transfer progress sanitizes labels at the output sink", () => {
   assert.doesNotMatch(printProgressBody, /JSON\.stringify\(\{ event: action, label,/);
 });
 
+test("CLI redacted error output does not render transfer exception metadata", () => {
+  const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
+  assert.match(securityPolicy, /CLI `--redact-output` must remove file names, MIME types, and byte counts from CLI JSON, human transfer output, and error output/);
+  for (const source of [cliSource, distCliSource]) {
+    const printErrorBody = extractFunctionBody(source, "printError");
+    assert.match(printErrorBody, /options\.redactOutput \? redactedErrorMessage\(code\) : redactLocalPathEvidence\(safeErrorMessage\(error\)\)/);
+    assert.equal(printErrorBody.indexOf("redactedErrorMessage(code)") < printErrorBody.indexOf("sanitizeStructuredOutput"), true);
+    const redactedErrorBody = extractFunctionBody(source, "redactedErrorMessage");
+    assert.match(redactedErrorBody, /Command failed\. Re-run without --redact-output for details\./);
+    assert.doesNotMatch(redactedErrorBody, /safeErrorMessage|redactLocalPathEvidence|formatBytes|error\.message|file\.name|state\.name/);
+  }
+});
+
 test("remote encrypted abort reasons are not promoted to local user-facing errors", () => {
   assert.match(sharedTransferSource, /export const REMOTE_ABORT_MESSAGE = "Peer aborted the transfer\."/);
   for (const source of [cliTransferSource, webSource]) {

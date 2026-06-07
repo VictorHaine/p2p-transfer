@@ -31,6 +31,7 @@ const packageJson = JSON.parse(fs.readFileSync(new URL("../package.json", import
 const pnpmWorkspace = fs.readFileSync(new URL("../pnpm-workspace.yaml", import.meta.url), "utf8");
 const pnpmLock = fs.readFileSync(new URL("../pnpm-lock.yaml", import.meta.url), "utf8");
 const packedSmokeScript = fs.readFileSync(new URL("../scripts/smoke-packed.mjs", import.meta.url), "utf8");
+const releaseArtifactSmokeScript = fs.readFileSync(new URL("../scripts/smoke-release-artifact.mjs", import.meta.url), "utf8");
 const nativeSmokeScript = fs.readFileSync(new URL("../scripts/smoke-native.mjs", import.meta.url), "utf8");
 const installStateScript = fs.readFileSync(new URL("../scripts/check-install-state.mjs", import.meta.url), "utf8");
 const releaseArtifactScript = fs.readFileSync(new URL("../scripts/verify-release-artifact.mjs", import.meta.url), "utf8");
@@ -119,6 +120,7 @@ test("package publishing config keeps provenance and reproducible dependency pin
   assert.equal(packageJson.scripts?.["security:signatures"], "pnpm audit signatures");
   assert.equal(packageJson.scripts?.["smoke:native"], "node scripts/smoke-native.mjs");
   assert.equal(packageJson.scripts?.["smoke:packed"], "node scripts/smoke-packed.mjs");
+  assert.equal(packageJson.scripts?.["smoke:release-artifact"], "node scripts/smoke-release-artifact.mjs");
   assert.equal(packageJson.scripts?.["check:install-state"], "node scripts/check-install-state.mjs");
   assert.match(securityPolicy, /typecheck gates must explicitly run the shipping Node project config and the test project config/);
   assert.match(securityPolicy, /release dependency audits must fail on known vulnerabilities at low severity or higher/);
@@ -174,7 +176,7 @@ test("package publishing config keeps provenance and reproducible dependency pin
   assert.equal(packageJson.scripts?.["verify:local"], "pnpm check:install-state && pnpm build && pnpm check && pnpm test:unit && pnpm smoke:native && pnpm smoke:packed");
   assert.equal(
     packageJson.scripts?.["verify:release"],
-    "pnpm check:install-state && pnpm build && pnpm check && pnpm test:unit && pnpm smoke:native && pnpm smoke:packed && pnpm test:e2e && pnpm test:browser && pnpm security:audit && pnpm security:signatures"
+    "pnpm check:install-state && pnpm build && pnpm check && pnpm test:unit && pnpm smoke:native && pnpm smoke:packed && pnpm smoke:release-artifact && pnpm test:e2e && pnpm test:browser && pnpm security:audit && pnpm security:signatures"
   );
   assert.equal(packageJson.scripts?.test, "pnpm build && pnpm test:unit && pnpm test:e2e && pnpm test:browser");
   for (const [name, version] of Object.entries({ ...packageJson.dependencies, ...packageJson.devDependencies })) {
@@ -380,6 +382,14 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseWorkflow, /fetch-depth: 0/);
   assert.match(releaseWorkflow, /Verify release tag is on main[\s\S]*git fetch --no-tags --prune origin \+refs\/heads\/main:refs\/remotes\/origin\/main[\s\S]*git merge-base --is-ancestor "\$GITHUB_SHA" origin\/main/);
   assert.match(releaseWorkflow, /pnpm install --frozen-lockfile/);
+  assert.match(packageJson.scripts?.["verify:release"] ?? "", /pnpm smoke:packed && pnpm smoke:release-artifact && pnpm test:e2e/);
+  assert.match(releaseArtifactSmokeScript, /"pnpm", \["--config\.ignore-scripts=true", "pack", "--pack-destination", "release-artifacts"\]/);
+  assert.match(releaseArtifactSmokeScript, /"scripts\/write-release-checksum\.mjs"/);
+  assert.match(releaseArtifactSmokeScript, /"scripts\/verify-release-artifact\.mjs"/);
+  assert.match(releaseArtifactSmokeScript, /GITHUB_REF_NAME: `v\$\{version\}`/);
+  assert.match(releaseArtifactSmokeScript, /await rm\(artifactDir, \{ recursive: true, force: true \}\)/);
+  assert.match(releaseArtifactSmokeScript, /Release artifact smoke failed:/);
+  assert.match(releaseArtifactSmokeScript, /realpathSync\(process\.argv\[1\]\) === realpathSync\(fileURLToPath\(import\.meta\.url\)\)/);
   assert.match(releaseWorkflow, /pnpm check:install-state[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed[\s\S]*pnpm test:e2e[\s\S]*pnpm test:browser[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures/);
   assert.match(releaseWorkflow, /pnpm --config\.ignore-scripts=true pack --pack-destination release-artifacts/);
   assert.match(releaseWorkflow, /node scripts\/write-release-checksum\.mjs/);
@@ -402,7 +412,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(securityPolicy, /reject invalid gzip archives with verifier-owned deterministic errors/);
   assert.match(securityPolicy, /release artifact verification must fatal-UTF-8-decode workspace metadata, checksum files, tar header text, and packed metadata through verifier-owned deterministic errors/);
   assert.match(securityPolicy, /release artifact verification must cap the checked workspace `package\.json files` expansion by file count and total bytes before hashing expected package files/);
-  assert.match(securityPolicy, /release artifact verification must reject packed package install lifecycle scripts and must compare critical packed package metadata including package manager, publish config, module type, Node engine, published bin paths, package file list, runtime dependency pins, dependency-class fields, import entrypoint fields/);
+  assert.match(securityPolicy, /release artifact verification must reject packed package install lifecycle scripts, validate the checked workspace package manager as an exact `pnpm@\d+\.\d+\.\d+` pin, require packed metadata to omit the workspace-only `packageManager` field that real `pnpm pack` removes/);
   assert.match(releaseArtifactScript, /const MAX_TARBALL_BYTES = 50 \* 1024 \* 1024/);
   assert.match(releaseArtifactScript, /const MAX_EXPECTED_PACKED_FILES = 4096/);
   assert.match(releaseArtifactScript, /const MAX_EXPECTED_PACKED_BYTES = 256 \* 1024 \* 1024/);
@@ -426,10 +436,14 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseArtifactScript, /const MAX_CHECKSUM_FILE_BYTES = 256/);
   assert.match(releaseArtifactScript, /requiredPackageVersion\(expected\.version\)/);
   assert.match(releaseArtifactScript, /assertPackedPackageMetadataMatchesWorkspace\(expected, packed\)/);
-  assert.match(releaseArtifactScript, /function releasePackageMetadata\(record, label\)/);
+  assert.match(releaseArtifactScript, /function releasePackageMetadata\(record, label, options\)/);
   assert.match(releaseArtifactScript, /function assertNoInstallLifecycleScripts\(scripts, label\)/);
   assert.match(releaseArtifactScript, /new Set\(\["preinstall", "install", "postinstall", "prepare"\]\)/);
-  assert.match(releaseArtifactScript, /packageManager: exactStringField\(record, "packageManager", label\)/);
+  assert.match(releaseArtifactScript, /const expectedMetadata = releasePackageMetadata\(expected, "package\.json", \{ packageManager: "required" \}\)/);
+  assert.match(releaseArtifactScript, /const packedMetadata = releasePackageMetadata\(packed, "package\/package\.json", \{ packageManager: "forbidden" \}\)/);
+  assert.match(releaseArtifactScript, /delete expectedMetadata\.packageManager/);
+  assert.match(releaseArtifactScript, /function exactPackageManager\(value, label\)/);
+  assert.match(releaseArtifactScript, /label\} packageManager must be an exact pnpm version pin/);
   assert.match(releaseArtifactScript, /publishConfig: canonicalJsonValue\(requiredPlainRecord\(record, "publishConfig", label\)/);
   assert.match(releaseArtifactScript, /function canonicalJsonValue\(value, label\)/);
   assert.match(releaseArtifactScript, /type: exactStringField\(record, "type", label\)/);

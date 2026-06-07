@@ -231,11 +231,12 @@ test("release artifact verifier rejects install lifecycle scripts in packed meta
 
 test("release artifact verifier rejects changed packed bin and dependency metadata", async () => {
   for (const body of [
-    { ...fixturePackageJson("p2p-transfer", "1.2.3"), bin: { ff: "./dist-node/cli/evil.js", "ff-server": "./dist-node/server/index.js" } },
-    { ...fixturePackageJson("p2p-transfer", "1.2.3"), dependencies: { ...fixturePackageJson("p2p-transfer", "1.2.3").dependencies, ws: "8.99.99" } },
-    { ...fixturePackageJson("p2p-transfer", "1.2.3"), publishConfig: { access: "restricted", provenance: true } },
-    { ...fixturePackageJson("p2p-transfer", "1.2.3"), optionalDependencies: { "left-pad": "1.3.0" } },
-    { ...fixturePackageJson("p2p-transfer", "1.2.3"), exports: { ".": "./dist-node/cli/index.js" } }
+    { ...fixturePackedPackageJson("p2p-transfer", "1.2.3"), bin: { ff: "./dist-node/cli/evil.js", "ff-server": "./dist-node/server/index.js" } },
+    { ...fixturePackedPackageJson("p2p-transfer", "1.2.3"), dependencies: { ...fixturePackedPackageJson("p2p-transfer", "1.2.3").dependencies, ws: "8.99.99" } },
+    { ...fixturePackedPackageJson("p2p-transfer", "1.2.3"), publishConfig: { access: "restricted", provenance: true } },
+    { ...fixturePackedPackageJson("p2p-transfer", "1.2.3"), optionalDependencies: { "left-pad": "1.3.0" } },
+    { ...fixturePackedPackageJson("p2p-transfer", "1.2.3"), exports: { ".": "./dist-node/cli/index.js" } },
+    fixturePackageJson("p2p-transfer", "1.2.3")
   ]) {
     const result = await runVerifierInFixture({
       packageName: "p2p-transfer",
@@ -294,6 +295,7 @@ test("release artifact verifier rejects unexpected and missing packed files", as
 
 test("release artifact verifier rejects package file lists that expand past the file cap", async () => {
   const body = Buffer.from(`${JSON.stringify({ ...fixturePackageJson("p2p-transfer", "1.2.3"), files: ["many"] })}\n`, "utf8");
+  const packedBody = Buffer.from(`${JSON.stringify({ ...fixturePackedPackageJson("p2p-transfer", "1.2.3"), files: ["many"] })}\n`, "utf8");
   const extraWorkspaceFiles: Record<string, Buffer> = {};
   for (let index = 0; index < 4096; index += 1) {
     extraWorkspaceFiles[`many/${String(index).padStart(4, "0")}.txt`] = Buffer.from("x\n", "utf8");
@@ -305,7 +307,7 @@ test("release artifact verifier rejects package file lists that expand past the 
     packageJson: body,
     extraWorkspaceFiles,
     tarBlocks: packageJsonTarBlocks("p2p-transfer", "1.2.3", {
-      body,
+      body: packedBody,
       endBlocks: 2
     })
   });
@@ -392,7 +394,7 @@ function packageTarBlocks(
     trailingBlocks?: Buffer[];
   }
 ): Buffer[] {
-  const body = options.body ?? Buffer.from(`${JSON.stringify(fixturePackageJson(packageName, version))}\n`, "utf8");
+  const body = options.body ?? Buffer.from(`${JSON.stringify(fixturePackedPackageJson(packageName, version))}\n`, "utf8");
   const omit = new Set(options.omitFiles ?? []);
   const fileEntries = Object.entries(fixtureWorkspaceFiles())
     .filter(([name]) => !omit.has(name))
@@ -437,6 +439,11 @@ function fixturePackageJson(packageName: string, version: string) {
       ws: "8.20.1"
     }
   };
+}
+
+function fixturePackedPackageJson(packageName: string, version: string) {
+  const { packageManager: _packageManager, ...packed } = fixturePackageJson(packageName, version);
+  return packed;
 }
 
 function fixtureWorkspaceFiles(): Record<string, Buffer> {

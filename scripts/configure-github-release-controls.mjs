@@ -8,6 +8,7 @@ const MAIN_RULESET_NAME = "p2p-transfer: protect main";
 const TAG_RULESET_NAME = "p2p-transfer: protect release tags";
 const NPM_ENVIRONMENT = "npm";
 const REPOSITORY_ADMIN_ROLE_BYPASS_ACTOR_ID = 5;
+const MAX_NPM_ENVIRONMENT_REVIEWERS = 6;
 
 const REQUIRED_CI_CHECKS = [
   "verify",
@@ -41,7 +42,8 @@ async function main() {
   if (options.requireMain) await requireRemoteMain(token, options.repository);
 
   const desired = [mainRuleset(), tagRuleset()];
-  const environment = await github(token, "GET", `/repos/${options.repository}/environments/${NPM_ENVIRONMENT}`).catch((error) => {
+  const desiredEnvironment = options.npmReviewers.length > 0 ? await npmEnvironmentConfig(token, options) : undefined;
+  let environment = await github(token, "GET", `/repos/${options.repository}/environments/${encodeURIComponent(NPM_ENVIRONMENT)}`).catch((error) => {
     if (error instanceof GitHubApiError && error.status === 404) return undefined;
     throw error;
   });
@@ -49,10 +51,13 @@ async function main() {
   const existingByName = new Map(Array.isArray(existingRulesets) ? existingRulesets.map((ruleset) => [ruleset?.name, ruleset]) : []);
 
   if (!options.apply) {
-    console.log(JSON.stringify({ repository: options.repository, mode: "dry-run", rulesets: desired, environment: environmentStatus(environment) }, null, 2));
+    console.log(JSON.stringify({ repository: options.repository, mode: "dry-run", rulesets: desired, environment: environmentStatus(environment), desiredEnvironment }, null, 2));
     return;
   }
 
+  if (desiredEnvironment) {
+    environment = await github(token, "PUT", `/repos/${options.repository}/environments/${encodeURIComponent(NPM_ENVIRONMENT)}`, desiredEnvironment);
+  }
   if (!environment) throw new Error("Create the npm environment before applying release controls.");
   const status = environmentStatus(environment);
   if (!status.hasProtectionRules) {
@@ -137,6 +142,21 @@ async function requireRemoteMain(token, repository) {
   });
 }
 
+async function npmEnvironmentConfig(token, options) {
+  return {
+    wait_timer: 0,
+    prevent_self_review: options.preventSelfReview,
+    reviewers: await Promise.all(options.npmReviewers.map(async (login) => ({ type: "User", id: await userId(token, login) }))),
+    deployment_branch_policy: null
+  };
+}
+
+async function userId(token, login) {
+  const user = await github(token, "GET", `/users/${encodeURIComponent(login)}`);
+  if (!user || typeof user.id !== "number") throw new Error("GitHub reviewer response was invalid.");
+  return user.id;
+}
+
 function environmentStatus(environment) {
   return {
     name: NPM_ENVIRONMENT,
@@ -178,7 +198,7 @@ function githubApiErrorMessage(status, data) {
 }
 
 function parseArgs(args) {
-  const options = { apply: false, repository: process.env.GITHUB_REPOSITORY || DEFAULT_REPOSITORY, requireMain: true };
+  const options = { apply: false, repository: process.env.GITHUB_REPOSITORY || DEFAULT_REPOSITORY, requireMain: true, npmReviewers: [], preventSelfReview: false };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === "--apply") {
@@ -191,8 +211,18 @@ function parseArgs(args) {
       const value = args[++index];
       if (!value || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(value)) throw new Error("Repository must be owner/name.");
       options.repository = value;
+    } else if (arg === "--npm-reviewer") {
+      const value = args[++index];
+      if (!value || !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(value)) throw new Error("Npm environment reviewer must be a GitHub username.");
+      if (options.npmReviewers.includes(value)) throw new Error("Npm environment reviewers must be unique.");
+      if (options.npmReviewers.length >= MAX_NPM_ENVIRONMENT_REVIEWERS) throw new Error(`Npm environment can have at most ${MAX_NPM_ENVIRONMENT_REVIEWERS} reviewers.`);
+      options.npmReviewers.push(value);
+    } else if (arg === "--prevent-self-review") {
+      options.preventSelfReview = true;
+    } else if (arg === "--allow-self-review") {
+      options.preventSelfReview = false;
     } else {
-      throw new Error("Usage: node scripts/configure-github-release-controls.mjs [--dry-run|--apply] [--repo owner/name] [--allow-missing-main]");
+      throw new Error("Usage: node scripts/configure-github-release-controls.mjs [--dry-run|--apply] [--repo owner/name] [--allow-missing-main] [--npm-reviewer login] [--prevent-self-review|--allow-self-review]");
     }
   }
   return options;

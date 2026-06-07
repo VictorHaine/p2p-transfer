@@ -799,12 +799,18 @@ async function runWithExit(fn: () => Promise<void>, options: CommonOptions): Pro
 }
 
 function printError(options: CommonOptions, error: unknown, code: number): void {
-  const message = sanitizeDisplayText(redactLocalPathEvidence(safeErrorMessage(error)));
+  const message = sanitizeDisplayText(options.redactOutput ? redactedErrorMessage(code) : redactLocalPathEvidence(safeErrorMessage(error)));
   if (options.json) {
     console.error(JSON.stringify(sanitizeStructuredOutput({ event: "error", code, message })));
     return;
   }
   console.error(message);
+}
+
+function redactedErrorMessage(code: number): string {
+  if (code === 2) return "Transfer declined.";
+  if (code === 130) return "Interrupted.";
+  return "Command failed. Re-run without --redact-output for details.";
 }
 
 function redactLocalPathEvidence(message: string): string {

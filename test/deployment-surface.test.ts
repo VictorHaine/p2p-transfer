@@ -265,9 +265,13 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(githubReleaseControlsScript, /const TAG_RULESET_NAME = "p2p-transfer: protect release tags"/);
   assert.match(githubReleaseControlsScript, /const NPM_ENVIRONMENT = "npm"/);
   assert.match(githubReleaseControlsScript, /const REPOSITORY_ADMIN_ROLE_BYPASS_ACTOR_ID = 5/);
+  assert.match(githubReleaseControlsScript, /const MAX_NPM_ENVIRONMENT_REVIEWERS = 6/);
   assert.match(githubReleaseControlsScript, /realpathSync\(process\.argv\[1\]\) === realpathSync\(fileURLToPath\(import\.meta\.url\)\)/);
   assert.doesNotMatch(githubReleaseControlsScript, /endsWith\("\/configure-github-release-controls\.mjs"\)/);
   assert.match(githubReleaseControlsScript, /"PUT", `\/repos\/\$\{options\.repository\}\/rulesets\/\$\{existing\.id\}`/);
+  assert.match(githubReleaseControlsScript, /"PUT", `\/repos\/\$\{options\.repository\}\/environments\/\$\{encodeURIComponent\(NPM_ENVIRONMENT\)\}`/);
+  assert.match(githubReleaseControlsScript, /reviewers: await Promise\.all\(options\.npmReviewers\.map\(async \(login\) => \(\{ type: "User", id: await userId\(token, login\) \}\)\)\)/);
+  assert.match(githubReleaseControlsScript, /prevent_self_review: options\.preventSelfReview/);
 
   for (const check of [
     "verify",
@@ -291,6 +295,17 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(githubReleaseControlsScript, /type: "creation"[\s\S]*type: "deletion"[\s\S]*type: "non_fast_forward"[\s\S]*type: "tag_name_pattern"[\s\S]*pattern: "\^v\[0-9\]\+\\\\\.\[0-9\]\+\\\\\.\[0-9\]\+\$"/);
   assert.match(githubReleaseControlsScript, /Push main before applying GitHub release controls\./);
   assert.match(githubReleaseControlsScript, /The npm environment exists but has no protection rules/);
+  assert.match(githubReleaseControlsScript, /--npm-reviewer/);
+  assert.match(githubReleaseControlsScript, /--prevent-self-review/);
+  assert.match(githubReleaseControlsScript, /--allow-self-review/);
+  assert.match(githubReleaseControlsScript, /Npm environment reviewer must be a GitHub username\./);
+  assert.match(githubReleaseControlsScript, /Npm environment reviewers must be unique\./);
+  assert.match(githubReleaseControlsScript, /Npm environment can have at most \$\{MAX_NPM_ENVIRONMENT_REVIEWERS\} reviewers\./);
+  assert.ok(
+    githubReleaseControlsScript.indexOf("environments/${encodeURIComponent(NPM_ENVIRONMENT)}") <
+      githubReleaseControlsScript.indexOf("for (const ruleset of desired)"),
+    "npm environment setup must run before mutating rulesets"
+  );
   assert.ok(
     githubReleaseControlsScript.indexOf("The npm environment exists but has no protection rules") <
       githubReleaseControlsScript.indexOf("for (const ruleset of desired)"),
@@ -298,9 +313,11 @@ test("checked GitHub release controls setup matches the protected release surfac
   );
 
   assert.match(readme, /create the `npm` environment[\s\S]*required reviewers or an equivalent approval gate/);
-  assert.match(readme, /scripts\/configure-github-release-controls\.mjs --apply/);
-  assert.match(readme, /refuses to mutate the repository if the `npm` environment has no protection rules/);
-  assert.match(securityPolicy, /setup script must fail before mutating repository rulesets when the `npm` environment is missing approval protection/);
+  assert.match(readme, /scripts\/configure-github-release-controls\.mjs --apply --npm-reviewer <github-login>/);
+  assert.match(readme, /creates\/updates the `npm` environment approval gate plus the branch and release-tag rulesets/);
+  assert.match(readme, /refuses to mutate repository rulesets if the `npm` environment still has no protection rules/);
+  assert.match(securityPolicy, /setup script must be able to create or update the `npm` environment approval gate from explicit reviewers/);
+  assert.match(securityPolicy, /setup script must[\s\S]*fail before mutating repository rulesets when the `npm` environment is missing approval protection/);
 });
 
 test("security-sensitive surfaces require code owner review", () => {

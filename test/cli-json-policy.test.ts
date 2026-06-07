@@ -14,13 +14,13 @@ test("CLI json mode emits structured sanitized error events instead of plain std
   assert.match(cliSource, /const inputs = await resolveSendInputs\(code, files, merged\)/);
   assert.match(cliSource, /return send\(normalizeCode\(inputs\.code\), inputs\.files, merged\)/);
   assert.match(cliSource, /function printError\(options: CommonOptions, error: unknown, code: number\): void \{/);
-  assert.match(cliSource, /redactLocalPathEvidence\(safeErrorMessage\(error\)\)/);
+  assert.match(cliSource, /options\.redactOutput \? redactedErrorMessage\(code\) : redactLocalPathEvidence\(safeErrorMessage\(error\)\)/);
   assert.match(cliSource, /if \(options\.json\) \{[\s\S]*console\.error\(JSON\.stringify\(sanitizeStructuredOutput\(\{ event: "error", code, message \}\)\)\);/);
   assert.match(cliSource, /console\.error\(message\);/);
 });
 
 test("CLI redacted output mode removes file metadata from JSON and progress events", () => {
-  assert.match(securityPolicy, /CLI `--redact-output` must remove file names, MIME types, and byte counts from CLI JSON and human transfer output/);
+  assert.match(securityPolicy, /CLI `--redact-output` must remove file names, MIME types, and byte counts from CLI JSON, human transfer output, and error output/);
   assert.match(readme, /`--redact-output`: redact file names, MIME types, and byte counts/);
   assert.match(cliSource, /\.option\("--redact-output", "redact file metadata from CLI output and JSON events"\)/);
   assert.match(cliSource, /options\.redactOutput \? \{ event: "pair_requested", sid: joined\.sid, fileCount: manifest\.fileCount \} : \{ event: "pair_requested", sid: joined\.sid, files: manifest\.fileCount, totalBytes: manifest\.totalBytes \}/);
@@ -30,6 +30,15 @@ test("CLI redacted output mode removes file metadata from JSON and progress even
   assert.match(cliSource, /console\.log\(options\.redactOutput \? "  - \[redacted\]" : `  - \$\{safeFileName\(file\.name\)\} \(\$\{formatBytes\(file\.size\)\}\)`\)/);
   assert.match(cliSource, /sendFiles\(control, bulk, keys, files, options\.json, options\.quiet, Boolean\(options\.redactOutput\)\)/);
   assert.match(cliSource, /receiveFiles\(control, bulk, keys, outDir, options\.json, options\.quiet, undefined, manifest, Boolean\(options\.resume\), Boolean\(options\.redactOutput\)\)/);
+  for (const source of [cliSource, distCliSource]) {
+    const printError = extractFunctionBody(source, "printError");
+    assert.match(printError, /redactedErrorMessage\(code\)/);
+    assert.match(printError, /redactLocalPathEvidence\(safeErrorMessage\(error\)\)/);
+    assert.equal(printError.indexOf("redactedErrorMessage(code)") < printError.indexOf("JSON.stringify"), true);
+    const redactedError = extractFunctionBody(source, "redactedErrorMessage");
+    assert.match(redactedError, /Command failed\. Re-run without --redact-output for details\./);
+    assert.doesNotMatch(redactedError, /safeErrorMessage|error|message|path|file|label|formatBytes/);
+  }
 });
 
 test("CLI exit handling does not truncate piped output with direct process.exit", () => {

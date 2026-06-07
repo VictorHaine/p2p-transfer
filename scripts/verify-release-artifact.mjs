@@ -110,22 +110,28 @@ function requiredReleaseTag(value, version) {
 }
 
 function assertPackedPackageMetadataMatchesWorkspace(expected, packed) {
-  const expectedMetadata = releasePackageMetadata(expected, "package.json");
-  const packedMetadata = releasePackageMetadata(packed, "package/package.json");
+  const expectedMetadata = releasePackageMetadata(expected, "package.json", { packageManager: "required" });
+  const packedMetadata = releasePackageMetadata(packed, "package/package.json", { packageManager: "forbidden" });
+  delete expectedMetadata.packageManager;
   if (JSON.stringify(packedMetadata) !== JSON.stringify(expectedMetadata)) {
     throw new Error("release artifact package metadata does not match the checked workspace metadata.");
   }
 }
 
-function releasePackageMetadata(record, label) {
+function releasePackageMetadata(record, label, options) {
   if (!isPlainRecord(record)) throw new Error(`${label} must be a plain JSON object.`);
   const scripts = optionalPlainRecord(record, "scripts", label);
   if (scripts) assertNoInstallLifecycleScripts(scripts, label);
-  return {
+  const packageManager = optionalOwnValue(record, "packageManager");
+  if (options.packageManager === "required") {
+    exactPackageManager(packageManager, label);
+  } else if (packageManager !== undefined) {
+    throw new Error("release artifact package metadata does not match the checked workspace metadata.");
+  }
+  const metadata = {
     name: requiredPackageName(ownValue(record, "name"), `${label} name`),
     version: requiredPackageVersion(ownValue(record, "version"), `${label} version`),
     type: exactStringField(record, "type", label),
-    packageManager: exactStringField(record, "packageManager", label),
     publishConfig: canonicalJsonValue(requiredPlainRecord(record, "publishConfig", label), `${label} publishConfig`),
     engines: canonicalStringRecord(requiredPlainRecord(record, "engines", label), `${label} engines`),
     bin: canonicalStringRecord(requiredPlainRecord(record, "bin", label), `${label} bin`),
@@ -158,6 +164,14 @@ function releasePackageMetadata(record, label) {
       "config"
     ])
   };
+  if (options.packageManager === "required") metadata.packageManager = packageManager;
+  return metadata;
+}
+
+function exactPackageManager(value, label) {
+  if (typeof value !== "string" || !/^pnpm@\d+\.\d+\.\d+$/.test(value)) {
+    throw new Error(`${label} packageManager must be an exact pnpm version pin.`);
+  }
 }
 
 function assertNoInstallLifecycleScripts(scripts, label) {
