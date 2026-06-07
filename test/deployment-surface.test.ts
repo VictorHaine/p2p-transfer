@@ -330,7 +330,7 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.equal(releaseWorkflow.match(/id-token:\s*write/g)?.length, 2);
   assert.match(releaseWorkflow, /publish npm package[\s\S]*permissions:\n      contents: read\n      id-token: write/);
   assert.match(releaseWorkflow, /attest release artifact[\s\S]*permissions:\n      contents: read\n      id-token: write\n      attestations: write/);
-  assert.match(releaseWorkflow, /attest release artifact[\s\S]*verify downloaded release artifact[\s\S]*id: verify_artifact[\s\S]*node scripts\/verify-release-artifact\.mjs --github-output tarball[\s\S]*uses: actions\/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4\.1\.0[\s\S]*subject-path: \$\{\{ steps\.verify_artifact\.outputs\.tarball \}\}/);
+  assert.match(releaseWorkflow, /attest release artifact[\s\S]*verify downloaded release artifact[\s\S]*id: verify_artifact[\s\S]*node scripts\/verify-release-artifact\.mjs --github-output tarball[\s\S]*uses: actions\/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4\.1\.0[\s\S]*subject-checksums: release-artifacts\/SHA256SUMS/);
   assert.match(releaseWorkflow, /publish npm package[\s\S]*verify, smoke, and publish release artifact[\s\S]*node scripts\/publish-release-artifact\.mjs/);
   assert.match(releasePublishScript, /rejectStaticNpmTokens\(\)/);
   assert.match(releasePublishScript, /ACTIONS_ID_TOKEN_REQUEST_TOKEN/);

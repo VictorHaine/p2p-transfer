@@ -238,7 +238,7 @@ DOCKER_SMOKE_TAG=p2p-transfer:test pnpm smoke:docker-policy
 `pnpm smoke:docker-policy` proves the production Docker image refuses to start without `ALLOWED_ORIGINS` and without `SIGNALING_TOPOLOGY`, then boots it with both policies explicit, a loopback-only random host port, a read-only filesystem, dropped Linux capabilities, and `no-new-privileges`, and checks `/healthz`, origin policy, and the bundled web UI; a build-only Docker pass is not treated as enough for release. CI and release run the same checked script. Platform smoke runs the packed-install check on Linux, macOS, and Windows for each supported Node major because the CLI depends on native WebRTC bindings. Workflows use explicit hosted runner generations (`ubuntu-24.04`, `macos-15`, `windows-2025`) rather than floating `*-latest` labels.
 The release workflow is tag-only. Release artifacts, npm publishes, and GitHub Releases are produced only from `v*` tags that match `package.json` version and point to commits already reachable from `main`, not from manual workflow dispatches, branch-built artifacts, or off-main tag commits.
 Before publishing, the release workflow downloads the exact npm tarball artifact, verifies its checksum and package metadata, then runs the packed-install smoke against a no-follow-verified staged copy of that downloaded tarball rather than trusting a different tarball produced earlier in the job.
-The same verified tarball is attested with GitHub artifact attestations before publish; the attestation job downloads and verifies the artifact but does not reinstall, rebuild, repack, or rediscover release contents.
+The verified tarball and SBOM are attested from `SHA256SUMS` with GitHub artifact attestations before publish; the attestation job downloads and verifies the artifact set but does not reinstall, rebuild, repack, or rediscover release contents.
 Npm publishing uses GitHub OIDC trusted publishing from the `npm` environment; configure the npm package trusted publisher instead of storing a long-lived `NPM_TOKEN` secret.
 After npm publish succeeds, the workflow re-verifies the downloaded tarball and SBOM again, extracts the matching version section from `CHANGELOG.md`, and creates the GitHub Release with that exact tarball plus `SHA256SUMS` and `SBOM.cdx.json`.
 Package-surface tests run after the build in local verification, CI, and release, and assert the published `ff` and `ff-server` bin entrypoints keep their Node shebangs and executable mode.
@@ -264,7 +264,7 @@ In GitHub:
 - enable code scanning alerts; `.github/workflows/codeql.yml` runs pinned CodeQL analysis on pull requests, pushes to `main`, and a weekly schedule
 - enable OpenSSF Scorecard alerts; `.github/workflows/scorecard.yml` runs the pinned Scorecard action on pushes to `main` and a weekly schedule, then uploads SARIF to code scanning
 - keep dependency review required on pull requests; `.github/workflows/dependency-review.yml` runs the pinned GitHub dependency review action on pull requests and blocks vulnerable runtime or development dependency changes at low severity or higher
-- enable artifact attestations for the release workflow; `.github/workflows/release.yml` attests the same verifier-checked npm tarball before publish
+- enable artifact attestations for the release workflow; `.github/workflows/release.yml` attests the same verifier-checked npm tarball and SBOM before publish
 
 In npm:
 
@@ -285,7 +285,7 @@ git push origin main
 git push origin v0.1.0
 ```
 
-The tag starts the release workflow. It verifies the tag matches `package.json`, verifies the tagged commit is reachable from protected `main`, repeats the release gate, attests the exact checked tarball, publishes that tarball to npm with provenance, then creates the GitHub Release with the same tarball, `SHA256SUMS`, and `SBOM.cdx.json`. Protect `v*` tags with a ruleset/tag-protection rule before the first release; branch protection alone does not restrict who can create release tags.
+The tag starts the release workflow. It verifies the tag matches `package.json`, verifies the tagged commit is reachable from protected `main`, repeats the release gate, attests the exact checked tarball and SBOM from `SHA256SUMS`, publishes that tarball to npm with provenance, then creates the GitHub Release with the same tarball, `SHA256SUMS`, and `SBOM.cdx.json`. Protect `v*` tags with a ruleset/tag-protection rule before the first release; branch protection alone does not restrict who can create release tags.
 
 ## License
 
