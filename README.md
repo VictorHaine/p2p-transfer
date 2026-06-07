@@ -286,11 +286,10 @@ Full release verification:
 node scripts/prepare-checked-pnpm.mjs
 pnpm install --frozen-lockfile
 pnpm exec playwright install --with-deps chromium
-pnpm verify:release
-DOCKER_SMOKE_TAG=p2p-transfer:test pnpm smoke:docker-policy
+DOCKER_SMOKE_TAG=p2p-transfer:test pnpm verify:release:docker
 ```
 
-`pnpm verify:release` runs `pnpm security:dependencies` before the build so CPace vectors plus reviewed crypto/native dependency attestations remain an explicit release gate, not only part of the broad unit-test glob.
+`pnpm verify:release` runs the full non-Docker local release gate and runs `pnpm security:dependencies` before the build so CPace vectors plus reviewed crypto/native dependency attestations remain an explicit release gate, not only part of the broad unit-test glob. `pnpm verify:release:docker` runs that same gate plus the hardened Docker policy smoke; use it before release and for Docker, deployment, release, or server changes when a Docker daemon is available.
 `pnpm test` runs the production build, unit crypto/protocol tests, built CLI end-to-end transfer test, and browser/CLI interop tests.
 `pnpm test:browser` verifies browser sender to CLI receiver, CLI sender to browser download receiver, CLI sender to browser opaque-name download receiver, CLI sender to browser folder-only receiver, CLI sender to browser opaque-name folder receiver, valid browser folder resume from a saved partial, browser resume-key replacement, browser resume-registry metadata scrubbing, and browser folder restart after a corrupted saved partial with Playwright. Install Chromium with `pnpm exec playwright install --with-deps chromium`; set `PLAYWRIGHT_CHROMIUM=/path/to/chromium` only when using an existing local browser binary. Missing Chromium is a hard test failure unless `FF_ALLOW_BROWSER_TEST_SKIP=true` is set explicitly; do not set that variable for release verification.
 `pnpm smoke:native` loads WebRTC through the built CLI `nativeWebRtc()` guard, creates a DataChannel, and completes local offer/answer SDP negotiation. `pnpm smoke:packed` packs the verified workspace, installs that tarball into a fresh consumer project with native dependency build scripts enabled only for the reviewed native packages, verifies the published `ff` bin reports the expected protocol/version, boots the published `ff-server` bin, checks both `/healthz` and the bundled web UI, then transfers a file through installed `ff recv` and `ff send` with `--local-private-mode` plus stdin code/file inputs and environment-sourced receive output, verifies the receive path is opaque, and compares received bytes. `pnpm smoke:release-artifact` runs real `pnpm pack`, writes the CycloneDX `SBOM.cdx.json`, writes `SHA256SUMS` for both release evidence files, and runs the release artifact verifier against that complete artifact set so local release verification exercises the same artifact shape used by the release workflow.
@@ -358,9 +357,8 @@ Release:
 node scripts/prepare-checked-pnpm.mjs
 pnpm install --frozen-lockfile
 pnpm exec playwright install --with-deps chromium
-pnpm verify:release
+DOCKER_SMOKE_TAG=p2p-transfer:test pnpm verify:release:docker
 node scripts/write-release-notes.mjs --check
-DOCKER_SMOKE_TAG=p2p-transfer:test pnpm smoke:docker-policy
 gh auth refresh -h github.com -s workflow
 GITHUB_TOKEN="$(gh auth token)" pnpm release:preflight
 git fetch origin main

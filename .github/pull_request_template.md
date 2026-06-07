@@ -5,8 +5,8 @@
 ## Verification
 
 - [ ] `pnpm verify:local`
-- [ ] `pnpm verify:release` for protocol, crypto, browser, dependency, release, Docker, deployment, or file-write changes
-- [ ] Docker runtime policy smoke from `README.md` / `SECURITY.md` for Docker, deployment, release, or server changes
+- [ ] `pnpm verify:release` for protocol, crypto, browser, dependency, release, or file-write changes
+- [ ] `DOCKER_SMOKE_TAG=p2p-transfer:test pnpm verify:release:docker` for Docker, deployment, release, or server changes
 
 ## Security Impact
 

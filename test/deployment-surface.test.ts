@@ -342,7 +342,8 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releasePublishJob, /timeout-minutes: 20/);
   assert.match(releaseGitHubReleaseJob, /timeout-minutes: 10/);
   assert.match(packageJson.scripts?.["verify:release"] ?? "", /pnpm check:install-state && pnpm security:dependencies && pnpm build/);
-  assert.match(readme, /`pnpm verify:release` runs `pnpm security:dependencies` before the build/);
+  assert.match(readme, /`pnpm verify:release` runs the full non-Docker local release gate and runs `pnpm security:dependencies` before the build/);
+  assert.match(readme, /`pnpm verify:release:docker` runs that same gate plus the hardened Docker policy smoke/);
   assert.match(releaseVerifyJob, /pnpm check:install-state[\s\S]*pnpm security:dependencies[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed[\s\S]*pnpm test:e2e[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures/);
   assert.doesNotMatch(releaseVerifyJob, /pnpm test:unit[\s\S]*pnpm build[\s\S]*pnpm smoke:native/);
   assert.match(securityPolicy, /release workflow artifact packaging must use `scripts\/smoke-release-artifact\.mjs --keep-artifacts`/);
@@ -685,8 +686,9 @@ test("checked GitHub release controls setup matches the protected release surfac
 test("release preflight checks external GitHub release prerequisites", () => {
   assert.equal(packageJson.scripts?.["release:preflight"], "node scripts/check-release-readiness.mjs");
   assert.equal(packageJson.scripts?.["bootstrap:npm"], "node scripts/bootstrap-npm-package.mjs");
+  assert.equal(packageJson.scripts?.["verify:release:docker"], "pnpm verify:release && pnpm smoke:docker-policy");
   assert.match(readme, /gh auth refresh -h github\.com -s workflow/);
-  assert.match(readme, /node scripts\/write-release-notes\.mjs --check\nDOCKER_SMOKE_TAG=p2p-transfer:test pnpm smoke:docker-policy/);
+  assert.match(readme, /DOCKER_SMOKE_TAG=p2p-transfer:test pnpm verify:release:docker\nnode scripts\/write-release-notes\.mjs --check/);
   assert.match(readme, /First remote bootstrap:[\s\S]*gh auth refresh -h github\.com -s workflow\ngit push -u origin main/);
   assert.match(readme, /git fetch origin main\ngit tag v0\.1\.0 origin\/main/);
   assert.match(readme, /`main` must exist remotely before `pnpm release:preflight` can pass/);
@@ -704,7 +706,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(readme, /The checked repository ruleset for `v\*\.\*\.\*` tags must be active before the first release/);
   assert.doesNotMatch(readme, /create branch protection for `main`|tag protection rule or repository ruleset/);
   assert.match(readme, /GITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
-  assert.match(contributing, /pnpm exec playwright install --with-deps chromium\npnpm verify:release\nnode scripts\/write-release-notes\.mjs --check\nDOCKER_SMOKE_TAG=p2p-transfer:test pnpm smoke:docker-policy\ngh auth refresh -h github\.com -s workflow\nGITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
+  assert.match(contributing, /pnpm exec playwright install --with-deps chromium\nDOCKER_SMOKE_TAG=p2p-transfer:test pnpm verify:release:docker\nnode scripts\/write-release-notes\.mjs --check\ngh auth refresh -h github\.com -s workflow\nGITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
   assert.match(contributing, /make sure `main` already exists on\nGitHub, then run the full release gate/);
   assert.match(securityPolicy, /local release preflight must fail before tagging when the npm package is missing, the target npm version already exists, the bootstrap placeholder exists without the exact `bootstrap` dist-tag or with `latest` pointing to it, private vulnerability reporting is disabled, dependency vulnerability alerts are disabled or hidden from the release token/);
   assert.match(securityPolicy, /GitHub repository `security_and_analysis` is missing or reports disabled secret scanning, disabled secret scanning push protection, disabled Dependabot security updates, or paused Dependabot security updates from the dedicated `automated-security-fixes` endpoint/);
@@ -1052,8 +1054,7 @@ test("dependency integrity monitor catches new registry risk and gates releases"
 test("documented release gates require a hardened Docker runtime smoke, not just image build", () => {
   for (const document of [readme, securityPolicy]) {
     assert.match(document, /node scripts\/prepare-checked-pnpm\.mjs\npnpm install --frozen-lockfile\npnpm exec playwright install --with-deps chromium\npnpm verify:local/);
-    assert.match(document, /node scripts\/prepare-checked-pnpm\.mjs\npnpm install --frozen-lockfile\npnpm exec playwright install --with-deps chromium\npnpm verify:release/);
-    assert.match(document, /pnpm smoke:docker-policy/);
+    assert.match(document, /pnpm verify:release:docker/);
     assert.match(document, /read-only filesystem, dropped Linux capabilities,[^.\n]+`no-new-privileges`/);
     assert.match(document, /refuses to start without `ALLOWED_ORIGINS` and without `SIGNALING_TOPOLOGY`/);
   }
@@ -1324,8 +1325,8 @@ test("README documents the auto-accept consent tradeoff", () => {
 test("pull request template keeps production-sensitive verification explicit", () => {
   assert.match(securityPolicy, /CI must enforce the same local typecheck, build, unit, native smoke, packed-install, browser interop, and hardened Docker policy gates that release depends on/);
   assert.match(pullRequestTemplate, /`pnpm verify:local`/);
-  assert.match(pullRequestTemplate, /`pnpm verify:release` for protocol, crypto, browser, dependency, release, Docker, deployment, or file-write changes/);
-  assert.match(pullRequestTemplate, /Docker runtime policy smoke from `README\.md` \/ `SECURITY\.md` for Docker, deployment, release, or server changes/);
+  assert.match(pullRequestTemplate, /`pnpm verify:release` for protocol, crypto, browser, dependency, release, or file-write changes/);
+  assert.match(pullRequestTemplate, /`DOCKER_SMOKE_TAG=p2p-transfer:test pnpm verify:release:docker` for Docker, deployment, release, or server changes/);
   assert.match(pullRequestTemplate, /No protocol, crypto, file-write, dependency, release, Docker, or deployment security invariant changed/);
   assert.match(pullRequestTemplate, /Relevant `SECURITY\.md` invariants and conformance fixtures were updated/);
   assert.doesNotMatch(pullRequestTemplate, /`pnpm check:install-state`\n- \[ \] `pnpm build`\n- \[ \] `pnpm check`\n- \[ \] `pnpm test:unit`/);

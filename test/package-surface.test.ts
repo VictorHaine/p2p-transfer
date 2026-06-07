@@ -322,6 +322,7 @@ test("package publishing config keeps provenance and reproducible dependency pin
     packageJson.scripts?.["verify:release"],
     "pnpm check:install-state && pnpm security:dependencies && pnpm build && pnpm check && pnpm test:unit && pnpm smoke:native && pnpm smoke:packed && pnpm smoke:release-artifact && pnpm test:e2e && pnpm test:browser && pnpm security:audit && pnpm security:signatures"
   );
+  assert.equal(packageJson.scripts?.["verify:release:docker"], "pnpm verify:release && pnpm smoke:docker-policy");
   assert.equal(packageJson.scripts?.test, "pnpm build && pnpm test:unit && pnpm test:e2e && pnpm test:browser");
   for (const [name, version] of Object.entries({ ...packageJson.dependencies, ...packageJson.devDependencies })) {
     assert.equal(isExactPackageVersion(version), true, `${name} must use an exact dependency version`);
@@ -702,6 +703,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(securityPolicy, /release main checks must signal timed-out Git subprocesses, arm a bounded `SIGKILL` fallback, and reject only after the child exits/);
   assert.match(releaseWorkflow, /pnpm install --frozen-lockfile/);
   assert.match(packageJson.scripts?.["verify:release"] ?? "", /pnpm smoke:packed && pnpm smoke:release-artifact && pnpm test:e2e/);
+  assert.equal(packageJson.scripts?.["verify:release:docker"], "pnpm verify:release && pnpm smoke:docker-policy");
   assert.match(releaseArtifactSmokeScript, /const pnpm = process\.platform === "win32" \? "pnpm\.cmd" : "pnpm"/);
   assert.match(releaseArtifactSmokeScript, /import \{ spawn \} from "node:child_process"/);
   assert.match(releaseArtifactSmokeScript, /const CHILD_TIMEOUT_MS = 120_000/);

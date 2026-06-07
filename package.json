@@ -41,6 +41,7 @@
     "release:preflight": "node scripts/check-release-readiness.mjs",
     "verify:local": "pnpm check:install-state && pnpm security:dependencies && pnpm build && pnpm check && pnpm test:unit && pnpm smoke:native && pnpm smoke:packed",
     "verify:release": "pnpm check:install-state && pnpm security:dependencies && pnpm build && pnpm check && pnpm test:unit && pnpm smoke:native && pnpm smoke:packed && pnpm smoke:release-artifact && pnpm test:e2e && pnpm test:browser && pnpm security:audit && pnpm security:signatures",
+    "verify:release:docker": "pnpm verify:release && pnpm smoke:docker-policy",
     "test": "pnpm build && pnpm test:unit && pnpm test:e2e && pnpm test:browser",
     "test:unit": "node --import tsx --test test/*.test.ts",
     "test:e2e": "node --import tsx --test test/e2e/*.test.ts",
