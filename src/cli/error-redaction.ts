@@ -6,6 +6,6 @@ const UNQUOTED_ABSOLUTE_PATH = new RegExp(`(^|[\\s([{;,=]|:\\s)(${LOCAL_PATH_STA
 export function redactLocalPathEvidence(message: string, cwd = process.cwd()): string {
   let redacted = message.replace(QUOTED_SINGLE_ABSOLUTE_PATH, "'[path]'");
   redacted = redacted.replace(QUOTED_DOUBLE_ABSOLUTE_PATH, "\"[path]\"");
-  if (cwd.length > 1) redacted = redacted.split(cwd).join("[cwd]");
-  return redacted.replace(UNQUOTED_ABSOLUTE_PATH, "$1[path]");
+  redacted = redacted.replace(UNQUOTED_ABSOLUTE_PATH, "$1[path]");
+  return cwd.length > 1 ? redacted.split(cwd).join("[path]") : redacted;
 }

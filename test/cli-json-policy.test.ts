@@ -199,6 +199,8 @@ test("CLI private receive-code inputs are not echoed back into local telemetry",
     assert.doesNotMatch(source, /readCodeFromStdinOrPrompt|function promptCode|Receiver code:|Receive code:/);
   }
   assert.match(readme, /read -rs FF_RECEIVE_CODE/);
+  assert.match(readme, /FF_RECEIVE_OUT="\$PWD\/downloads" node dist-node\/cli\/index\.js recv --out-env FF_RECEIVE_OUT\nunset FF_RECEIVE_OUT/);
+  assert.doesNotMatch(readme, /node dist-node\/cli\/index\.js recv --out \.\/downloads/);
   assert.match(readme, /FF_RECEIVE_CODE="\$FF_RECEIVE_CODE" node dist-node\/cli\/index\.js send --code-env FF_RECEIVE_CODE --files-stdin/);
   assert.match(readme, /`--code-env` and `--out-env` only avoid argv and shell-history exposure/);
   assert.match(readme, /Interactive send commands print a generic warning on stderr whenever the receive code or local file paths are still accepted from argv/);

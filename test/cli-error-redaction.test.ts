@@ -32,7 +32,8 @@ test("CLI local path evidence redacts quoted and unquoted absolute paths", () =>
   assert.match(redacted, /file url \[path\] failed/);
   assert.match(redacted, /unc \[path\] failed/);
   assert.match(redacted, /extended \[path\] failed/);
-  assert.match(redacted, /cwd \[cwd\]\/nested\/file\.txt failed/);
+  assert.match(redacted, /cwd \[path\] failed/);
+  assert.doesNotMatch(redacted, /nested\/file\.txt/);
 });
 
 test("CLI local path redaction does not redact websocket or HTTPS URLs", () => {

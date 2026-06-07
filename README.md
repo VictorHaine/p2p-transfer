@@ -130,7 +130,8 @@ The same server also serves `dist-web/` when it exists, so a single process can 
 Use the built CLI:
 
 ```sh
-node dist-node/cli/index.js recv --out ./downloads
+FF_RECEIVE_OUT="$PWD/downloads" node dist-node/cli/index.js recv --out-env FF_RECEIVE_OUT
+unset FF_RECEIVE_OUT
 read -rs FF_CODE </dev/tty
 find ./to-send -maxdepth 1 -type f | { printf '%s\n' "$FF_CODE"; cat; } | node dist-node/cli/index.js send --code-stdin --files-stdin
 unset FF_CODE
