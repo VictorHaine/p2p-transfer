@@ -68,7 +68,7 @@ type BrowserReceiveState = {
   resumeKey?: string;
   resume: boolean;
   size: number;
-  chunks: Uint8Array[];
+  chunks: Uint8Array<ArrayBuffer>[];
   writable?: FileSystemWritableFileStream;
   fileHandle?: FileSystemFileHandle;
   directory?: FileSystemDirectoryHandle;
@@ -238,7 +238,10 @@ sendForm.addEventListener("submit", (event) => {
   sendBusy = true;
   updateOperationControls();
   sendFromBrowser()
-    .catch((error) => setLog(sendLog, errorMessage(error)))
+    .catch((error) => {
+      setStatus(sendStatus, "Failed");
+      setLog(sendLog, errorMessage(error));
+    })
     .finally(() => {
       sendBusy = false;
       updateOperationControls();
@@ -250,7 +253,10 @@ receiveButton.addEventListener("click", () => {
   receiveBusy = true;
   updateOperationControls();
   receiveInBrowser()
-    .catch((error) => setLog(recvLog, errorMessage(error)))
+    .catch((error) => {
+      setStatus(recvStatus, "Failed");
+      setLog(recvLog, errorMessage(error));
+    })
     .finally(() => {
       receiveBusy = false;
       updateOperationControls();
@@ -793,6 +799,7 @@ async function receiveBrowserFiles(
   let completed = false;
   let allDoneSeen = false;
   let idleTimer: ReturnType<typeof setTimeout> | undefined;
+  let localReceiveWorkDepth = 0;
 
   const maybeResolveDone = async () => {
     if (!allDoneSeen) return;
@@ -849,10 +856,21 @@ async function receiveBrowserFiles(
 
   const resetReceiveTimeout = () => {
     clearReceiveTimeout();
-    if (failed || completed) return;
+    if (failed || completed || localReceiveWorkDepth > 0) return;
     idleTimer = setTimeout(() => {
       void failTransfer(new Error("Transfer timed out waiting for peer data."));
     }, TRANSFER_CONTROL_TIMEOUT_MS);
+  };
+
+  const withLocalReceiveWork = async <T>(work: () => Promise<T>): Promise<T> => {
+    localReceiveWorkDepth += 1;
+    clearReceiveTimeout();
+    try {
+      return await work();
+    } finally {
+      localReceiveWorkDepth -= 1;
+      resetReceiveTimeout();
+    }
   };
 
   let receiveQueue: Promise<void> = Promise.resolve();
@@ -918,7 +936,7 @@ async function receiveBrowserFiles(
         let writableState: Partial<BrowserWritableReceiveFile> = {};
         if (directory) {
           const resumeKey = resume ? await browserResumeKey(acceptedManifest, expected) : undefined;
-          writableState = await createBrowserReceiveFile(directory, message.name, message.size, resumeKey, resume, opaqueOutputNames);
+          writableState = await withLocalReceiveWork(() => createBrowserReceiveFile(directory, message.name, message.size, resumeKey, resume, opaqueOutputNames));
         }
         states.set(message.id, {
           id: message.id,
@@ -944,7 +962,7 @@ async function receiveBrowserFiles(
         if (!state) throw new Error(`Unknown file ${message.id}`);
         if (state.done || state.expectedSha256) throw new Error(`restart for completed file ${message.id}`);
         transferred = Math.max(0, transferred - state.bytes);
-        await restartBrowserReceiveState(state);
+        await withLocalReceiveWork(() => restartBrowserReceiveState(state));
         updateProgress(log, "received", transferred, totalBytes, startedAt);
         await sendControl(control, keys, { t: "ready", id: message.id });
       } else if (message.t === "file-end") {
@@ -952,7 +970,7 @@ async function receiveBrowserFiles(
         if (!state) throw new Error(`Unknown file ${message.id}`);
         if (state.expectedSha256) throw new Error(`Duplicate file-end for file ${message.id}`);
         state.expectedSha256 = message.sha256;
-        await maybeDownload(state, control, keys);
+        await withLocalReceiveWork(() => maybeDownload(state, control, keys));
         await maybeResolveDone();
       } else if (message.t === "all-done") {
         if (!manifest) throw new Error("all-done arrived before manifest.");
@@ -990,18 +1008,20 @@ async function receiveBrowserFiles(
           const writeCopy = new Uint8Array(copy.byteLength) as Uint8Array<ArrayBuffer>;
           writeCopy.set(copy);
           try {
-            await state.writable.write(writeCopy);
+            await withLocalReceiveWork(() => state.writable!.write(writeCopy));
           } finally {
             writeCopy.fill(0);
           }
         } else {
-          state.chunks.push(copy.slice());
+          const memoryCopy = new Uint8Array(copy.byteLength) as Uint8Array<ArrayBuffer>;
+          memoryCopy.set(copy);
+          state.chunks.push(memoryCopy);
         }
         state.hash.update(copy);
         state.bytes += copy.byteLength;
         transferred += copy.byteLength;
         updateProgress(log, "received", transferred, totalBytes, startedAt);
-        await maybeDownload(state, control, keys);
+        await withLocalReceiveWork(() => maybeDownload(state, control, keys));
         await maybeResolveDone();
       } finally {
         copy.fill(0);
@@ -1067,7 +1087,7 @@ async function maybeDownload(state: BrowserReceiveState, control: RTCDataChannel
       state.name = await publishBrowserPartFile(state, actual);
       if (state.resumeKey) forgetBrowserResumePartial(state.resumeKey);
     } else {
-      const blob = new Blob(state.chunks.map((chunk) => chunk.slice().buffer), { type: "application/octet-stream" });
+      const blob = new Blob(state.chunks, { type: "application/octet-stream" });
       wipeChunks(state.chunks);
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
@@ -1105,7 +1125,7 @@ async function restartBrowserReceiveState(state: BrowserReceiveState): Promise<v
   state.expectedSeq = 0;
 }
 
-function wipeChunks(chunks: Uint8Array[]): void {
+function wipeChunks(chunks: Uint8Array<ArrayBuffer>[]): void {
   for (const chunk of chunks) chunk.fill(0);
 }
 
@@ -1146,6 +1166,10 @@ async function promptForBrowserAccept(manifest: FileManifest, sas: string, requi
     resumeNote.textContent = "Resume in folder keeps opaque tokenized .part files after failures and reuses only saved opaque partial entries for the same manifest.";
     requestBox.append(resumeNote);
   }
+  const pickerStatus = document.createElement("p");
+  pickerStatus.className = "sas";
+  pickerStatus.hidden = true;
+  requestBox.append(pickerStatus);
 
   const actions = document.createElement("div");
   actions.className = "actions";
@@ -1160,6 +1184,25 @@ async function promptForBrowserAccept(manifest: FileManifest, sas: string, requi
   requestBox.append(actions);
 
   return new Promise((resolve) => {
+    const setPickerButtonsDisabled = (disabled: boolean) => {
+      if (acceptButton) acceptButton.disabled = disabled;
+      if (folderButton) folderButton.disabled = disabled;
+      if (resumeButton) resumeButton.disabled = disabled;
+      declineButton.disabled = disabled;
+    };
+    const chooseDirectory = async (resumeChoice: boolean) => {
+      pickerStatus.hidden = true;
+      setPickerButtonsDisabled(true);
+      requestBox.hidden = true;
+      try {
+        resolve({ accepted: true, directory: await window.showDirectoryPicker!(), resume: resumeChoice, opaqueNames: opaqueOutputNames });
+      } catch {
+        pickerStatus.textContent = "Folder selection cancelled.";
+        pickerStatus.hidden = false;
+        requestBox.hidden = false;
+        setPickerButtonsDisabled(false);
+      }
+    };
     if (acceptButton) {
       acceptButton.onclick = () => {
         requestBox.hidden = true;
@@ -1168,22 +1211,12 @@ async function promptForBrowserAccept(manifest: FileManifest, sas: string, requi
     }
     if (folderButton) {
       folderButton.onclick = async () => {
-        requestBox.hidden = true;
-        try {
-          resolve({ accepted: true, directory: await window.showDirectoryPicker!(), resume: false, opaqueNames: opaqueOutputNames });
-        } catch {
-          resolve({ accepted: false });
-        }
+        await chooseDirectory(false);
       };
     }
     if (resumeButton) {
       resumeButton.onclick = async () => {
-        requestBox.hidden = true;
-        try {
-          resolve({ accepted: true, directory: await window.showDirectoryPicker!(), resume: true, opaqueNames: opaqueOutputNames });
-        } catch {
-          resolve({ accepted: false });
-        }
+        await chooseDirectory(true);
       };
     }
     declineButton.onclick = () => {

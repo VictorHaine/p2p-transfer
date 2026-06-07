@@ -23,6 +23,17 @@ test("browser UI prevents overlapping send and receive operations from one tab",
   assert.match(webSource, /receiveButton\.disabled = busy;/);
 });
 
+test("browser top-level transfer failures update visible status", () => {
+  assert.match(
+    webSource,
+    /sendFromBrowser\(\)[\s\S]*\.catch\(\(error\) => \{[\s\S]*setStatus\(sendStatus, "Failed"\);[\s\S]*setLog\(sendLog, errorMessage\(error\)\);[\s\S]*\}\)/
+  );
+  assert.match(
+    webSource,
+    /receiveInBrowser\(\)[\s\S]*\.catch\(\(error\) => \{[\s\S]*setStatus\(recvStatus, "Failed"\);[\s\S]*setLog\(recvLog, errorMessage\(error\)\);[\s\S]*\}\)/
+  );
+});
+
 test("browser exposes relay-only ICE parity with the CLI", () => {
   assert.match(securityPolicy, /CLI and browser docs must describe relay-only ICE as the TURN-backed mitigation for direct ICE candidate endpoint exposure/);
   assert.match(securityPolicy, /browser send and receive flows must pass `iceTransportPolicy: "relay"` when the browser relay-only control is selected/);
@@ -236,7 +247,7 @@ test("browser sender rejects too many files before hashing", () => {
 
 test("browser download fallback uses the selected final output name policy", () => {
   assert.match(webSource, /const name = browserFinalOutputName\(message\.name, opaqueOutputNames\);/);
-  assert.match(webSource, /let writableState: Partial<BrowserWritableReceiveFile> = \{\};[\s\S]*if \(directory\) \{[\s\S]*const resumeKey = resume \? await browserResumeKey\(acceptedManifest, expected\) : undefined;[\s\S]*writableState = await createBrowserReceiveFile\(directory, message\.name, message\.size, resumeKey, resume, opaqueOutputNames\);[\s\S]*\}/);
+  assert.match(webSource, /let writableState: Partial<BrowserWritableReceiveFile> = \{\};[\s\S]*if \(directory\) \{[\s\S]*const resumeKey = resume \? await browserResumeKey\(acceptedManifest, expected\) : undefined;[\s\S]*writableState = await withLocalReceiveWork\(\(\) => createBrowserReceiveFile\(directory, message\.name, message\.size, resumeKey, resume, opaqueOutputNames\)\);[\s\S]*\}/);
   assert.match(webSource, /anchor\.download = state\.name;/);
 });
 
@@ -263,7 +274,7 @@ test("browser receive resume is explicit and limited to saved opaque folder part
   assert.match(receiveBody, /bytes: writableState\.bytes \?\? 0/);
   assert.match(receiveBody, /expectedSeq: writableState\.expectedSeq \?\? 0/);
   assert.match(receiveBody, /state\.bytes > 0 \? \{ t: "ready", id: message\.id, offset: state\.bytes, prefixSha256: digestCloneHex\(state\.hash\) \} : \{ t: "ready", id: message\.id \}/);
-  assert.match(receiveBody, /message\.t === "restart"[\s\S]*await restartBrowserReceiveState\(state\)[\s\S]*await sendControl\(control, keys, \{ t: "ready", id: message\.id \}\)/);
+  assert.match(receiveBody, /message\.t === "restart"[\s\S]*await withLocalReceiveWork\(\(\) => restartBrowserReceiveState\(state\)\)[\s\S]*await sendControl\(control, keys, \{ t: "ready", id: message\.id \}\)/);
   assert.match(webSource, /async function restartBrowserReceiveState\(state: BrowserReceiveState\): Promise<void>/);
   assert.match(webSource, /state\.writable = await state\.fileHandle\.createWritable\(\{ keepExistingData: false \}\)/);
   assert.match(receiveBody, /if \(state\.resume\) \{[\s\S]*await preserveBrowserPartialFile\(state\);[\s\S]*\} else \{[\s\S]*await discardBrowserPartialFile\(state\)/);
@@ -334,9 +345,21 @@ test("browser receive resume is explicit and limited to saved opaque folder part
   assert.match(webSource, /keys\.length !== 2 \|\| !keys\.includes\("partName"\) \|\| !keys\.includes\("updatedAt"\)/);
 });
 
+test("browser folder picker cancel keeps the accept gate pending", () => {
+  const promptBody = extractFunctionBody(webSource, "promptForBrowserAccept");
+
+  assert.match(securityPolicy, /cancelling the browser folder picker must keep the accept gate pending/);
+  assert.match(promptBody, /const pickerStatus = document\.createElement\("p"\);[\s\S]*pickerStatus\.hidden = true;/);
+  assert.match(promptBody, /const chooseDirectory = async \(resumeChoice: boolean\) => \{[\s\S]*resolve\(\{ accepted: true, directory: await window\.showDirectoryPicker!\(\), resume: resumeChoice, opaqueNames: opaqueOutputNames \}\);[\s\S]*catch \{[\s\S]*pickerStatus\.textContent = "Folder selection cancelled\.";[\s\S]*requestBox\.hidden = false;[\s\S]*setPickerButtonsDisabled\(false\);[\s\S]*\}/);
+  assert.match(promptBody, /folderButton\.onclick = async \(\) => \{[\s\S]*await chooseDirectory\(false\);[\s\S]*\};/);
+  assert.match(promptBody, /resumeButton\.onclick = async \(\) => \{[\s\S]*await chooseDirectory\(true\);[\s\S]*\};/);
+  assert.equal(promptBody.match(/resolve\(\{ accepted: false \}\)/g)?.length, 1);
+});
+
 test("browser download fallback always schedules Blob URL revocation", () => {
   assert.match(securityPolicy, /browser Blob download fallback must create generic `application\/octet-stream` blobs/);
-  assert.match(webSource, /new Blob\(state\.chunks\.map\(\(chunk\) => chunk\.slice\(\)\.buffer\), \{ type: "application\/octet-stream" \}\)/);
+  assert.match(webSource, /new Blob\(state\.chunks, \{ type: "application\/octet-stream" \}\)/);
+  assert.doesNotMatch(webSource, /new Blob\(state\.chunks\.map\(\(chunk\) => chunk\.slice\(\)\.buffer\)/);
   assert.match(securityPolicy, /browser Blob download URLs must be scheduled for revocation even if the synthetic download click throws/);
   assert.match(
     webSource,
@@ -344,8 +367,21 @@ test("browser download fallback always schedules Blob URL revocation", () => {
   );
   assert.match(
     distWebBundle,
-    /let n=URL\.createObjectURL\(t\),r=document\.createElement\(`a`\);try\{r\.href=n,r\.download=e\.name,r\.click\(\)\}finally\{setTimeout\(\(\)=>URL\.revokeObjectURL\(n\),3e4\)\}/
+    /URL\.createObjectURL\(\w+\)[\s\S]*document\.createElement\(`a`\)[\s\S]*URL\.revokeObjectURL/
   );
+});
+
+test("browser receive local filesystem work does not trip the peer idle watchdog", () => {
+  const receiveBody = extractFunctionBody(webSource, "receiveBrowserFiles");
+
+  assert.match(securityPolicy, /browser receive local filesystem, hash, and publish work must not trip the peer-data idle watchdog/);
+  assert.match(receiveBody, /let localReceiveWorkDepth = 0;/);
+  assert.match(receiveBody, /if \(failed \|\| completed \|\| localReceiveWorkDepth > 0\) return;/);
+  assert.match(receiveBody, /const withLocalReceiveWork = async <T>\(work: \(\) => Promise<T>\): Promise<T> => \{[\s\S]*localReceiveWorkDepth \+= 1;[\s\S]*clearReceiveTimeout\(\);[\s\S]*return await work\(\);[\s\S]*localReceiveWorkDepth -= 1;[\s\S]*resetReceiveTimeout\(\);[\s\S]*\};/);
+  assert.match(receiveBody, /withLocalReceiveWork\(\(\) => createBrowserReceiveFile\(directory, message\.name, message\.size, resumeKey, resume, opaqueOutputNames\)\)/);
+  assert.match(receiveBody, /withLocalReceiveWork\(\(\) => restartBrowserReceiveState\(state\)\)/);
+  assert.match(receiveBody, /withLocalReceiveWork\(\(\) => state\.writable!\.write\(writeCopy\)\)/);
+  assert.equal(receiveBody.match(/withLocalReceiveWork\(\(\) => maybeDownload\(state, control, keys\)\)/g)?.length, 2);
 });
 
 test("browser folder receive removes a created partial if writable stream creation fails", () => {
