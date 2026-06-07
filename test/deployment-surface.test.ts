@@ -276,6 +276,9 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(dockerPolicySmokeScript, /line\.trim\(\) === expectedLine/);
   assert.match(dockerPolicySmokeScript, /MAX_DOCKER_FAILURE_EVIDENCE_CHARS = 128 \* 1024/);
   assert.match(dockerPolicySmokeScript, /import \{ spawn \} from "node:child_process"/);
+  assert.match(dockerPolicySmokeScript, /const DOCKER_PREFLIGHT_TIMEOUT_MS = 20_000/);
+  assert.match(dockerPolicySmokeScript, /const BUILD_TIMEOUT_MS = 300_000/);
+  assert.match(dockerPolicySmokeScript, /await run\("docker", \["info", "--format", "\{\{json \.ServerVersion\}\}"\], "docker daemon preflight", DOCKER_PREFLIGHT_TIMEOUT_MS/);
   assert.match(dockerPolicySmokeScript, /const CHILD_KILL_GRACE_MS = 5_000/);
   assert.match(dockerPolicySmokeScript, /timeoutError = new Error\(`\$\{label\} timed out\.`\)/);
   assert.match(dockerPolicySmokeScript, /child\.kill\("SIGTERM"\)/);

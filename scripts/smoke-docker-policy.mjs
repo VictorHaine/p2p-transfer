@@ -11,7 +11,8 @@ const DEFAULT_IMAGE_TAG = "p2p-transfer:docker-policy";
 const IMAGE_TAG_RE = /^[a-z0-9][a-z0-9._/-]{0,127}:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/;
 const CONTAINER_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/;
 const COMMAND_TIMEOUT_MS = 120_000;
-const BUILD_TIMEOUT_MS = 600_000;
+const DOCKER_PREFLIGHT_TIMEOUT_MS = 20_000;
+const BUILD_TIMEOUT_MS = 300_000;
 const PROBE_ATTEMPTS = 10;
 const MAX_CHILD_ENV_VALUE_BYTES = 8_192;
 const MAX_COMMAND_OUTPUT_BYTES = 1024 * 1024;
@@ -41,6 +42,7 @@ async function main() {
   const dockerEnv = { DOCKER_CONFIG: dockerConfigDir };
 
   try {
+    await run("docker", ["info", "--format", "{{json .ServerVersion}}"], "docker daemon preflight", DOCKER_PREFLIGHT_TIMEOUT_MS, { env: dockerEnv });
     await run("docker", ["build", "-t", imageTag, "."], "docker image build", BUILD_TIMEOUT_MS, { env: dockerEnv });
     await expectDockerFailure(
       ["run", "--rm", "--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "-e", "SIGNALING_TOPOLOGY=single-instance", imageTag],

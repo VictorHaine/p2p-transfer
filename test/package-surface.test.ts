@@ -415,6 +415,9 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.match(dockerPolicySmokeScript, /line\.trim\(\) === expectedLine/);
   assert.match(dockerPolicySmokeScript, /MAX_COMMAND_OUTPUT_BYTES = 1024 \* 1024/);
   assert.match(dockerPolicySmokeScript, /import \{ spawn \} from "node:child_process"/);
+  assert.match(dockerPolicySmokeScript, /const DOCKER_PREFLIGHT_TIMEOUT_MS = 20_000/);
+  assert.match(dockerPolicySmokeScript, /const BUILD_TIMEOUT_MS = 300_000/);
+  assert.match(dockerPolicySmokeScript, /await run\("docker", \["info", "--format", "\{\{json \.ServerVersion\}\}"\], "docker daemon preflight", DOCKER_PREFLIGHT_TIMEOUT_MS/);
   assert.match(dockerPolicySmokeScript, /const CHILD_KILL_GRACE_MS = 5_000/);
   assert.match(dockerPolicySmokeScript, /return new Promise\(\(resolve, reject\) =>/);
   assert.match(dockerPolicySmokeScript, /timeoutError = new Error\(`\$\{label\} timed out\.`\)/);
@@ -459,7 +462,8 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.doesNotMatch(dockerPolicySmokeScript, /timer\.unref\?\.\(\)/);
   assert.doesNotMatch(dockerPolicySmokeScript, /env: \{ \.\.\.process\.env/);
   assert.match(securityPolicy, /Docker policy smoke options and subprocesses must run with descriptor-read, non-empty, NUL-free, byte-capped environment values/);
-  assert.match(securityPolicy, /Docker policy smoke command timeouts must terminate timed-out subprocesses with `SIGTERM`, arm a bounded `SIGKILL` fallback, and reject only after the subprocess exits/);
+  assert.match(securityPolicy, /Docker policy smoke must run a fast daemon preflight before `docker build`/);
+  assert.match(securityPolicy, /command timeouts must terminate timed-out subprocesses with `SIGTERM`, arm a bounded `SIGKILL` fallback, and reject only after the subprocess exits/);
   assert.match(securityPolicy, /Docker policy smoke must validate production-policy container startup failures with bounded exact output-line evidence/);
   assert.match(securityPolicy, /not loose substring matches over arbitrary Docker output/);
   assert.match(securityPolicy, /accepts the configured production origin and rejects an untrusted origin on both the HTTP ICE endpoint and the WebSocket signaling upgrade path/);
