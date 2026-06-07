@@ -430,6 +430,40 @@ test("CLI receiver preserves transfer error when partial cleanup also fails", as
   await assert.rejects(receive, /Unexpected chunk sequence/);
 });
 
+test("CLI receiver reports partial cleanup failure without path evidence", { skip: process.platform === "win32" ? "POSIX permissions required." : false }, async () => {
+  const { senderKeys, receiverKeys } = await makeKeys("cleanup-error-warning");
+  const outDir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-recv-cleanup-warning-"));
+  const control = fakeChannel();
+  const bulk = fakeChannel();
+  const stderr: string[] = [];
+  const originalError = console.error;
+  console.error = (...args: unknown[]) => {
+    stderr.push(args.map((arg) => String(arg)).join(" "));
+  };
+  try {
+    const receive = receiveFiles(control, bulk, receiverKeys, outDir, true, false);
+    await control.emit(await seal(senderKeys, { t: "manifest", files: [{ id: 0, name: "secret-local-name.txt", size: 1 }], totalBytes: 1 }));
+    await control.emit(await seal(senderKeys, { t: "file-begin", id: 0, name: "secret-local-name.txt", size: 1 }));
+    await findSingleCliPartPath(outDir, "secret-local-name.txt");
+    await fs.chmod(outDir, 0o500);
+    await bulk.emit(encodeChunk(0, 1, await sealBulk(senderKeys, 0, 1, new Uint8Array([1]))));
+
+    await assert.rejects(receive, /Unexpected chunk sequence/);
+  } finally {
+    console.error = originalError;
+    await fs.chmod(outDir, 0o700).catch(() => {});
+  }
+
+  assert.equal(stderr.length, 1);
+  const warning = JSON.parse(stderr[0] ?? "{}");
+  assert.deepEqual(warning, {
+    event: "warning",
+    warning: "partial_cleanup_failed",
+    message: "Warning: transfer failed and a partial file could not be cleaned up. Inspect the receive output directory manually."
+  });
+  assert.doesNotMatch(stderr.join("\n"), /secret-local-name|ff-recv-cleanup-warning|Unexpected chunk sequence|EISDIR|ENOTEMPTY/);
+});
+
 test("CLI receiver cleanup does not remove a replaced partial pathname", { skip: process.platform === "win32" ? "Windows does not allow replacing an open partial file path." : false }, async () => {
   const { senderKeys, receiverKeys } = await makeKeys("cleanup-replaced-part-path");
   const outDir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-recv-cleanup-replaced-"));

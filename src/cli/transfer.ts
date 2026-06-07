@@ -607,6 +607,7 @@ export async function receiveFiles(
         }
       }
     }
+    if (doneError && cleanupError) printCleanupWarning(progress);
     if (!doneError && cleanupError) throw cleanupError;
   }
 }
@@ -1063,4 +1064,16 @@ function printProgress(action: string, label: string, progress: Progress, force 
   } else if (force) {
     process.stdout.write(`\n${action} ${safeLabel}: ${formatBytes(progress.transferredBytes)} total\n`);
   }
+}
+
+const PARTIAL_CLEANUP_WARNING = "Warning: transfer failed and a partial file could not be cleaned up. Inspect the receive output directory manually.";
+
+function printCleanupWarning(progress: Progress): void {
+  if (progress.quiet) return;
+  const message = sanitizeDisplayText(PARTIAL_CLEANUP_WARNING);
+  if (progress.json) {
+    console.error(JSON.stringify(sanitizeStructuredOutput({ event: "warning", warning: "partial_cleanup_failed", message })));
+    return;
+  }
+  console.error(message);
 }
