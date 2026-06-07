@@ -748,6 +748,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(securityPolicy, /must not mutate workspace package metadata, publish the real release artifact, publish a placeholder as `latest`, or appear in the trusted release workflow/);
   assert.match(securityPolicy, /reject and clear control-bearing or over-budget bootstrap token environment values/);
   assert.match(securityPolicy, /reject ambient npm credential, registry, and userconfig environment values before reading bootstrap tokens from environment or stdin, package reads, registry requests, npm config, or publish work/);
+  assert.match(securityPolicy, /use bootstrap-owned top-level failure reporting that does not print stack traces or raw path-sensitive evidence/);
   assert.match(securityPolicy, /branch\/tag rulesets have ref exclusions, unexpected or duplicate rules, or any bypass actors/);
   assert.match(securityPolicy, /release workflow preflight must run before dependency install through the checked Node script with an explicit `RELEASE_PREFLIGHT_TOKEN` secret/);
   assert.match(securityPolicy, /repository-administration\/ruleset, private-vulnerability-reporting, dependency-vulnerability-alert, repository security-analysis, Dependabot security-update status, and Actions workflow-run visibility/);
@@ -801,6 +802,8 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(npmBootstrapScript, /distTags\[BOOTSTRAP_DIST_TAG\] !== BOOTSTRAP_VERSION/);
   assert.match(npmBootstrapScript, /distTags\.latest === BOOTSTRAP_VERSION/);
   assert.match(npmBootstrapScript, /npm bootstrap publish unexpectedly set the bootstrap version as latest\./);
+  assert.match(npmBootstrapScript, /function containsPathLikeText\(value\)/);
+  assert.match(npmBootstrapScript, /return "npm bootstrap failed with path-sensitive evidence\."/);
   assert.doesNotMatch(npmBootstrapScript, /BOOTSTRAP_DIST_TAG = "latest"|"--tag", "latest"/);
   assert.doesNotMatch(npmBootstrapScript, /writeFile\(path\.join\(root, "package\.json"\)|pnpm, \["publish"\], \{ cwd: root/);
   assert.match(releaseReadinessScript, /const REQUIRED_OAUTH_SCOPES = \["repo", "workflow"\]/);

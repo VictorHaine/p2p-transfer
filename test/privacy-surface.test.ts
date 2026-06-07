@@ -149,6 +149,11 @@ test("browser persistent error logs do not interpolate selected or peer file nam
   assert.match(webSource, /throw new Error\("Selected file changed while sending\."\)/);
   assert.match(webSource, /throw new Error\("Selected file changed while preparing the transfer\."\)/);
   assert.match(webSource, /throw new Error\("Selected file changed while reading\."\)/);
+  assert.match(webSource, /setLog\(sendLog, topLevelBrowserErrorMessage\(error, "send"\)\)/);
+  assert.match(webSource, /setLog\(recvLog, topLevelBrowserErrorMessage\(error, "receive"\)\)/);
+  assert.match(webSource, /function topLevelBrowserErrorMessage\(error: unknown, operation: "send" \| "receive"\): string/);
+  assert.match(webSource, /function isBrowserNativeError\(error: unknown\): boolean \{[\s\S]*return typeof DOMException !== "undefined" && error instanceof DOMException;/);
+  assert.match(webSource, /function containsPathLikeText\(value: string\): boolean/);
   assert.match(webSource, /throw new Error\(`Invalid resume offset for file \$\{plan\.id\}\.`\)/);
   assert.match(webSource, /throw new Error\(`Hash mismatch for file \$\{state\.id\}\.`\)/);
   assert.match(webSource, /throw new Error\("Missing browser partial file handle\."\)/);

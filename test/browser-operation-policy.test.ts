@@ -26,13 +26,16 @@ test("browser UI prevents overlapping send and receive operations from one tab",
 test("browser top-level transfer failures update visible status", () => {
   assert.match(
     webSource,
-    /sendFromBrowser\(\)[\s\S]*\.catch\(\(error\) => \{[\s\S]*setStatus\(sendStatus, "Failed"\);[\s\S]*setLog\(sendLog, errorMessage\(error\)\);[\s\S]*\}\)/
+    /sendFromBrowser\(\)[\s\S]*\.catch\(\(error\) => \{[\s\S]*setStatus\(sendStatus, "Failed"\);[\s\S]*setLog\(sendLog, topLevelBrowserErrorMessage\(error, "send"\)\);[\s\S]*\}\)/
   );
   assert.match(webSource, /sendFromBrowser\(\)[\s\S]*\.finally\(\(\) => \{[\s\S]*clearBrowserSendCode\(\);[\s\S]*sendBusy = false;/);
   assert.match(
     webSource,
-    /receiveInBrowser\(\)[\s\S]*\.catch\(\(error\) => \{[\s\S]*setStatus\(recvStatus, "Failed"\);[\s\S]*setLog\(recvLog, errorMessage\(error\)\);[\s\S]*\}\)/
+    /receiveInBrowser\(\)[\s\S]*\.catch\(\(error\) => \{[\s\S]*setStatus\(recvStatus, "Failed"\);[\s\S]*setLog\(recvLog, topLevelBrowserErrorMessage\(error, "receive"\)\);[\s\S]*\}\)/
   );
+  assert.match(webSource, /function topLevelBrowserErrorMessage\(error: unknown, operation: "send" \| "receive"\): string/);
+  assert.match(webSource, /isBrowserNativeError\(error\) \|\| containsPathLikeText\(message\)/);
+  assert.match(webSource, /return operation === "send" \? "Browser send failed\." : "Browser receive failed\."/);
 });
 
 test("browser exposes relay-only ICE parity with the CLI", () => {

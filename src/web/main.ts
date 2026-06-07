@@ -240,7 +240,7 @@ sendForm.addEventListener("submit", (event) => {
   sendFromBrowser()
     .catch((error) => {
       setStatus(sendStatus, "Failed");
-      setLog(sendLog, errorMessage(error));
+      setLog(sendLog, topLevelBrowserErrorMessage(error, "send"));
     })
     .finally(() => {
       clearBrowserSendCode();
@@ -256,7 +256,7 @@ receiveButton.addEventListener("click", () => {
   receiveInBrowser()
     .catch((error) => {
       setStatus(recvStatus, "Failed");
-      setLog(recvLog, errorMessage(error));
+      setLog(recvLog, topLevelBrowserErrorMessage(error, "receive"));
     })
     .finally(() => {
       receiveBusy = false;
@@ -2778,6 +2778,22 @@ function staticTrustedHtml(strings: TemplateStringsArray, ...values: never[]): s
 
 function errorMessage(error: unknown): string {
   return sanitizeDisplayText(safeErrorMessage(error));
+}
+
+function topLevelBrowserErrorMessage(error: unknown, operation: "send" | "receive"): string {
+  const message = safeErrorMessage(error);
+  if (isBrowserNativeError(error) || containsPathLikeText(message)) {
+    return operation === "send" ? "Browser send failed." : "Browser receive failed.";
+  }
+  return sanitizeDisplayText(message);
+}
+
+function isBrowserNativeError(error: unknown): boolean {
+  return typeof DOMException !== "undefined" && error instanceof DOMException;
+}
+
+function containsPathLikeText(value: string): boolean {
+  return /(^|[\s("'=])(?:\/|[A-Za-z]:[\\/])/.test(value);
 }
 
 function safeErrorMessage(error: unknown): string {

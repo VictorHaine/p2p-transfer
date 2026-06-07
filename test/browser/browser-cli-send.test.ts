@@ -307,6 +307,54 @@ test("CLI sender interoperates with browser folder-only receiver", browserTestOp
   }
 });
 
+test("browser folder receiver redacts native filesystem error names", browserTestOptions, async () => {
+  const root = process.cwd();
+  const port = 23_000 + randomInt(1_000);
+  const origin = `http://127.0.0.1:${port}`;
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-cli-browser-native-error-"));
+  const childEnv = testChildEnv(tmp);
+  const server = spawn(process.execPath, ["dist-node/server/index.js"], {
+    cwd: root,
+    env: { ...childEnv, PORT: String(port), HOST: "127.0.0.1", NODE_ENV: "production", ALLOWED_ORIGINS: origin, SIGNALING_TOPOLOGY: "single-instance", ALLOW_INSECURE_ORIGINS: "true" }
+  });
+
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  let sender: ChildProcessWithoutNullStreams | undefined;
+  let senderDone: Promise<{ code: number | null; stdout: string; stderr: string }> | undefined;
+  try {
+    await waitForOutput(server, /listening/);
+    const source = path.join(tmp, "private-name.txt");
+    await fs.writeFile(source, "native filesystem error redaction\n");
+
+    const serverUrl = `ws://127.0.0.1:${port}/v1/ws`;
+    browser = await chromium.launch(chromiumLaunchOptions());
+    const page = await browser.newPage();
+    await installFolderPickerMock(page, { failCreateWritableMessage: "Denied private-name.txt at /Users/example/private-name.txt" });
+    await page.goto(`http://127.0.0.1:${port}/`);
+    await page.locator("#serverUrl").fill(serverUrl);
+    await page.locator("#folderOnly").check();
+    await page.locator("#receiveButton").click();
+    await page.locator("#codeBox").waitFor({ state: "visible", timeout: 30_000 });
+    const code = (await page.locator("#codeBox").textContent())?.trim();
+    assert.match(code ?? "", /^[0-9]{8}-[a-z]+-[a-z]+$/);
+
+    sender = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "send", code!, source], { cwd: root, env: childEnv });
+    senderDone = collectExit(sender);
+    await page.locator("#folderButton").waitFor({ state: "visible", timeout: 30_000 });
+    await page.locator("#folderButton").click();
+    await expectText(page.locator("#recvStatus"), "Failed");
+
+    const recvLog = (await page.locator("#recvLog").textContent()) ?? "";
+    assert.equal(recvLog, "Browser receive failed.");
+    assert.doesNotMatch(recvLog, /private-name|\/Users|Denied|NotAllowedError/);
+  } finally {
+    terminateChild(sender);
+    await ignoreSettled(senderDone);
+    await browser?.close();
+    server.kill();
+  }
+});
+
 test("browser folder receiver does not expose resume for multi-file manifests", browserTestOptions, async () => {
   const root = process.cwd();
   const port = 29_000 + randomInt(1_000);
@@ -745,7 +793,7 @@ function chromiumLaunchOptions() {
   return chromiumPath === undefined ? { headless: true } : { executablePath: chromiumPath, headless: true };
 }
 
-async function installFolderPickerMock(page: Page): Promise<void> {
+async function installFolderPickerMock(page: Page, options: { failCreateWritableMessage?: string } = {}): Promise<void> {
   await page.addInitScript({
     content: `
 (() => {
@@ -754,6 +802,7 @@ async function installFolderPickerMock(page: Page): Promise<void> {
     const operations = [];
     let pickerCalls = 0;
     let failAfterPartBytes = null;
+    const failCreateWritableMessage = ${JSON.stringify(options.failCreateWritableMessage ?? null)};
 
     class MockFileHandle {
       constructor(name) {
@@ -769,6 +818,7 @@ async function installFolderPickerMock(page: Page): Promise<void> {
 
       async createWritable(options) {
         operations.push("createWritable:" + this.name + ":" + (options?.keepExistingData ? "keep" : "reset"));
+        if (failCreateWritableMessage !== null) throw new DOMException(failCreateWritableMessage, "NotAllowedError");
         if (!options?.keepExistingData) files.set(this.name, new Uint8Array());
         let position = files.get(this.name)?.byteLength ?? 0;
         return {
