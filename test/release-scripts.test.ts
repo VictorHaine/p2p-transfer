@@ -122,7 +122,7 @@ test("npm bootstrap script rejects unsupported arguments before token or publish
   assert.doesNotMatch(result.stderr, /token-that-must-not-be-used|npm registry|publish|Error:/);
 });
 
-test("npm bootstrap script rejects control-bearing tokens before npmrc or publish work", async () => {
+test("npm bootstrap script rejects control-bearing tokens before package, registry, npmrc, or publish work", async () => {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-npm-bootstrap-"));
   const mock = path.join(tmp, "mock-npm-bootstrap-fetch.mjs");
   const log = path.join(tmp, "requests.log");
@@ -155,13 +155,16 @@ globalThis.fetch = async (url, init = {}) => {
       ["--apply"],
       ["--import", mock]
     );
-    const requests = await fs.readFile(log, "utf8");
+    const requests = await fs.readFile(log, "utf8").catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return "";
+      throw error;
+    });
 
     assert.notEqual(result.status, 0);
     assert.equal(result.stdout, "");
     assert.match(result.stderr, /npm bootstrap failed:\n- NPM_BOOTSTRAP_TOKEN must be a non-empty control-free environment value under 8192 UTF-8 bytes\./);
     assert.doesNotMatch(result.stderr, /token-that-must-not-be-used|evil\.example|publish|Error:/);
-    assert.equal(requests, "GET https://registry.npmjs.org/%40victorhaine%2Fp2p-transfer\n");
+    assert.equal(requests, "");
   } finally {
     await fs.rm(tmp, { force: true, recursive: true });
   }

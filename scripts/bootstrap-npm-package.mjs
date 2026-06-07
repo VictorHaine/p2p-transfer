@@ -34,6 +34,9 @@ if (isMain()) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
+  const token = options.apply ? consumeEnvString("NPM_BOOTSTRAP_TOKEN") : undefined;
+  if (options.apply && (envString("NODE_AUTH_TOKEN") || envString("NPM_TOKEN"))) throw new Error("Use only NPM_BOOTSTRAP_TOKEN for bootstrap publishing.");
+
   const workspace = await readWorkspacePackage();
   if (workspace.version === BOOTSTRAP_VERSION) throw new Error("workspace package version must not be the bootstrap version.");
   if (await npmPackageExists(workspace.name)) throw new Error("npm package already exists; do not run bootstrap.");
@@ -42,10 +45,6 @@ async function main() {
     console.log(JSON.stringify({ package: workspace.name, version: BOOTSTRAP_VERSION, apply: false, ok: true }, null, 2));
     return;
   }
-
-  const token = envString("NPM_BOOTSTRAP_TOKEN");
-  if (!token) throw new Error("Set NPM_BOOTSTRAP_TOKEN to a one-time npm automation token before --apply.");
-  if (envString("NODE_AUTH_TOKEN") || envString("NPM_TOKEN")) throw new Error("Use only NPM_BOOTSTRAP_TOKEN for bootstrap publishing.");
 
   const tmp = await mkdtemp(path.join(tmpdir(), "ff-npm-bootstrap-"));
   try {
@@ -288,6 +287,13 @@ function envString(name) {
     throw new Error(`${name} must be a non-empty control-free environment value under ${MAX_ENV_VALUE_BYTES} UTF-8 bytes.`);
   }
   return descriptor.value;
+}
+
+function consumeEnvString(name) {
+  const value = envString(name);
+  delete process.env[name];
+  if (!value) throw new Error(`Set ${name} to a one-time npm automation token before --apply.`);
+  return value;
 }
 
 function sameFile(left, right) {
