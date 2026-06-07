@@ -606,11 +606,11 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(securityPolicy, /setup script must reject unknown or read-only reviewers and sole-reviewer self-approval deadlocks/);
   assert.match(securityPolicy, /release setup must re-read the persisted `npm` environment plus deployment tag policy and fail before mutating repository rulesets when the persisted `npm` environment is missing required-reviewer protection, allows admin bypass or branch deployments, lacks the exact release-tag deployment policy, or has the authenticated setup operator as its sole required reviewer/);
   assert.match(securityPolicy, /release setup must re-read persisted repository ruleset details after writes and fail before reporting success when GitHub drops, broadens, weakens, bypass-enables, or otherwise normalizes branch\/tag rulesets away from the exact protected surface/);
-  assert.match(securityPolicy, /GitHub release setup and release preflight scripts must read token, repository, and GitHub Actions mode environment variables through own data descriptors[\s\S]*send GitHub API requests with an abort deadline/);
-  assert.match(securityPolicy, /release preflight must reject malformed GitHub token or `GITHUB_ACTIONS` values before package reads, npm registry requests, or GitHub API requests/);
+  assert.match(securityPolicy, /GitHub release setup and release preflight scripts must read token, repository, GitHub Actions mode, and release actor environment variables through own data descriptors[\s\S]*send GitHub API requests with an abort deadline/);
+  assert.match(securityPolicy, /release preflight must reject malformed GitHub token, `GITHUB_ACTIONS`, or Actions-only `GITHUB_ACTOR` values before package reads, npm registry requests, or GitHub API requests/);
   assert.match(securityPolicy, /byte-cap and fatal-UTF-8\/JSON-decode GitHub API responses with setup-owned deterministic errors/);
   assert.match(securityPolicy, /avoid echoing token, malformed environment values, remote response messages, or raw API response bodies in errors/);
-  assert.match(releaseReadinessScript, /const token = githubToken\(\);[\s\S]*const runningInGitHubActions = envString\("GITHUB_ACTIONS"\) === "true";[\s\S]*const failures = \[\];[\s\S]*readPackageMetadata\(\)/);
+  assert.match(releaseReadinessScript, /const token = githubToken\(\);[\s\S]*const runningInGitHubActions = envString\("GITHUB_ACTIONS"\) === "true";[\s\S]*assertReleaseWorkflowTokenClass\(token, runningInGitHubActions\);[\s\S]*const releaseActorLogin = runningInGitHubActions \? githubActor\(\) : undefined;[\s\S]*const failures = \[\];[\s\S]*readPackageMetadata\(\)/);
   assert.doesNotMatch(releaseReadinessScript, /collectReadinessValue\(failures, \(\) => githubToken\(\)\)/);
   assert.match(securityPolicy, /release setup must reject malformed, unexpected, wrong-target, duplicate, or bypass-enabled GitHub rulesets list entries before deciding whether to create or update rulesets/);
   assert.match(githubReleaseControlsScript, /const GITHUB_API_TIMEOUT_MS = 30_000/);
@@ -651,7 +651,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(securityPolicy, /local release preflight must fail before tagging when the npm package is missing, the target npm version already exists, the GitHub token lacks `workflow` scope/);
   assert.match(securityPolicy, /current `main` commit lacks a successful Scorecard or dependency-integrity workflow run/);
   assert.match(securityPolicy, /the `RELEASE_PREFLIGHT_TOKEN` repository secret is missing/);
-  assert.match(securityPolicy, /GitHub `npm` environment lacks required reviewers, allows self-review, allows admin bypass, allows branch deployments, lacks the exact `v\*\.\*\.\*` tag deployment policy, or has the authenticated release operator as its sole required reviewer/);
+  assert.match(securityPolicy, /GitHub `npm` environment lacks required reviewers, allows self-review, allows admin bypass, allows branch deployments, lacks the exact `v\*\.\*\.\*` tag deployment policy, or has the authenticated release operator or release tag pusher as its sole required reviewer/);
   assert.match(securityPolicy, /first-time npm package bootstrap must use the checked bootstrap script, publish only the minimal temporary `0\.0\.0-bootstrap\.0` package from a private temporary directory under the non-default `bootstrap` dist-tag/);
   assert.match(securityPolicy, /require `--apply` plus either an explicit `NPM_BOOTSTRAP_TOKEN` or bounded `--token-stdin` input/);
   assert.match(securityPolicy, /reject interactive terminal stdin for `--token-stdin`/);
@@ -662,6 +662,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(securityPolicy, /branch\/tag rulesets have ref exclusions, unexpected or duplicate rules, or any bypass actors/);
   assert.match(securityPolicy, /release workflow preflight must run before dependency install through the checked Node script with an explicit `RELEASE_PREFLIGHT_TOKEN` secret/);
   assert.match(securityPolicy, /must reject classic PAT, OAuth, refresh, user, or unknown-prefix token classes in GitHub Actions before package or network work/);
+  assert.match(securityPolicy, /must validate `GITHUB_ACTOR` before package reads or network work after token-class validation/);
   assert.match(securityPolicy, /must still verify the npm package exists without the target version, remote `main`, successful Scorecard and dependency-integrity runs for current `main`, rulesets/);
   assert.match(securityPolicy, /no branch\/tag bypass actors, required status checks, and the npm environment approval\/tag-only deployment gate before packaging/);
   assert.match(readme, /verifies the npm package already exists and the target version has not been published/);
@@ -704,7 +705,9 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /const RELEASE_PREFLIGHT_SECRET = "RELEASE_PREFLIGHT_TOKEN"/);
   assert.match(releaseReadinessScript, /const REQUIRED_SUCCESSFUL_MAIN_WORKFLOWS = \[[\s\S]*\{ file: "scorecard\.yml", name: "scorecard" \}[\s\S]*\{ file: "dependency-integrity\.yml", name: "dependency-integrity" \}[\s\S]*\]/);
   assert.match(releaseReadinessScript, /class ReleaseReadinessFailure extends Error/);
-  assert.match(releaseReadinessScript, /const token = githubToken\(\);[\s\S]*const runningInGitHubActions = envString\("GITHUB_ACTIONS"\) === "true";[\s\S]*const failures = \[\]/);
+  assert.match(releaseReadinessScript, /const token = githubToken\(\);[\s\S]*const runningInGitHubActions = envString\("GITHUB_ACTIONS"\) === "true";[\s\S]*assertReleaseWorkflowTokenClass\(token, runningInGitHubActions\);[\s\S]*const releaseActorLogin = runningInGitHubActions \? githubActor\(\) : undefined;[\s\S]*const failures = \[\]/);
+  assert.match(releaseReadinessScript, /function githubActor\(\)/);
+  assert.match(releaseReadinessScript, /GITHUB_ACTOR must be a GitHub username in the release workflow\./);
   assert.match(releaseReadinessScript, /await collectReadinessFailure\(failures, async \(\) => \{/);
   assert.doesNotMatch(releaseReadinessScript, /const token = await collectReadinessValue\(failures, \(\) => githubToken\(\)\)/);
   assert.match(releaseReadinessScript, /let authenticatedLogin/);
@@ -714,7 +717,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /return error\.failures\.map\(\(failure\) => readinessErrorMessage\(failure\)\)/);
   assert.match(releaseReadinessScript, /const auth = await collectReadinessValue\(failures, \(\) => githubWithHeaders\(token, "GET", "\/user"\)\)/);
   assert.match(releaseReadinessScript, /collectReadinessFailureSync\(failures, \(\) => \{[\s\S]*assertTokenScopes\(auth\.headers, runningInGitHubActions\)/);
-  assert.match(releaseReadinessScript, /await collectGitHubRepositoryReadiness\(failures, token, options\.repository, authenticatedLogin\)/);
+  assert.match(releaseReadinessScript, /await collectGitHubRepositoryReadiness\(failures, token, options\.repository, authenticatedLogin, releaseActorLogin\)/);
   assert.match(releaseReadinessScript, /const NPM_REGISTRY = "https:\/\/registry\.npmjs\.org"/);
   assert.match(releaseReadinessScript, /const MAX_PACKAGE_JSON_BYTES = 128 \* 1024/);
   assert.match(releaseReadinessScript, /const MAX_NPM_REGISTRY_RESPONSE_BYTES = 1024 \* 1024/);
@@ -761,7 +764,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /for \(const scope of requiredScopes\)/);
   assert.match(releaseReadinessScript, /GitHub token is missing \$\{scope\} scope\.\$\{refresh\}/);
   assert.match(releaseReadinessScript, /gh auth refresh -h github\.com -s workflow/);
-  assert.match(releaseReadinessScript, /async function collectGitHubRepositoryReadiness\(failures, token, repository, authenticatedLogin\)/);
+  assert.match(releaseReadinessScript, /async function collectGitHubRepositoryReadiness\(failures, token, repository, authenticatedLogin, releaseActorLogin\)/);
   assert.match(releaseReadinessScript, /\/repos\/\$\{repository\}\/branches\/main/);
   assert.match(releaseReadinessScript, /Remote main branch is missing\. Push main before releasing\./);
   assert.match(releaseReadinessScript, /const mainSha = mainBranch \? collectReadinessValueSync\(failures, \(\) => requiredBranchSha\(mainBranch, "main"\)\) : undefined/);
@@ -816,8 +819,8 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /function assertNoBypassActors\(ruleset, name\)/);
   assert.match(releaseReadinessScript, /\$\{name\} must not allow bypass actors\./);
   assert.doesNotMatch(releaseReadinessScript, /function assertTagBypassActors|bypass\.length !== 1|actor\?\.actor_id/);
-  assert.match(releaseReadinessScript, /if \(environment && collectNpmEnvironmentReadiness\(failures, environment, authenticatedLogin\)\)/);
-  assert.match(releaseReadinessScript, /function collectNpmEnvironmentReadiness\(failures, environment, authenticatedLogin\)/);
+  assert.match(releaseReadinessScript, /if \(environment && collectNpmEnvironmentReadiness\(failures, environment, authenticatedLogin, releaseActorLogin\)\)/);
+  assert.match(releaseReadinessScript, /function collectNpmEnvironmentReadiness\(failures, environment, authenticatedLogin, releaseActorLogin\)/);
   assert.match(releaseReadinessScript, /GitHub npm environment has no protection rules\./);
   assert.match(releaseReadinessScript, /GitHub npm environment has no required reviewers protection rule\./);
   assert.match(releaseReadinessScript, /GitHub npm environment must prevent self-review\./);
@@ -829,7 +832,8 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /GitHub npm environment deployment policy is not exact\./);
   assert.match(releaseReadinessScript, /GitHub npm environment must deploy only from release tags\./);
   assert.match(releaseReadinessScript, /GitHub npm environment required reviewers rule has no reviewers\./);
-  assert.match(releaseReadinessScript, /GitHub npm environment sole required reviewer is the authenticated release operator/);
+  assert.match(releaseReadinessScript, /GitHub npm environment sole required reviewer is the authenticated release operator or tag pusher/);
+  assert.match(releaseReadinessScript, /function isSelfReviewDeadlockReviewer\(reviewer, authenticatedLogin, releaseActorLogin\)/);
   assert.match(releaseReadinessScript, /function reviewerLogin\(reviewerEntry\)/);
   assert.match(releaseReadinessScript, /realpathSync\(process\.argv\[1\]\) === realpathSync\(fileURLToPath\(import\.meta\.url\)\)/);
   assert.doesNotMatch(releaseReadinessScript, /NPM_TOKEN|NODE_AUTH_TOKEN|npm publish|git tag/);

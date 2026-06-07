@@ -76,6 +76,7 @@ async function main() {
   const token = githubToken();
   const runningInGitHubActions = envString("GITHUB_ACTIONS") === "true";
   assertReleaseWorkflowTokenClass(token, runningInGitHubActions);
+  const releaseActorLogin = runningInGitHubActions ? githubActor() : undefined;
   const failures = [];
 
   await collectReadinessFailure(failures, async () => {
@@ -95,7 +96,7 @@ async function main() {
       });
     }
     if (authenticatedLogin) {
-      await collectGitHubRepositoryReadiness(failures, token, options.repository, authenticatedLogin);
+      await collectGitHubRepositoryReadiness(failures, token, options.repository, authenticatedLogin, releaseActorLogin);
     }
   }
 
@@ -104,7 +105,7 @@ async function main() {
   console.log(JSON.stringify({ repository: options.repository, ok: true }, null, 2));
 }
 
-async function collectGitHubRepositoryReadiness(failures, token, repository, authenticatedLogin) {
+async function collectGitHubRepositoryReadiness(failures, token, repository, authenticatedLogin, releaseActorLogin) {
   const repositoryOk = await collectReadinessFailure(failures, () => github(token, "GET", `/repos/${repository}`));
   if (!repositoryOk) return;
 
@@ -145,7 +146,7 @@ async function collectGitHubRepositoryReadiness(failures, token, repository, aut
       throw error;
     })
   );
-  if (environment && collectNpmEnvironmentReadiness(failures, environment, authenticatedLogin)) {
+  if (environment && collectNpmEnvironmentReadiness(failures, environment, authenticatedLogin, releaseActorLogin)) {
     await collectReadinessFailure(failures, async () => {
       await assertNpmDeploymentPolicies(await github(token, "GET", `/repos/${repository}/environments/${encodeURIComponent(NPM_ENVIRONMENT)}/deployment-branch-policies?per_page=100`));
     });
@@ -315,6 +316,12 @@ function requiredAuthenticatedLogin(user) {
   return login;
 }
 
+function githubActor() {
+  const actor = envString("GITHUB_ACTOR");
+  if (!actor || !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(actor)) throw new Error("GITHUB_ACTOR must be a GitHub username in the release workflow.");
+  return actor;
+}
+
 function requiredBranchSha(branch, branchName) {
   const sha = branch?.commit?.sha;
   if (typeof sha !== "string" || !/^[0-9a-f]{40}$/.test(sha)) throw new Error(`GitHub ${branchName} branch response was invalid.`);
@@ -331,7 +338,7 @@ async function assertSuccessfulMainWorkflowRun(token, repository, workflow, main
   }
 }
 
-function collectNpmEnvironmentReadiness(failures, environment, authenticatedLogin) {
+function collectNpmEnvironmentReadiness(failures, environment, authenticatedLogin, releaseActorLogin) {
   if (!Array.isArray(environment?.protection_rules) || environment.protection_rules.length < 1) {
     failures.push(new Error("GitHub npm environment has no protection rules."));
     return false;
@@ -343,8 +350,8 @@ function collectNpmEnvironmentReadiness(failures, environment, authenticatedLogi
     if (requiredReviewers.prevent_self_review !== true) failures.push(new Error("GitHub npm environment must prevent self-review."));
     if (!Array.isArray(requiredReviewers.reviewers) || requiredReviewers.reviewers.length < 1) {
       failures.push(new Error("GitHub npm environment required reviewers rule has no reviewers."));
-    } else if (requiredReviewers.reviewers.length === 1 && reviewerLogin(requiredReviewers.reviewers[0])?.toLowerCase() === authenticatedLogin.toLowerCase()) {
-      failures.push(new Error("GitHub npm environment sole required reviewer is the authenticated release operator; add another reviewer to avoid self-review deadlock."));
+    } else if (requiredReviewers.reviewers.length === 1 && isSelfReviewDeadlockReviewer(reviewerLogin(requiredReviewers.reviewers[0]), authenticatedLogin, releaseActorLogin)) {
+      failures.push(new Error("GitHub npm environment sole required reviewer is the authenticated release operator or tag pusher; add another reviewer to avoid self-review deadlock."));
     }
   }
   if (environment.can_admins_bypass !== false) failures.push(new Error("GitHub npm environment must disable admin bypass."));
@@ -354,6 +361,12 @@ function collectNpmEnvironmentReadiness(failures, environment, authenticatedLogi
     return false;
   }
   return true;
+}
+
+function isSelfReviewDeadlockReviewer(reviewer, authenticatedLogin, releaseActorLogin) {
+  if (!reviewer) return false;
+  const normalized = reviewer.toLowerCase();
+  return normalized === authenticatedLogin.toLowerCase() || (typeof releaseActorLogin === "string" && normalized === releaseActorLogin.toLowerCase());
 }
 
 function assertNpmDeploymentPolicies(response) {
