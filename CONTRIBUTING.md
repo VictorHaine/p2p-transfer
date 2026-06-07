@@ -19,6 +19,7 @@ Before opening a pull request:
 
 ```sh
 pnpm check:install-state
+pnpm security:dependencies
 pnpm build
 pnpm check
 pnpm test:unit

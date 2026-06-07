@@ -53,7 +53,7 @@ type FileIdentity = {
 };
 
 export async function buildManifest(paths: string[]): Promise<{ files: SendFile[]; manifest: FileManifest }> {
-  const inputs = sendPathInputs(paths);
+  const inputs = validateSendPathInputs(paths);
 
   const files: SendFile[] = [];
   let totalBytes = 0;
@@ -98,7 +98,7 @@ export async function buildManifest(paths: string[]): Promise<{ files: SendFile[
   return { files, manifest };
 }
 
-function sendPathInputs(paths: string[]): string[] {
+export function validateSendPathInputs(paths: string[]): string[] {
   if (!Array.isArray(paths)) throw new Error("File list is invalid.");
   if (paths.length === 0) throw new Error("Provide at least one file.");
   if (paths.length > MAX_FILES_PER_SESSION) throw new Error(`Too many files. Limit is ${MAX_FILES_PER_SESSION}.`);

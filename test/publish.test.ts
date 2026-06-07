@@ -927,7 +927,7 @@ test("sender manifest rejects hostile path arrays before resolving paths", async
   assert.equal(coerced, false);
 
   for (const source of [sourceFiles, distFiles]) {
-    assert.match(source, /function sendPathInputs/);
+    assert.match(source, /function validateSendPathInputs/);
     assert.match(source, /function sendPathInput/);
     assert.match(source, /Array\.isArray\(paths\)/);
     assert.match(source, /Object\.getOwnPropertyDescriptor\(paths, String\(index\)\)/);

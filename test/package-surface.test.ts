@@ -191,6 +191,7 @@ test("npm package surface is restricted to built artifacts and required docs", (
     "dist-node/server",
     "dist-node/shared",
     "dist-web",
+    "docs/security",
     "CHANGELOG.md",
     "CONTRIBUTING.md",
     "LICENSE",

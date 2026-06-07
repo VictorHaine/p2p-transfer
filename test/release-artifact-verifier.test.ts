@@ -821,7 +821,7 @@ function fixturePackageJson(packageName: string, version: string) {
       provenance: true
     },
     exports: {},
-    files: ["conformance", "dist-node/cli", "dist-node/server", "dist-node/shared", "dist-web", "CHANGELOG.md", "CONTRIBUTING.md", "LICENSE", "README.md", "SECURITY.md"],
+    files: ["conformance", "dist-node/cli", "dist-node/server", "dist-node/shared", "dist-web", "docs/security", "CHANGELOG.md", "CONTRIBUTING.md", "LICENSE", "README.md", "SECURITY.md"],
     engines: { node: ">=22.22.3 <23 || >=24.13.1 <25" },
     bin: {
       ff: "./dist-node/cli/index.js",
@@ -852,6 +852,7 @@ function fixtureWorkspaceFiles(): Record<string, Buffer> {
     "dist-node/server/index.js": Buffer.from("#!/usr/bin/env node\nconsole.log('fixture server')\n", "utf8"),
     "dist-node/shared/constants.js": Buffer.from("export const fixture = true;\n", "utf8"),
     "dist-web/index.html": Buffer.from("<!doctype html><title>fixture</title>\n", "utf8"),
+    "docs/security/cpace-review.md": Buffer.from("# CPace Dependency Review\n", "utf8"),
     "CHANGELOG.md": Buffer.from("# changelog\n", "utf8"),
     "CONTRIBUTING.md": Buffer.from("# contributing\n", "utf8"),
     "LICENSE": Buffer.from("MIT\n", "utf8"),

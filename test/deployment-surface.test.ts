@@ -1386,9 +1386,11 @@ test("README reports implemented release capabilities without stale MVP-gap lang
   assert.doesNotMatch(readme, /## MVP gaps/);
   assert.match(readme, /## Known limitations/);
   assert.match(readme, /Browser receive resume is exposed only through the explicit `Resume in folder` accept action/);
-  assert.match(readme, /preserves opaque tokenized `\.part` files on failure/);
+  assert.match(readme, /only for single-file manifests/);
+  assert.match(readme, /preserves an opaque tokenized `\.part` file on failure/);
   assert.match(readme, /fresh saved opaque partial record and browser-held lookup key/);
   assert.match(readme, /scrub expired or legacy metadata-bearing resume records/);
+  assert.match(readme, /Multi-file browser receives start fresh on retry/);
   assert.doesNotMatch(readme, /saved tokenized partial record/);
   assert.match(readme, /The conformance fixture covers chunk framing, transfer control-message schemas used inside the encrypted channel including resume offsets, canonical signaling-message serialization, authenticated pair decisions with the fixed reject reason, fixed AES-GCM vectors for sealed manifest\/control\/bulk payloads, PAKE confirmation tags, SDP offer\/answer authentication, and ICE candidate authentication including username fragments/);
 });
@@ -1396,7 +1398,7 @@ test("README reports implemented release capabilities without stale MVP-gap lang
 test("interop tests run the signaling server behind an explicit origin policy", () => {
   const e2eTest = fs.readFileSync(new URL("../test/e2e/cli-transfer.test.ts", import.meta.url), "utf8");
   const browserTest = fs.readFileSync(new URL("../test/browser/browser-cli-send.test.ts", import.meta.url), "utf8");
-  assert.match(readme, /browser sender to CLI receiver, CLI sender to browser download receiver, CLI sender to browser opaque-name download receiver, CLI sender to browser folder-only receiver, CLI sender to browser opaque-name folder receiver, valid browser folder resume from a saved partial, browser resume-key replacement, browser resume-registry metadata scrubbing, and browser folder restart after a corrupted saved partial/);
+  assert.match(readme, /browser sender to CLI receiver, CLI sender to browser download receiver, CLI sender to browser opaque-name download receiver, CLI sender to browser folder-only receiver, CLI sender to browser opaque-name folder receiver, valid single-file browser folder resume from a saved partial, invalid resume-key isolation for ordinary folder receives, browser resume-registry metadata scrubbing, and browser folder restart after a corrupted saved partial/);
   assert.match(browserTest, /CLI sender interoperates with browser opaque-name download receiver/);
   assert.match(browserTest, /CLI sender interoperates with browser folder-only receiver/);
   assert.match(browserTest, /CLI sender interoperates with browser opaque-name folder receiver/);

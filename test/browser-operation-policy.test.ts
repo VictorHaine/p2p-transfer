@@ -263,8 +263,9 @@ test("browser receive resume is explicit and limited to saved opaque folder part
   assert.match(webSource, /<button id="clearResumeButton" class="secondary" type="button">Clear resume records<\/button>/);
   assert.match(webSource, /const clearResumeButton = byId<HTMLButtonElement>\("clearResumeButton"\);/);
   assert.match(webSource, /clearResumeButton\.addEventListener\("click", \(\) => \{[\s\S]*clearBrowserResumeState\(\)[\s\S]*Cleared browser resume records\. Delete old ff-\*\.part files manually from receive folders you previously selected\./);
-  assert.match(promptBody, /makeButton\("resumeButton", "Resume in folder", "secondary"\)/);
-  assert.match(promptBody, /Resume in folder keeps opaque tokenized \.part files after failures/);
+  assert.match(promptBody, /const canResumeInFolder = hasDirectoryPicker && manifest\.fileCount === 1/);
+  assert.match(promptBody, /canResumeInFolder \? makeButton\("resumeButton", "Resume in folder", "secondary"\) : undefined/);
+  assert.match(promptBody, /Resume in folder keeps the opaque tokenized \.part file after failures/);
   assert.match(webSource, /receiveBrowserFiles\(control, bulk, keys, recvLog, manifest, accept\.accepted \? accept\.directory : undefined, accept\.accepted \? accept\.resume : false, accept\.accepted \? accept\.opaqueNames : false\)/);
   assert.match(webSource, /resume = false,\n  opaqueOutputNames = false\s*\): Promise<void> \{/);
   assert.match(securityPolicy, /browser receive must not create or load browser resume HMAC key material for ordinary folder receives/);
@@ -311,7 +312,7 @@ test("browser receive resume is explicit and limited to saved opaque folder part
   assert.match(lookupKeyBody, /catch \{[\s\S]*clearBrowserResumeRegistry\(\);[\s\S]*return createBrowserResumeLookupKey\(\);[\s\S]*\}/);
   assert.match(securityPolicy, /browser receive resume registry values must not persist plaintext file names, MIME types, or sizes/);
   assert.match(securityPolicy, /browser receive resume registry reads must scrub invalid, noncanonical, expired, or legacy metadata-bearing entries, clear stale storage before writing sanitized replacements/);
-  assert.match(securityPolicy, /browser receive resume must be explicit and limited to same-browser saved opaque tokenized `.part` records/);
+  assert.match(securityPolicy, /browser receive resume must be explicit, exposed only for single-file manifests until privacy-preserving completed-file tracking exists, and limited to same-browser saved opaque tokenized `.part` records/);
   assert.match(webSource, /type BrowserResumePartialRecord = \{\n  partName: string;\n  updatedAt: number;\n\};/);
   assert.doesNotMatch(webSource, /type BrowserResumePartialRecord = \{(?:(?!\n\};)[\s\S])*finalName:/);
   assert.doesNotMatch(webSource, /type BrowserResumePartialRecord = \{(?:(?!\n\};)[\s\S])*size:/);

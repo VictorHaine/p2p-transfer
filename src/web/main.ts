@@ -1158,6 +1158,7 @@ function wipeChunks(chunks: Uint8Array<ArrayBuffer>[]): void {
 async function promptForBrowserAccept(manifest: FileManifest, sas: string, requireFolderReceive = false, opaqueOutputNames = false): Promise<BrowserReceiveAccept> {
   const canUseMemoryFallback = !requireFolderReceive && manifest.totalBytes <= BROWSER_BLOB_FALLBACK_MAX_BYTES;
   const hasDirectoryPicker = canPickBrowserDirectory();
+  const canResumeInFolder = hasDirectoryPicker && manifest.fileCount === 1;
   requestBox.hidden = false;
   requestBox.replaceChildren();
   const summary = document.createElement("strong");
@@ -1186,10 +1187,10 @@ async function promptForBrowserAccept(manifest: FileManifest, sas: string, requi
     warning.textContent = requireFolderReceive ? "Folder-only receive requires folder streaming." : "Large transfers require folder streaming.";
     requestBox.append(warning);
   }
-  if (hasDirectoryPicker) {
+  if (canResumeInFolder) {
     const resumeNote = document.createElement("p");
     resumeNote.className = "sas";
-    resumeNote.textContent = "Resume in folder keeps opaque tokenized .part files after failures and reuses only saved opaque partial entries for the same manifest.";
+    resumeNote.textContent = "Resume in folder keeps the opaque tokenized .part file after failures and reuses only a saved opaque partial entry for the same single-file manifest.";
     requestBox.append(resumeNote);
   }
   const pickerStatus = document.createElement("p");
@@ -1201,7 +1202,7 @@ async function promptForBrowserAccept(manifest: FileManifest, sas: string, requi
   actions.className = "actions";
   const acceptButton = canUseMemoryFallback ? makeButton("acceptButton", "Accept") : undefined;
   const folderButton = hasDirectoryPicker ? makeButton("folderButton", "Save to folder", "secondary") : undefined;
-  const resumeButton = hasDirectoryPicker ? makeButton("resumeButton", "Resume in folder", "secondary") : undefined;
+  const resumeButton = canResumeInFolder ? makeButton("resumeButton", "Resume in folder", "secondary") : undefined;
   const declineButton = makeButton("declineButton", "Decline", "secondary");
   if (acceptButton) actions.append(acceptButton);
   if (folderButton) actions.append(folderButton);

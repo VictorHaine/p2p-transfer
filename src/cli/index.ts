@@ -22,7 +22,7 @@ import { codeInputUtf8ByteLengthExceeds, generateCode, normalizeCode, parseCode 
 import type { SessionKeys } from "../shared/security.js";
 import { cloneIceServers } from "../shared/ice.js";
 import { assertReviewedCryptoDependencies } from "./crypto-dependencies.js";
-import { buildManifest, closeSendFiles, ensureOutputDir } from "./files.js";
+import { buildManifest, closeSendFiles, ensureOutputDir, validateSendPathInputs } from "./files.js";
 import { redactLocalPathEvidence } from "./error-redaction.js";
 import { classifyExitCode, safeErrorMessage } from "./exit-codes.js";
 import { onInterrupt, withInterrupt } from "./interrupt.js";
@@ -509,6 +509,7 @@ async function resolveSendInputs(code: string | undefined, files: string[], opti
 
   if (!resolvedCode) throw new Error("Receiver code is required.");
   if (resolvedFiles.length === 0) throw new Error("Choose at least one file.");
+  resolvedFiles = validateSendPathInputs(resolvedFiles);
   const codeFromArgv = !options.codeStdin && options.codeEnv === undefined && code !== undefined && code !== "-";
   const filesFromArgv = !options.filesStdin && resolvedFiles.length > 0;
   if (codeFromArgv || filesFromArgv) {
