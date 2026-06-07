@@ -556,6 +556,7 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.match(ciWorkflow, /pnpm build/);
   assert.match(ciWorkflow, /pnpm test:unit/);
   assert.match(ciWorkflow, /pnpm smoke:native/);
+  assert.match(ciWorkflow, /pnpm smoke:native[\s\S]*pnpm smoke:release-artifact[\s\S]*pnpm security:audit/);
   assert.match(ciWorkflow, /pnpm smoke:packed/);
   assert.match(ciWorkflow, /pnpm exec playwright install --with-deps chromium/);
   assert.match(ciWorkflow, /pnpm test:e2e/);

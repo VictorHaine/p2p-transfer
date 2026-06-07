@@ -279,12 +279,13 @@ test("CI and release workflows keep minimal token permissions", () => {
     assert.match(ciWorkflow, new RegExp(escapeRegExp(runner)));
     assert.match(releaseWorkflow, new RegExp(escapeRegExp(runner)));
   }
-  assert.match(ciVerifyJob, /pnpm check:install-state[\s\S]*pnpm security:dependencies[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native/);
+  assert.match(ciVerifyJob, /pnpm check:install-state[\s\S]*pnpm security:dependencies[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:release-artifact/);
   assert.match(ciBrowserInteropJob, /pnpm check:install-state[\s\S]*pnpm security:dependencies[\s\S]*pnpm exec playwright install --with-deps chromium[\s\S]*pnpm build[\s\S]*pnpm test:e2e[\s\S]*pnpm test:browser/);
   assert.match(ciVerifyJob, /timeout-minutes: 20/);
   assert.match(ciBrowserInteropJob, /timeout-minutes: 45/);
   assert.match(ciPlatformSmokeJob, /timeout-minutes: 25/);
   assert.match(ciDockerJob, /timeout-minutes: 30/);
+  assert.match(securityPolicy, /CI must enforce the same local typecheck, build, unit, native smoke, release-artifact smoke, packed-install, browser interop, and hardened Docker policy gates/);
   assert.match(securityPolicy, /every CI and release workflow job must set an explicit `timeout-minutes` bound/);
   assert.doesNotMatch(ciVerifyJob, /pnpm test:unit[\s\S]*pnpm build[\s\S]*pnpm smoke:native/);
   assert.match(ciPlatformSmokeJob, /pnpm check:install-state[\s\S]*pnpm security:dependencies[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed/);
@@ -294,7 +295,7 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releasePlatformSmokeJob, /pnpm check:install-state[\s\S]*pnpm security:dependencies[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed/);
   assert.doesNotMatch(releasePlatformSmokeJob, /pnpm test:unit[\s\S]*pnpm build[\s\S]*pnpm smoke:native/);
   assert.match(ciWorkflow, /pnpm smoke:packed/);
-  assert.match(ciWorkflow, /dependency audit[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures/);
+  assert.match(ciVerifyJob, /pnpm smoke:release-artifact[\s\S]*dependency audit[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures/);
   assert.match(ciWorkflow, /DOCKER_SMOKE_TAG=p2p-transfer:test node scripts\/smoke-docker-policy\.mjs/);
   assert.match(ciDockerJob, /actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3/);
   assert.match(ciDockerJob, /node scripts\/prepare-checked-pnpm\.mjs[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:test node scripts\/smoke-docker-policy\.mjs/);
@@ -1372,7 +1373,7 @@ test("README documents the auto-accept consent tradeoff", () => {
 });
 
 test("pull request template keeps production-sensitive verification explicit", () => {
-  assert.match(securityPolicy, /CI must enforce the same local typecheck, build, unit, native smoke, packed-install, browser interop, and hardened Docker policy gates that release depends on/);
+  assert.match(securityPolicy, /CI must enforce the same local typecheck, build, unit, native smoke, release-artifact smoke, packed-install, browser interop, and hardened Docker policy gates that release depends on/);
   assert.match(pullRequestTemplate, /`pnpm verify:local`/);
   assert.match(pullRequestTemplate, /`pnpm verify:release` for protocol, crypto, browser, dependency, release, or file-write changes/);
   assert.match(pullRequestTemplate, /`DOCKER_SMOKE_TAG=p2p-transfer:test pnpm verify:release:docker` for Docker, deployment, release, or server changes/);
