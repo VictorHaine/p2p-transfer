@@ -496,6 +496,9 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /if \(failures\.length > 0\) throw new ReleaseReadinessFailure\(failures\)/);
   assert.match(releaseReadinessScript, /function readinessErrorMessages\(error\)/);
   assert.match(releaseReadinessScript, /return error\.failures\.map\(\(failure\) => readinessErrorMessage\(failure\)\)/);
+  assert.match(releaseReadinessScript, /const auth = await collectReadinessValue\(failures, \(\) => githubWithHeaders\(token, "GET", "\/user"\)\)/);
+  assert.match(releaseReadinessScript, /collectReadinessFailureSync\(failures, \(\) => \{[\s\S]*assertTokenScopes\(auth\.headers\)/);
+  assert.match(releaseReadinessScript, /await collectGitHubRepositoryReadiness\(failures, token, options\.repository, authenticatedLogin\)/);
   assert.match(releaseReadinessScript, /const NPM_REGISTRY = "https:\/\/registry\.npmjs\.org"/);
   assert.match(releaseReadinessScript, /const MAX_PACKAGE_JSON_BYTES = 128 \* 1024/);
   assert.match(releaseReadinessScript, /const MAX_NPM_REGISTRY_RESPONSE_BYTES = 1024 \* 1024/);
@@ -533,13 +536,14 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /if \(rawScopes === "" && envString\("GITHUB_ACTIONS"\) === "true"\) return;/);
   assert.match(releaseReadinessScript, /GitHub token is missing \$\{scope\} scope\.\$\{refresh\}/);
   assert.match(releaseReadinessScript, /gh auth refresh -h github\.com -s workflow/);
-  assert.match(releaseReadinessScript, /\/repos\/\$\{options\.repository\}\/branches\/main/);
+  assert.match(releaseReadinessScript, /async function collectGitHubRepositoryReadiness\(failures, token, repository, authenticatedLogin\)/);
+  assert.match(releaseReadinessScript, /\/repos\/\$\{repository\}\/branches\/main/);
   assert.match(releaseReadinessScript, /Remote main branch is missing\. Push main before releasing\./);
   assert.match(releaseReadinessScript, /assertRequiredRuleset\(rulesets, MAIN_RULESET_NAME, "branch"\)/);
   assert.match(releaseReadinessScript, /assertRequiredRuleset\(rulesets, TAG_RULESET_NAME, "tag"\)/);
   assert.match(releaseReadinessScript, /ruleset\.target !== target \|\| ruleset\.enforcement !== "active"/);
-  assert.match(releaseReadinessScript, /rulesetDetails\(token, options\.repository, mainRuleset\.id\)/);
-  assert.match(releaseReadinessScript, /rulesetDetails\(token, options\.repository, tagRuleset\.id\)/);
+  assert.match(releaseReadinessScript, /rulesetDetails\(token, repository, mainRuleset\.id\)/);
+  assert.match(releaseReadinessScript, /rulesetDetails\(token, repository, tagRuleset\.id\)/);
   assert.match(releaseReadinessScript, /function assertMainRuleset\(ruleset\)/);
   assert.match(releaseReadinessScript, /assertRulesetBase\(ruleset, MAIN_RULESET_NAME, "branch", "refs\/heads\/main"\)/);
   assert.match(releaseReadinessScript, /assertNoBypassActors\(ruleset, MAIN_RULESET_NAME\)/);

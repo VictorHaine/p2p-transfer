@@ -70,35 +70,17 @@ async function main() {
   const token = await collectReadinessValue(failures, () => githubToken());
   if (token) {
     let authenticatedLogin;
-    const authOk = await collectReadinessFailure(failures, async () => {
-      const auth = await githubWithHeaders(token, "GET", "/user");
-      assertTokenScopes(auth.headers);
-      authenticatedLogin = requiredAuthenticatedLogin(auth.data);
-    });
-    if (authOk) {
-      await collectReadinessFailure(failures, () => github(token, "GET", `/repos/${options.repository}`));
-      await collectReadinessFailure(failures, async () => {
-        await github(token, "GET", `/repos/${options.repository}/branches/main`).catch((error) => {
-          if (error instanceof GitHubApiError && error.status === 404) throw new Error("Remote main branch is missing. Push main before releasing.");
-          throw error;
-        });
+    const auth = await collectReadinessValue(failures, () => githubWithHeaders(token, "GET", "/user"));
+    if (auth) {
+      collectReadinessFailureSync(failures, () => {
+        authenticatedLogin = requiredAuthenticatedLogin(auth.data);
       });
-
-      const rulesets = await collectReadinessValue(failures, () => github(token, "GET", `/repos/${options.repository}/rulesets?includes_parents=false`));
-      if (rulesets) {
-        const mainRuleset = collectReadinessValueSync(failures, () => assertRequiredRuleset(rulesets, MAIN_RULESET_NAME, "branch"));
-        const tagRuleset = collectReadinessValueSync(failures, () => assertRequiredRuleset(rulesets, TAG_RULESET_NAME, "tag"));
-        if (mainRuleset) await collectReadinessFailure(failures, async () => assertMainRuleset(await rulesetDetails(token, options.repository, mainRuleset.id)));
-        if (tagRuleset) await collectReadinessFailure(failures, async () => assertTagRuleset(await rulesetDetails(token, options.repository, tagRuleset.id)));
-      }
-
-      await collectReadinessFailure(failures, async () => {
-        const environment = await github(token, "GET", `/repos/${options.repository}/environments/${encodeURIComponent(NPM_ENVIRONMENT)}`).catch((error) => {
-          if (error instanceof GitHubApiError && error.status === 404) throw new Error("GitHub npm environment is missing.");
-          throw error;
-        });
-        assertNpmEnvironment(environment, authenticatedLogin);
+      collectReadinessFailureSync(failures, () => {
+        assertTokenScopes(auth.headers);
       });
+    }
+    if (authenticatedLogin) {
+      await collectGitHubRepositoryReadiness(failures, token, options.repository, authenticatedLogin);
     }
   }
 
@@ -107,9 +89,47 @@ async function main() {
   console.log(JSON.stringify({ repository: options.repository, ok: true }, null, 2));
 }
 
+async function collectGitHubRepositoryReadiness(failures, token, repository, authenticatedLogin) {
+  const repositoryOk = await collectReadinessFailure(failures, () => github(token, "GET", `/repos/${repository}`));
+  if (!repositoryOk) return;
+
+  await collectReadinessFailure(failures, async () => {
+    await github(token, "GET", `/repos/${repository}/branches/main`).catch((error) => {
+      if (error instanceof GitHubApiError && error.status === 404) throw new Error("Remote main branch is missing. Push main before releasing.");
+      throw error;
+    });
+  });
+
+  const rulesets = await collectReadinessValue(failures, () => github(token, "GET", `/repos/${repository}/rulesets?includes_parents=false`));
+  if (rulesets) {
+    const mainRuleset = collectReadinessValueSync(failures, () => assertRequiredRuleset(rulesets, MAIN_RULESET_NAME, "branch"));
+    const tagRuleset = collectReadinessValueSync(failures, () => assertRequiredRuleset(rulesets, TAG_RULESET_NAME, "tag"));
+    if (mainRuleset) await collectReadinessFailure(failures, async () => assertMainRuleset(await rulesetDetails(token, repository, mainRuleset.id)));
+    if (tagRuleset) await collectReadinessFailure(failures, async () => assertTagRuleset(await rulesetDetails(token, repository, tagRuleset.id)));
+  }
+
+  await collectReadinessFailure(failures, async () => {
+    const environment = await github(token, "GET", `/repos/${repository}/environments/${encodeURIComponent(NPM_ENVIRONMENT)}`).catch((error) => {
+      if (error instanceof GitHubApiError && error.status === 404) throw new Error("GitHub npm environment is missing.");
+      throw error;
+    });
+    assertNpmEnvironment(environment, authenticatedLogin);
+  });
+}
+
 async function collectReadinessFailure(failures, fn) {
   try {
     await fn();
+    return true;
+  } catch (error) {
+    failures.push(error);
+    return false;
+  }
+}
+
+function collectReadinessFailureSync(failures, fn) {
+  try {
+    fn();
     return true;
   } catch (error) {
     failures.push(error);
