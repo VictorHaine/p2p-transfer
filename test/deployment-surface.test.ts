@@ -1214,7 +1214,8 @@ test("README reports implemented release capabilities without stale MVP-gap lang
 test("interop tests run the signaling server behind an explicit origin policy", () => {
   const e2eTest = fs.readFileSync(new URL("../test/e2e/cli-transfer.test.ts", import.meta.url), "utf8");
   const browserTest = fs.readFileSync(new URL("../test/browser/browser-cli-send.test.ts", import.meta.url), "utf8");
-  assert.match(readme, /browser sender to CLI receiver, CLI sender to browser download receiver, CLI sender to browser folder-only receiver, CLI sender to browser opaque-name folder receiver, valid browser folder resume from a saved partial, browser resume-key replacement, browser resume-registry metadata scrubbing, and browser folder restart after a corrupted saved partial/);
+  assert.match(readme, /browser sender to CLI receiver, CLI sender to browser download receiver, CLI sender to browser opaque-name download receiver, CLI sender to browser folder-only receiver, CLI sender to browser opaque-name folder receiver, valid browser folder resume from a saved partial, browser resume-key replacement, browser resume-registry metadata scrubbing, and browser folder restart after a corrupted saved partial/);
+  assert.match(browserTest, /CLI sender interoperates with browser opaque-name download receiver/);
   assert.match(browserTest, /CLI sender interoperates with browser folder-only receiver/);
   assert.match(browserTest, /CLI sender interoperates with browser opaque-name folder receiver/);
   assert.match(browserTest, /browser folder receiver restarts after a corrupted saved partial/);

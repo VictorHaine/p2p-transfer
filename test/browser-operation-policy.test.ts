@@ -325,6 +325,8 @@ test("browser receive resume is explicit and limited to saved opaque folder part
 });
 
 test("browser download fallback always schedules Blob URL revocation", () => {
+  assert.match(securityPolicy, /browser Blob download fallback must create generic `application\/octet-stream` blobs/);
+  assert.match(webSource, /new Blob\(state\.chunks\.map\(\(chunk\) => chunk\.slice\(\)\.buffer\), \{ type: "application\/octet-stream" \}\)/);
   assert.match(securityPolicy, /browser Blob download URLs must be scheduled for revocation even if the synthetic download click throws/);
   assert.match(
     webSource,

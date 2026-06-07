@@ -1052,7 +1052,7 @@ async function maybeDownload(state: BrowserReceiveState, control: RTCDataChannel
       state.name = await publishBrowserPartFile(state, actual);
       if (state.resumeKey) forgetBrowserResumePartial(state.resumeKey);
     } else {
-      const blob = new Blob(state.chunks.map((chunk) => chunk.slice().buffer));
+      const blob = new Blob(state.chunks.map((chunk) => chunk.slice().buffer), { type: "application/octet-stream" });
       wipeChunks(state.chunks);
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
