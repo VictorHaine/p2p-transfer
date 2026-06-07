@@ -435,6 +435,7 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(releaseWorkflow, /^on:\n  push:\n    tags:\n      - "v\*\.\*\.\*"$/m);
   assert.match(githubReleaseControlsScript, /Push main before applying GitHub release controls\./);
   assert.match(githubReleaseControlsScript, /options\.apply && !options\.requireMain[\s\S]*--allow-missing-main is only allowed with --dry-run/);
+  assert.match(githubReleaseControlsScript, /\[--dry-run --allow-missing-main\]/);
   assert.match(githubReleaseControlsScript, /The npm environment exists but has no required reviewers protection rule\./);
   assert.match(githubReleaseControlsScript, /The npm environment must prevent self-review\./);
   assert.match(githubReleaseControlsScript, /The npm environment must disable admin bypass\./);

@@ -390,7 +390,7 @@ function parseArgs(args) {
     } else if (arg === "--allow-self-review") {
       throw new Error("GitHub npm environment self-review must stay disabled.");
     } else {
-      throw new Error("Usage: node scripts/configure-github-release-controls.mjs [--dry-run|--apply] [--repo owner/name] [--allow-missing-main] [--npm-reviewer login] [--prevent-self-review]");
+      throw new Error("Usage: node scripts/configure-github-release-controls.mjs [--dry-run|--apply] [--repo owner/name] [--dry-run --allow-missing-main] [--npm-reviewer login] [--prevent-self-review]");
     }
   }
   delete options.npmReviewerKeys;
