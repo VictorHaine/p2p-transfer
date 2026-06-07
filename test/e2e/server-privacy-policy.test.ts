@@ -142,6 +142,127 @@ test("built signaling server exhausts receive codes after invalid pre-pair sende
   assert.doesNotMatch(serverOutput.text(), /12345679|Receive code expired after too many invalid pairing attempts|pair-accept/);
 });
 
+test("built signaling server sanitizes peer-controlled bye reasons before forwarding", async () => {
+  const root = process.cwd();
+  const port = 22_000 + randomInt(1_000);
+  const origin = `http://127.0.0.1:${port}`;
+  const serverUrl = `ws://127.0.0.1:${port}/v1/ws`;
+  const code = "12345680";
+  const secretReason = "secret-token-from-local-path";
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-server-bye-"));
+  const server = spawn(process.execPath, ["dist-node/server/index.js"], {
+    cwd: root,
+    env: {
+      ...testChildEnv(tmp),
+      PORT: String(port),
+      HOST: "127.0.0.1",
+      NODE_ENV: "production",
+      ALLOWED_ORIGINS: origin,
+      SIGNALING_TOPOLOGY: "single-instance",
+      ALLOW_INSECURE_ORIGINS: "true"
+    }
+  });
+  const serverOutput = collectOutput(server);
+
+  let receiver: WebSocket | undefined;
+  let sender: WebSocket | undefined;
+  try {
+    await waitForOutput(server, /listening/);
+    receiver = await connectWs(serverUrl, origin);
+    sendJson(receiver, { type: "register", role: "receiver", code, protocolVersion: PROTOCOL_VERSION });
+    assert.equal((await waitForServerEvent(receiver, "registered")).code, code);
+
+    sender = await connectWs(serverUrl, origin);
+    sendJson(sender, { type: "connect", role: "sender", code, protocolVersion: PROTOCOL_VERSION });
+    const receiverJoined = await waitForServerEvent(receiver, "peer-joined");
+    const senderJoined = await waitForServerEvent(sender, "peer-joined");
+    assert.equal(senderJoined.sid, receiverJoined.sid);
+    const sid = String(senderJoined.sid);
+
+    sendJson(sender, { type: "bye", sid, reason: secretReason });
+    const peerLeft = await waitForServerEvent(receiver, "peer-left", sid);
+    assert.notEqual(peerLeft.reason, secretReason);
+    assert.equal(peerLeft.reason, "disconnected");
+  } finally {
+    receiver?.terminate();
+    sender?.terminate();
+    server.kill();
+    await serverOutput.done;
+  }
+
+  assert.doesNotMatch(serverOutput.text(), /12345680|secret-token-from-local-path/);
+});
+
+test("built signaling server sanitizes paired bye reasons before forwarding", async () => {
+  const root = process.cwd();
+  const port = 23_000 + randomInt(1_000);
+  const origin = `http://127.0.0.1:${port}`;
+  const serverUrl = `ws://127.0.0.1:${port}/v1/ws`;
+  const code = "12345681";
+  const secretReason = "secret-token-after-accept";
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-server-paired-bye-"));
+  const server = spawn(process.execPath, ["dist-node/server/index.js"], {
+    cwd: root,
+    env: {
+      ...testChildEnv(tmp),
+      PORT: String(port),
+      HOST: "127.0.0.1",
+      NODE_ENV: "production",
+      ALLOWED_ORIGINS: origin,
+      SIGNALING_TOPOLOGY: "single-instance",
+      ALLOW_INSECURE_ORIGINS: "true"
+    }
+  });
+  const serverOutput = collectOutput(server);
+
+  let receiver: WebSocket | undefined;
+  let sender: WebSocket | undefined;
+  try {
+    await waitForOutput(server, /listening/);
+    receiver = await connectWs(serverUrl, origin);
+    sendJson(receiver, { type: "register", role: "receiver", code, protocolVersion: PROTOCOL_VERSION });
+    assert.equal((await waitForServerEvent(receiver, "registered")).code, code);
+
+    sender = await connectWs(serverUrl, origin);
+    sendJson(sender, { type: "connect", role: "sender", code, protocolVersion: PROTOCOL_VERSION });
+    const receiverJoined = await waitForServerEvent(receiver, "peer-joined");
+    const senderJoined = await waitForServerEvent(sender, "peer-joined");
+    assert.equal(senderJoined.sid, receiverJoined.sid);
+    const sid = String(senderJoined.sid);
+
+    sendJson(sender, { type: "pake", sid, data: "sender-share" });
+    assert.equal((await waitForServerEvent(receiver, "pake", sid)).type, "pake");
+    sendJson(receiver, { type: "pake", sid, data: "receiver-share" });
+    assert.equal((await waitForServerEvent(sender, "pake", sid)).type, "pake");
+    sendJson(sender, { type: "confirm", sid, tag: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" });
+    assert.equal((await waitForServerEvent(receiver, "confirm", sid)).type, "confirm");
+    sendJson(receiver, { type: "confirm", sid, tag: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" });
+    assert.equal((await waitForServerEvent(sender, "confirm", sid)).type, "confirm");
+
+    sendJson(sender, {
+      type: "pair-request",
+      sid,
+      manifest: { fileCount: 1, totalBytes: 1, files: [{ id: 0, name: "encrypted-0", size: 1 }] },
+      sealedManifest: Buffer.alloc(20).toString("base64")
+    });
+    assert.equal((await waitForServerEvent(receiver, "pair-request", sid)).type, "pair-request");
+    sendJson(receiver, { type: "pair-accept", sid, auth: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" });
+    assert.equal((await waitForServerEvent(sender, "pair-accept", sid)).type, "pair-accept");
+
+    sendJson(sender, { type: "bye", sid, reason: secretReason });
+    const peerLeft = await waitForServerEvent(receiver, "peer-left", sid);
+    assert.notEqual(peerLeft.reason, secretReason);
+    assert.equal(peerLeft.reason, "bye");
+  } finally {
+    receiver?.terminate();
+    sender?.terminate();
+    server.kill();
+    await serverOutput.done;
+  }
+
+  assert.doesNotMatch(serverOutput.text(), /12345681|secret-token-after-accept/);
+});
+
 function testChildEnv(tmp: string): NodeJS.ProcessEnv {
   const pathValue = requiredEnv("PATH");
   const env: NodeJS.ProcessEnv = {
