@@ -284,8 +284,8 @@ function childExitStatus(code, signal) {
 function envString(name) {
   const descriptor = Object.getOwnPropertyDescriptor(process.env, name);
   if (!descriptor || !("value" in descriptor) || descriptor.value === undefined || descriptor.value === "") return undefined;
-  if (typeof descriptor.value !== "string" || descriptor.value.includes("\0") || utf8ByteLengthExceeds(descriptor.value, MAX_ENV_VALUE_BYTES)) {
-    throw new Error(`${name} must be a non-empty NUL-free environment value under ${MAX_ENV_VALUE_BYTES} UTF-8 bytes.`);
+  if (typeof descriptor.value !== "string" || /[\p{Cc}\p{Cf}]/u.test(descriptor.value) || utf8ByteLengthExceeds(descriptor.value, MAX_ENV_VALUE_BYTES)) {
+    throw new Error(`${name} must be a non-empty control-free environment value under ${MAX_ENV_VALUE_BYTES} UTF-8 bytes.`);
   }
   return descriptor.value;
 }
