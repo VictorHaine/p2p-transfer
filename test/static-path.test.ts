@@ -143,7 +143,7 @@ test("static file serving opens assets with no-follow nonblocking flags", () => 
   }
   for (const candidate of [source, distSource]) {
     assert.match(securityPolicy, /static serving must distinguish attacker-shaped not-found or path-rejection responses from operational filesystem failures/);
-    assert.match(securityPolicy, /static asset reads must use no-follow regular-file opens with pre-open and post-read identity checks plus bounded handle reads/);
+    assert.match(securityPolicy, /static asset reads must use no-follow regular-file opens with pre-open and post-read identity and mutation-metadata checks plus bounded handle reads/);
     assert.match(candidate, /serveStatic\(url\.pathname, res\)\.catch\(\(error\) => staticFailure\(res, cors, error\)\)/);
     assert.match(candidate, /function staticRelativePath/);
     assert.match(candidate, /function staticFailure/);
@@ -157,6 +157,8 @@ test("static file serving opens assets with no-follow nonblocking flags", () => 
     assert.match(candidate, /fs\.open\(filePath, flags\)/);
     assert.match(candidate, /if \(!sameFile\(info, stat\)\)[\s\S]*throw new Error\("static asset changed before verification"\)/);
     assert.match(candidate, /const afterRead = await handle\.stat\(\);[\s\S]*if \(!sameFile\(stat, afterRead\)\)[\s\S]*throw new Error\("static asset changed while being read"\)/);
+    assert.match(candidate, /mtimeMs/);
+    assert.match(candidate, /ctimeMs/);
     assert.doesNotMatch(candidate, /fsConstants\.O_RDONLY \| fsConstants\.O_NOFOLLOW;/);
     assert.match(candidate, /Buffer\.alloc\(64 \* 1024\)/);
     assert.doesNotMatch(candidate, /Buffer\.allocUnsafe/);

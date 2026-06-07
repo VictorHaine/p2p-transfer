@@ -884,8 +884,11 @@ async function readStaticFile(filePath: string): Promise<Buffer> {
   }
 }
 
-function sameFile(left: { dev: number; ino: number; size: number }, right: { dev: number; ino: number; size: number }): boolean {
-  return left.dev === right.dev && left.ino === right.ino && left.size === right.size;
+function sameFile(
+  left: { dev: number; ino: number; size: number; mtimeMs: number; ctimeMs: number },
+  right: { dev: number; ino: number; size: number; mtimeMs: number; ctimeMs: number }
+): boolean {
+  return left.dev === right.dev && left.ino === right.ino && left.size === right.size && left.mtimeMs === right.mtimeMs && left.ctimeMs === right.ctimeMs;
 }
 
 async function readBoundedFile(handle: FileHandle, maxBytes: number): Promise<Buffer> {
