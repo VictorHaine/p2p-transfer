@@ -475,6 +475,37 @@ test("browser startup scrubs legacy resume registry metadata", browserTestOption
   }
 });
 
+test("browser clear resume records removes origin resume registry and key store", browserTestOptions, async () => {
+  const root = process.cwd();
+  const port = 26_000 + randomInt(1_000);
+  const origin = `http://127.0.0.1:${port}`;
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-browser-clear-resume-"));
+  const childEnv = testChildEnv(tmp);
+  const server = spawn(process.execPath, ["dist-node/server/index.js"], {
+    cwd: root,
+    env: { ...childEnv, PORT: String(port), HOST: "127.0.0.1", NODE_ENV: "production", ALLOWED_ORIGINS: origin, SIGNALING_TOPOLOGY: "single-instance", ALLOW_INSECURE_ORIGINS: "true" }
+  });
+
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  try {
+    await waitForOutput(server, /listening/);
+    browser = await chromium.launch(chromiumLaunchOptions());
+    const page = await browser.newPage();
+    await page.goto(`http://127.0.0.1:${port}/`);
+    await seedInvalidBrowserResumeState(page);
+    assert.notEqual(await browserResumeRegistry(page), null);
+    assert.deepEqual(await browserResumeKeyStoreNames(page), ["keys"]);
+
+    await page.locator("#clearResumeButton").click();
+    await expectText(page.locator("#recvLog"), "Cleared browser resume records. Delete old ff-*.part files manually from receive folders you previously selected.");
+    assert.equal(await browserResumeRegistry(page), null);
+    assert.deepEqual(await browserResumeKeyStoreNames(page), []);
+  } finally {
+    await browser?.close();
+    server.kill();
+  }
+});
+
 function findChromium(): string | undefined {
   for (const bin of ["chromium", "google-chrome", "chrome"]) {
     const result = spawnSync("which", [bin], { encoding: "utf8" });
@@ -735,6 +766,21 @@ function browserResumeRegistryObject(page: Page): Promise<unknown> {
   return page.evaluate(() => {
     const value = localStorage.getItem("ff.browserReceiveResume.v1");
     return value ? JSON.parse(value) : null;
+  });
+}
+
+function browserResumeKeyStoreNames(page: Page): Promise<string[]> {
+  return page.evaluate(async () => {
+    const request = indexedDB.open("ff.browserReceiveResume.keys.v1", 1);
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      return Array.from(db.objectStoreNames);
+    } finally {
+      db.close();
+    }
   });
 }
 

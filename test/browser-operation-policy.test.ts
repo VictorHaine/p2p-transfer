@@ -249,6 +249,9 @@ test("browser receive resume is explicit and limited to saved opaque folder part
   const promptBody = extractFunctionBody(webSource, "promptForBrowserAccept");
 
   assert.match(webSource, /type BrowserReceiveAccept = \{ accepted: true; directory\?: FileSystemDirectoryHandle; resume: boolean; opaqueNames: boolean \} \| \{ accepted: false \};/);
+  assert.match(webSource, /<button id="clearResumeButton" class="secondary" type="button">Clear resume records<\/button>/);
+  assert.match(webSource, /const clearResumeButton = byId<HTMLButtonElement>\("clearResumeButton"\);/);
+  assert.match(webSource, /clearResumeButton\.addEventListener\("click", \(\) => \{[\s\S]*clearBrowserResumeState\(\)[\s\S]*Cleared browser resume records\. Delete old ff-\*\.part files manually from receive folders you previously selected\./);
   assert.match(promptBody, /makeButton\("resumeButton", "Resume in folder", "secondary"\)/);
   assert.match(promptBody, /Resume in folder keeps opaque tokenized \.part files after failures/);
   assert.match(webSource, /receiveBrowserFiles\(control, bulk, keys, recvLog, manifest, accept\.accepted \? accept\.directory : undefined, accept\.accepted \? accept\.resume : false, accept\.accepted \? accept\.opaqueNames : false\)/);
@@ -289,6 +292,10 @@ test("browser receive resume is explicit and limited to saved opaque folder part
   assert.match(securityPolicy, /production browser deployments that use browser resume should run on a dedicated origin/);
   assert.match(readme, /Host the browser client on a dedicated origin/);
   assert.match(securityPolicy, /missing, invalid, or unavailable browser resume lookup keys must clear the resume registry before a fresh key is used/);
+  assert.match(securityPolicy, /browser receive must expose a user-visible clear action that removes origin-stored browser resume registry records, resets the in-memory resume lookup key, and deletes the IndexedDB resume lookup key store/);
+  assert.match(readme, /Use `Clear resume records` to remove browser origin resume records and the browser-held resume lookup key/);
+  assert.match(webSource, /async function clearBrowserResumeState\(\): Promise<void> \{[\s\S]*clearBrowserResumeRegistry\(\);[\s\S]*browserResumeLookupKeyPromise = undefined;[\s\S]*await deleteBrowserResumeKeyDb\(\);[\s\S]*\}/);
+  assert.match(webSource, /function deleteBrowserResumeKeyDb\(\): Promise<void> \{[\s\S]*indexedDB\.deleteDatabase\(BROWSER_RESUME_KEY_DB\)/);
   assert.match(lookupKeyBody, /const stored = await readStoredBrowserResumeLookupKey\(db\);[\s\S]*if \(stored\) return stored;[\s\S]*const created = await createBrowserResumeLookupKey\(\);[\s\S]*await storeBrowserResumeLookupKey\(db, created\);[\s\S]*clearBrowserResumeRegistry\(\);[\s\S]*return created;/);
   assert.match(lookupKeyBody, /catch \{[\s\S]*clearBrowserResumeRegistry\(\);[\s\S]*return createBrowserResumeLookupKey\(\);[\s\S]*\}/);
   assert.match(securityPolicy, /browser receive resume registry values must not persist plaintext file names, MIME types, or sizes/);

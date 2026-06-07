@@ -201,6 +201,7 @@ app.innerHTML = staticTrustedHtml`
           <span id="recvStatus" class="status">Idle</span>
         </div>
         <button id="receiveButton" type="button">Start receiving</button>
+        <button id="clearResumeButton" class="secondary" type="button">Clear resume records</button>
         <div id="codeBox" class="codeBox" hidden></div>
         <div id="requestBox" class="requestBox" hidden></div>
         <pre id="recvLog" class="log" aria-live="polite"></pre>
@@ -221,6 +222,7 @@ const fileInput = byId<HTMLInputElement>("fileInput");
 const sendStatus = byId<HTMLSpanElement>("sendStatus");
 const sendLog = byId<HTMLPreElement>("sendLog");
 const receiveButton = byId<HTMLButtonElement>("receiveButton");
+const clearResumeButton = byId<HTMLButtonElement>("clearResumeButton");
 const recvStatus = byId<HTMLSpanElement>("recvStatus");
 const recvLog = byId<HTMLPreElement>("recvLog");
 const codeBox = byId<HTMLDivElement>("codeBox");
@@ -248,6 +250,19 @@ receiveButton.addEventListener("click", () => {
   receiveBusy = true;
   updateOperationControls();
   receiveInBrowser()
+    .catch((error) => setLog(recvLog, errorMessage(error)))
+    .finally(() => {
+      receiveBusy = false;
+      updateOperationControls();
+    });
+});
+
+clearResumeButton.addEventListener("click", () => {
+  if (operationBusy()) return;
+  receiveBusy = true;
+  updateOperationControls();
+  clearBrowserResumeState()
+    .then(() => setLog(recvLog, "Cleared browser resume records. Delete old ff-*.part files manually from receive folders you previously selected."))
     .catch((error) => setLog(recvLog, errorMessage(error)))
     .finally(() => {
       receiveBusy = false;
@@ -2402,6 +2417,21 @@ function clearBrowserResumeRegistry(): void {
   }
 }
 
+async function clearBrowserResumeState(): Promise<void> {
+  clearBrowserResumeRegistry();
+  browserResumeLookupKeyPromise = undefined;
+  await deleteBrowserResumeKeyDb();
+}
+
+function deleteBrowserResumeKeyDb(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.deleteDatabase(BROWSER_RESUME_KEY_DB);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(new Error("Browser resume key store could not be cleared."));
+    request.onblocked = () => reject(new Error("Browser resume key store is still open in another tab."));
+  });
+}
+
 function pruneBrowserResumeRegistry(): void {
   readBrowserResumeRegistry();
 }
@@ -2620,6 +2650,7 @@ function updateOperationControls(): void {
   fileInput.disabled = busy;
   sendButton.disabled = busy;
   receiveButton.disabled = busy;
+  clearResumeButton.disabled = busy;
 }
 
 function operationBusy(): boolean {
