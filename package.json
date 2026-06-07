@@ -29,6 +29,7 @@
     "check:install-state": "node scripts/check-install-state.mjs",
     "check": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.test.json",
     "prepack": "pnpm build",
+    "prepublishOnly": "node scripts/guard-direct-publish.mjs",
     "dev:server": "node --import tsx src/server/index.ts",
     "dev:web": "vite --host 127.0.0.1",
     "dev:cli": "node --import tsx src/cli/index.ts",

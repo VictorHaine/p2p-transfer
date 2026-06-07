@@ -32,6 +32,16 @@ const ENABLED_SECURITY_AND_ANALYSIS = {
   dependabot_security_updates: { status: "enabled" }
 };
 
+test("direct workspace publish guard fails closed", () => {
+  const result = runScript("scripts/guard-direct-publish.mjs", {});
+
+  assert.notEqual(result.status, 0);
+  assert.equal(result.stdout, "");
+  assert.match(result.stderr, /Direct workspace publishing is disabled\./);
+  assert.match(result.stderr, /Use the tag-only GitHub release workflow/);
+  assert.doesNotMatch(result.stderr, /Error:|at file:|\/scripts\/guard-direct-publish\.mjs/);
+});
+
 test("release publish script rejects static npm tokens before artifact work", () => {
   const result = runScript("scripts/publish-release-artifact.mjs", {
     NODE_AUTH_TOKEN: "static-token-that-must-not-publish",

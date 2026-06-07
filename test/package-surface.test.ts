@@ -50,6 +50,7 @@ const releaseTagScript = fs.readFileSync(new URL("../scripts/check-release-tag.m
 const releaseMainScript = fs.readFileSync(new URL("../scripts/check-release-main.mjs", import.meta.url), "utf8");
 const releaseArtifactScript = fs.readFileSync(new URL("../scripts/verify-release-artifact.mjs", import.meta.url), "utf8");
 const releasePublishScript = fs.readFileSync(new URL("../scripts/publish-release-artifact.mjs", import.meta.url), "utf8");
+const directPublishGuardScript = fs.readFileSync(new URL("../scripts/guard-direct-publish.mjs", import.meta.url), "utf8");
 const githubReleaseScript = fs.readFileSync(new URL("../scripts/create-github-release.mjs", import.meta.url), "utf8");
 const bootstrapNpmScript = fs.readFileSync(new URL("../scripts/bootstrap-npm-package.mjs", import.meta.url), "utf8");
 const releaseReadinessScript = fs.readFileSync(new URL("../scripts/check-release-readiness.mjs", import.meta.url), "utf8");
@@ -245,6 +246,7 @@ test("package publishing config keeps provenance and reproducible dependency pin
   );
   assert.deepEqual(packageJson.publishConfig, { access: "public", provenance: true });
   assert.equal(packageJson.scripts?.prepack, "pnpm build");
+  assert.equal(packageJson.scripts?.prepublishOnly, "node scripts/guard-direct-publish.mjs");
   assert.equal(packageJson.scripts?.check, "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.test.json");
   assert.equal(packageJson.scripts?.["security:audit"], "pnpm audit --audit-level low");
   assert.equal(packageJson.scripts?.["security:signatures"], "pnpm audit signatures");
@@ -256,6 +258,9 @@ test("package publishing config keeps provenance and reproducible dependency pin
   assert.match(securityPolicy, /typecheck gates must explicitly run the shipping Node project config and the test project config/);
   assert.match(securityPolicy, /release dependency audits must fail on known vulnerabilities at low severity or higher/);
   assert.match(securityPolicy, /release dependency verification must run registry package signature checks/);
+  assert.match(securityPolicy, /direct workspace `pnpm publish`\/`npm publish` must fail closed through `prepublishOnly`/);
+  assert.match(directPublishGuardScript, /Direct workspace publishing is disabled\./);
+  assert.match(directPublishGuardScript, /Use the tag-only GitHub release workflow/);
   assert.match(securityPolicy, /installed direct dependency tree does not match the exact `package\.json` pins or when `node_modules\/\.pnpm\/lock\.yaml` diverges from `pnpm-lock\.yaml`/);
   assert.match(securityPolicy, /installed-state verification must validate direct dependency names and package pins before installed package reads, check both installed direct package identity and installed direct package version against `package\.json` pins before accepting the local dependency tree, and mismatch output must not echo raw workspace paths, raw filesystem errors, stack traces, or installed package metadata/);
   assert.match(securityPolicy, /installed-state verification must resolve the project root from the checked script location, use a symlink-safe realpath entrypoint check, avoid filesystem verification side effects when imported, and use verifier-owned top-level failure reporting/);
@@ -979,6 +984,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.doesNotMatch(releasePublishScript, /verifiedTarballPath\(\{ \.\.\.childEnv, GITHUB_REF_NAME: tag \}\)/);
   assert.match(releasePublishScript, /const NPM_REGISTRY = "https:\/\/registry\.npmjs\.org"/);
   assert.match(releasePublishScript, /\["publish", tarball, "--provenance", "--access", "public", "--registry", NPM_REGISTRY, "--tag", "latest", "--ignore-scripts"\]/);
+  assert.match(securityPolicy, /only the checked release publisher may publish the verifier-selected tarball with `--ignore-scripts`/);
   assert.match(releasePublishScript, /timeoutError = new Error\("release publish subprocess timed out\."\);\s*child\.kill\("SIGTERM"\);\s*killTimer = setTimeout\(\(\) => child\.kill\("SIGKILL"\), 5_000\);/s);
   assert.match(releasePublishScript, /child\.on\("exit", \(code, signal\) => \{[\s\S]*if \(killTimer\) clearTimeout\(killTimer\);[\s\S]*if \(timeoutError\) \{[\s\S]*rejectOnce\(timeoutError\);[\s\S]*return;[\s\S]*\}/);
   assert.match(releasePublishScript, /release publish subprocess failed with \$\{childExitStatus\(code, signal\)\}\./);
