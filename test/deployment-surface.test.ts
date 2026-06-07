@@ -25,6 +25,7 @@ const githubReleaseControlsScript = fs.readFileSync(new URL("../scripts/configur
 const releaseReadinessScript = fs.readFileSync(new URL("../scripts/check-release-readiness.mjs", import.meta.url), "utf8");
 const dependabotConfig = fs.readFileSync(new URL("../.github/dependabot.yml", import.meta.url), "utf8");
 const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
+const contributing = fs.readFileSync(new URL("../CONTRIBUTING.md", import.meta.url), "utf8");
 const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
 const tsconfigNode = JSON.parse(fs.readFileSync(new URL("../tsconfig.node.json", import.meta.url), "utf8")) as {
   compilerOptions?: { declaration?: boolean; lib?: string[]; types?: string[] };
@@ -331,6 +332,7 @@ test("checked GitHub release controls setup matches the protected release surfac
 test("release preflight checks external GitHub release prerequisites", () => {
   assert.equal(packageJson.scripts?.["release:preflight"], "node scripts/check-release-readiness.mjs");
   assert.match(readme, /GITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
+  assert.match(contributing, /pnpm verify:release\nGITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
   assert.match(securityPolicy, /local release preflight must fail before tagging when the GitHub token lacks `workflow` scope/);
   assert.match(releaseReadinessScript, /const REQUIRED_OAUTH_SCOPES = \["repo", "workflow"\]/);
   assert.match(releaseReadinessScript, /headers\.get\("x-oauth-scopes"\)/);
@@ -427,6 +429,7 @@ test("documented release gates require a hardened Docker runtime smoke, not just
     assert.match(document, /docker run --rm --read-only --cap-drop=ALL --security-opt no-new-privileges -p 8787:8787 -e ALLOWED_ORIGINS=https:\/\/files\.example\.com -e SIGNALING_TOPOLOGY=single-instance p2p-transfer:test/);
     assert.doesNotMatch(document, /Required Security Gates[\s\S]*docker build -t p2p-transfer:test \.\n```/);
   }
+  assert.match(contributing, /For release-sensitive or protocol-sensitive changes, also run:[\s\S]*pnpm smoke:release-artifact[\s\S]*pnpm test:e2e[\s\S]*pnpm test:browser[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures/);
   assert.match(securityPolicy, /packed-install checks on Linux, macOS, and Windows for every supported Node major/);
   assert.match(securityPolicy, /packs the verified npm tarball with lifecycle scripts disabled after the explicit verified build/);
   assert.match(securityPolicy, /derives the expected packed tarball name from the checked package name and exact semver version before writing `SHA256SUMS`/);

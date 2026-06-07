@@ -256,7 +256,7 @@ Security reporting and release invariants are documented in `SECURITY.md`.
 One-time repository setup:
 
 ```sh
-git remote add origin git@github.com:victorhaine/p2p-transfer.git
+git remote add origin https://github.com/VictorHaine/p2p-transfer.git
 ```
 
 In GitHub:

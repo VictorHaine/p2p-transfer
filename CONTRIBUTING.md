@@ -27,10 +27,19 @@ pnpm smoke:packed
 For release-sensitive or protocol-sensitive changes, also run:
 
 ```sh
+pnpm smoke:release-artifact
 pnpm test:e2e
 pnpm test:browser
 pnpm security:audit
 pnpm security:signatures
+```
+
+Before creating or pushing a release tag, run the full release gate and external
+release prerequisite preflight:
+
+```sh
+pnpm verify:release
+GITHUB_TOKEN="$(gh auth token)" pnpm release:preflight
 ```
 
 ## Security Rules
