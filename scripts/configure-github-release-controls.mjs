@@ -155,7 +155,6 @@ function tagRuleset() {
     bypass_actors: [],
     conditions: { ref_name: { include: [RELEASE_TAG_REF_PATTERN], exclude: [] } },
     rules: [
-      { type: "creation" },
       { type: "deletion" },
       { type: "non_fast_forward" }
     ]
@@ -356,8 +355,7 @@ function assertMainRuleset(ruleset) {
 function assertTagRuleset(ruleset) {
   assertRulesetBase(ruleset, TAG_RULESET_NAME, "tag", RELEASE_TAG_REF_PATTERN);
   assertNoBypassActors(ruleset, TAG_RULESET_NAME);
-  const rules = rulesByType(ruleset, TAG_RULESET_NAME, ["creation", "deletion", "non_fast_forward"]);
-  assertRulePresent(rules, "creation", TAG_RULESET_NAME);
+  const rules = rulesByType(ruleset, TAG_RULESET_NAME, ["deletion", "non_fast_forward"]);
   assertRulePresent(rules, "deletion", TAG_RULESET_NAME);
   assertRulePresent(rules, "non_fast_forward", TAG_RULESET_NAME);
 }

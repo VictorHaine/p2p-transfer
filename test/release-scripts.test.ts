@@ -915,7 +915,7 @@ function tagRuleset() {
     enforcement: "active",
     bypass_actors: [],
     conditions: { ref_name: { include: ["refs/tags/v*.*.*"], exclude: [] } },
-    rules: [{ type: "creation" }, { type: "deletion" }, { type: "non_fast_forward" }]
+    rules: [{ type: "deletion" }, { type: "non_fast_forward" }]
   };
 }
 
@@ -1523,7 +1523,7 @@ function tagRuleset() {
     enforcement: "active",
     bypass_actors: [],
     conditions: { ref_name: { include: [tagRulesetRef], exclude: [] } },
-    rules: [{ type: "creation" }, { type: "deletion" }, { type: "non_fast_forward" }]
+    rules: [{ type: "deletion" }, { type: "non_fast_forward" }]
   };
 }
 

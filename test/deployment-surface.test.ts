@@ -224,7 +224,8 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.doesNotMatch(releaseWorkflow, /workflow_dispatch/);
   assert.match(releaseWorkflow, /^concurrency:\n  group: release-\$\{\{ github\.ref \}\}\n  cancel-in-progress: false$/m);
   assert.match(releaseWorkflow, /^on:\n  push:\n    tags:\n      - "v\*\.\*\.\*"$/m);
-  assert.match(securityPolicy, /release tags matching `v\*\.\*\.\*` must be protected by the checked GitHub repository ruleset before publishing/);
+  assert.match(securityPolicy, /release tags matching `v\*\.\*\.\*` must be protected from deletion and non-fast-forward movement by the checked GitHub repository ruleset before publishing/);
+  assert.match(securityPolicy, /must not enable GitHub's tag creation restriction without an explicit audited release-bot bypass actor/);
   assert.match(securityPolicy, /classic tag protection is not validated by release preflight/);
   assert.match(readme, /exact repository rulesets that release preflight requires for `main` and `v\*\.\*\.\*` release tags/);
   assert.match(readme, /The checked repository ruleset for `v\*\.\*\.\*` tags must be active before the first release/);
@@ -533,7 +534,8 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(githubReleaseControlsScript, /type: "pull_request"[\s\S]*require_code_owner_review: true[\s\S]*require_last_push_approval: true[\s\S]*required_approving_review_count: 1[\s\S]*required_review_thread_resolution: true/);
   assert.match(githubReleaseControlsScript, /type: "required_status_checks"[\s\S]*do_not_enforce_on_create: true[\s\S]*strict_required_status_checks_policy: true[\s\S]*required_status_checks: REQUIRED_CI_CHECKS\.map\(\(context\) => \(\{ context, integration_id: GITHUB_ACTIONS_INTEGRATION_ID \}\)\)/);
   assert.match(githubReleaseControlsScript, /bypass_actors: \[\]/);
-  assert.match(githubReleaseControlsScript, /type: "creation"[\s\S]*type: "deletion"[\s\S]*type: "non_fast_forward"/);
+  assert.match(githubReleaseControlsScript, /type: "deletion"[\s\S]*type: "non_fast_forward"/);
+  assert.doesNotMatch(githubReleaseControlsScript, /type: "creation"/);
   assert.doesNotMatch(githubReleaseControlsScript, /tag_name_pattern/);
   assert.match(releaseWorkflow, /^on:\n  push:\n    tags:\n      - "v\*\.\*\.\*"$/m);
   assert.match(githubReleaseControlsScript, /Push main before applying GitHub release controls\./);
@@ -803,8 +805,8 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /const RELEASE_TAG_REF_PATTERN = `refs\/tags\/\$\{NPM_DEPLOYMENT_TAG_POLICY\}`/);
   assert.match(releaseReadinessScript, /assertRulesetBase\(ruleset, TAG_RULESET_NAME, "tag", RELEASE_TAG_REF_PATTERN\)/);
   assert.match(releaseReadinessScript, /assertNoBypassActors\(ruleset, TAG_RULESET_NAME\)/);
-  assert.match(releaseReadinessScript, /rulesByType\(ruleset, TAG_RULESET_NAME, \["creation", "deletion", "non_fast_forward"\]\)/);
-  assert.match(releaseReadinessScript, /assertRulePresent\(rules, "creation", TAG_RULESET_NAME\)/);
+  assert.match(releaseReadinessScript, /rulesByType\(ruleset, TAG_RULESET_NAME, \["deletion", "non_fast_forward"\]\)/);
+  assert.doesNotMatch(releaseReadinessScript, /assertRulePresent\(rules, "creation", TAG_RULESET_NAME\)/);
   assert.match(releaseReadinessScript, /function rulesByType\(ruleset, name, expectedTypes\)/);
   assert.match(releaseReadinessScript, /ruleset\.rules\.length !== expectedTypes\.length/);
   assert.match(releaseReadinessScript, /!expected\.has\(rule\.type\) \|\| rules\.has\(rule\.type\)/);
