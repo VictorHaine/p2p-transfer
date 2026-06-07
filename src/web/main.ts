@@ -505,11 +505,11 @@ async function sendBrowserFiles(control: RTCDataChannel, bulk: RTCDataChannel, k
       t: "manifest",
       files: transferFiles,
       totalBytes
-    });
+    }, throwIfSenderFailed);
 
     for (const plan of safeSendPlan) {
       await throwIfSenderFailed();
-      await sendControl(control, keys, { t: "file-begin", id: plan.id, name: plan.name, size: plan.size });
+      await sendControl(control, keys, { t: "file-begin", id: plan.id, name: plan.name, size: plan.size }, throwIfSenderFailed);
       await acks.wait("ready", plan.id);
       await throwIfSenderFailed();
       const ready = await verifiedBrowserReadyState(control, keys, acks, readyStates, plan, throwIfSenderFailed);
@@ -537,6 +537,7 @@ async function sendBrowserFiles(control: RTCDataChannel, bulk: RTCDataChannel, k
           } else {
             const sealed = await sealBulk(keys, plan.id, seq, payload);
             try {
+              await throwIfSenderFailed();
               bulk.send(encodeChunk(plan.id, seq, sealed));
             } finally {
               sealed.fill(0);
@@ -557,11 +558,11 @@ async function sendBrowserFiles(control: RTCDataChannel, bulk: RTCDataChannel, k
       const actualSha256 = digestHex(hash);
       if (actualSha256 !== plan.sha256) throw new Error(`${plan.name} changed while sending.`);
       await throwIfSenderFailed();
-      await sendControl(control, keys, { t: "file-end", id: plan.id, sha256: actualSha256 });
+      await sendControl(control, keys, { t: "file-end", id: plan.id, sha256: actualSha256 }, throwIfSenderFailed);
       await acks.wait("file-ok", plan.id);
     }
     await throwIfSenderFailed();
-    await sendControl(control, keys, { t: "all-done" });
+    await sendControl(control, keys, { t: "all-done" }, throwIfSenderFailed);
     await acks.wait("all-done-ok");
   } catch (error) {
     try {
@@ -813,7 +814,7 @@ async function receiveBrowserFiles(
       if (!state.done) return;
     }
     clearReceiveTimeout();
-    await sendControl(control, keys, { t: "all-done-ok" });
+    await sendControl(control, keys, { t: "all-done-ok" }, throwIfReceiveStopped);
     completed = true;
     resolveDone();
   };
@@ -874,6 +875,7 @@ async function receiveBrowserFiles(
   };
 
   const withLocalReceiveWork = async <T>(work: () => Promise<T>): Promise<T> => {
+    throwIfReceiveStopped();
     localReceiveWorkDepth += 1;
     clearReceiveTimeout();
     try {
@@ -928,6 +930,7 @@ async function receiveBrowserFiles(
     resetReceiveTimeout();
     try {
       const message = assertControlMessage(await openControl<unknown>(keys, data));
+      throwIfReceiveStopped();
       if (message.t === "manifest") {
         if (manifest) throw new Error("Duplicate transfer manifest.");
         manifest = message;
@@ -969,7 +972,7 @@ async function receiveBrowserFiles(
           transferred += state.bytes;
           updateProgress(log, "received", transferred, totalBytes, startedAt);
         }
-        await sendControl(control, keys, state.bytes > 0 ? { t: "ready", id: message.id, offset: state.bytes, prefixSha256: digestCloneHex(state.hash) } : { t: "ready", id: message.id });
+        await sendControl(control, keys, state.bytes > 0 ? { t: "ready", id: message.id, offset: state.bytes, prefixSha256: digestCloneHex(state.hash) } : { t: "ready", id: message.id }, throwIfReceiveStopped);
       } else if (message.t === "restart") {
         const state = states.get(message.id);
         if (!state) throw new Error(`Unknown file ${message.id}`);
@@ -977,7 +980,7 @@ async function receiveBrowserFiles(
         transferred = Math.max(0, transferred - state.bytes);
         await withLocalReceiveWork(() => restartBrowserReceiveState(state));
         updateProgress(log, "received", transferred, totalBytes, startedAt);
-        await sendControl(control, keys, { t: "ready", id: message.id });
+        await sendControl(control, keys, { t: "ready", id: message.id }, throwIfReceiveStopped);
       } else if (message.t === "file-end") {
         const state = states.get(message.id);
         if (!state) throw new Error(`Unknown file ${message.id}`);
@@ -1014,6 +1017,7 @@ async function receiveBrowserFiles(
       if (frame.chunkSeq !== state.expectedSeq) throw new Error(`Unexpected chunk sequence for ${state.name}`);
       const copy = await openBulk(keys, frame.fileId, frame.chunkSeq, frame.payload);
       try {
+        throwIfReceiveStopped();
         if (copy.byteLength === 0) throw new Error(`Empty chunk for ${state.name}`);
         if (state.bytes + copy.byteLength > state.size) throw new Error(`Received more bytes than declared for ${state.name}`);
         state.expectedSeq += 1;
@@ -1099,10 +1103,15 @@ async function maybeDownload(state: BrowserReceiveState, control: RTCDataChannel
       if (!state.fileHandle || !state.partName) throw new Error(`Missing partial file handle for ${state.name}`);
       await verifyWritableFile(state.fileHandle, state.partName, state.size, actual);
       throwIfReceiveStopped();
-      state.name = await publishBrowserPartFile(state, actual);
+      const fileOk = await sealControl(keys, { t: "file-ok", id: state.id });
+      throwIfReceiveStopped();
+      state.name = await publishBrowserPartFile(state, actual, throwIfReceiveStopped);
       throwIfReceiveStopped();
       if (state.resumeKey) forgetBrowserResumePartial(state.resumeKey);
+      control.send(fileOk);
     } else {
+      const fileOk = await sealControl(keys, { t: "file-ok", id: state.id });
+      throwIfReceiveStopped();
       const blob = new Blob(state.chunks, { type: "application/octet-stream" });
       wipeChunks(state.chunks);
       const url = URL.createObjectURL(blob);
@@ -1115,10 +1124,10 @@ async function maybeDownload(state: BrowserReceiveState, control: RTCDataChannel
         setTimeout(() => URL.revokeObjectURL(url), 30_000);
       }
       throwIfReceiveStopped();
+      control.send(fileOk);
     }
-    state.done = true;
     state.chunks = [];
-    await sendControl(control, keys, { t: "file-ok", id: state.id });
+    state.done = true;
   } catch (error) {
     state.finalizing = false;
     throw error;
@@ -1377,6 +1386,10 @@ class BrowserSignaling {
     return this.earlySignals.drain();
   }
 
+  isClosed(): boolean {
+    return this.disposed || this.ws.readyState === WebSocket.CLOSING || this.ws.readyState === WebSocket.CLOSED;
+  }
+
   private emit(message: BrowserSignalingEvent): void {
     if (this.disposed) return;
     if (message.type === "signal" && !this.listeners.get("signal")?.size) {
@@ -1444,6 +1457,7 @@ async function getIceServers(signaling: BrowserSignaling, useServerIce: boolean)
   if (!useServerIce) return cloneIceServers(DEFAULT_ICE_SERVERS);
   const cached = signaling.currentIceServers();
   if (cached) return cached;
+  if (signaling.isClosed()) throw new Error("Signaling socket closed.");
   return new Promise((resolve, reject) => {
     const cleanup = () => {
       clearTimeout(timer);
@@ -1590,6 +1604,10 @@ function waitFor<T extends ServerMessage["type"]>(
     const waitTimeoutMs = browserWaitTimeout(timeoutMs);
     const waitSid = browserWaitSid(sid);
     const waitSignal = browserWaitAbortSignal(signal);
+    if (signaling.isClosed()) {
+      reject(new Error("Signaling socket closed."));
+      return;
+    }
     let settled = false;
     const cleanup = () => {
       clearTimeout(timer);
@@ -2126,8 +2144,10 @@ async function waitBackpressure(channel: RTCDataChannel): Promise<void> {
   });
 }
 
-async function sendControl(channel: RTCDataChannel, keys: SessionKeys, message: ControlMessage): Promise<void> {
-  channel.send(await sealControl(keys, message));
+async function sendControl(channel: RTCDataChannel, keys: SessionKeys, message: ControlMessage, throwIfStopped?: () => void | Promise<void>): Promise<void> {
+  const sealed = await sealControl(keys, message);
+  await throwIfStopped?.();
+  channel.send(sealed);
 }
 
 function receiveQueueByteLength(data: unknown): number {
@@ -2571,16 +2591,21 @@ async function preserveBrowserPartialFile(state: BrowserReceiveState): Promise<v
   }
 }
 
-async function publishBrowserPartFile(state: BrowserReceiveState, expectedSha256: string): Promise<string> {
+async function publishBrowserPartFile(state: BrowserReceiveState, expectedSha256: string, throwIfReceiveStopped: () => void): Promise<string> {
   if (!state.directory || !state.fileHandle || !state.partName) throw new Error(`Missing partial file handle for ${state.name}.`);
+  throwIfReceiveStopped();
   const created = await createAvailableBrowserFile(state.directory, state.name, browserFinalCandidateName);
   const finalName = created.name;
   let finalCreated = false;
   try {
     finalCreated = true;
+    throwIfReceiveStopped();
     await copyWritableFile(state.fileHandle, created.handle, state.size);
+    throwIfReceiveStopped();
     await verifyWritableFile(created.handle, finalName, state.size, expectedSha256);
+    throwIfReceiveStopped();
     await state.directory.removeEntry(state.partName);
+    throwIfReceiveStopped();
     return finalName;
   } catch (error) {
     if (finalCreated) await state.directory.removeEntry(finalName).catch(ignoreNotFoundError);

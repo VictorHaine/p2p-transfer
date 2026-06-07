@@ -129,11 +129,11 @@ export async function sendFiles(
       t: "manifest",
       files: transferFiles,
       totalBytes
-    });
+    }, throwIfSenderFailed);
 
     for (const file of sendPlan) {
       await throwIfSenderFailed();
-      await sendControl(control, keys, { t: "file-begin", id: file.id, name: file.name, size: file.size });
+      await sendControl(control, keys, { t: "file-begin", id: file.id, name: file.name, size: file.size }, throwIfSenderFailed);
       await acks.wait("ready", file.id);
       await throwIfSenderFailed();
       const ready = await verifiedReadyState(control, keys, acks, readyStates, file, throwIfSenderFailed);
@@ -157,6 +157,7 @@ export async function sendFiles(
           hash.update(payload);
           const sealed = await sealBulk(keys, file.id, seq, payload);
           try {
+            await throwIfSenderFailed();
             bulk.send(encodeChunk(file.id, seq, sealed));
           } finally {
             sealed.fill(0);
@@ -176,12 +177,12 @@ export async function sendFiles(
       const actualSha256 = digestHex(hash);
       if (actualSha256 !== file.sha256) throw new Error(`${file.name} changed while sending.`);
       await throwIfSenderFailed();
-      await sendControl(control, keys, { t: "file-end", id: file.id, sha256: file.sha256 });
+      await sendControl(control, keys, { t: "file-end", id: file.id, sha256: file.sha256 }, throwIfSenderFailed);
       await acks.wait("file-ok", file.id);
     }
 
     await throwIfSenderFailed();
-    await sendControl(control, keys, { t: "all-done" });
+    await sendControl(control, keys, { t: "all-done" }, throwIfSenderFailed);
     await acks.wait("all-done-ok");
     printProgress("sent", "complete", progress, true);
   } catch (error) {
@@ -394,7 +395,7 @@ export async function receiveFiles(
       if (!state.done) return;
     }
     clearReceiveTimeout();
-    await sendControl(control, keys, { t: "all-done-ok" });
+    await sendControl(control, keys, { t: "all-done-ok" }, throwIfReceiveStopped);
     completed = true;
     resolveDone();
   };
@@ -425,6 +426,11 @@ export async function receiveFiles(
     } catch {
       // The channel may already be closed.
     }
+  };
+
+  const throwIfReceiveStopped = () => {
+    if (failed) throw new Error("Transfer stopped during local receive work.");
+    if (completed) throw new Error("Transfer completed during local receive work.");
   };
 
   const failTransfer = async (error: unknown) => {
@@ -492,6 +498,7 @@ export async function receiveFiles(
     resetReceiveTimeout();
     try {
       const message = assertControlMessage(await openControl<unknown>(keys, data));
+      throwIfReceiveStopped();
       if (message.t === "manifest") {
         if (manifest) throw new Error("Duplicate transfer manifest.");
         manifest = message;
@@ -533,7 +540,7 @@ export async function receiveFiles(
           void failTransfer(error);
         });
         files.set(message.id, state);
-        await sendControl(control, keys, resumeBytes > 0 ? { t: "ready", id: message.id, offset: resumeBytes, prefixSha256: digestCloneHex(resumeHash ?? createSha256()) } : { t: "ready", id: message.id });
+        await sendControl(control, keys, resumeBytes > 0 ? { t: "ready", id: message.id, offset: resumeBytes, prefixSha256: digestCloneHex(resumeHash ?? createSha256()) } : { t: "ready", id: message.id }, throwIfReceiveStopped);
       } else if (message.t === "restart") {
         const state = files.get(message.id);
         if (!state) throw new Error(`restart for unknown file ${message.id}`);
@@ -542,13 +549,13 @@ export async function receiveFiles(
         state.stream.on("error", (error) => {
           void failTransfer(error);
         });
-        await sendControl(control, keys, { t: "ready", id: message.id });
+        await sendControl(control, keys, { t: "ready", id: message.id }, throwIfReceiveStopped);
       } else if (message.t === "file-end") {
         const state = files.get(message.id);
         if (!state) throw new Error(`file-end for unknown file ${message.id}`);
         if (state.expectedSha256) throw new Error(`Duplicate file-end for file ${message.id}`);
         state.expectedSha256 = message.sha256;
-        await maybeFinalize(state, control, keys);
+        await maybeFinalize(state, control, keys, throwIfReceiveStopped);
         await maybeResolveDone();
       } else if (message.t === "all-done") {
         if (!manifest) throw new Error("all-done arrived before manifest.");
@@ -579,6 +586,7 @@ export async function receiveFiles(
       if (frame.chunkSeq !== state.expectedSeq) throw new Error(`Unexpected chunk sequence for ${state.name}.`);
       const payload = await openBulk(keys, frame.fileId, frame.chunkSeq, frame.payload);
       try {
+        throwIfReceiveStopped();
         if (payload.byteLength === 0) throw new Error(`Empty chunk for ${state.name}.`);
         if (state.bytes + payload.byteLength > state.size) throw new Error(`Received more bytes than declared for ${state.name}.`);
         state.expectedSeq += 1;
@@ -587,7 +595,7 @@ export async function receiveFiles(
         progress.transferredBytes += payload.byteLength;
         await writeStreamChunk(state.stream, payload);
         printProgress("received", state.name, progress);
-        await maybeFinalize(state, control, keys);
+        await maybeFinalize(state, control, keys, throwIfReceiveStopped);
         await maybeResolveDone();
       } finally {
         payload.fill(0);
@@ -625,8 +633,10 @@ export async function receiveFiles(
   }
 }
 
-async function sendControl(channel: RTCDataChannel, keys: SessionKeys, message: ControlMessage): Promise<void> {
-  channel.send(await sealControl(keys, message));
+async function sendControl(channel: RTCDataChannel, keys: SessionKeys, message: ControlMessage, throwIfStopped?: () => void | Promise<void>): Promise<void> {
+  const sealed = await sealControl(keys, message);
+  await throwIfStopped?.();
+  channel.send(sealed);
 }
 
 function receiveQueueByteLength(data: unknown): number {
@@ -656,29 +666,51 @@ async function restartReceiveState(state: ReceiveState): Promise<void> {
   }
 }
 
-async function maybeFinalize(state: ReceiveState, control: RTCDataChannel, keys: SessionKeys): Promise<void> {
+async function maybeFinalize(state: ReceiveState, control: RTCDataChannel, keys: SessionKeys, throwIfReceiveStopped: () => void): Promise<void> {
   if (state.done || state.finalizing || !state.expectedSha256 || state.bytes < state.size) return;
   state.finalizing = true;
   try {
     await new Promise<void>((resolve, reject) => state.stream.end((error?: Error | null) => (error ? reject(error) : resolve())));
+    throwIfReceiveStopped();
     const actual = digestHex(state.hash);
     if (actual !== state.expectedSha256) {
       await removePathIfIdentity(state.partPath, { dev: state.partDev, ino: state.partIno });
       throw new Error(`Hash mismatch for ${state.name}.`);
     }
     const onDisk = await digestFilePath(state.partPath, undefined, state.size);
+    throwIfReceiveStopped();
     if (onDisk !== state.expectedSha256) {
       await removePathIfIdentity(state.partPath, { dev: state.partDev, ino: state.partIno });
       throw new Error(`On-disk hash mismatch for ${state.name}.`);
     }
+    const fileOk = await sealControl(keys, { t: "file-ok", id: state.id });
+    throwIfReceiveStopped();
     const publishedIdentity = await publishPartFile(state.partPath, state.finalPath, { dev: state.partDev, ino: state.partIno }, state.size, { dev: state.dirDev, ino: state.dirIno });
+    try {
+      throwIfReceiveStopped();
+    } catch (error) {
+      await removePathIfIdentity(state.finalPath, publishedIdentity);
+      throw error;
+    }
     const published = await digestFilePath(state.finalPath, publishedIdentity, state.size);
+    try {
+      throwIfReceiveStopped();
+    } catch (error) {
+      await removePathIfIdentity(state.finalPath, publishedIdentity);
+      throw error;
+    }
     if (published !== state.expectedSha256) {
       await removePathIfIdentity(state.finalPath, publishedIdentity);
       throw new Error(`Published file hash mismatch for ${state.name}.`);
     }
+    try {
+      throwIfReceiveStopped();
+    } catch (error) {
+      await removePathIfIdentity(state.finalPath, publishedIdentity);
+      throw error;
+    }
+    control.send(fileOk);
     state.done = true;
-    await sendControl(control, keys, { t: "file-ok", id: state.id });
   } catch (error) {
     state.finalizing = false;
     throw error;

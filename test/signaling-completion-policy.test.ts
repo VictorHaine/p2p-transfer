@@ -126,13 +126,15 @@ test("browser ICE config wait fails when signaling dies after accept", () => {
   assert.match(securityPolicy, /browser post-accept ICE configuration waits must fail on signaling close or signaling error/);
   const body = extractFunctionBody(webSource, "getIceServers");
   assert.match(body, /new Promise\(\(resolve, reject\) => \{/);
+  assert.match(body, /if \(signaling\.isClosed\(\)\) throw new Error\("Signaling socket closed\."\);/);
   assert.match(body, /signaling\.off\("error", onError\)/);
   assert.match(body, /signaling\.off\("close", onClose\)/);
   assert.match(body, /const onError = \(message: BrowserSignalingEvent\) => \{[\s\S]*if \(!isServerMessage\(message\)\) return;[\s\S]*reject\(message\.type === "error" \? new BrowserSignalingError\(message\.code\) : new Error\("Signaling error"\)\);[\s\S]*\};/);
   assert.match(body, /const onClose = \(\) => \{[\s\S]*reject\(new Error\("Signaling socket closed\."\)\);[\s\S]*\};/);
   assert.match(body, /signaling\.on\("error", onError\)/);
   assert.match(body, /signaling\.on\("close", onClose\)/);
-  assert.match(distWebBundle, /currentIceServers\(\)\|\|new Promise/);
+  assert.match(distWebBundle, /currentIceServers\(\)/);
+  assert.match(distWebBundle, /isClosed\(\)/);
   assert.match(distWebBundle, /\.off\(`error`,\w+\),\w+\.off\(`close`,\w+\)/);
   assert.match(distWebBundle, /Signaling error/);
   assert.match(distWebBundle, /Signaling socket closed/);

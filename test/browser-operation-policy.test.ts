@@ -274,7 +274,7 @@ test("browser receive resume is explicit and limited to saved opaque folder part
   assert.match(receiveBody, /bytes: writableState\.bytes \?\? 0/);
   assert.match(receiveBody, /expectedSeq: writableState\.expectedSeq \?\? 0/);
   assert.match(receiveBody, /state\.bytes > 0 \? \{ t: "ready", id: message\.id, offset: state\.bytes, prefixSha256: digestCloneHex\(state\.hash\) \} : \{ t: "ready", id: message\.id \}/);
-  assert.match(receiveBody, /message\.t === "restart"[\s\S]*await withLocalReceiveWork\(\(\) => restartBrowserReceiveState\(state\)\)[\s\S]*await sendControl\(control, keys, \{ t: "ready", id: message\.id \}\)/);
+  assert.match(receiveBody, /message\.t === "restart"[\s\S]*await withLocalReceiveWork\(\(\) => restartBrowserReceiveState\(state\)\)[\s\S]*await sendControl\(control, keys, \{ t: "ready", id: message\.id \}, throwIfReceiveStopped\)/);
   assert.match(webSource, /async function restartBrowserReceiveState\(state: BrowserReceiveState\): Promise<void>/);
   assert.match(webSource, /state\.writable = await state\.fileHandle\.createWritable\(\{ keepExistingData: false \}\)/);
   assert.match(receiveBody, /if \(state\.resume\) \{[\s\S]*await preserveBrowserPartialFile\(state\);[\s\S]*\} else \{[\s\S]*await discardBrowserPartialFile\(state\)/);
@@ -376,18 +376,20 @@ test("browser receive local filesystem work does not trip the peer idle watchdog
   const maybeDownloadBody = extractFunctionBody(webSource, "maybeDownload");
 
   assert.match(securityPolicy, /browser receive local filesystem, hash, and publish work must not trip the peer-data idle watchdog/);
-  assert.match(securityPolicy, /browser receive local filesystem, hash, and publish work must re-check transfer failure before publishing final files, marking files done, or sending final acknowledgements/);
+  assert.match(securityPolicy, /browser and CLI receive local filesystem, hash, decrypt, and publish work must re-check transfer failure before mutating transfer state, publishing final files, marking files done, or sending final acknowledgements/);
+  assert.match(securityPolicy, /final file acknowledgements must be sealed before final publish\/download and sent synchronously after the final stop check/);
   assert.match(receiveBody, /const throwIfReceiveStopped = \(\) => \{[\s\S]*if \(failed\) throw new Error\("Transfer stopped during local browser receive work\."\);[\s\S]*if \(completed\) throw new Error\("Transfer completed during local browser receive work\."\);[\s\S]*\};/);
   assert.match(receiveBody, /let localReceiveWorkDepth = 0;/);
   assert.match(receiveBody, /if \(failed \|\| completed \|\| localReceiveWorkDepth > 0\) return;/);
-  assert.match(receiveBody, /const withLocalReceiveWork = async <T>\(work: \(\) => Promise<T>\): Promise<T> => \{[\s\S]*localReceiveWorkDepth \+= 1;[\s\S]*clearReceiveTimeout\(\);[\s\S]*const result = await work\(\);[\s\S]*throwIfReceiveStopped\(\);[\s\S]*return result;[\s\S]*localReceiveWorkDepth -= 1;[\s\S]*resetReceiveTimeout\(\);[\s\S]*\};/);
+  assert.match(receiveBody, /const withLocalReceiveWork = async <T>\(work: \(\) => Promise<T>\): Promise<T> => \{[\s\S]*throwIfReceiveStopped\(\);[\s\S]*localReceiveWorkDepth \+= 1;[\s\S]*clearReceiveTimeout\(\);[\s\S]*const result = await work\(\);[\s\S]*throwIfReceiveStopped\(\);[\s\S]*return result;[\s\S]*localReceiveWorkDepth -= 1;[\s\S]*resetReceiveTimeout\(\);[\s\S]*\};/);
   assert.match(receiveBody, /withLocalReceiveWork\(\(\) => createBrowserReceiveFile\(directory, message\.name, message\.size, resumeKey, resume, opaqueOutputNames\)\)/);
   assert.match(receiveBody, /withLocalReceiveWork\(\(\) => restartBrowserReceiveState\(state\)\)/);
   assert.match(receiveBody, /withLocalReceiveWork\(\(\) => state\.writable!\.write\(writeCopy\)\)/);
   assert.equal(receiveBody.match(/withLocalReceiveWork\(\(\) => maybeDownload\(state, control, keys, throwIfReceiveStopped\)\)/g)?.length, 2);
   assert.match(webSource, /async function maybeDownload\(state: BrowserReceiveState, control: RTCDataChannel, keys: SessionKeys, throwIfReceiveStopped: \(\) => void\): Promise<void>/);
-  assert.match(maybeDownloadBody, /await state\.writable\.close\(\);[\s\S]*throwIfReceiveStopped\(\);[\s\S]*await verifyWritableFile\(state\.fileHandle, state\.partName, state\.size, actual\);[\s\S]*throwIfReceiveStopped\(\);[\s\S]*state\.name = await publishBrowserPartFile\(state, actual\);[\s\S]*throwIfReceiveStopped\(\);/);
-  assert.match(maybeDownloadBody, /anchor\.click\(\);[\s\S]*setTimeout\(\(\) => URL\.revokeObjectURL\(url\), 30_000\);[\s\S]*throwIfReceiveStopped\(\);[\s\S]*state\.done = true;[\s\S]*await sendControl\(control, keys, \{ t: "file-ok", id: state\.id \}\);/);
+  assert.match(maybeDownloadBody, /await state\.writable\.close\(\);[\s\S]*throwIfReceiveStopped\(\);[\s\S]*await verifyWritableFile\(state\.fileHandle, state\.partName, state\.size, actual\);[\s\S]*throwIfReceiveStopped\(\);[\s\S]*const fileOk = await sealControl\(keys, \{ t: "file-ok", id: state\.id \}\);[\s\S]*throwIfReceiveStopped\(\);[\s\S]*state\.name = await publishBrowserPartFile\(state, actual, throwIfReceiveStopped\);[\s\S]*throwIfReceiveStopped\(\);[\s\S]*control\.send\(fileOk\);/);
+  assert.match(maybeDownloadBody, /const fileOk = await sealControl\(keys, \{ t: "file-ok", id: state\.id \}\);[\s\S]*throwIfReceiveStopped\(\);[\s\S]*anchor\.click\(\);[\s\S]*setTimeout\(\(\) => URL\.revokeObjectURL\(url\), 30_000\);[\s\S]*throwIfReceiveStopped\(\);[\s\S]*control\.send\(fileOk\);[\s\S]*state\.done = true;/);
+  assert.match(webSource, /async function publishBrowserPartFile\(state: BrowserReceiveState, expectedSha256: string, throwIfReceiveStopped: \(\) => void\): Promise<string>/);
 });
 
 test("browser folder receive removes a created partial if writable stream creation fails", () => {
@@ -446,6 +448,7 @@ test("browser signaling close disposes handlers and buffered peer data", () => {
   assert.match(webSource, /if \(this\.disposed\) throw new Error\("signaling socket is closed"\);/);
   assert.match(webSource, /currentIceServers\(\): RTCIceServer\[\] \| undefined \{[\s\S]*if \(this\.disposed\) return undefined;[\s\S]*return this\.latestIceServers \? cloneIceServers\(this\.latestIceServers\) : undefined;/);
   assert.match(webSource, /if \(this\.disposed\) return \[\];[\s\S]*return this\.earlySignals\.drain\(\);/);
+  assert.match(webSource, /isClosed\(\): boolean \{[\s\S]*return this\.disposed \|\| this\.ws\.readyState === WebSocket\.CLOSING \|\| this\.ws\.readyState === WebSocket\.CLOSED;/);
   const closeBody = extractBodyAfterSignature(webSource, "close(): void", "close");
   assert.match(closeBody, /this\.ws\.close\(\);[\s\S]*this\.scheduleCloseDispose\(\);/);
   const disposeBody = extractMethodBody(webSource, "dispose");

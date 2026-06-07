@@ -87,7 +87,7 @@ test("queued sender acknowledgement handlers stop after completion", () => {
 });
 
 test("senders re-check failure after local file work and backpressure", () => {
-  assert.match(securityPolicy, /browser and CLI senders must re-check authenticated sender failure after local resume-prefix hashing, asynchronous file reads, and DataChannel backpressure waits/);
+  assert.match(securityPolicy, /browser and CLI senders must re-check authenticated sender failure after local resume-prefix hashing, asynchronous file reads, awaited control\/bulk sealing, and DataChannel backpressure waits/);
 
   const cliSenderBody = extractFunctionBody(cliTransferSource, "sendFiles", "async function");
   const cliVerifiedReadyBody = extractFunctionBody(cliTransferSource, "verifiedReadyState", "async function");
@@ -99,6 +99,9 @@ test("senders re-check failure after local file work and backpressure", () => {
   assert.match(cliSenderBody, /await acks\.wait\("ready", file\.id\);\n\s+await throwIfSenderFailed\(\);\n\s+const ready = await verifiedReadyState\(control, keys, acks, readyStates, file, throwIfSenderFailed\);/);
   assert.match(cliSenderBody, /const \{ hash \} = await hashSendPrefix\(file, resumeOffset\);\n\s+await throwIfSenderFailed\(\);/);
   assert.match(cliSenderBody, /for await \(const chunk of file\.createReadStream[\s\S]*await throwIfSenderFailed\(\);[\s\S]*const payload = toBytes\(chunk\);[\s\S]*try \{\n\s+await throwIfSenderFailed\(\);/);
+  assert.match(cliSenderBody, /const sealed = await sealBulk\(keys, file\.id, seq, payload\);[\s\S]*await throwIfSenderFailed\(\);[\s\S]*bulk\.send\(encodeChunk\(file\.id, seq, sealed\)\)/);
+  assert.match(cliSenderBody, /await sendControl\(control, keys, \{ t: "file-end", id: file\.id, sha256: file\.sha256 \}, throwIfSenderFailed\);/);
+  assert.match(cliSenderBody, /await sendControl\(control, keys, \{ t: "all-done" \}, throwIfSenderFailed\);/);
   assert.match(cliSenderBody, /await waitForBackpressure\(bulk, DATA_CHANNEL_BUFFER_HIGH\);\n\s+await throwIfSenderFailed\(\);/);
   assert.match(cliTransferSource, /throwIfSenderFailed: \(\) => Promise<void>/);
   assert.match(cliVerifiedReadyBody, /for \(;;\) \{\n\s+await throwIfSenderFailed\(\);[\s\S]*const \{ prefixSha256 \} = await hashSendPrefix\(file, ready\.offset\);\n\s+await throwIfSenderFailed\(\);/);
@@ -106,6 +109,9 @@ test("senders re-check failure after local file work and backpressure", () => {
 
   assert.match(browserSenderBody, /await acks\.wait\("ready", plan\.id\);\n\s+await throwIfSenderFailed\(\);\n\s+const ready = await verifiedBrowserReadyState\(control, keys, acks, readyStates, plan, throwIfSenderFailed\);/);
   assert.match(browserSenderBody, /const payload = await readBrowserFileChunk[\s\S]*try \{\n\s+await throwIfSenderFailed\(\);/);
+  assert.match(browserSenderBody, /const sealed = await sealBulk\(keys, plan\.id, seq, payload\);[\s\S]*await throwIfSenderFailed\(\);[\s\S]*bulk\.send\(encodeChunk\(plan\.id, seq, sealed\)\)/);
+  assert.match(browserSenderBody, /await sendControl\(control, keys, \{ t: "file-end", id: plan\.id, sha256: actualSha256 \}, throwIfSenderFailed\);/);
+  assert.match(browserSenderBody, /await sendControl\(control, keys, \{ t: "all-done" \}, throwIfSenderFailed\);/);
   assert.match(browserSenderBody, /await waitBackpressure\(bulk\);\n\s+await throwIfSenderFailed\(\);/);
   assert.match(webSource, /throwIfSenderFailed: \(\) => Promise<void>/);
   assert.match(browserVerifiedReadyBody, /for \(;;\) \{\n\s+await throwIfSenderFailed\(\);[\s\S]*const prefixSha256 = await hashBrowserFilePrefix\(plan, ready\.offset\);\n\s+await throwIfSenderFailed\(\);/);

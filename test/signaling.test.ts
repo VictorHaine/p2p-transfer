@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import { SignalingClient, SignalingError, SignalingWaitTimeoutError, waitForMessage } from "../src/cli/signaling.js";
-import { SignalingWaitTimeoutError as DistSignalingWaitTimeoutError, waitForMessage as distWaitForMessage } from "../dist-node/cli/signaling.js";
+import { SignalingClient as DistSignalingClient, SignalingWaitTimeoutError as DistSignalingWaitTimeoutError, waitForMessage as distWaitForMessage } from "../dist-node/cli/signaling.js";
 import { establishKeys } from "../src/cli/secure.js";
 import { SIGNALING_CLOSE_GRACE_MS, SIGNALING_MAX_BUFFERED_BYTES } from "../src/shared/constants.js";
 import type { ClientMessage, ServerMessage } from "../src/shared/messages.js";
@@ -63,6 +63,26 @@ test("waitForMessage rejects on signaling close, socket error, and protocol erro
   const malformedWait = waitForMessage(malformed as never, "registered", 50);
   malformed.emit("protocol-error", new Error("Malformed signaling server message."));
   await assert.rejects(malformedWait, /Malformed signaling/);
+});
+
+test("waitForMessage rejects already closed signaling clients before listeners", async () => {
+  assert.match(securityPolicy, /browser and CLI signaling waiters must reject already closed or disposed signaling clients before installing listeners, timers, or fallback ICE waits/);
+
+  const client = new SignalingClient("ws://127.0.0.1:8787/v1/ws");
+  Object.assign(client as unknown as { disposed: boolean }, { disposed: true });
+  await assert.rejects(() => waitForMessage(client, "registered", 50), /Signaling socket closed/);
+  assert.equal(client.listenerCount("message"), 0);
+  assert.equal(client.listenerCount("close"), 0);
+  assert.equal(client.listenerCount("socket-error"), 0);
+  assert.equal(client.listenerCount("protocol-error"), 0);
+
+  const distClient = new DistSignalingClient("ws://127.0.0.1:8787/v1/ws");
+  Object.assign(distClient as unknown as { disposed: boolean }, { disposed: true });
+  await assert.rejects(() => distWaitForMessage(distClient, "registered", 50), /Signaling socket closed/);
+  assert.equal(distClient.listenerCount("message"), 0);
+  assert.equal(distClient.listenerCount("close"), 0);
+  assert.equal(distClient.listenerCount("socket-error"), 0);
+  assert.equal(distClient.listenerCount("protocol-error"), 0);
 });
 
 test("waitForMessage exposes typed timeout errors for classification without message access", async () => {
@@ -200,12 +220,15 @@ test("waitForMessage ignores malformed emitted messages without invoking getters
 
 test("browser signaling waits revalidate emitted messages before field reads", () => {
   assert.match(securityPolicy, /browser signaling wait helpers must reject invalid message types, malformed timeout values, malformed session ids, and malformed abort signals before timers\/listeners/);
+  assert.match(securityPolicy, /browser and CLI signaling waiters must reject already closed or disposed signaling clients before installing listeners, timers, or fallback ICE waits/);
   assert.match(webSource, /const BROWSER_WAIT_MESSAGE_TYPES = new Set<ServerMessage\["type"\]>/);
   assert.match(webSource, /const BROWSER_WAIT_SESSION_ID = \/\^\[A-Za-z0-9_-\]\{1,128\}\$\//);
   assert.match(webSource, /const waitType = browserWaitMessageType\(type\);/);
   assert.match(webSource, /const waitTimeoutMs = browserWaitTimeout\(timeoutMs\);/);
   assert.match(webSource, /const waitSid = browserWaitSid\(sid\);/);
   assert.match(webSource, /const waitSignal = browserWaitAbortSignal\(signal\);/);
+  assert.match(webSource, /if \(signaling\.isClosed\(\)\) \{[\s\S]*reject\(new Error\("Signaling socket closed\."\)\);[\s\S]*return;[\s\S]*\}/);
+  assert.match(webSource, /if \(signaling\.isClosed\(\)\) throw new Error\("Signaling socket closed\."\);/);
   assert.match(webSource, /const timer = setTimeout\(\(\) => \{[\s\S]*Timed out waiting for \$\{waitType\}[\s\S]*\}, waitTimeoutMs\);/);
   assert.match(webSource, /signaling\.on\(waitType, onType\);/);
   assert.match(webSource, /function browserWaitMessageType\(type: unknown\): ServerMessage\["type"\]/);

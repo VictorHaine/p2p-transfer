@@ -180,6 +180,10 @@ export class SignalingClient extends EventEmitter {
     return this.earlySignals.drain();
   }
 
+  isClosed(): boolean {
+    return this.disposed || !this.ws || this.ws.readyState === WebSocket.CLOSING || this.ws.readyState === WebSocket.CLOSED;
+  }
+
   private scheduleCloseTermination(ws: WebSocket): void {
     if (this.closeTimer) return;
     this.closeTimer = setTimeout(() => {
@@ -247,6 +251,10 @@ export function waitForMessage<T extends ServerMessage["type"]>(
     const waitTimeoutMs = waitTimeout(timeoutMs);
     const waitSid = waitSessionId(sid);
     const waitSignal = waitAbortSignal(signal);
+    if (signalingClientIsClosed(client)) {
+      reject(new Error("Signaling socket closed."));
+      return;
+    }
     let settled = false;
     const timer = setTimeout(() => {
       fail(new SignalingWaitTimeoutError(waitType));
@@ -330,4 +338,10 @@ function waitAbortSignal(signal: unknown): AbortSignal | undefined {
   if (signal === undefined) return undefined;
   if (!(signal instanceof AbortSignal)) throw new Error("Signaling wait abort signal is invalid.");
   return signal;
+}
+
+function signalingClientIsClosed(client: SignalingClient): boolean {
+  const descriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(client), "isClosed") ?? Object.getOwnPropertyDescriptor(client, "isClosed");
+  if (!descriptor || typeof descriptor.value !== "function") return false;
+  return descriptor.value.call(client) === true;
 }
