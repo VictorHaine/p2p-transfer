@@ -37,11 +37,8 @@ test("CLI sender rejects files that grow beyond the accepted manifest size while
   const bulk = fakeChannel();
   const send = sendFiles(control, bulk, senderKeys, [{ id: 0, name: "x.txt", size: 1, path: filePath, handle, sha256: VALID_SHA256, chunkSha256: [VALID_SHA256] }], false, true);
 
-  setTimeout(() => {
-    seal(receiverKeys, { t: "ready", id: 0 })
-      .then((sealed) => control.emit(sealed))
-      .catch(() => {});
-  }, 1);
+  await waitForControl(control, receiverKeys, "file-begin");
+  await control.emit(await seal(receiverKeys, { t: "ready", id: 0 }));
 
   await assert.rejects(send, /changed while sending/);
 });
