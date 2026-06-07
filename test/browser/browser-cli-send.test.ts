@@ -5,7 +5,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { randomInt } from "node:crypto";
-import { chromium, type Locator } from "playwright";
+import { chromium, type Locator, type Page } from "playwright";
 
 const chromiumPath = process.env.PLAYWRIGHT_CHROMIUM ?? findChromium();
 
@@ -100,6 +100,61 @@ test("CLI sender interoperates with browser receiver", { skip: chromiumPath ? fa
   }
 });
 
+test("CLI sender interoperates with browser folder-only receiver", { skip: chromiumPath ? false : "No Chromium executable found" }, async () => {
+  const root = process.cwd();
+  const port = 22_000 + randomInt(1_000);
+  const origin = `http://127.0.0.1:${port}`;
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-cli-browser-folder-"));
+  const childEnv = testChildEnv(tmp);
+  const server = spawn(process.execPath, ["dist-node/server/index.js"], {
+    cwd: root,
+    env: { ...childEnv, PORT: String(port), HOST: "127.0.0.1", NODE_ENV: "production", ALLOWED_ORIGINS: origin, SIGNALING_TOPOLOGY: "single-instance", ALLOW_INSECURE_ORIGINS: "true" }
+  });
+
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  try {
+    await waitForOutput(server, /listening/);
+    const source = path.join(tmp, "source.txt");
+    const payload = "cli to browser folder secure transfer\n";
+    await fs.writeFile(source, payload);
+
+    const serverUrl = `ws://127.0.0.1:${port}/v1/ws`;
+    browser = await chromium.launch(chromiumLaunchOptions());
+    const page = await browser.newPage();
+    await installFolderPickerMock(page);
+    await page.goto(`http://127.0.0.1:${port}/`);
+    assert.deepEqual(await folderPickerProbe(page), { hasMock: true, pickerType: "function", hasGetFileHandle: true });
+    await page.locator("#serverUrl").fill(serverUrl);
+    await page.locator("#folderOnly").check();
+    await page.locator("#receiveButton").click();
+    await page.locator("#codeBox").waitFor({ state: "visible", timeout: 30_000 });
+    const code = (await page.locator("#codeBox").textContent())?.trim();
+    assert.match(code ?? "", /^[0-9]{8}-[a-z]+-[a-z]+$/);
+
+    const sender = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "send", code!, source], { cwd: root, env: childEnv });
+    const senderDone = collectExit(sender);
+    await page.locator("#folderButton").waitFor({ state: "visible", timeout: 30_000 });
+    await page.locator("#acceptButton").waitFor({ state: "hidden", timeout: 30_000 });
+    await page.locator("#folderButton").click();
+    await expectText(page.locator("#recvStatus"), "Done");
+
+    const senderResult = await senderDone;
+    assert.equal(senderResult.code, 0, senderResult.stderr);
+    assert.match(senderResult.stdout, /"secure_session"/);
+    const folder = await folderPickerSnapshot(page);
+    const entries = Object.entries(folder.files);
+    assert.equal(entries.length, 1);
+    assert.match(entries[0]![0], /^source \(ff-[a-f0-9]{32}\)\.txt$/);
+    assert.equal(entries[0]![1], payload);
+    assert.equal(folder.pickerCalls, 2);
+    assert.deepEqual(folder.partFiles, []);
+    assert.equal(folder.removed.some((name) => /\.part$/.test(name)), true);
+  } finally {
+    await browser?.close();
+    server.kill();
+  }
+});
+
 function findChromium(): string | undefined {
   for (const bin of ["chromium", "google-chrome", "chrome"]) {
     const result = spawnSync("which", [bin], { encoding: "utf8" });
@@ -164,6 +219,118 @@ function collectExit(child: ChildProcessWithoutNullStreams): Promise<{ code: num
 
 function chromiumLaunchOptions() {
   return chromiumPath === undefined ? { headless: true } : { executablePath: chromiumPath, headless: true };
+}
+
+async function installFolderPickerMock(page: Page): Promise<void> {
+  await page.addInitScript({
+    content: `
+(() => {
+    const files = new Map();
+    const removed = [];
+    let pickerCalls = 0;
+
+    class MockFileHandle {
+      constructor(name) {
+        this.name = name;
+      }
+
+      async getFile() {
+        const bytes = files.get(this.name) ?? new Uint8Array();
+        const copy = new Uint8Array(bytes.byteLength);
+        copy.set(bytes);
+        return new File([copy], this.name);
+      }
+
+      async createWritable(options) {
+        if (!options?.keepExistingData) files.set(this.name, new Uint8Array());
+        let position = files.get(this.name)?.byteLength ?? 0;
+        return {
+          write: async (value) => {
+            if (value && typeof value === "object" && "type" in value) {
+              const command = value;
+              if (command.type === "truncate" && typeof command.size === "number") {
+                const current = files.get(this.name) ?? new Uint8Array();
+                const next = new Uint8Array(command.size);
+                next.set(current.subarray(0, Math.min(current.byteLength, command.size)));
+                files.set(this.name, next);
+                position = Math.min(position, command.size);
+                return;
+              }
+              if (command.type === "seek" && typeof command.position === "number") {
+                position = command.position;
+                return;
+              }
+            }
+            const source = value instanceof Uint8Array ? value : value instanceof ArrayBuffer ? new Uint8Array(value) : new Uint8Array(await value.arrayBuffer());
+            const current = files.get(this.name) ?? new Uint8Array();
+            const next = new Uint8Array(Math.max(current.byteLength, position + source.byteLength));
+            next.set(current);
+            next.set(source, position);
+            files.set(this.name, next);
+            position += source.byteLength;
+          },
+          close: async () => {},
+          abort: async () => {}
+        };
+      }
+    }
+
+    const directory = {
+      async getFileHandle(name, options) {
+        if (!files.has(name)) {
+          if (!options?.create) throw new DOMException("Not found", "NotFoundError");
+          files.set(name, new Uint8Array());
+        }
+        return new MockFileHandle(name);
+      },
+      async removeEntry(name) {
+        if (!files.delete(name)) throw new DOMException("Not found", "NotFoundError");
+        removed.push(name);
+      }
+    };
+
+    Object.defineProperty(window, "showDirectoryPicker", {
+      configurable: true,
+      value: async () => directory
+    });
+    window.showDirectoryPicker = async () => {
+      pickerCalls += 1;
+      return directory;
+    };
+    Object.defineProperty(window, "__ffTestFs", {
+      configurable: true,
+      value: {
+        snapshot: () => {
+          const decoder = new TextDecoder();
+          const fileEntries = [...files.entries()].sort(([left], [right]) => left.localeCompare(right));
+          return {
+            files: Object.fromEntries(fileEntries.map(([name, bytes]) => [name, decoder.decode(bytes)])),
+            partFiles: fileEntries.map(([name]) => name).filter((name) => name.endsWith(".part")),
+            removed: [...removed],
+            pickerCalls
+          };
+        }
+      }
+    });
+})();
+`
+  });
+}
+
+function folderPickerSnapshot(page: Page): Promise<{ files: Record<string, string>; partFiles: string[]; removed: string[]; pickerCalls: number }> {
+  return page.evaluate(() => (window as unknown as { __ffTestFs: { snapshot: () => { files: Record<string, string>; partFiles: string[]; removed: string[]; pickerCalls: number } } }).__ffTestFs.snapshot());
+}
+
+function folderPickerProbe(page: Page): Promise<{ hasMock: boolean; pickerType: string; hasGetFileHandle: boolean }> {
+  return page.evaluate(async () => {
+    const probeWindow = window as unknown as {
+      __ffTestFs?: unknown;
+      showDirectoryPicker?: () => Promise<{ getFileHandle?: unknown }>;
+    };
+    const hasMock = Boolean(probeWindow.__ffTestFs);
+    const directory = hasMock ? await probeWindow.showDirectoryPicker?.() : undefined;
+    return { hasMock, pickerType: typeof probeWindow.showDirectoryPicker, hasGetFileHandle: typeof directory?.getFileHandle === "function" };
+  });
 }
 
 function testChildEnv(tmp: string): NodeJS.ProcessEnv {

@@ -741,6 +741,11 @@ test("README reports implemented release capabilities without stale MVP-gap lang
 test("interop tests run the signaling server behind an explicit origin policy", () => {
   const e2eTest = fs.readFileSync(new URL("../test/e2e/cli-transfer.test.ts", import.meta.url), "utf8");
   const browserTest = fs.readFileSync(new URL("../test/browser/browser-cli-send.test.ts", import.meta.url), "utf8");
+  assert.match(readme, /browser sender to CLI receiver, CLI sender to browser download receiver, and CLI sender to browser folder-only receiver/);
+  assert.match(browserTest, /CLI sender interoperates with browser folder-only receiver/);
+  assert.match(browserTest, /installFolderPickerMock\(page\)/);
+  assert.match(browserTest, /#folderOnly/);
+  assert.match(browserTest, /#folderButton/);
   for (const source of [e2eTest, browserTest]) {
     assert.match(source, /NODE_ENV: "production"/);
     assert.match(source, /ALLOWED_ORIGINS: origin/);
