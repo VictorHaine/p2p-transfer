@@ -31,9 +31,9 @@ test("publishPartFile atomically refuses to overwrite an existing file", async (
   assert.equal(await fs.readFile(partPath, "utf8"), "new");
 });
 
-test("publish cleanup quarantines verified paths before removal", () => {
-  assert.match(securityPolicy, /CLI receive and publish cleanup must quarantine same-directory verified paths before removal/);
-  for (const source of [sourceTransfer, distTransfer]) {
+test("CLI cleanup quarantines verified paths before removal", () => {
+  assert.match(securityPolicy, /CLI receive, reservation, and publish cleanup must quarantine same-directory verified paths before removal/);
+  for (const source of [sourceTransfer, distTransfer, sourceFiles, distFiles]) {
     assert.match(source, /MAX_CLEANUP_QUARANTINE_ATTEMPTS/);
     assert.match(source, /cleanupQuarantinePath/);
     assert.match(source, /rename\(\w+, \w+\)/);
@@ -463,6 +463,50 @@ test("reserveOutputFile rejects output directory replacement during partial crea
 
   assert.equal(swapped, true);
   assert.deepEqual(await fs.readdir(dir), []);
+});
+
+test("reserveOutputFile cleanup does not delete a replaced partial pathname", { skip: process.platform === "win32" ? "directory replacement behavior differs on Windows." : false }, async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ff-reserve-cleanup-race-"));
+  const dir = path.join(root, "out");
+  const moved = path.join(root, "moved");
+  await fs.mkdir(dir);
+  const originalOpen = fsSync.promises.open;
+  const originalLstat = fsSync.promises.lstat;
+  const mutablePromises = fsSync.promises as typeof fsSync.promises & { open: typeof fsSync.promises.open; lstat: typeof fsSync.promises.lstat };
+  let swapped = false;
+  let raced = false;
+  try {
+    mutablePromises.open = async (target, flags, mode) => {
+      if (!swapped && typeof target === "string" && target.startsWith(dir + path.sep) && flags === "wx") {
+        swapped = true;
+        await fs.rename(dir, moved);
+        await fs.mkdir(dir);
+      }
+      return originalOpen.call(fsSync.promises, target, flags, mode);
+    };
+    mutablePromises.lstat = (async (target: fsSync.PathLike) => {
+      if (!raced && swapped && typeof target === "string" && target.startsWith(dir + path.sep) && target.endsWith(PART_FILE_SUFFIX)) {
+        const stat = await originalLstat.call(fsSync.promises, target);
+        await fs.rm(target);
+        await fs.writeFile(target, "replacement");
+        raced = true;
+        return stat;
+      }
+      return originalLstat.call(fsSync.promises, target);
+    }) as typeof fsSync.promises.lstat;
+
+    await assert.rejects(() => reserveOutputFile(dir, "file.txt"), /Output directory changed during reservation/);
+  } finally {
+    mutablePromises.open = originalOpen;
+    mutablePromises.lstat = originalLstat;
+  }
+
+  assert.equal(swapped, true);
+  assert.equal(raced, true);
+  const entries = await fs.readdir(dir);
+  const quarantined = entries.filter((entry) => entry.startsWith(".ff-delete-") && entry.endsWith(".tmp"));
+  assert.equal(quarantined.length, 1);
+  assert.equal(await fs.readFile(path.join(dir, quarantined[0]!), "utf8"), "replacement");
 });
 
 test("publishPartFile rejects output directory replacement before final publish", { skip: process.platform === "win32" ? "directory replacement behavior differs on Windows." : false }, async () => {

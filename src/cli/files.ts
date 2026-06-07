@@ -15,6 +15,7 @@ const SAFE_READ_FLAGS = fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.con
 const SAFE_SECRET_READ_FLAGS = fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK;
 const MAX_SEND_PATH_BYTES = 4096;
 const MAX_OUTPUT_DIR_BYTES = 4096;
+const MAX_CLEANUP_QUARANTINE_ATTEMPTS = 16;
 const UNSAFE_SEND_PATH_CHARS = /[\p{Cc}\p{Cf}]/u;
 const UNSAFE_OUTPUT_DIR_CHARS = /[\p{Cc}\p{Cf}]/u;
 
@@ -268,8 +269,35 @@ async function assertDirectoryIdentity(dir: string, expected: FileIdentity): Pro
 }
 
 async function removePathIfIdentity(filePath: string, expected: FileIdentity): Promise<void> {
-  const stat = await fs.promises.lstat(filePath);
-  if (stat.isFile() && stat.dev === expected.dev && stat.ino === expected.ino) await fs.promises.rm(filePath, { force: true });
+  await quarantineRemovePathIfIdentity(filePath, (stat) => sameFileIdentity(stat, expected));
+}
+
+async function quarantineRemovePathIfIdentity(filePath: string, matchesExpected: (stat: fs.Stats) => boolean): Promise<void> {
+  for (let attempt = 0; attempt < MAX_CLEANUP_QUARANTINE_ATTEMPTS; attempt += 1) {
+    const quarantinePath = cleanupQuarantinePath(filePath);
+    try {
+      const stat = await fs.promises.lstat(filePath);
+      if (!matchesExpected(stat)) return;
+      await fs.promises.rename(filePath, quarantinePath);
+      const quarantined = await fs.promises.lstat(quarantinePath);
+      if (!matchesExpected(quarantined)) throw new Error("Cleanup target changed before removal.");
+      await fs.promises.rm(quarantinePath, { force: true });
+      return;
+    } catch (error) {
+      if (isNodeErrorCode(error, "ENOENT")) return;
+      if (isNodeErrorCode(error, "EEXIST")) continue;
+      throw error;
+    }
+  }
+  throw new Error("Could not reserve a cleanup quarantine path.");
+}
+
+function cleanupQuarantinePath(filePath: string): string {
+  return path.join(path.dirname(filePath), `.ff-delete-${process.pid}-${randomBytes(8).toString("hex")}.tmp`);
+}
+
+function sameFileIdentity(stat: fs.Stats, expected: FileIdentity): boolean {
+  return stat.isFile() && stat.dev === expected.dev && stat.ino === expected.ino;
 }
 
 function randomPartFileName(): string {
