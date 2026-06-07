@@ -112,6 +112,10 @@ async function collectGitHubRepositoryReadiness(failures, token, repository, aut
   const repositoryOk = await collectReadinessFailure(failures, () => github(token, "GET", `/repos/${repository}`));
   if (!repositoryOk) return;
 
+  await collectReadinessFailure(failures, async () => {
+    assertPrivateVulnerabilityReporting(await github(token, "GET", `/repos/${repository}/private-vulnerability-reporting`));
+  });
+
   const mainBranch = await collectReadinessValue(failures, async () => {
     return await github(token, "GET", `/repos/${repository}/branches/main`).catch((error) => {
       if (error instanceof GitHubApiError && error.status === 404) throw new Error("Remote main branch is missing. Push main before releasing.");
@@ -351,6 +355,11 @@ async function assertSuccessfulMainWorkflowRun(token, repository, workflow, main
   if (run.status !== "completed" || run.conclusion !== "success" || run.head_branch !== "main" || run.head_sha !== mainSha) {
     throw new Error(`GitHub ${workflow.name} workflow latest successful main run is not current main.`);
   }
+}
+
+function assertPrivateVulnerabilityReporting(status) {
+  if (!status || typeof status !== "object" || Array.isArray(status)) throw new Error("GitHub private vulnerability reporting status response was invalid.");
+  if (status.enabled !== true) throw new Error("GitHub private vulnerability reporting must be enabled.");
 }
 
 function collectNpmEnvironmentReadiness(failures, environment, authenticatedLogin, releaseActorLogin) {
