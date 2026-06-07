@@ -5,13 +5,14 @@ import { lstat, mkdir, mkdtemp, open, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { isolatedChildEnv } from "./smoke-packed.mjs";
+import { assertTemporaryDiskSpace, isolatedChildEnv } from "./smoke-packed.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const artifactDir = path.join(root, "release-artifacts");
 const MAX_PACKAGE_JSON_BYTES = 128 * 1024;
 const CHILD_TIMEOUT_MS = 120_000;
 const CHILD_KILL_GRACE_MS = 5_000;
+const MIN_RELEASE_ARTIFACT_SMOKE_TMP_FREE_BYTES = 512 * 1024 * 1024;
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 
 if (isMain()) {
@@ -28,6 +29,7 @@ async function main() {
   const options = parseArgs(process.argv.slice(2));
   const packageJson = parsePackageMetadata(await readBoundedRegularFile(path.join(root, "package.json"), MAX_PACKAGE_JSON_BYTES, "package metadata"));
   const version = requiredVersion(packageJson.version);
+  await assertTemporaryDiskSpace(MIN_RELEASE_ARTIFACT_SMOKE_TMP_FREE_BYTES, "release artifact smoke requires at least 512 MiB of free temporary disk space.");
   const tmp = await mkdtemp(path.join(tmpdir(), "ff-release-artifact-smoke-"));
   const childEnv = await privateReleaseArtifactEnv(path.join(tmp, "home"));
   await rm(artifactDir, { recursive: true, force: true });

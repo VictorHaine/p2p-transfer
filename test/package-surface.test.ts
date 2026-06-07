@@ -413,7 +413,7 @@ test("packed package smoke installs and executes published bins", () => {
   assert.match(packedSmokeScript, /ff transfer/);
   assert.match(securityPolicy, /packed-install smoke must use an OS-assigned loopback port/);
   assert.match(securityPolicy, /packed-install smoke options and subprocesses must run with descriptor-read, non-empty, control-free, byte-capped environment values/);
-  assert.match(securityPolicy, /packed-install smoke must use a symlink-safe realpath entrypoint check and smoke-owned top-level failure reporting that does not print stack traces or raw path-sensitive evidence, strip terminal control and format characters and redact path-shaped evidence from captured subprocess output and rendered command labels, reject non-string command label parts and non-Buffer child output chunks before coercion, bound that sanitized output, and force-kill timed-out subprocesses/);
+  assert.match(securityPolicy, /packed-install smoke must use a symlink-safe realpath entrypoint check and smoke-owned top-level failure reporting that does not print stack traces or raw path-sensitive evidence, preflight temporary filesystem capacity before creating its private workspace or starting package-manager\/native-install work, strip terminal control and format characters and redact path-shaped evidence from captured subprocess output and rendered command labels, reject non-string command label parts and non-Buffer child output chunks before coercion, bound that sanitized output, and force-kill timed-out subprocesses/);
   assert.match(securityPolicy, /packed-install smoke command timeouts must reject only after the timed-out subprocess exits/);
   assert.match(securityPolicy, /packed-install smoke startup waits must clean up listeners, terminate timed-out server subprocesses, and reject only after the server subprocess exits/);
   assert.match(securityPolicy, /packed-install smoke must byte-cap server health and web UI response bodies/);
@@ -428,6 +428,7 @@ test("packed package smoke installs and executes published bins", () => {
   assert.match(packedSmokeScript, /const MAX_CHILD_OUTPUT_CHARS = 200_000/);
   assert.match(packedSmokeScript, /const MAX_PACKED_SMOKE_TARBALL_BYTES = 50 \* 1024 \* 1024/);
   assert.match(packedSmokeScript, /const MAX_PACKED_SMOKE_TARBALL_PATH_BYTES = 4_096/);
+  assert.match(packedSmokeScript, /const MIN_PACKED_SMOKE_TMP_FREE_BYTES = 1024 \* 1024 \* 1024/);
   assert.match(packedSmokeScript, /const MAX_HEALTH_RESPONSE_BYTES = 8_192/);
   assert.match(packedSmokeScript, /const MAX_WEB_RESPONSE_BYTES = 1_048_576/);
   assert.match(packedSmokeScript, /const MAX_FETCH_RESPONSE_MS = 10_000/);
@@ -444,6 +445,8 @@ test("packed package smoke installs and executes published bins", () => {
   assert.match(packedSmokeScript, /function renderCommandForLog\(command, args\)/);
   assert.match(packedSmokeScript, /function commandParts\(command, args\)/);
   assert.match(packedSmokeScript, /function redactPathLikeText\(value\)/);
+  assert.match(packedSmokeScript, /export async function assertTemporaryDiskSpace\(minFreeBytes, failureMessage\)/);
+  assert.match(packedSmokeScript, /await assertTemporaryDiskSpace\(MIN_PACKED_SMOKE_TMP_FREE_BYTES, "Packed smoke requires at least 1 GiB of free temporary disk space\."\)/);
   assert.match(packedSmokeScript, /Object\.getOwnPropertyDescriptor\(args, String\(index\)\)/);
   assert.match(packedSmokeScript, /const commandLabel = renderCommandForLog\(command, args\)/);
   assert.doesNotMatch(packedSmokeScript, /\$\{command\} \$\{args\.join\(" "\)\}/);
@@ -729,6 +732,8 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseArtifactSmokeScript, /import \{ spawn \} from "node:child_process"/);
   assert.match(releaseArtifactSmokeScript, /const CHILD_TIMEOUT_MS = 120_000/);
   assert.match(releaseArtifactSmokeScript, /const CHILD_KILL_GRACE_MS = 5_000/);
+  assert.match(releaseArtifactSmokeScript, /const MIN_RELEASE_ARTIFACT_SMOKE_TMP_FREE_BYTES = 512 \* 1024 \* 1024/);
+  assert.match(releaseArtifactSmokeScript, /await assertTemporaryDiskSpace\(MIN_RELEASE_ARTIFACT_SMOKE_TMP_FREE_BYTES, "release artifact smoke requires at least 512 MiB of free temporary disk space\."\)/);
   assert.match(releaseArtifactSmokeScript, /const tmp = await mkdtemp\(path\.join\(tmpdir\(\), "ff-release-artifact-smoke-"\)\)/);
   assert.match(releaseArtifactSmokeScript, /const childEnv = await privateReleaseArtifactEnv\(path\.join\(tmp, "home"\)\)/);
   assert.match(releaseArtifactSmokeScript, /await run\(pnpm, \["--config\.ignore-scripts=true", "pack", "--pack-destination", "release-artifacts"\], childEnv, \{\}, "release artifact pack"\)/);
@@ -742,7 +747,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseArtifactSmokeScript, /const options = parseArgs\(process\.argv\.slice\(2\)\)/);
   assert.match(releaseArtifactSmokeScript, /args\.length === 1 && args\[0\] === "--keep-artifacts"/);
   assert.match(releaseArtifactSmokeScript, /if \(!options\.keepArtifacts\) await rm\(artifactDir, \{ recursive: true, force: true \}\)/);
-  assert.match(releaseArtifactSmokeScript, /import \{ isolatedChildEnv \} from "\.\/smoke-packed\.mjs"/);
+  assert.match(releaseArtifactSmokeScript, /import \{ assertTemporaryDiskSpace, isolatedChildEnv \} from "\.\/smoke-packed\.mjs"/);
   assert.match(releaseArtifactSmokeScript, /await mkdir\(env\.XDG_CONFIG_HOME, \{ recursive: true, mode: 0o700 \}\)/);
   assert.match(releaseArtifactSmokeScript, /await mkdir\(env\.PNPM_HOME, \{ recursive: true, mode: 0o700 \}\)/);
   assert.match(releaseArtifactSmokeScript, /await mkdir\(env\.COREPACK_HOME, \{ recursive: true, mode: 0o700 \}\)/);
@@ -762,6 +767,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseArtifactSmokeScript, /new TextDecoder\("utf-8", \{ fatal: true \}\)\.decode\(bytes\)/);
   assert.doesNotMatch(releaseArtifactSmokeScript, /readFile\(path\.join\(root, "package\.json"\)/);
   assert.match(securityPolicy, /release-artifact smoke must run `pnpm pack`, CycloneDX SBOM generation, checksum generation, and release-artifact verification with the same minimal allowlisted child environment/);
+  assert.match(securityPolicy, /release-artifact smoke must preflight temporary filesystem capacity before creating its private workspace or starting package-manager work/);
   assert.match(securityPolicy, /release-artifact smoke top-level failure reporting must not print stack traces or raw path-sensitive evidence/);
   assert.match(securityPolicy, /release-artifact smoke command timeouts must signal the child, arm a bounded `SIGKILL` fallback, reject only after the child exits, and ignore child stdout\/stderr/);
   assert.match(releaseArtifactSmokeScript, /await rm\(artifactDir, \{ recursive: true, force: true \}\)/);

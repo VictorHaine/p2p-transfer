@@ -2,7 +2,7 @@
 import { spawn } from "node:child_process";
 import { constants } from "node:fs";
 import { realpathSync } from "node:fs";
-import { lstat, mkdtemp, mkdir, open, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, mkdir, open, readFile, readdir, rm, statfs, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -21,6 +21,7 @@ const CHILD_KILL_GRACE_MS = 5_000;
 const MAX_PACKED_SMOKE_TARBALL_BYTES = 50 * 1024 * 1024;
 const MAX_PACKED_SMOKE_TARBALL_PATH_BYTES = 4_096;
 const TARBALL_COPY_CHUNK_BYTES = 64 * 1024;
+const MIN_PACKED_SMOKE_TMP_FREE_BYTES = 1024 * 1024 * 1024;
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const logTextDecoder = new TextDecoder("utf-8", { fatal: false });
 
@@ -43,6 +44,7 @@ async function main() {
   const protocolVersion = requiredProtocolVersion(parseJsonEvidence(await readText(path.join(root, "conformance", "protocol-v5.json"), MAX_CONFORMANCE_JSON_BYTES), "conformance/protocol-v5.json").protocolVersion);
   const providedTarball = optionalProvidedTarball();
   const keepTemp = optionalEnvString("KEEP_PACKED_SMOKE_TMP") === "true";
+  await assertTemporaryDiskSpace(MIN_PACKED_SMOKE_TMP_FREE_BYTES, "Packed smoke requires at least 1 GiB of free temporary disk space.");
   const tmp = await mkdtemp(path.join(tmpdir(), "ff-packed-smoke-"));
   const packDir = path.join(tmp, "pack");
   const consumerDir = path.join(tmp, "consumer");
@@ -314,6 +316,28 @@ export function isolatedChildEnv(privateHome) {
     LOCALAPPDATA: path.join(home, "local-app-data"),
     APPDATA: path.join(home, "app-data")
   };
+}
+
+export async function assertTemporaryDiskSpace(minFreeBytes, failureMessage) {
+  if (!Number.isSafeInteger(minFreeBytes) || minFreeBytes < 1 || typeof failureMessage !== "string" || failureMessage.length < 1 || /[\p{Cc}\p{Cf}]/u.test(failureMessage) || containsPathLikeText(failureMessage)) {
+    throw new Error("Temporary disk-space check is invalid.");
+  }
+  let stats;
+  try {
+    stats = await statfs(tmpdir());
+  } catch {
+    throw new Error("Could not inspect temporary disk capacity.");
+  }
+  const blockSize = statfsNumber(stats.bsize);
+  const availableBlocks = statfsNumber(stats.bavail);
+  if (blockSize < 1n) throw new Error("Temporary disk capacity is invalid.");
+  if (blockSize * availableBlocks < BigInt(minFreeBytes)) throw new Error(failureMessage);
+}
+
+function statfsNumber(value) {
+  if (typeof value === "bigint" && value >= 0n) return value;
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) return BigInt(value);
+  throw new Error("Temporary disk capacity is invalid.");
 }
 
 function isSafeChildEnvValue(value) {

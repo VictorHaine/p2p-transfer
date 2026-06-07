@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { appendBoundedOutput, checkedChildStdin, expectedPackedTarballName, isolatedChildEnv, optionalEnvString, optionalProvidedTarball, parseJsonEvidence, readBoundedResponseText, renderCommandForLog, safeChildEnv, stageVerifiedTarball } from "../scripts/smoke-packed.mjs";
+import { appendBoundedOutput, assertTemporaryDiskSpace, checkedChildStdin, expectedPackedTarballName, isolatedChildEnv, optionalEnvString, optionalProvidedTarball, parseJsonEvidence, readBoundedResponseText, renderCommandForLog, safeChildEnv, stageVerifiedTarball } from "../scripts/smoke-packed.mjs";
 
 const packedSmokeSource = await readFile(new URL("../scripts/smoke-packed.mjs", import.meta.url), "utf8");
 
@@ -222,6 +222,18 @@ test("packed smoke optional environment inputs are descriptor-read and byte-capp
     if (original === undefined) delete process.env.KEEP_PACKED_SMOKE_TMP;
     else process.env.KEEP_PACKED_SMOKE_TMP = original;
   }
+});
+
+test("packed smoke temporary disk preflight fails without raw paths", async () => {
+  await assert.rejects(
+    () => assertTemporaryDiskSpace(Number.MAX_SAFE_INTEGER, "packed smoke temporary space is too low."),
+    (error) => {
+      const message = String((error as Error).message);
+      assert.equal(message, "packed smoke temporary space is too low.");
+      assert.doesNotMatch(message, /\/|[A-Za-z]:[\\/]|tmp|var|Users/);
+      return true;
+    }
+  );
 });
 
 test("packed smoke child environment isolates host home and package-manager config", async () => {
