@@ -161,6 +161,7 @@ test("server-visible pair request manifests must be redacted", () => {
     false
   );
   assert.equal(publicPairRequestManifestIsRedacted({ fileCount: 1, totalBytes: 1, files: [{ id: 0, name: "taxes.pdf", size: 1 }] }), false);
+  assert.equal(publicPairRequestManifestIsRedacted({ fileCount: 0, totalBytes: 0, files: [] }), false);
   assert.equal(publicPairRequestManifestIsRedacted({ fileCount: 1, totalBytes: 1, files: [{ id: 0, name: "encrypted-0", size: 1, mime: "application/pdf" }] }), false);
   assert.equal(publicPairRequestManifestIsRedacted({ fileCount: 1, totalBytes: 1, files: [{ id: 7, name: "encrypted-0", size: 1 }] }), false);
   assert.equal(publicPairRequestManifestIsRedacted({ fileCount: 1, totalBytes: 1, files: [{ id: 0, name: "encrypted-1", size: 1 }] }), false);

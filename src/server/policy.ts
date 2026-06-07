@@ -143,7 +143,7 @@ export function publicPairRequestManifestIsRedacted(manifest: FileManifest): boo
     typeof fileCount !== "number" ||
     !Array.isArray(files) ||
     !Number.isSafeInteger(fileCount) ||
-    fileCount < 0 ||
+    fileCount < 1 ||
     files.length !== fileCount ||
     typeof totalBytes !== "number" ||
     !Number.isSafeInteger(totalBytes) ||
