@@ -498,8 +498,12 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.equal(packageJson.scripts?.["release:preflight"], "node scripts/check-release-readiness.mjs");
   assert.equal(packageJson.scripts?.["bootstrap:npm"], "node scripts/bootstrap-npm-package.mjs");
   assert.match(readme, /gh auth refresh -h github\.com -s workflow/);
+  assert.match(readme, /git push -u origin main\nGITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
+  assert.match(readme, /`main` must exist remotely before `pnpm release:preflight` can pass/);
+  assert.match(readme, /The first push needs a GitHub token with `workflow` scope because this repository ships GitHub Actions workflow files/);
   assert.match(readme, /GITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
   assert.match(contributing, /pnpm exec playwright install --with-deps chromium\npnpm verify:release\ngh auth refresh -h github\.com -s workflow\nGITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
+  assert.match(contributing, /make sure `main` already exists on\nGitHub, then run the full release gate/);
   assert.match(securityPolicy, /local release preflight must fail before tagging when the npm package is missing, the target npm version already exists, the GitHub token lacks `workflow` scope/);
   assert.match(securityPolicy, /the `RELEASE_PREFLIGHT_TOKEN` repository secret is missing/);
   assert.match(securityPolicy, /GitHub `npm` environment lacks required reviewers, allows self-review, allows admin bypass, allows branch deployments, lacks the exact `v\*\.\*\.\*` tag deployment policy, or has the authenticated release operator as its sole required reviewer/);

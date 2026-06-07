@@ -333,11 +333,13 @@ pnpm install --frozen-lockfile
 pnpm exec playwright install --with-deps chromium
 pnpm verify:release
 gh auth refresh -h github.com -s workflow
+git push -u origin main
 GITHUB_TOKEN="$(gh auth token)" pnpm release:preflight
 git tag v0.1.0
-git push origin main
 git push origin v0.1.0
 ```
+
+`main` must exist remotely before `pnpm release:preflight` can pass. The first push needs a GitHub token with `workflow` scope because this repository ships GitHub Actions workflow files.
 
 The tag starts the release workflow. It verifies the tag matches `package.json`, verifies the tagged commit exactly matches protected `main`, verifies the npm package already exists and the target version has not been published, repeats the release gate, attests the exact checked tarball and SBOM from `SHA256SUMS`, publishes that tarball to npm with provenance, then creates the GitHub Release with the same tarball, `SHA256SUMS`, and `SBOM.cdx.json`. Protect `v*` tags with a ruleset/tag-protection rule before the first release; branch protection alone does not restrict who can create release tags.
 
