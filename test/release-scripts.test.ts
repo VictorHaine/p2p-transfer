@@ -648,6 +648,54 @@ globalThis.fetch = async () => {
   }
 });
 
+test("live release ref verifier rejects ambiguous GitHub token sources before network work", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-live-release-ref-token-ambiguous-"));
+  const mock = path.join(tmp, "mock-live-release-ref-token-ambiguous.mjs");
+  const log = path.join(tmp, "requests.log");
+  try {
+    await fs.writeFile(
+      mock,
+      `
+import { appendFileSync } from "node:fs";
+
+const log = process.env.FF_MOCK_LIVE_REF_AMBIGUOUS_TOKEN_LOG;
+
+globalThis.fetch = async (url, init = {}) => {
+  const parsed = new URL(url);
+  appendFileSync(log, (init.method ?? "GET") + " " + parsed.origin + parsed.pathname + "\\n", "utf8");
+  return new Response(JSON.stringify({ message: "unexpected network" }), { status: 500, headers: { "content-type": "application/json" } });
+};
+`,
+      "utf8"
+    );
+
+    const result = runScriptWithNodeArgs(
+      "scripts/verify-live-release-ref.mjs",
+      {
+        FF_MOCK_LIVE_REF_AMBIGUOUS_TOKEN_LOG: log,
+        GITHUB_REPOSITORY: "VictorHaine/p2p-transfer",
+        GITHUB_TOKEN: "github-token-that-must-not-be-printed",
+        GH_TOKEN: "gh-token-that-must-not-be-printed",
+        ...releaseTagEnv("v0.1.0")
+      },
+      [],
+      ["--import", mock]
+    );
+    const requests = await fs.readFile(log, "utf8").catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return "";
+      throw error;
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Live release ref verification failed:\n- Set only one of GITHUB_TOKEN or GH_TOKEN for live release ref verification\./);
+    assert.doesNotMatch(result.stderr, /github-token-that-must-not-be-printed|gh-token-that-must-not-be-printed|unexpected network|api\.github|Error:/);
+    assert.equal(requests, "");
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
 test("release publish script rejects branch refs before artifact work", () => {
   const result = runScript("scripts/publish-release-artifact.mjs", {
     ...releaseTagEnv("v0.1.0"),

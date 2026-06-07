@@ -31,7 +31,12 @@ export async function assertLiveReleaseRefFromEnv() {
 }
 
 function releaseRefToken() {
-  return optionalEnvString("GITHUB_TOKEN") ?? optionalEnvString("GH_TOKEN") ?? requiredEnvString("GITHUB_TOKEN");
+  const githubToken = optionalEnvString("GITHUB_TOKEN");
+  const ghToken = optionalEnvString("GH_TOKEN");
+  if (githubToken !== undefined && ghToken !== undefined) throw new Error("Set only one of GITHUB_TOKEN or GH_TOKEN for live release ref verification.");
+  const token = githubToken ?? ghToken;
+  if (token === undefined) throw new Error(`GITHUB_TOKEN or GH_TOKEN must be a non-empty control-free environment value under ${MAX_ENV_VALUE_BYTES} UTF-8 bytes.`);
+  return token;
 }
 
 async function githubTagCommitSha(token, repository, tag) {
