@@ -610,6 +610,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(securityPolicy, /release artifact verification must use the checked script with a symlink-safe realpath entrypoint check and verifier-owned top-level failure reporting that does not print stack traces or raw path-sensitive evidence, verify `release-artifacts` is a real directory inside the project root before listing or opening release evidence/);
   assert.match(securityPolicy, /validate artifact directory entry names before sorting, filtering, or reporting them/);
   assert.match(securityPolicy, /reject control\/format\/path-shaped or over-byte-budget entry names without echoing them/);
+  assert.match(securityPolicy, /require control-free byte-capped `GITHUB_OUTPUT` paths before appending verifier output/);
   assert.match(securityPolicy, /prove the downloaded artifact directory contains only `SHA256SUMS`, `SBOM\.cdx\.json`, and the expected tarball/);
   assert.match(securityPolicy, /release artifact verification must extract exactly one regular-file `package\/package\.json` with bounded in-process gzip\/tar parsing/);
   assert.match(securityPolicy, /reject invalid gzip archives with verifier-owned deterministic errors/);
@@ -629,7 +630,9 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseArtifactScript, /args\.length === 1 && args\[0\] === "--print-tarball"/);
   assert.match(releaseArtifactScript, /args\.length === 2 && args\[0\] === "--github-output" && args\[1\] === "tarball"/);
   assert.match(releaseArtifactScript, /async function writeGithubOutput\(name, value\)/);
-  assert.match(releaseArtifactScript, /const outputPath = envString\("GITHUB_OUTPUT", MAX_GITHUB_OUTPUT_BYTES\)/);
+  assert.match(releaseArtifactScript, /const outputPath = githubOutputPath\(\)/);
+  assert.match(releaseArtifactScript, /function githubOutputPath\(\)/);
+  assert.match(releaseArtifactScript, /if \(\/\[\\p\{Cc\}\\p\{Cf\}\]\/u\.test\(outputPath\)\) throw new Error\("GITHUB_OUTPUT must be a non-empty control-free path\."\)/);
   assert.match(releaseArtifactScript, /await handle\.writeFile\(`\$\{name\}=\$\{value\}\\n`, "utf8"\)/);
   assert.match(releaseArtifactScript, /function verifiedTarballPath\(tarball\)/);
   assert.match(releaseArtifactScript, /relative !== path\.join\("release-artifacts", tarball\.basename\)/);

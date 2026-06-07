@@ -472,7 +472,7 @@ async function writeGithubOutput(name, value) {
   if (name !== "tarball" || !/^release-artifacts\/[A-Za-z0-9._-]+\.tgz$/.test(value)) {
     throw new Error("verified release tarball output is invalid.");
   }
-  const outputPath = envString("GITHUB_OUTPUT", MAX_GITHUB_OUTPUT_BYTES);
+  const outputPath = githubOutputPath();
   if (!path.isAbsolute(outputPath)) throw new Error("GITHUB_OUTPUT must be an absolute path.");
   const info = await lstat(outputPath);
   if (!info.isFile()) throw new Error("GITHUB_OUTPUT must be a regular file.");
@@ -486,6 +486,12 @@ async function writeGithubOutput(name, value) {
   } finally {
     await handle.close();
   }
+}
+
+function githubOutputPath() {
+  const outputPath = envString("GITHUB_OUTPUT", MAX_GITHUB_OUTPUT_BYTES);
+  if (/[\p{Cc}\p{Cf}]/u.test(outputPath)) throw new Error("GITHUB_OUTPUT must be a non-empty control-free path.");
+  return outputPath;
 }
 
 async function verifyChecksumFile(releaseArtifactDir, tarball, sbom) {

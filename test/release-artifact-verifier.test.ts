@@ -151,6 +151,30 @@ test("release artifact verifier writes the verified tarball path to GitHub outpu
   assert.equal(await fs.readFile(result.githubOutputPath, "utf8"), "tarball=release-artifacts/victorhaine-p2p-transfer-1.2.3.tgz\n");
 });
 
+test("release artifact verifier rejects control-bearing GitHub output paths", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-output-root-"));
+  const outputPath = path.join(root, "github-output\nwith-control.txt");
+  try {
+    await fs.writeFile(outputPath, "");
+    const result = await runVerifierInFixture({
+      packageName: "@victorhaine/p2p-transfer",
+      version: "1.2.3",
+      args: ["--github-output", "tarball"],
+      githubOutputPath: outputPath,
+      tarBlocks: packageJsonTarBlocks("@victorhaine/p2p-transfer", "1.2.3", {
+        endBlocks: 2
+      })
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /GITHUB_OUTPUT must be a non-empty control-free path\./);
+    assert.doesNotMatch(result.stderr, /with-control|github-output|ff-release-output-root-|release-artifacts|Error:/);
+  } finally {
+    await fs.rm(root, { force: true, recursive: true });
+  }
+});
+
 test("release artifact verifier rejects unexpected CLI arguments without a stack", async () => {
   const result = await runVerifierInFixture({
     packageName: "p2p-transfer",
@@ -474,6 +498,7 @@ async function runVerifierInFixture(options: {
   refName?: string;
   args?: string[];
   githubOutputFileName?: string;
+  githubOutputPath?: string;
   tarBlocks?: Buffer[];
   tarball?: Buffer;
   sbom?: Buffer;
@@ -507,8 +532,8 @@ async function runVerifierInFixture(options: {
   for (const entry of options.extraArtifactEntries ?? []) {
     await fs.writeFile(path.join(artifactDir, entry.name), entry.body ?? Buffer.alloc(0));
   }
-  const githubOutputPath = options.githubOutputFileName ? path.join(root, options.githubOutputFileName) : undefined;
-  if (githubOutputPath) await fs.writeFile(githubOutputPath, "");
+  const githubOutputPath = options.githubOutputPath ?? (options.githubOutputFileName ? path.join(root, options.githubOutputFileName) : undefined);
+  if (githubOutputPath && !options.githubOutputPath) await fs.writeFile(githubOutputPath, "");
 
   const result = spawnSync(process.execPath, [path.join(scriptsDir, "verify-release-artifact.mjs"), ...(options.args ?? [])], {
     cwd: root,
