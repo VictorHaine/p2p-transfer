@@ -36,8 +36,8 @@ if (isMain()) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
-  const token = options.apply ? await bootstrapToken(options) : undefined;
   if (options.apply) rejectAmbientNpmPublishEnv();
+  const token = options.apply ? await bootstrapToken(options) : undefined;
 
   const workspace = await readWorkspacePackage();
   if (workspace.version === BOOTSTRAP_VERSION) throw new Error("workspace package version must not be the bootstrap version.");

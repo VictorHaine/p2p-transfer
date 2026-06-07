@@ -1040,6 +1040,58 @@ globalThis.fetch = async (url, init = {}) => {
   }
 });
 
+test("npm bootstrap script rejects ambient npm publish config before reading stdin tokens", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-npm-bootstrap-stdin-order-"));
+  const mock = path.join(tmp, "mock-npm-bootstrap-stdin-order.mjs");
+  const log = path.join(tmp, "stdin.log");
+  try {
+    await fs.writeFile(
+      mock,
+      `
+import { writeFileSync } from "node:fs";
+
+const log = process.env.FF_MOCK_NPM_BOOTSTRAP_STDIN_LOG;
+
+Object.defineProperty(process.stdin, Symbol.asyncIterator, {
+  configurable: true,
+  value: async function* () {
+    writeFileSync(log, "read", "utf8");
+    yield Buffer.from("stdin-token-that-must-not-be-used");
+  }
+});
+
+globalThis.fetch = async () => {
+  throw new Error("unexpected network");
+};
+`,
+      "utf8"
+    );
+
+    const result = runScriptWithNodeArgs(
+      "scripts/bootstrap-npm-package.mjs",
+      {
+        FF_MOCK_NPM_BOOTSTRAP_STDIN_LOG: log,
+        NPM_CONFIG_REGISTRY: "https://evil.example"
+      },
+      ["--apply", "--token-stdin"],
+      ["--import", mock],
+      "stdin-token-that-must-not-be-used"
+    );
+    const stdinEvidence = await fs.readFile(log, "utf8").catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return "";
+      throw error;
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /npm bootstrap failed:\n- Remove NPM_CONFIG_REGISTRY before bootstrap publishing; use only NPM_BOOTSTRAP_TOKEN and the checked npm registry\./);
+    assert.doesNotMatch(result.stderr, /stdin-token-that-must-not-be-used|evil\.example|unexpected network|Error:/);
+    assert.equal(stdinEvidence, "");
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
 test("npm bootstrap script verifies the persisted bootstrap version and dist-tag after publish", async () => {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-npm-bootstrap-verify-"));
   const mock = path.join(tmp, "mock-npm-bootstrap-verify-fetch.mjs");

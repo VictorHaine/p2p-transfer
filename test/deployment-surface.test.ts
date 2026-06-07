@@ -744,7 +744,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(securityPolicy, /reject ambiguous stdin-plus-environment token input, reject malformed stdin tokens before package reads, registry requests, npm config, or publish work/);
   assert.match(securityPolicy, /must not mutate workspace package metadata, publish the real release artifact, publish a placeholder as `latest`, or appear in the trusted release workflow/);
   assert.match(securityPolicy, /reject and clear control-bearing or over-budget bootstrap token environment values/);
-  assert.match(securityPolicy, /reject ambient npm credential, registry, and userconfig environment values before package reads, registry requests, npm config, or publish work/);
+  assert.match(securityPolicy, /reject ambient npm credential, registry, and userconfig environment values before reading bootstrap tokens from environment or stdin, package reads, registry requests, npm config, or publish work/);
   assert.match(securityPolicy, /branch\/tag rulesets have ref exclusions, unexpected or duplicate rules, or any bypass actors/);
   assert.match(securityPolicy, /release workflow preflight must run before dependency install through the checked Node script with an explicit `RELEASE_PREFLIGHT_TOKEN` secret/);
   assert.match(securityPolicy, /repository-administration\/ruleset, private-vulnerability-reporting, dependency-vulnerability-alert, repository security-analysis, Dependabot security-update status, and Actions workflow-run visibility/);
@@ -772,7 +772,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(npmBootstrapScript, /if \(workspace\.version === BOOTSTRAP_VERSION\) throw new Error\("workspace package version must not be the bootstrap version\."\)/);
   assert.match(npmBootstrapScript, /if \(await npmPackageExists\(workspace\.name\)\) throw new Error\("npm package already exists; do not run bootstrap\."\)/);
   assert.match(npmBootstrapScript, /if \(!options\.apply\) \{/);
-  assert.match(npmBootstrapScript, /const token = options\.apply \? await bootstrapToken\(options\) : undefined/);
+  assert.match(npmBootstrapScript, /if \(options\.apply\) rejectAmbientNpmPublishEnv\(\);\n  const token = options\.apply \? await bootstrapToken\(options\) : undefined/);
   assert.match(npmBootstrapScript, /args\.length === 2 && args\.includes\("--apply"\) && args\.includes\("--token-stdin"\)/);
   assert.match(npmBootstrapScript, /function readStdinToken\(\)/);
   assert.match(npmBootstrapScript, /if \(envString\("NPM_BOOTSTRAP_TOKEN"\)\) throw new Error\("Do not set NPM_BOOTSTRAP_TOKEN when using --token-stdin\."\)/);
