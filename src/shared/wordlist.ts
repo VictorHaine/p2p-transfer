@@ -1,7 +1,8 @@
 import { wordlist } from "@scure/bip39/wordlists/english.js";
 
 export const RENDEZVOUS_DIGITS = 8;
-export const MAX_CODE_INPUT_CHARS = 256;
+export const MAX_CODE_INPUT_BYTES = 256;
+export const MAX_CODE_INPUT_CHARS = MAX_CODE_INPUT_BYTES;
 const RENDEZVOUS_SPACE = 10 ** RENDEZVOUS_DIGITS;
 const RENDEZVOUS_PATTERN = new RegExp(`^[0-9]{${RENDEZVOUS_DIGITS}}$`);
 const CODE_PATTERN = new RegExp(`^(?<rendezvous>[0-9]{${RENDEZVOUS_DIGITS}})-(?<wordA>[a-z]+)-(?<wordB>[a-z]+)$`);
@@ -14,8 +15,12 @@ export function generateCode(): string {
 
 export function normalizeCode(code: unknown): string {
   if (typeof code !== "string") return "";
-  if (code.length > MAX_CODE_INPUT_CHARS) return "";
+  if (codeInputUtf8ByteLengthExceeds(code)) return "";
   return code.trim().toLowerCase();
+}
+
+export function codeInputUtf8ByteLengthExceeds(value: string): boolean {
+  return utf8ByteLengthExceeds(value, MAX_CODE_INPUT_BYTES);
 }
 
 export function isValidCode(code: unknown): boolean {
@@ -64,4 +69,26 @@ function randomWordExcept(disallowed: string): string {
     const word = wordlist[randomIndex(wordlist.length)]!;
     if (word !== disallowed) return word;
   }
+}
+
+function utf8ByteLengthExceeds(value: string, maxBytes: number): boolean {
+  let bytes = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code < 0x80) bytes += 1;
+    else if (code < 0x800) bytes += 2;
+    else if (code >= 0xd800 && code <= 0xdbff && index + 1 < value.length) {
+      const next = value.charCodeAt(index + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        bytes += 4;
+        index += 1;
+      } else {
+        bytes += 3;
+      }
+    } else {
+      bytes += 3;
+    }
+    if (bytes > maxBytes) return true;
+  }
+  return false;
 }

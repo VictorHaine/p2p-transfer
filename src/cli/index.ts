@@ -17,7 +17,7 @@ import { assertTransferManifestWithinLimits, safeFileName } from "../shared/limi
 import { isServerMessage, type FileManifest, type ServerMessage, type SignalPayload } from "../shared/messages.js";
 import { sanitizeDisplayText, sanitizeStructuredOutput } from "../shared/output-safety.js";
 import { PACKAGE_VERSION } from "../shared/package-info.js";
-import { MAX_CODE_INPUT_CHARS, generateCode, normalizeCode, parseCode } from "../shared/wordlist.js";
+import { codeInputUtf8ByteLengthExceeds, generateCode, normalizeCode, parseCode } from "../shared/wordlist.js";
 import { openManifest, pairDecisionAuthTag, sdpAuthTag, sealManifest, verifyPairDecisionAuthTag, verifySignalAuthTag, wipeSessionKeys, type SessionKeys } from "../shared/security.js";
 import { cloneIceServers } from "../shared/ice.js";
 import { assertReviewedCryptoDependencies } from "./crypto-dependencies.js";
@@ -438,7 +438,7 @@ function readCodeEnv(name: string): string {
   }
   const value = descriptor.value;
   delete process.env[name];
-  if (typeof value !== "string" || value.length === 0 || value.length > MAX_CODE_INPUT_CHARS) {
+  if (typeof value !== "string" || value.length === 0 || codeInputUtf8ByteLengthExceeds(value)) {
     throw new Error(`Environment variable ${name} is invalid.`);
   }
   return value;

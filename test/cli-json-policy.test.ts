@@ -151,8 +151,8 @@ test("CLI private receive-code inputs are not echoed back into local telemetry",
     assert.match(source, /Ready to receive with the supplied code/);
     assert.match(source, /printRegisteredReceiver\(options, parsedCode\.handle, registered, registeredCode\.supplied\)/);
     assert.doesNotMatch(source, /code: parsedCode\.handle, rendezvous: registered\.code, expiresInSec: registered\.expiresInSec \}\);[\s\S]*Ready to receive\. Share this code/);
-    assert.match(source, /MAX_CODE_INPUT_CHARS/);
-    assert.match(source, /const value = descriptor\.value;[\s\S]*delete process\.env\[name\];[\s\S]*value\.length > MAX_CODE_INPUT_CHARS/);
+    assert.match(source, /codeInputUtf8ByteLengthExceeds/);
+    assert.match(source, /const value = descriptor\.value;[\s\S]*delete process\.env\[name\];[\s\S]*codeInputUtf8ByteLengthExceeds\(value\)/);
     assert.match(source, /function readCodeFromStdin/);
     assert.doesNotMatch(source, /readCodeFromStdinOrPrompt|function promptCode|Receiver code:|Receive code:/);
   }
@@ -169,12 +169,12 @@ test("CLI private receive-code inputs are not echoed back into local telemetry",
 test("CLI code-env rejects oversized receive codes without echoing them", async () => {
   const result = spawnSync(process.execPath, [cliEntrypoint, "--json", "recv", "--code-env", "FF_PRIVATE_RECEIVE_CODE"], {
     encoding: "utf8",
-    env: { ...process.env, FF_PRIVATE_RECEIVE_CODE: "1".repeat(300) }
+    env: { ...process.env, FF_PRIVATE_RECEIVE_CODE: "é".repeat(129) }
   });
 
   assert.notEqual(result.status, 0);
   assert.equal(result.stdout, "");
-  assert.doesNotMatch(result.stderr, /1111111111/);
+  assert.doesNotMatch(result.stderr, /ééé/);
   const event = JSON.parse(result.stderr.trim()) as { event?: unknown; message?: unknown };
   assert.equal(event.event, "error");
   assert.equal(event.message, "Environment variable FF_PRIVATE_RECEIVE_CODE is invalid.");

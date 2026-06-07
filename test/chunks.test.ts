@@ -12,7 +12,7 @@ import {
 import { isClientMessage, isServerMessage, parseJsonMessage, serializeMessage } from "../src/shared/messages.js";
 import { abortControlMessage, assertControlMessage, assertSenderControlMessage, assertTransferManifestMatchesAccepted, remoteAbortError, MAX_ABORT_REASON_CHARS, REMOTE_ABORT_MESSAGE } from "../src/shared/transfer.js";
 import { assertControlMessage as distAssertControlMessage, assertSenderControlMessage as distAssertSenderControlMessage, assertTransferManifestMatchesAccepted as distAssertTransferManifestMatchesAccepted } from "../dist-node/shared/transfer.js";
-import { generateCode, isValidCode, isValidRendezvous, MAX_CODE_INPUT_CHARS, normalizeCode, parseCode, RENDEZVOUS_DIGITS } from "../src/shared/wordlist.js";
+import { generateCode, isValidCode, isValidRendezvous, MAX_CODE_INPUT_BYTES, normalizeCode, parseCode, RENDEZVOUS_DIGITS } from "../src/shared/wordlist.js";
 
 const vectors = JSON.parse(fs.readFileSync(new URL("../conformance/protocol-v5.json", import.meta.url), "utf8")) as {
   protocolVersion: number;
@@ -923,13 +923,18 @@ test("transfer code parser separates public rendezvous from secret words", () =>
 
 test("transfer code parser caps raw input before normalization", () => {
   assert.match(securityPolicy, /transfer code inputs must be capped before trim\/lowercase normalization/);
-  assert.equal(parseCode(" ".repeat(MAX_CODE_INPUT_CHARS + 1)), null);
-  assert.equal(parseCode(`${" ".repeat(MAX_CODE_INPUT_CHARS)}12345678-apple-anchor`), null);
-  assert.match(transferCodeSource, /MAX_CODE_INPUT_CHARS = 256/);
-  assert.match(transferCodeSource, /code\.length > MAX_CODE_INPUT_CHARS[\s\S]*return ""/);
-  assert.match(distTransferCodeSource, /MAX_CODE_INPUT_CHARS = 256/);
-  assert.match(distTransferCodeSource, /code\.length > MAX_CODE_INPUT_CHARS[\s\S]*return ""/);
-  assert.match(distWebBundle, /e\.length>256\?``:e\.trim\(\)\.toLowerCase\(\)/);
+  assert.equal(parseCode(" ".repeat(MAX_CODE_INPUT_BYTES + 1)), null);
+  assert.equal(parseCode(`${" ".repeat(MAX_CODE_INPUT_BYTES)}12345678-apple-anchor`), null);
+  assert.equal(normalizeCode(`${"é".repeat(Math.floor(MAX_CODE_INPUT_BYTES / 2))}x`), "");
+  assert.match(transferCodeSource, /MAX_CODE_INPUT_BYTES = 256/);
+  assert.match(transferCodeSource, /function utf8ByteLengthExceeds/);
+  assert.match(transferCodeSource, /charCodeAt\(index\)/);
+  assert.match(transferCodeSource, /codeInputUtf8ByteLengthExceeds\(code\)[\s\S]*return ""/);
+  assert.match(distTransferCodeSource, /MAX_CODE_INPUT_BYTES = 256/);
+  assert.match(distTransferCodeSource, /function utf8ByteLengthExceeds/);
+  assert.match(distTransferCodeSource, /charCodeAt\(index\)/);
+  assert.match(distTransferCodeSource, /codeInputUtf8ByteLengthExceeds\(code\)[\s\S]*return ""/);
+  assert.match(distWebBundle, /charCodeAt\(/);
 });
 
 test("transfer code parser rejects non-string runtime values before coercion", () => {
