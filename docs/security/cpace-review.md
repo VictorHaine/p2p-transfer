@@ -36,6 +36,7 @@ This package controls the untrusted-signaling trust boundary: if CPace is compro
 - Reviewed lockfile integrity for `@cipherman/pake-js@0.1.1`: `sha512-iutxMCmRXYacl3fc19SKFisk1sRD1FNQi7+GWPlnQnFit6l3sUagYOCU2IgRPD8MF3s1HwnkSpqARFUp04+GVQ==`.
 - Reviewed lockfile integrity for CPace transitives: `@noble/curves@1.9.7` is `sha512-gbKGcRUYIjA3/zCCNaWDciTMFI0dCkvou3TL8Zmy5Nc7sJ47a0jtOeZoTaMxkuqRo9cRhjOdZJXegxYE5FN/xw==`; `@noble/hashes@1.8.0` is `sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A==`.
 - Registry source reviewed: lockfile package entries must stay registry tarballs with `sha512` integrity, not `git`, `github:`, `file:`, `link:`, `workspace:`, `http`, `https`, or custom tarball sources.
+- CPace vector gate reviewed: `test/cpace-vectors.test.ts` asserts draft-irtf-cfrg-cpace-20 Appendix B.3 bytes for `generator_string`, SHA-512 hash output, encoded generator `g`, `Ya`, `Yb`, shared point `K`, and initiator/responder `ISK_IR` using deterministic test-only helpers from `@cipherman/pake-js/cpace`.
 
 ## Known Limitations
 
@@ -43,7 +44,7 @@ This package controls the untrusted-signaling trust boundary: if CPace is compro
 - This repo does not contain a formal independent audit certificate for `@cipherman/pake-js`.
 - The upstream package declares `@noble/curves` with a semver range, so the lockfile and installed-state checks are part of the reviewed surface.
 - The package exposes SPAKE2+ as well as CPace. This project must continue to use only the CPace path unless a separate protocol review changes that decision.
-- Package metadata review does not replace protocol tests. CPace key agreement, confirmation, authenticated signaling, and encrypted payload tests must continue to pass before release.
+- Package metadata review does not replace protocol tests. CPace vector tests, CPace key agreement, confirmation, authenticated signaling, and encrypted payload tests must continue to pass before release.
 
 ## Monitoring And Update Process
 
@@ -62,5 +63,5 @@ Release must stop if any of these are true:
 - `@cipherman/pake-js` adds `preinstall`, `install`, `postinstall`, or `prepare` hooks, requires build-script allowlisting, or changes to a non-registry source.
 - The package name, license, repository, exports, published files, or CPace API surface changes without an updated review.
 - The lockfile adds, removes, or changes the CPace package's crypto transitive dependencies without explicit review.
-- `pnpm audit --audit-level low`, `pnpm audit signatures`, dependency review, installed-state verification, package-surface tests, CPace protocol tests, or release-artifact verification fails.
+- `pnpm audit --audit-level low`, `pnpm audit signatures`, dependency review, installed-state verification, package-surface tests, CPace vector/protocol tests, or release-artifact verification fails.
 - A new advisory, upstream compromise signal, maintainer transfer concern, or cryptographic weakness affects `@cipherman/pake-js`, CPace Ristretto255, or the locked noble crypto dependencies and has no reviewed mitigation.

@@ -42,6 +42,7 @@ const releaseArtifactScript = fs.readFileSync(new URL("../scripts/verify-release
 const releaseChecksumScript = fs.readFileSync(new URL("../scripts/write-release-checksum.mjs", import.meta.url), "utf8");
 const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
 const cpaceReview = fs.readFileSync(new URL("../docs/security/cpace-review.md", import.meta.url), "utf8");
+const cpaceVectorTest = fs.readFileSync(new URL("./cpace-vectors.test.ts", import.meta.url), "utf8");
 const nobleHashesReview = fs.readFileSync(new URL("../docs/security/noble-hashes-review.md", import.meta.url), "utf8");
 const nativeWebrtcReview = fs.readFileSync(new URL("../docs/security/native-webrtc-review.md", import.meta.url), "utf8");
 const dependabotConfig = fs.readFileSync(new URL("../.github/dependabot.yml", import.meta.url), "utf8");
@@ -722,13 +723,21 @@ test("critical PAKE dependency identity and install surface stay reviewed", () =
       `Reviewed lockfile integrity for CPace transitives: \`@noble/curves@1\\.9\\.7\` is \`${escapeRegExp(reviewedNobleCurvesIntegrity)}\`; \`@noble/hashes@1\\.8\\.0\` is \`${escapeRegExp(reviewedNobleHashesCpaceIntegrity)}\``
     )
   );
+  assert.match(cpaceReview, /CPace vector gate reviewed: `test\/cpace-vectors\.test\.ts` asserts draft-irtf-cfrg-cpace-20 Appendix B\.3 bytes/);
+  assert.match(cpaceReview, /`generator_string`, SHA-512 hash output, encoded generator `g`, `Ya`, `Yb`, shared point `K`, and initiator\/responder `ISK_IR`/);
+  assert.match(cpaceVectorTest, /CPace Ristretto255 matches draft-20 Appendix B\.3 vector bytes/);
+  assert.match(cpaceVectorTest, /__generatorString/);
+  assert.match(cpaceVectorTest, /__calculateGeneratorEncoded/);
+  assert.match(cpaceVectorTest, /__initWithScalar/);
+  assert.match(cpaceVectorTest, /__scalarMultVfy/);
+  assert.match(cpaceVectorTest, /b69effbf61b51d56401c0f65601abe428de8206feaaf0e32198896dcae7b35cd2b38950a39dfd5d4a79164614c2984f7daa460b588c1e80c3fa2068af7900447/);
   assert.match(cpaceReview, /This repo does not contain a formal independent audit certificate for `@cipherman\/pake-js`/);
   assert.match(cpaceReview, /Dependabot must keep `@cipherman\/pake-js` in the `critical-pake-dependency` production group and excluded from the bulk production dependency group/);
   assert.match(cpaceReview, /Release verification must run `pnpm security:audit` and `pnpm security:signatures`/);
   assert.match(cpaceReview, /CPace dependency updates must update this artifact in the same change as the package pin and lockfile/);
   assert.match(cpaceReview, /Release must stop if any of these are true:/);
   assert.match(cpaceReview, /`@cipherman\/pake-js` adds `preinstall`, `install`, `postinstall`, or `prepare` hooks, requires build-script allowlisting, or changes to a non-registry source/);
-  assert.match(cpaceReview, /`pnpm audit --audit-level low`, `pnpm audit signatures`, dependency review, installed-state verification, package-surface tests, CPace protocol tests, or release-artifact verification fails/);
+  assert.match(cpaceReview, /`pnpm audit --audit-level low`, `pnpm audit signatures`, dependency review, installed-state verification, package-surface tests, CPace vector\/protocol tests, or release-artifact verification fails/);
 });
 
 test("direct noble hashes dependency identity and install surface stay reviewed", () => {
