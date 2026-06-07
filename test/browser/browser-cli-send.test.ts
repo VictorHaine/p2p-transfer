@@ -173,6 +173,62 @@ test("CLI sender interoperates with browser folder-only receiver", browserTestOp
   }
 });
 
+test("CLI sender interoperates with browser opaque-name folder receiver", browserTestOptions, async () => {
+  const root = process.cwd();
+  const port = 26_000 + randomInt(1_000);
+  const origin = `http://127.0.0.1:${port}`;
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-cli-browser-opaque-folder-"));
+  const childEnv = testChildEnv(tmp);
+  const server = spawn(process.execPath, ["dist-node/server/index.js"], {
+    cwd: root,
+    env: { ...childEnv, PORT: String(port), HOST: "127.0.0.1", NODE_ENV: "production", ALLOWED_ORIGINS: origin, SIGNALING_TOPOLOGY: "single-instance", ALLOW_INSECURE_ORIGINS: "true" }
+  });
+
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  try {
+    await waitForOutput(server, /listening/);
+    const source = path.join(tmp, "private-name.txt");
+    const payload = "cli to browser opaque folder transfer\n";
+    await fs.writeFile(source, payload);
+
+    const serverUrl = `ws://127.0.0.1:${port}/v1/ws`;
+    browser = await chromium.launch(chromiumLaunchOptions());
+    const page = await browser.newPage();
+    await installFolderPickerMock(page);
+    await page.goto(`http://127.0.0.1:${port}/`);
+    await page.locator("#serverUrl").fill(serverUrl);
+    await page.locator("#folderOnly").check();
+    await page.locator("#opaqueNames").check();
+    await page.locator("#receiveButton").click();
+    await page.locator("#codeBox").waitFor({ state: "visible", timeout: 30_000 });
+    const code = (await page.locator("#codeBox").textContent())?.trim();
+    assert.match(code ?? "", /^[0-9]{8}-[a-z]+-[a-z]+$/);
+
+    const sender = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "send", code!, source], { cwd: root, env: childEnv });
+    const senderDone = collectExit(sender);
+    await page.locator("#folderButton").waitFor({ state: "visible", timeout: 30_000 });
+    await page.locator("#acceptButton").waitFor({ state: "hidden", timeout: 30_000 });
+    await page.locator("#folderButton").click();
+    await expectText(page.locator("#recvStatus"), "Done");
+
+    const senderResult = await senderDone;
+    assert.equal(senderResult.code, 0, senderResult.stderr);
+    assert.match(senderResult.stdout, /"secure_session"/);
+    const folder = await folderPickerSnapshot(page);
+    const entries = Object.entries(folder.files);
+    assert.equal(entries.length, 1);
+    assert.match(entries[0]![0], /^ff-[a-f0-9]{32}$/);
+    assert.equal(entries[0]![0].includes("private-name"), false);
+    assert.equal(entries[0]![1], payload);
+    assert.equal(folder.pickerCalls, 1);
+    assert.deepEqual(folder.partFiles, []);
+    assert.equal(folder.removed.some((name) => /\.part$/.test(name)), true);
+  } finally {
+    await browser?.close();
+    server.kill();
+  }
+});
+
 test("browser folder receiver restarts after a corrupted saved partial", browserTestOptions, async () => {
   const root = process.cwd();
   const port = 23_000 + randomInt(1_000);
