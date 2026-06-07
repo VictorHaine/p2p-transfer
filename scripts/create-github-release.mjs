@@ -7,6 +7,7 @@ import path from "node:path";
 import { TextDecoder } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { appendBoundedOutput, isolatedChildEnv } from "./smoke-packed.mjs";
+import { assertLiveReleaseRefFromEnv } from "./verify-live-release-ref.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const API = "https://api.github.com";
@@ -43,6 +44,7 @@ async function main() {
   const sha = requiredCommitSha(requiredEnvString("GITHUB_SHA"));
   const repository = requiredRepository(requiredEnvString("GITHUB_REPOSITORY"));
   const token = requiredEnvString("GH_TOKEN");
+  await assertLiveReleaseRefFromEnv();
   const tmp = await mkdtemp(path.join(tmpdir(), "ff-github-release-"));
   try {
     const childEnv = await privateChildEnv(path.join(tmp, "home"));

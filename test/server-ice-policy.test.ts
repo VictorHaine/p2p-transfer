@@ -10,9 +10,11 @@ test("signaling server issues session ICE config only after receiver pair accept
   const connectBody = extractFunctionBody(serverSource, "connect");
   const relayBody = extractFunctionBody(serverSource, "relay");
 
-  assert.match(securityPolicy, /TURN REST credentials must only be issued on the WebSocket path after the receiver sends an authenticated `pair-accept`/);
-  assert.match(securityPolicy, /the server does not decrypt the manifest and must not claim server-side proof of manifest decryption/);
-  assert.match(readme, /server only verifies the authenticated accept message and does not decrypt the manifest/);
+  assert.match(securityPolicy, /TURN REST credentials must only be issued on the WebSocket path after a receiver-originated `pair-accept` passes relay role and phase policy/);
+  assert.match(securityPolicy, /clients authenticate that decision end-to-end with the PAKE-derived signal-auth key before starting ICE, but the server must not learn that key/);
+  assert.match(securityPolicy, /must not learn that key, decrypt the manifest, or claim server-side cryptographic proof of accept authenticity or manifest decryption/);
+  assert.match(readme, /Clients verify that accept decision end-to-end with the PAKE-derived signal-auth key before starting ICE; the server must not learn that key, cannot verify the accept cryptographically, and does not decrypt the manifest/);
+  assert.doesNotMatch(readme, /server only verifies the authenticated accept message/);
   assert.doesNotMatch(readme, /clients receive short-lived credentials only after the receiver accepts the transfer, which requires successful PAKE confirmation and sealed-manifest decryption first/);
   assert.doesNotMatch(connectBody, /\bsendIceConfig\(/);
   assert.match(

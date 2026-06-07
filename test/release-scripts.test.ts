@@ -103,6 +103,60 @@ test("GitHub release script rejects branch refs before artifact or GitHub API wo
   assert.doesNotMatch(result.stderr, /refs\/heads|release artifact directory|api\.github|token-that-must-not-be-used|Error:/);
 });
 
+test("GitHub release script rejects moved main before artifact work", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-github-release-main-"));
+  const mock = path.join(tmp, "mock-github-release-main-fetch.mjs");
+  const log = path.join(tmp, "requests.log");
+  try {
+    await fs.writeFile(
+      mock,
+      `
+import { appendFileSync } from "node:fs";
+
+const log = process.env.FF_MOCK_GITHUB_RELEASE_MAIN_LOG;
+
+globalThis.fetch = async (url, init = {}) => {
+  const parsed = new URL(url);
+  appendFileSync(log, (init.method ?? "GET") + " " + parsed.origin + parsed.pathname + "\\n", "utf8");
+  const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+  if (parsed.origin === "https://api.github.com" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0") {
+    return json(200, { ref: "refs/tags/v0.1.0", object: { type: "commit", sha: process.env.GITHUB_SHA } });
+  }
+  if (parsed.origin === "https://api.github.com" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/git/ref/heads/main") {
+    return json(200, { ref: "refs/heads/main", object: { type: "commit", sha: "1111111111111111111111111111111111111111", message: "raw main body" } });
+  }
+  return json(500, { message: "unexpected mock route" });
+};
+`,
+      "utf8"
+    );
+
+    const result = runScriptWithNodeArgs(
+      "scripts/create-github-release.mjs",
+      {
+        FF_MOCK_GITHUB_RELEASE_MAIN_LOG: log,
+        GITHUB_REPOSITORY: "VictorHaine/p2p-transfer",
+        GH_TOKEN: "token-that-must-not-be-printed",
+        ...releaseTagEnv("v0.1.0")
+      },
+      [],
+      ["--import", mock]
+    );
+    const requests = await fs.readFile(log, "utf8");
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /GitHub Release creation failed:\n- GitHub main branch does not match the release workflow commit\./);
+    assert.doesNotMatch(result.stderr, /token-that-must-not-be-printed|raw main body|unexpected mock route|release artifact directory|Error:/);
+    assert.equal(
+      requests,
+      "GET https://api.github.com/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0\nGET https://api.github.com/repos/VictorHaine/p2p-transfer/git/ref/heads/main\n"
+    );
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
 test("GitHub release script rejects control-bearing tokens before artifact or GitHub API work", () => {
   const result = runScript("scripts/create-github-release.mjs", {
     ...releaseTagEnv("v0.1.0"),
@@ -425,6 +479,20 @@ test("release publish script rejects branch refs before artifact work", () => {
   assert.equal(result.stdout, "");
   assert.match(result.stderr, /Release publish failed:\n- release workflow ref must be the matching tag ref\./);
   assert.doesNotMatch(result.stderr, /refs\/heads|release artifact directory|pnpm publish|Error:/);
+});
+
+test("Docker publish script rejects prerelease tags before smoke or push", () => {
+  const result = runScript("scripts/publish-docker-image.mjs", {
+    ...releaseTagEnv("v0.1.0-alpha.1"),
+    GITHUB_REPOSITORY: "VictorHaine/p2p-transfer",
+    GITHUB_ACTOR: "VictorHaine",
+    GITHUB_TOKEN: "token-that-must-not-be-used"
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.equal(result.stdout, "");
+  assert.match(result.stderr, /Docker image publish failed:\n- release tag is not an exact release tag\./);
+  assert.doesNotMatch(result.stderr, /token-that-must-not-be-used|docker release|release docker policy smoke|push|api\.github|Error:/);
 });
 
 test("npm bootstrap script rejects unsupported arguments before token or publish work", () => {

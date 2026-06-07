@@ -83,12 +83,12 @@ async function readPackageJson() {
 }
 
 function packageVersion(value) {
-  if (typeof value !== "string" || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(value)) throw new Error("package version is not a release semver.");
+  if (typeof value !== "string" || !/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u.test(value)) throw new Error("package version is not an exact release semver.");
   return value;
 }
 
 function releaseTag(value) {
-  if (!/^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(value)) throw new Error("release tag is not a supported version tag.");
+  if (!/^v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u.test(value)) throw new Error("release tag is not an exact release tag.");
   return value;
 }
 
