@@ -27,7 +27,7 @@ jobs:
       - name: Enable pnpm
         run: |
           corepack enable
-          corepack prepare pnpm@11.1.1 --activate
+          corepack prepare pnpm@11.1.3 --activate
       - name: Install
         run: pnpm install --frozen-lockfile
       - name: Check installed dependency tree
@@ -58,7 +58,7 @@ jobs:
       - name: Enable pnpm
         run: |
           corepack enable
-          corepack prepare pnpm@11.1.1 --activate
+          corepack prepare pnpm@11.1.3 --activate
       - name: Install
         run: pnpm install --frozen-lockfile
       - name: Check installed dependency tree
@@ -95,7 +95,7 @@ jobs:
       - name: Enable pnpm
         run: |
           corepack enable
-          corepack prepare pnpm@11.1.1 --activate
+          corepack prepare pnpm@11.1.3 --activate
       - name: Install
         run: pnpm install --frozen-lockfile
       - name: Check installed dependency tree
@@ -124,6 +124,6 @@ jobs:
       - name: Enable pnpm
         run: |
           corepack enable
-          corepack prepare pnpm@11.1.1 --activate
+          corepack prepare pnpm@11.1.3 --activate
       - name: Build image
         run: DOCKER_SMOKE_TAG=p2p-transfer:test pnpm smoke:docker-policy

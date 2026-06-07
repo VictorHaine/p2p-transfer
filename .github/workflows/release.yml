@@ -27,7 +27,7 @@ jobs:
       - name: Enable pnpm
         run: |
           corepack enable
-          corepack prepare pnpm@11.1.1 --activate
+          corepack prepare pnpm@11.1.3 --activate
       - name: Verify tag matches package version
         run: |
           version="$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")"
@@ -89,7 +89,7 @@ jobs:
       - name: Enable pnpm
         run: |
           corepack enable
-          corepack prepare pnpm@11.1.1 --activate
+          corepack prepare pnpm@11.1.3 --activate
       - name: Build image
         run: DOCKER_SMOKE_TAG=p2p-transfer:release pnpm smoke:docker-policy
 
@@ -116,7 +116,7 @@ jobs:
       - name: Enable pnpm
         run: |
           corepack enable
-          corepack prepare pnpm@11.1.1 --activate
+          corepack prepare pnpm@11.1.3 --activate
       - name: Install
         run: pnpm install --frozen-lockfile
       - name: Check installed dependency tree
@@ -184,7 +184,7 @@ jobs:
       - name: Enable pnpm
         run: |
           corepack enable
-          corepack prepare pnpm@11.1.1 --activate
+          corepack prepare pnpm@11.1.3 --activate
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: npm-tarball

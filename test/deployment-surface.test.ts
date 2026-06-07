@@ -230,7 +230,7 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(ciWorkflow, /dependency audit[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures/);
   assert.match(ciWorkflow, /DOCKER_SMOKE_TAG=p2p-transfer:test pnpm smoke:docker-policy/);
   assert.match(ciDockerJob, /actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3/);
-  assert.match(ciDockerJob, /corepack enable[\s\S]*corepack prepare pnpm@11\.1\.1 --activate[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:test pnpm smoke:docker-policy/);
+  assert.match(ciDockerJob, /corepack enable[\s\S]*corepack prepare pnpm@11\.1\.3 --activate[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:test pnpm smoke:docker-policy/);
   assert.match(dockerPolicySmokeScript, /\["build", "-t", imageTag, "\."\]/);
   assert.match(dockerPolicySmokeScript, /"run", "--rm", "--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "-e", "SIGNALING_TOPOLOGY=single-instance", imageTag/);
   assert.match(dockerPolicySmokeScript, /"run", "--rm", "--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "-e", `ALLOWED_ORIGINS=\$\{PRODUCTION_ORIGIN\}`, imageTag/);
@@ -253,7 +253,7 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.doesNotMatch(releaseWorkflow, /pack release artifact[\s\S]*(find release-artifacts|basename "\$tgz"|sha256sum)/);
   assert.match(releaseWorkflow, /DOCKER_SMOKE_TAG=p2p-transfer:release pnpm smoke:docker-policy/);
   assert.match(releaseDockerJob, /actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3/);
-  assert.match(releaseDockerJob, /corepack enable[\s\S]*corepack prepare pnpm@11\.1\.1 --activate[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:release pnpm smoke:docker-policy/);
+  assert.match(releaseDockerJob, /corepack enable[\s\S]*corepack prepare pnpm@11\.1\.3 --activate[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:release pnpm smoke:docker-policy/);
   assert.doesNotMatch(releaseWorkflow, /fetch\('http:\/\/127\.0\.0\.1:8787|body\.includes\('ff transfer'\)/);
   assert.doesNotMatch(releaseWorkflow, /ALLOW_ANY_ORIGIN/);
   assert.equal(releaseWorkflow.match(/id-token:\s*write/g)?.length, 2);

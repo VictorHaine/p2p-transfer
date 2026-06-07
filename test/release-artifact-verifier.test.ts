@@ -416,7 +416,7 @@ function fixturePackageJson(packageName: string, version: string) {
     name: packageName,
     version,
     description: "fixture package",
-    packageManager: "pnpm@11.1.1",
+    packageManager: "pnpm@11.1.3",
     type: "module",
     publishConfig: {
       access: "public",

@@ -68,7 +68,7 @@ const RECEIVE_CODE_GENERATION_ATTEMPTS = 10;
 const ICE_CONFIG_GRACE_MS = 1_000;
 const CLI_STDIN_MAX_BYTES = 512 * 1024;
 const ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
-const SEND_ARGV_TELEMETRY_WARNING = "Warning: receiver codes and local file paths passed as arguments can be captured by shell history, process lists, or endpoint telemetry. Use --code-stdin/--code-env and --files-stdin for private input.";
+const SEND_ARGV_TELEMETRY_WARNING = "Warning: receiver codes or local file paths passed as arguments can be captured by shell history, process lists, or endpoint telemetry. Use --code-stdin/--code-env and --files-stdin for private input.";
 
 process.title = "ff";
 
@@ -416,6 +416,7 @@ async function resolveSendInputs(code: string | undefined, files: string[], opti
 
   if (!resolvedCode) throw new Error("Receiver code is required.");
   if (resolvedFiles.length === 0) throw new Error("Choose at least one file.");
+  if ((code !== undefined && code !== "-") || (!options.filesStdin && resolvedFiles.length > 0)) warnSensitiveSendArgv(options);
   return { code: resolvedCode, files: resolvedFiles };
 }
 
