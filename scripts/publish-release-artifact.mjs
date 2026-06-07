@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { appendBoundedOutput, isolatedChildEnv } from "./smoke-packed.mjs";
+import { assertLiveReleaseRefFromEnv } from "./verify-live-release-ref.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const MAX_ENV_VALUE_BYTES = 8_192;
@@ -39,6 +40,7 @@ async function main() {
   rejectStaticNpmTokens();
   const tag = requiredReleaseTag(requiredEnvString("GITHUB_REF_NAME"));
   assertReleaseTagRef(tag);
+  await assertLiveReleaseRefFromEnv();
   const tmp = await mkdtemp(path.join(tmpdir(), "ff-release-publish-"));
   try {
     const childEnv = await privateChildEnv(path.join(tmp, "home"));

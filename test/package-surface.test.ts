@@ -52,6 +52,7 @@ const githubReleaseScript = fs.readFileSync(new URL("../scripts/create-github-re
 const releaseChecksumScript = fs.readFileSync(new URL("../scripts/write-release-checksum.mjs", import.meta.url), "utf8");
 const releaseSbomScript = fs.readFileSync(new URL("../scripts/write-release-sbom.mjs", import.meta.url), "utf8");
 const releaseNotesScript = fs.readFileSync(new URL("../scripts/write-release-notes.mjs", import.meta.url), "utf8");
+const liveReleaseRefScript = fs.readFileSync(new URL("../scripts/verify-live-release-ref.mjs", import.meta.url), "utf8");
 const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
 const cpaceReview = fs.readFileSync(new URL("../docs/security/cpace-review.md", import.meta.url), "utf8");
 const cpaceVectorTest = fs.readFileSync(new URL("./cpace-vectors.test.ts", import.meta.url), "utf8");
@@ -544,7 +545,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseTagScript, /envString\("GITHUB_REF"\) !== `refs\/tags\/\$\{tag\}`/);
   assert.match(releaseTagScript, /release tag does not match package version\./);
   assert.doesNotMatch(releaseTagScript, /process\.env\.GITHUB_REF_NAME|readFile\(file, "utf8"\)|String\(error\)|error\.stack|release tag \$\{value\} does not match/);
-  assert.match(securityPolicy, /release tag commit must exactly match protected `main` before release artifact packaging, attestation, npm publish, or GitHub Release creation/);
+  assert.match(securityPolicy, /release tag commit must exactly match protected `main` before release artifact packaging, attestation, npm publish, Docker publish, or GitHub Release creation/);
   assert.match(releaseWorkflow, /fetch-depth: 0/);
   assert.match(releaseWorkflow, /Verify release tag is on main[\s\S]*run: node scripts\/check-release-main\.mjs[\s\S]*Release controls preflight/);
   assert.doesNotMatch(releaseWorkflow, /git fetch --no-tags|git merge-base --is-ancestor "\$GITHUB_SHA"/);
@@ -785,7 +786,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(securityPolicy, /release artifact attestation must run inside the `publish` job after the `npm` environment approval gate/);
   assert.match(securityPolicy, /attest the verified `SHA256SUMS` subjects instead of a single tarball path/);
   assert.doesNotMatch(releaseWorkflow, /\n  attest:\n/);
-  assert.match(releaseWorkflow, /publish npm package[\s\S]*environment: npm[\s\S]*node scripts\/verify-release-artifact\.mjs --github-output tarball[\s\S]*uses: actions\/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4\.1\.0[\s\S]*subject-checksums: release-artifacts\/SHA256SUMS[\s\S]*node scripts\/publish-release-artifact\.mjs/);
+  assert.match(releaseWorkflow, /publish npm package[\s\S]*environment: npm[\s\S]*node scripts\/verify-release-artifact\.mjs --github-output tarball[\s\S]*node scripts\/verify-live-release-ref\.mjs[\s\S]*uses: actions\/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4\.1\.0[\s\S]*subject-checksums: release-artifacts\/SHA256SUMS[\s\S]*node scripts\/publish-release-artifact\.mjs/);
   assert.match(releaseWorkflow, /publish npm package[\s\S]*needs:\n      - verify\n      - platform-smoke/);
   assert.match(releaseWorkflow, /github-release:[\s\S]*needs:\n      - publish\n      - docker/);
   assert.match(releaseWorkflow, /environment: npm/);
@@ -798,6 +799,8 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(securityPolicy, /nonzero release subprocess exits must report only the exit status or signal and must not embed captured child stdout or stderr in release logs/);
   assert.match(releaseWorkflow, /publish npm package[\s\S]*verify, smoke, and publish release artifact[\s\S]*node scripts\/publish-release-artifact\.mjs/);
   assert.match(releasePublishScript, /rejectStaticNpmTokens\(\)/);
+  assert.match(releasePublishScript, /import \{ assertLiveReleaseRefFromEnv \} from "\.\/verify-live-release-ref\.mjs"/);
+  assert.match(releasePublishScript, /await assertLiveReleaseRefFromEnv\(\)/);
   assert.match(releasePublishScript, /STATIC_NPM_TOKEN_ENV = \["NODE_AUTH_TOKEN", "NPM_TOKEN"\]/);
   assert.match(releasePublishScript, /ACTIONS_ID_TOKEN_REQUEST_TOKEN/);
   assert.match(releasePublishScript, /GITHUB_ACTIONS must be true for trusted publishing/);
@@ -863,6 +866,12 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.doesNotMatch(releaseWorkflow, /tgz="\$\(node scripts\/verify-release-artifact\.mjs --print-tarball\)"|printf 'tarball=%s\\n'|test -f "\$tgz"|PACKED_SMOKE_TARBALL="\$tgz" node scripts\/smoke-packed\.mjs|pnpm publish "\$tgz"|gh release create "\$GITHUB_REF_NAME"/);
   assert.doesNotMatch(releaseWorkflow, /sha256sum -c SHA256SUMS|execFileSync\('tar'/);
   assert.match(dockerPublishScript, /DOCKER_SMOKE_TAG: versionRef/);
+  assert.match(dockerPublishScript, /import \{ assertLiveReleaseRefFromEnv \} from "\.\/verify-live-release-ref\.mjs"/);
+  assert.match(dockerPublishScript, /await assertLiveReleaseRefFromEnv\(\)/);
+  assert.match(liveReleaseRefScript, /export async function assertLiveReleaseRefFromEnv\(\)/);
+  assert.match(liveReleaseRefScript, /\/repos\/\$\{repository\}\/git\/ref\/tags\/\$\{tag\}/);
+  assert.match(liveReleaseRefScript, /\/repos\/\$\{repository\}\/git\/ref\/heads\/main/);
+  assert.match(securityPolicy, /last-mile live release-ref verifier must re-check the GitHub tag ref or annotated tag object and GitHub `main` ref against `GITHUB_SHA` through bounded GitHub API calls immediately before release artifact attestation, before npm publish, and before Docker smoke or GHCR push/);
   assert.match(releaseWorkflow, /release docker image[\s\S]*run: node scripts\/publish-docker-image\.mjs/);
   assert.match(dockerPolicySmokeScript, /"--read-only"/);
   assert.match(dockerPolicySmokeScript, /"--cap-drop=ALL"/);
@@ -1038,10 +1047,11 @@ test("critical PAKE dependency identity and install surface stay reviewed", () =
   assert.match(cpaceReview, /This repo does not contain a formal independent audit certificate for `@cipherman\/pake-js`/);
   assert.match(cpaceReview, /Dependabot must keep `@cipherman\/pake-js` in the `critical-pake-dependency` production group and keep `@noble\/curves` in the direct crypto dependency group/);
   assert.match(cpaceReview, /Release verification must run `pnpm security:audit` and `pnpm security:signatures`/);
+  assert.match(cpaceReview, /Scheduled dependency integrity monitoring must run `pnpm security:audit` and `pnpm security:signatures` on unchanged `main`/);
   assert.match(cpaceReview, /CPace dependency updates must update this artifact in the same change as the package pin and lockfile/);
   assert.match(cpaceReview, /Release must stop if any of these are true:/);
   assert.match(cpaceReview, /`@cipherman\/pake-js` adds `preinstall`, `install`, `postinstall`, or `prepare` hooks, requires build-script allowlisting, or changes to a non-registry source/);
-  assert.match(cpaceReview, /`pnpm audit --audit-level low`, `pnpm audit signatures`, dependency review, installed-state verification, package-surface tests, CPace vector\/protocol tests, or release-artifact verification fails/);
+  assert.match(cpaceReview, /`pnpm audit --audit-level low`, `pnpm audit signatures`, scheduled dependency integrity monitoring, dependency review, installed-state verification, package-surface tests, CPace vector\/protocol tests, or release-artifact verification fails/);
 });
 
 test("direct noble hashes dependency identity and install surface stay reviewed", () => {

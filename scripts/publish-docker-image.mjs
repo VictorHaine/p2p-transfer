@@ -5,6 +5,7 @@ import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { assertLiveReleaseRefFromEnv } from "./verify-live-release-ref.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const REGISTRY = "ghcr.io";
@@ -33,6 +34,7 @@ async function main() {
 
   const repository = githubRepository(requiredEnvString("GITHUB_REPOSITORY"));
   requiredCommitSha(requiredEnvString("GITHUB_SHA"));
+  await assertLiveReleaseRefFromEnv();
   const actor = githubActor(requiredEnvString("GITHUB_ACTOR"));
   const token = requiredEnvString("GITHUB_TOKEN", MAX_TOKEN_BYTES);
   const image = `${REGISTRY}/${repository.toLowerCase()}`;

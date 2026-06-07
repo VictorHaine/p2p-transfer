@@ -173,10 +173,16 @@ jobs:
       - name: verify downloaded release artifact
         id: verify_artifact
         run: node scripts/verify-release-artifact.mjs --github-output tarball
+      - name: verify live release ref before attestation
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/verify-live-release-ref.mjs
       - uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-checksums: release-artifacts/SHA256SUMS
       - name: verify, smoke, and publish release artifact
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/publish-release-artifact.mjs
 
   github-release:

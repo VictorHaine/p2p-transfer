@@ -72,6 +72,7 @@ async function main() {
   const options = parseArgs(process.argv.slice(2));
   const token = githubToken();
   const runningInGitHubActions = envString("GITHUB_ACTIONS") === "true";
+  assertReleaseWorkflowTokenClass(token, runningInGitHubActions);
   const failures = [];
 
   await collectReadinessFailure(failures, async () => {
@@ -276,6 +277,15 @@ function assertTokenScopes(headers, runningInGitHubActions = false) {
   const rawScopes = headers.get("x-oauth-scopes") ?? "";
   if (rawScopes === "" && runningInGitHubActions) return;
   assertOAuthScopes(rawScopes, runningInGitHubActions ? GITHUB_ACTIONS_REQUIRED_OAUTH_SCOPES : REQUIRED_OAUTH_SCOPES);
+}
+
+function assertReleaseWorkflowTokenClass(token, runningInGitHubActions = false) {
+  if (!runningInGitHubActions) return;
+  if (token.startsWith("github_pat_") || token.startsWith("ghs_")) return;
+  if (/^gh[opur]_/.test(token)) {
+    throw new Error("RELEASE_PREFLIGHT_TOKEN must be a GitHub App installation token or fine-grained PAT; classic, OAuth, refresh, and user tokens are not allowed in the release workflow.");
+  }
+  throw new Error("RELEASE_PREFLIGHT_TOKEN must be a GitHub App installation token or fine-grained PAT with a recognized GitHub token prefix.");
 }
 
 function assertOAuthScopes(rawScopes, requiredScopes = REQUIRED_OAUTH_SCOPES) {

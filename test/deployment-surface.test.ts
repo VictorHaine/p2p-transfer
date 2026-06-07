@@ -15,6 +15,7 @@ const releaseWorkflow = fs.readFileSync(new URL("../.github/workflows/release.ym
 const codeqlWorkflow = fs.readFileSync(new URL("../.github/workflows/codeql.yml", import.meta.url), "utf8");
 const scorecardWorkflow = fs.readFileSync(new URL("../.github/workflows/scorecard.yml", import.meta.url), "utf8");
 const dependencyReviewWorkflow = fs.readFileSync(new URL("../.github/workflows/dependency-review.yml", import.meta.url), "utf8");
+const dependencyIntegrityWorkflow = fs.readFileSync(new URL("../.github/workflows/dependency-integrity.yml", import.meta.url), "utf8");
 const codeowners = fs.readFileSync(new URL("../.github/CODEOWNERS", import.meta.url), "utf8");
 const pullRequestTemplate = fs.readFileSync(new URL("../.github/pull_request_template.md", import.meta.url), "utf8");
 const httpProbeScript = fs.readFileSync(new URL("../scripts/probe-http.mjs", import.meta.url), "utf8");
@@ -26,6 +27,7 @@ const githubReleaseScript = fs.readFileSync(new URL("../scripts/create-github-re
 const releaseChecksumScript = fs.readFileSync(new URL("../scripts/write-release-checksum.mjs", import.meta.url), "utf8");
 const releaseSbomScript = fs.readFileSync(new URL("../scripts/write-release-sbom.mjs", import.meta.url), "utf8");
 const releaseNotesScript = fs.readFileSync(new URL("../scripts/write-release-notes.mjs", import.meta.url), "utf8");
+const liveReleaseRefScript = fs.readFileSync(new URL("../scripts/verify-live-release-ref.mjs", import.meta.url), "utf8");
 const githubReleaseControlsScript = fs.readFileSync(new URL("../scripts/configure-github-release-controls.mjs", import.meta.url), "utf8");
 const releaseReadinessScript = fs.readFileSync(new URL("../scripts/check-release-readiness.mjs", import.meta.url), "utf8");
 const npmBootstrapScript = fs.readFileSync(new URL("../scripts/bootstrap-npm-package.mjs", import.meta.url), "utf8");
@@ -228,7 +230,7 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releaseTagScript, /envString\("GITHUB_REF_TYPE"\) !== "tag"/);
   assert.match(releaseTagScript, /envString\("GITHUB_REF"\) !== `refs\/tags\/\$\{tag\}`/);
   assert.match(releaseTagScript, /release tag does not match package version\./);
-  assert.match(securityPolicy, /release tag commit must exactly match protected `main` before release artifact packaging, attestation, npm publish, or GitHub Release creation/);
+  assert.match(securityPolicy, /release tag commit must exactly match protected `main` before release artifact packaging, attestation, npm publish, Docker publish, or GitHub Release creation/);
   assert.match(releaseWorkflow, /fetch-depth: 0/);
   assert.match(securityPolicy, /release tag current-main matching must use the checked release main verifier/);
   assert.match(releaseWorkflow, /Verify release tag is on main[\s\S]*run: node scripts\/check-release-main\.mjs[\s\S]*Release controls preflight/);
@@ -345,6 +347,8 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releaseDockerJob, /node scripts\/prepare-checked-pnpm\.mjs[\s\S]*Build, smoke, and push image[\s\S]*id: docker_image[\s\S]*GITHUB_TOKEN: \$\{\{ github\.token \}\}[\s\S]*run: node scripts\/publish-docker-image\.mjs/);
   assert.match(releaseDockerJob, /actions\/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4\.1\.0[\s\S]*subject-name: \$\{\{ steps\.docker_image\.outputs\.image \}\}[\s\S]*subject-digest: \$\{\{ steps\.docker_image\.outputs\.digest \}\}[\s\S]*push-to-registry: true/);
   assert.doesNotMatch(releaseDockerJob, /corepack prepare pnpm@/);
+  assert.match(dockerPublishScript, /import \{ assertLiveReleaseRefFromEnv \} from "\.\/verify-live-release-ref\.mjs"/);
+  assert.match(dockerPublishScript, /requiredCommitSha\(requiredEnvString\("GITHUB_SHA"\)\);\n  await assertLiveReleaseRefFromEnv\(\);\n  const actor = githubActor/);
   assert.match(dockerPublishScript, /await run\(process\.execPath, \["scripts\/smoke-docker-policy\.mjs"\], "release docker policy smoke", SMOKE_TIMEOUT_MS,\s+\{\s+env: \{ DOCKER_SMOKE_TAG: versionRef \}/);
   assert.match(dockerPublishScript, /await run\("docker", \["push", versionRef\]/);
   assert.match(dockerPublishScript, /await run\("docker", \["push", plainVersionRef\]/);
@@ -358,9 +362,11 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.equal(releaseWorkflow.match(/id-token:\s*write/g)?.length, 2);
   assert.match(releasePublishJob, /environment: npm/);
   assert.match(releasePublishJob, /permissions:\n      contents: read\n      id-token: write\n      attestations: write/);
-  assert.match(releasePublishJob, /verify downloaded release artifact[\s\S]*id: verify_artifact[\s\S]*node scripts\/verify-release-artifact\.mjs --github-output tarball[\s\S]*uses: actions\/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4\.1\.0[\s\S]*subject-checksums: release-artifacts\/SHA256SUMS[\s\S]*verify, smoke, and publish release artifact/);
-  assert.match(releaseWorkflow, /publish npm package[\s\S]*verify, smoke, and publish release artifact[\s\S]*node scripts\/publish-release-artifact\.mjs/);
+  assert.match(releasePublishJob, /verify downloaded release artifact[\s\S]*id: verify_artifact[\s\S]*node scripts\/verify-release-artifact\.mjs --github-output tarball[\s\S]*verify live release ref before attestation[\s\S]*GITHUB_TOKEN: \$\{\{ github\.token \}\}[\s\S]*node scripts\/verify-live-release-ref\.mjs[\s\S]*uses: actions\/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4\.1\.0[\s\S]*subject-checksums: release-artifacts\/SHA256SUMS[\s\S]*verify, smoke, and publish release artifact/);
+  assert.match(releaseWorkflow, /publish npm package[\s\S]*verify, smoke, and publish release artifact[\s\S]*GITHUB_TOKEN: \$\{\{ github\.token \}\}[\s\S]*node scripts\/publish-release-artifact\.mjs/);
   assert.match(releasePublishScript, /rejectStaticNpmTokens\(\)/);
+  assert.match(releasePublishScript, /import \{ assertLiveReleaseRefFromEnv \} from "\.\/verify-live-release-ref\.mjs"/);
+  assert.match(releasePublishScript, /assertReleaseTagRef\(tag\);\n  await assertLiveReleaseRefFromEnv\(\);\n  const tmp = await mkdtemp/);
   assert.match(releasePublishScript, /ACTIONS_ID_TOKEN_REQUEST_TOKEN/);
   assert.match(releasePublishScript, /isolatedChildEnv\(privateHome\)/);
   assert.match(releasePublishScript, /PACKED_SMOKE_TARBALL: tarball/);
@@ -373,6 +379,12 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(githubReleaseScript, /verifiedTarballPath\(\{ \.\.\.childEnv, GITHUB_REF_NAME: tag, GITHUB_REF_TYPE: "tag", GITHUB_REF: `refs\/tags\/\$\{tag\}` \}\)/);
   assert.match(githubReleaseScript, /\/repos\/\$\{repository\}\/git\/ref\/tags\/\$\{tag\}/);
   assert.match(githubReleaseScript, /if \(\(await githubReleaseTagCommitSha\(token, repository, tag\)\) !== expectedSha\) throw new Error\("GitHub tag ref does not match the release workflow commit\."\)/);
+  assert.match(liveReleaseRefScript, /export async function assertLiveReleaseRefFromEnv\(\)/);
+  assert.match(liveReleaseRefScript, /\/repos\/\$\{repository\}\/git\/ref\/tags\/\$\{tag\}/);
+  assert.match(liveReleaseRefScript, /\/repos\/\$\{repository\}\/git\/ref\/heads\/main/);
+  assert.match(liveReleaseRefScript, /GitHub tag ref does not match the release workflow commit\./);
+  assert.match(liveReleaseRefScript, /GitHub main branch does not match the release workflow commit\./);
+  assert.match(securityPolicy, /last-mile live release-ref verifier must re-check the GitHub tag ref or annotated tag object and GitHub `main` ref against `GITHUB_SHA` through bounded GitHub API calls immediately before release artifact attestation, before npm publish, and before Docker smoke or GHCR push/);
   assert.match(githubReleaseScript, /\/repos\/\$\{repository\}\/releases/);
   assert.match(githubReleaseScript, /uploadReleaseAsset\(token, uploadUrl, asset\)/);
   assert.match(githubReleaseScript, /draft: true/);
@@ -578,6 +590,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(securityPolicy, /must not mutate workspace package metadata, publish the real release artifact, or appear in the trusted release workflow/);
   assert.match(securityPolicy, /branch\/tag rulesets have ref exclusions, unexpected or duplicate rules, or unexpected bypass actors/);
   assert.match(securityPolicy, /release workflow preflight must run before dependency install through the checked Node script with an explicit `RELEASE_PREFLIGHT_TOKEN` secret/);
+  assert.match(securityPolicy, /must reject classic PAT, OAuth, refresh, user, or unknown-prefix token classes in GitHub Actions before package or network work/);
   assert.match(securityPolicy, /must still verify the npm package exists without the target version, remote `main`, rulesets/);
   assert.match(securityPolicy, /exact bypass policy including bypass actors, required status checks, and the npm environment approval\/tag-only deployment gate before packaging/);
   assert.match(readme, /verifies the npm package already exists and the target version has not been published/);
@@ -649,6 +662,10 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.doesNotMatch(releaseReadinessScript, /response\.text\(\)/);
   assert.doesNotMatch(releaseReadinessScript, /process\.env\.GITHUB_TOKEN|process\.env\.GH_TOKEN|process\.env\.GITHUB_REPOSITORY/);
   assert.match(releaseReadinessScript, /headers\.get\("x-oauth-scopes"\)/);
+  assert.match(releaseReadinessScript, /assertReleaseWorkflowTokenClass\(token, runningInGitHubActions\)/);
+  assert.match(releaseReadinessScript, /function assertReleaseWorkflowTokenClass\(token, runningInGitHubActions = false\)/);
+  assert.match(releaseReadinessScript, /token\.startsWith\("github_pat_"\) \|\| token\.startsWith\("ghs_"\)/);
+  assert.match(releaseReadinessScript, /RELEASE_PREFLIGHT_TOKEN must be a GitHub App installation token or fine-grained PAT/);
   assert.match(releaseReadinessScript, /assertTokenScopes\(auth\.headers, runningInGitHubActions\)/);
   assert.match(releaseReadinessScript, /if \(rawScopes === "" && runningInGitHubActions\) return;/);
   assert.match(releaseReadinessScript, /assertOAuthScopes\(rawScopes, runningInGitHubActions \? GITHUB_ACTIONS_REQUIRED_OAUTH_SCOPES : REQUIRED_OAUTH_SCOPES\)/);
@@ -823,6 +840,22 @@ test("dependency review blocks vulnerable dependency introductions", () => {
   assert.match(dependencyReviewWorkflow, /uses: actions\/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4\.2\.2[\s\S]*persist-credentials: false/);
   assert.match(dependencyReviewWorkflow, /uses: actions\/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5\.0\.0[\s\S]*vulnerability-check: true[\s\S]*license-check: false[\s\S]*fail-on-severity: low[\s\S]*fail-on-scopes: runtime, development[\s\S]*comment-summary-in-pr: never[\s\S]*show-patched-versions: true/);
   assert.doesNotMatch(dependencyReviewWorkflow, /pull_request_target|workflow_run|contents:\s*write|pull-requests:\s*write|id-token:\s*write|actions:\s*write|packages:\s*write/);
+});
+
+test("scheduled dependency integrity monitor catches new registry risk on unchanged main", () => {
+  assert.match(securityPolicy, /dependency integrity monitoring must run from a pinned scheduled workflow on unchanged `main` with read-only permissions/);
+  assert.match(securityPolicy, /checked pnpm bootstrap, frozen install, installed-state verification, `pnpm security:audit`, and `pnpm security:signatures`/);
+  assert.match(readme, /\.github\/workflows\/dependency-integrity\.yml` runs weekly with read-only permissions/);
+  assert.match(readme, /re-checks the frozen install, installed dependency tree, npm advisory audit, and registry package signatures even when `main` has not changed/);
+  assert.match(dependencyIntegrityWorkflow, /^name: dependency-integrity$/m);
+  assert.match(dependencyIntegrityWorkflow, /^on:\n  schedule:\n    - cron: "41 5 \* \* 4"$/m);
+  assert.match(dependencyIntegrityWorkflow, /^permissions:\n  contents: read$/m);
+  assert.match(dependencyIntegrityWorkflow, /^concurrency:\n  group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}\n  cancel-in-progress: true$/m);
+  assert.match(workflowJob(dependencyIntegrityWorkflow, "dependency-integrity"), /name: dependency integrity[\s\S]*runs-on: ubuntu-24\.04[\s\S]*timeout-minutes: 15/);
+  assert.match(dependencyIntegrityWorkflow, /uses: actions\/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4\.2\.2[\s\S]*persist-credentials: false/);
+  assert.match(dependencyIntegrityWorkflow, /uses: actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3/);
+  assert.match(dependencyIntegrityWorkflow, /node scripts\/prepare-checked-pnpm\.mjs[\s\S]*pnpm install --frozen-lockfile[\s\S]*pnpm check:install-state[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures/);
+  assert.doesNotMatch(dependencyIntegrityWorkflow, /pull_request_target|workflow_run|contents:\s*write|pull-requests:\s*write|id-token:\s*write|actions:\s*write|packages:\s*write/);
 });
 
 test("documented release gates require a hardened Docker runtime smoke, not just image build", () => {
@@ -1077,6 +1110,8 @@ test("server deployment policy requires an explicit in-memory signaling topology
   assert.match(readme, /Because rendezvous state is in memory[\s\S]*SIGNALING_TOPOLOGY=single-instance[\s\S]*SIGNALING_TOPOLOGY=sticky-sessions/);
   assert.match(securityPolicy, /production and non-loopback signaling deployments must explicitly declare `SIGNALING_TOPOLOGY=single-instance` or `SIGNALING_TOPOLOGY=sticky-sessions`/);
   assert.match(readme, /create an Actions secret named `RELEASE_PREFLIGHT_TOKEN`/);
+  assert.match(readme, /GitHub App installation token or fine-grained PAT/);
+  assert.match(readme, /classic PATs, OAuth tokens, refresh tokens, and user access tokens are rejected in the release workflow before package or network work/);
   assert.match(readme, /`\$\{\{ github\.token \}\}` is not enough for this gate/);
   assert.match(readme, /Use the released package after the first npm publish:[\s\S]*pnpm add -g @victorhaine\/p2p-transfer[\s\S]*ff recv[\s\S]*ff send <code> \.\/path\/to\/file/);
   assert.match(readme, /Run the packaged server:[\s\S]*ff-server/);

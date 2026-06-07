@@ -301,6 +301,83 @@ test("GitHub release API deletes draft releases when asset upload fails", async 
   }
 });
 
+test("live release ref verifier checks current tag and main without leaking API bodies", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-live-release-ref-"));
+  const mock = path.join(tmp, "mock-live-release-ref-fetch.mjs");
+  const log = path.join(tmp, "requests.log");
+  try {
+    await fs.writeFile(
+      mock,
+      `
+import { appendFileSync } from "node:fs";
+
+const log = process.env.FF_MOCK_LIVE_REF_LOG;
+const tagSha = process.env.FF_MOCK_TAG_SHA ?? process.env.GITHUB_SHA;
+const mainSha = process.env.FF_MOCK_MAIN_SHA ?? process.env.GITHUB_SHA;
+
+function record(method, origin, path) {
+  appendFileSync(log, method + " " + origin + path + "\\n", "utf8");
+}
+
+globalThis.fetch = async (url, init = {}) => {
+  const parsed = new URL(url);
+  const method = init.method ?? "GET";
+  const path = parsed.pathname + parsed.search;
+  record(method, parsed.origin, path);
+  const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+  if (parsed.origin !== "https://api.github.com") return json(500, { message: "unexpected origin body" });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0") {
+    return json(200, { ref: "refs/tags/v0.1.0", object: { type: "commit", sha: tagSha } });
+  }
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/git/ref/heads/main") {
+    return json(200, { ref: "refs/heads/main", object: { type: "commit", sha: mainSha, message: "raw main body" } });
+  }
+  return json(500, { message: "unexpected mock route body" });
+};
+`,
+      "utf8"
+    );
+
+    const success = runScriptWithNodeArgs(
+      "scripts/verify-live-release-ref.mjs",
+      {
+        FF_MOCK_LIVE_REF_LOG: log,
+        GITHUB_REPOSITORY: "VictorHaine/p2p-transfer",
+        GITHUB_TOKEN: "token-that-must-not-be-printed",
+        ...releaseTagEnv("v0.1.0")
+      },
+      [],
+      ["--import", mock]
+    );
+    assert.equal(success.status, 0, success.stderr);
+    assert.equal(success.stdout, "");
+    assert.equal(success.stderr, "");
+
+    const movedMain = runScriptWithNodeArgs(
+      "scripts/verify-live-release-ref.mjs",
+      {
+        FF_MOCK_LIVE_REF_LOG: log,
+        FF_MOCK_MAIN_SHA: "1111111111111111111111111111111111111111",
+        GITHUB_REPOSITORY: "VictorHaine/p2p-transfer",
+        GITHUB_TOKEN: "token-that-must-not-be-printed",
+        ...releaseTagEnv("v0.1.0")
+      },
+      [],
+      ["--import", mock]
+    );
+    const requests = await fs.readFile(log, "utf8");
+
+    assert.notEqual(movedMain.status, 0);
+    assert.equal(movedMain.stdout, "");
+    assert.match(movedMain.stderr, /Live release ref verification failed:\n- GitHub main branch does not match the release workflow commit\./);
+    assert.doesNotMatch(movedMain.stderr, /token-that-must-not-be-printed|raw main body|unexpected mock route|api\.github|Error:/);
+    assert.match(requests, /GET https:\/\/api\.github\.com\/repos\/VictorHaine\/p2p-transfer\/git\/ref\/tags\/v0\.1\.0\n/);
+    assert.match(requests, /GET https:\/\/api\.github\.com\/repos\/VictorHaine\/p2p-transfer\/git\/ref\/heads\/main\n/);
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
 test("release publish script rejects branch refs before artifact work", () => {
   const result = runScript("scripts/publish-release-artifact.mjs", {
     ...releaseTagEnv("v0.1.0"),
@@ -716,6 +793,52 @@ globalThis.fetch = async (url, init = {}) => {
   }
 });
 
+test("release workflow preflight rejects broad token classes before package or network work", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-preflight-token-class-"));
+  const mock = path.join(tmp, "mock-release-preflight-token-class-fetch.mjs");
+  const log = path.join(tmp, "requests.log");
+  try {
+    await fs.writeFile(
+      mock,
+      `
+import { appendFileSync } from "node:fs";
+
+const log = process.env.FF_MOCK_PREFLIGHT_TOKEN_CLASS_LOG;
+
+globalThis.fetch = async (url, init = {}) => {
+  const parsed = new URL(url);
+  appendFileSync(log, (init.method ?? "GET") + " " + parsed.origin + parsed.pathname + "\\n", "utf8");
+  return new Response(JSON.stringify({ message: "unexpected network" }), { status: 500, headers: { "content-type": "application/json" } });
+};
+`,
+      "utf8"
+    );
+
+    const result = runScriptWithNodeArgs(
+      "scripts/check-release-readiness.mjs",
+      {
+        FF_MOCK_PREFLIGHT_TOKEN_CLASS_LOG: log,
+        GITHUB_ACTIONS: "true",
+        GITHUB_TOKEN: "ghp_token-that-must-not-be-used"
+      },
+      [],
+      ["--import", mock]
+    );
+    const requests = await fs.readFile(log, "utf8").catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return "";
+      throw error;
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Release readiness check failed:\n- RELEASE_PREFLIGHT_TOKEN must be a GitHub App installation token or fine-grained PAT; classic, OAuth, refresh, and user tokens are not allowed in the release workflow\./);
+    assert.doesNotMatch(result.stderr, /token-that-must-not-be-used|unexpected network|api\.github|registry\.npmjs|Error:/);
+    assert.equal(requests, "");
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
 test("release preflight rejects control-bearing GitHub Actions mode before package or network work", async () => {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-preflight-actions-"));
   const mock = path.join(tmp, "mock-release-preflight-actions-fetch.mjs");
@@ -860,7 +983,7 @@ globalThis.fetch = async (url, init = {}) => {
       {
         FF_MOCK_PREFLIGHT_LOG: log,
         GITHUB_ACTIONS: "true",
-        GITHUB_TOKEN: "token-that-must-not-be-printed"
+        GITHUB_TOKEN: "ghs_token-that-must-not-be-printed"
       },
       [],
       ["--import", mock]
@@ -882,7 +1005,7 @@ globalThis.fetch = async (url, init = {}) => {
         FF_MOCK_PREFLIGHT_LOG: log,
         FF_MOCK_TAG_RULESET_REF: "refs/tags/v*",
         GITHUB_ACTIONS: "true",
-        GITHUB_TOKEN: "token-that-must-not-be-printed"
+        GITHUB_TOKEN: "ghs_token-that-must-not-be-printed"
       },
       [],
       ["--import", mock]
