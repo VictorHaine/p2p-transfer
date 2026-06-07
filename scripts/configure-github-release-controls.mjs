@@ -153,11 +153,18 @@ function tagRuleset() {
 
 function existingRulesetsByName(rulesets) {
   if (!Array.isArray(rulesets)) throw new Error("GitHub rulesets response was invalid.");
+  const expectedTargets = new Map([
+    [MAIN_RULESET_NAME, "branch"],
+    [TAG_RULESET_NAME, "tag"]
+  ]);
   const byName = new Map();
   for (const ruleset of rulesets) {
-    if (!ruleset || typeof ruleset !== "object" || typeof ruleset.name !== "string" || typeof ruleset.id !== "number") {
+    if (!ruleset || typeof ruleset !== "object" || typeof ruleset.name !== "string" || typeof ruleset.id !== "number" || typeof ruleset.target !== "string") {
       throw new Error("GitHub rulesets response was invalid.");
     }
+    const expectedTarget = expectedTargets.get(ruleset.name);
+    if (expectedTarget === undefined) throw new Error("GitHub rulesets response contained an unexpected ruleset.");
+    if (ruleset.target !== expectedTarget) throw new Error("GitHub rulesets response contained an unexpected ruleset target.");
     if (byName.has(ruleset.name)) throw new Error("GitHub rulesets response contained duplicate names.");
     byName.set(ruleset.name, ruleset);
   }

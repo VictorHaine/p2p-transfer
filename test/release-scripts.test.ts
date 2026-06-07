@@ -317,6 +317,63 @@ globalThis.fetch = async (url, init = {}) => {
   }
 });
 
+test("GitHub release controls reject unexpected existing rulesets before applying", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-controls-"));
+  const mock = path.join(tmp, "mock-github-fetch.mjs");
+  const log = path.join(tmp, "requests.log");
+  try {
+    await fs.writeFile(
+      mock,
+      `
+import { appendFileSync } from "node:fs";
+
+const log = process.env.FF_MOCK_GITHUB_LOG;
+
+globalThis.fetch = async (url, init = {}) => {
+  const parsed = new URL(url);
+  const method = init.method ?? "GET";
+  const path = parsed.pathname + parsed.search;
+  appendFileSync(log, method + " " + path + "\\n", "utf8");
+  const json = (status, value) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
+  if (parsed.origin !== "https://api.github.com") return json(500, {});
+  if (method === "GET" && path === "/user") return json(200, { login: "operator" });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer") return json(200, { id: 1 });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/environments/npm") return json(200, {
+    can_admins_bypass: false,
+    protection_rules: [{ type: "required_reviewers", prevent_self_review: true, reviewers: [{ type: "User", reviewer: { login: "approver" } }] }],
+    deployment_branch_policy: { protected_branches: false, custom_branch_policies: true }
+  });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/rulesets?includes_parents=false") return json(200, [
+    { id: 101, name: "p2p-transfer: protect main", target: "branch" },
+    { id: 202, name: "unexpected legacy tag rule", target: "tag" }
+  ]);
+  return json(500, {});
+};
+`,
+      "utf8"
+    );
+
+    const result = runScriptWithNodeArgs(
+      "scripts/configure-github-release-controls.mjs",
+      {
+        FF_MOCK_GITHUB_LOG: log,
+        GITHUB_TOKEN: "token-that-must-not-be-printed"
+      },
+      ["--apply", "--allow-missing-main"],
+      ["--import", mock]
+    );
+    const requests = await fs.readFile(log, "utf8");
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /GitHub release control setup failed:\n- GitHub rulesets response contained an unexpected ruleset\./);
+    assert.doesNotMatch(result.stderr, /unexpected legacy tag rule|token-that-must-not-be-printed|Error:/);
+    assert.doesNotMatch(requests, /^PUT |^POST /m);
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
 test("release preflight aggregates remote failures without leaking API bodies", async () => {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-preflight-"));
   const mock = path.join(tmp, "mock-release-preflight-fetch.mjs");
