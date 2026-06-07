@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { appendBoundedOutput, isolatedChildEnv, optionalProvidedTarball, parseJsonEvidence, readBoundedResponseText, renderCommandForLog, safeChildEnv, stageVerifiedTarball } from "../scripts/smoke-packed.mjs";
+import { appendBoundedOutput, expectedPackedTarballName, isolatedChildEnv, optionalProvidedTarball, parseJsonEvidence, readBoundedResponseText, renderCommandForLog, safeChildEnv, stageVerifiedTarball } from "../scripts/smoke-packed.mjs";
 
 const packedSmokeSource = await readFile(new URL("../scripts/smoke-packed.mjs", import.meta.url), "utf8");
 
@@ -41,6 +41,22 @@ test("packed smoke JSON evidence parser rejects hostile labels before reporting"
   assert.throws(
     () => parseJsonEvidence("{}", "health\u001b[31m" as never),
     /Packed smoke JSON evidence is invalid\./
+  );
+});
+
+test("packed smoke derives the exact expected npm tarball name", () => {
+  assert.equal(expectedPackedTarballName("@victorhaine/p2p-transfer", "1.2.3"), "victorhaine-p2p-transfer-1.2.3.tgz");
+  assert.equal(expectedPackedTarballName("plain-package", "1.2.3"), "plain-package-1.2.3.tgz");
+});
+
+test("packed smoke rejects invalid package metadata before tarball naming", () => {
+  assert.throws(
+    () => expectedPackedTarballName("../bad", "1.2.3"),
+    /package\.json name must be an exact npm package name\./
+  );
+  assert.throws(
+    () => expectedPackedTarballName("@scope/pkg", "1.2.3-beta"),
+    /package\.json version must be an exact semver release\./
   );
 });
 

@@ -241,8 +241,15 @@ test("packed package smoke installs and executes published bins", () => {
   assert.match(packedSmokeScript, /pnpm.*add/s);
   assert.match(packedSmokeScript, /pnpm.*exec", "ff", "--version"/);
   assert.match(packedSmokeScript, /const protocolVersion = requiredProtocolVersion\(parseJsonEvidence\(await readText\(path\.join\(root, "conformance", "protocol-v5\.json"\), MAX_CONFORMANCE_JSON_BYTES\), "conformance\/protocol-v5\.json"\)\.protocolVersion\)/);
+  assert.match(packedSmokeScript, /const packageName = requiredPackageName\(packageJson\.name\)/);
   assert.match(packedSmokeScript, /const packageVersion = requiredPackageVersion\(packageJson\.version\)/);
+  assert.match(packedSmokeScript, /const expectedTarballName = expectedPackedTarballName\(packageName, packageVersion\)/);
+  assert.match(packedSmokeScript, /packCurrentProject\(packDir, childEnv, expectedTarballName\)/);
+  assert.match(packedSmokeScript, /function requiredPackageName\(value\)/);
   assert.match(packedSmokeScript, /function requiredPackageVersion\(value\)/);
+  assert.match(packedSmokeScript, /export function expectedPackedTarballName\(packageName, packageVersion\)/);
+  assert.match(packedSmokeScript, /Packed smoke pack output must contain exactly the expected tarball\./);
+  assert.doesNotMatch(packedSmokeScript, /filter\(\(name\) => name\.endsWith\("\.tgz"\)\)/);
   assert.match(packedSmokeScript, /function requiredProtocolVersion\(value\)/);
   assert.match(packedSmokeScript, /const expectedVersion = `\$\{packageVersion\} protocol \$\{protocolVersion\}`/);
   assert.match(packedSmokeScript, /version\.stdout\.trimEnd\(\) !== expectedVersion \|\| version\.stderr\.length > 0/);
@@ -262,7 +269,7 @@ test("packed package smoke installs and executes published bins", () => {
   assert.match(securityPolicy, /packed-install smoke HTTP probes must use an abort deadline that covers both headers and response body reads/);
   assert.match(securityPolicy, /packed-install smoke must fatal-UTF-8-decode project metadata and HTTP probe responses, parse project metadata and health response JSON with smoke-owned deterministic errors, and reject invalid health bodies without echoing response content/);
   assert.match(securityPolicy, /packed-install smoke must require exact `ff --version` stdout and empty stderr/);
-  assert.match(securityPolicy, /packed-install smoke must validate the project `version` is an exact semver release/);
+  assert.match(securityPolicy, /packed-install smoke must validate the project package name and `version`, derive the exact expected npm tarball name from that metadata before installing a self-packed workspace, and reject any pack output that is not exactly that single tarball/);
   assert.match(securityPolicy, /packed-install smoke must validate the project `packageManager` is an exact `pnpm@\d+\.\d+\.\d+` pin/);
   assert.match(securityPolicy, /provided tarball paths must reject terminal control\/format characters and staging\/open failures must not echo raw tarball paths/);
   assert.match(securityPolicy, /packed-install smoke must byte-cap the provided tarball path by UTF-8 bytes, no-follow-open, identity-check, and stage the verified tarball into a distinct no-follow-copied file in its private temp workspace before fresh-project install/);
@@ -322,7 +329,7 @@ test("packed package smoke installs and executes published bins", () => {
   assert.match(packedSmokeScript, /hasUnsafePathText\(value\)/);
   assert.match(packedSmokeScript, /utf8ByteLengthExceeds\(value, MAX_PACKED_SMOKE_TARBALL_PATH_BYTES\)/);
   assert.match(packedSmokeScript, /const childEnv = isolatedChildEnv\(privateHome\)/);
-  assert.match(packedSmokeScript, /providedTarball \?\? \(await packCurrentProject\(packDir, childEnv\)\)/);
+  assert.match(packedSmokeScript, /providedTarball \?\? \(await packCurrentProject\(packDir, childEnv, expectedTarballName\)\)/);
   assert.match(packedSmokeScript, /const installTarball = await stageVerifiedTarball\(tarball, packDir\)/);
   assert.match(packedSmokeScript, /await run\(pnpm, \["add", installTarball\], \{ cwd: consumerDir, timeoutMs: 180_000, env: childEnv \}\)/);
   assert.match(packedSmokeScript, /function stageVerifiedTarball\(tarball, destination\)/);

@@ -35,7 +35,9 @@ if (isMain()) {
 
 async function main() {
   const packageJson = parseJsonEvidence(await readText(path.join(root, "package.json"), MAX_PROJECT_PACKAGE_JSON_BYTES), "package.json");
+  const packageName = requiredPackageName(packageJson.name);
   const packageVersion = requiredPackageVersion(packageJson.version);
+  const expectedTarballName = expectedPackedTarballName(packageName, packageVersion);
   const packageManager = requiredPackageManager(packageJson.packageManager);
   const protocolVersion = requiredProtocolVersion(parseJsonEvidence(await readText(path.join(root, "conformance", "protocol-v5.json"), MAX_CONFORMANCE_JSON_BYTES), "conformance/protocol-v5.json").protocolVersion);
   const providedTarball = optionalProvidedTarball();
@@ -55,7 +57,7 @@ async function main() {
     await mkdir(childEnv.COREPACK_HOME, { recursive: true });
     await mkdir(childEnv.LOCALAPPDATA, { recursive: true });
     await mkdir(childEnv.APPDATA, { recursive: true });
-    const tarball = providedTarball ?? (await packCurrentProject(packDir, childEnv));
+    const tarball = providedTarball ?? (await packCurrentProject(packDir, childEnv, expectedTarballName));
     const installTarball = await stageVerifiedTarball(tarball, packDir);
 
     await writeFile(
@@ -301,11 +303,24 @@ function requiredPackageManager(value) {
   return value;
 }
 
+function requiredPackageName(value) {
+  if (typeof value !== "string" || !/^(?:[a-z0-9][a-z0-9._-]*|@[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*)$/.test(value) || value.length > 214) {
+    throw new Error("package.json name must be an exact npm package name.");
+  }
+  return value;
+}
+
 function requiredPackageVersion(value) {
   if (typeof value !== "string" || !/^\d+\.\d+\.\d+$/.test(value)) {
     throw new Error("package.json version must be an exact semver release.");
   }
   return value;
+}
+
+export function expectedPackedTarballName(packageName, packageVersion) {
+  const name = requiredPackageName(packageName);
+  const version = requiredPackageVersion(packageVersion);
+  return `${name.startsWith("@") ? name.slice(1).replace("/", "-") : name}-${version}.tgz`;
 }
 
 function requiredProtocolVersion(value) {
@@ -369,11 +384,13 @@ function sanitizeLogText(value) {
   return value.replace(/[\p{Cc}\p{Cf}]/gu, (character) => (character === "\n" || character === "\t" ? character : ""));
 }
 
-async function packCurrentProject(destination, env) {
+async function packCurrentProject(destination, env, expectedTarballName) {
   await run(pnpm, ["--config.ignore-scripts=true", "pack", "--pack-destination", destination], { cwd: root, timeoutMs: 120_000, env });
-  const tarballs = (await readdir(destination)).filter((name) => name.endsWith(".tgz"));
-  if (tarballs.length !== 1) throw new Error(`Expected one packed tarball, found ${tarballs.length}.`);
-  return path.join(destination, tarballs[0]);
+  const entries = await readdir(destination, { withFileTypes: true });
+  if (entries.length !== 1 || !entries[0]?.isFile() || entries[0].name !== expectedTarballName) {
+    throw new Error("Packed smoke pack output must contain exactly the expected tarball.");
+  }
+  return path.join(destination, expectedTarballName);
 }
 
 export function optionalProvidedTarball() {
