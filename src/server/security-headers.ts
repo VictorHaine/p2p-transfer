@@ -14,7 +14,9 @@ export function securityHeaders(html: boolean, options: SecurityHeaderOptions = 
     "x-frame-options": "DENY",
     "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
     "cross-origin-opener-policy": "same-origin",
+    "cross-origin-embedder-policy": "require-corp",
     "cross-origin-resource-policy": "same-origin",
+    "origin-agent-cluster": "?1",
     "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
     ...(html === true
       ? {

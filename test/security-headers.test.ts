@@ -61,12 +61,18 @@ test("static HTML detection applies CSP to every html response", () => {
 });
 
 test("security headers include transport and cross-origin isolation guardrails", () => {
+  assert.match(securityPolicy, /browser security headers must keep no-referrer, HSTS, frame denial, MIME sniffing denial, COOP, COEP, CORP, Origin-Agent-Cluster, and a locked-down Permissions-Policy/);
   const headers = securityHeaders(true);
   assert.equal(headers["strict-transport-security"], "max-age=63072000; includeSubDomains; preload");
   assert.equal(headers["cross-origin-opener-policy"], "same-origin");
+  assert.equal(headers["cross-origin-embedder-policy"], "require-corp");
   assert.equal(headers["cross-origin-resource-policy"], "same-origin");
+  assert.equal(headers["origin-agent-cluster"], "?1");
   assert.equal(headers["x-content-type-options"], "nosniff");
+  assert.equal(headers["referrer-policy"], "no-referrer");
   assert.equal(headers["x-frame-options"], "DENY");
+  assert.equal(headers["permissions-policy"], "camera=(), microphone=(), geolocation=(), payment=(), usb=()");
+  assert.deepEqual(distSecurityHeaders(true), headers);
 });
 
 test("HTML CSP explicitly closes unused browser execution and embedding surfaces", () => {
