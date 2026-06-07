@@ -20,6 +20,7 @@ const httpProbeScript = fs.readFileSync(new URL("../scripts/probe-http.mjs", imp
 const releaseArtifactScript = fs.readFileSync(new URL("../scripts/verify-release-artifact.mjs", import.meta.url), "utf8");
 const releaseChecksumScript = fs.readFileSync(new URL("../scripts/write-release-checksum.mjs", import.meta.url), "utf8");
 const releaseNotesScript = fs.readFileSync(new URL("../scripts/write-release-notes.mjs", import.meta.url), "utf8");
+const githubReleaseControlsScript = fs.readFileSync(new URL("../scripts/configure-github-release-controls.mjs", import.meta.url), "utf8");
 const dependabotConfig = fs.readFileSync(new URL("../.github/dependabot.yml", import.meta.url), "utf8");
 const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
 const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
@@ -257,6 +258,49 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.doesNotMatch(publishJob, /pnpm install|pnpm build|pnpm smoke:native/);
   assert.match(publishJob, /--ignore-scripts/);
   assert.doesNotMatch(publishJob, /NODE_AUTH_TOKEN|NPM_TOKEN/);
+});
+
+test("checked GitHub release controls setup matches the protected release surface", () => {
+  assert.match(githubReleaseControlsScript, /const MAIN_RULESET_NAME = "p2p-transfer: protect main"/);
+  assert.match(githubReleaseControlsScript, /const TAG_RULESET_NAME = "p2p-transfer: protect release tags"/);
+  assert.match(githubReleaseControlsScript, /const NPM_ENVIRONMENT = "npm"/);
+  assert.match(githubReleaseControlsScript, /const REPOSITORY_ADMIN_ROLE_BYPASS_ACTOR_ID = 5/);
+  assert.match(githubReleaseControlsScript, /realpathSync\(process\.argv\[1\]\) === realpathSync\(fileURLToPath\(import\.meta\.url\)\)/);
+  assert.doesNotMatch(githubReleaseControlsScript, /endsWith\("\/configure-github-release-controls\.mjs"\)/);
+  assert.match(githubReleaseControlsScript, /"PUT", `\/repos\/\$\{options\.repository\}\/rulesets\/\$\{existing\.id\}`/);
+
+  for (const check of [
+    "verify",
+    "browser interop",
+    "production docker policy",
+    "platform smoke / ubuntu-24.04 / node 22.22.3",
+    "platform smoke / ubuntu-24.04 / node 24.13.1",
+    "platform smoke / macos-15 / node 22.22.3",
+    "platform smoke / macos-15 / node 24.13.1",
+    "platform smoke / windows-2025 / node 22.22.3",
+    "platform smoke / windows-2025 / node 24.13.1"
+  ]) {
+    assert.match(githubReleaseControlsScript, new RegExp(escapeRegExp(`"${check}"`)));
+  }
+
+  assert.match(githubReleaseControlsScript, /conditions: \{ ref_name: \{ include: \["refs\/heads\/main"\], exclude: \[\] \} \}/);
+  assert.match(githubReleaseControlsScript, /conditions: \{ ref_name: \{ include: \["refs\/tags\/v\*"\], exclude: \[\] \} \}/);
+  assert.match(githubReleaseControlsScript, /type: "pull_request"[\s\S]*require_code_owner_review: true[\s\S]*require_last_push_approval: true[\s\S]*required_approving_review_count: 1[\s\S]*required_review_thread_resolution: true/);
+  assert.match(githubReleaseControlsScript, /type: "required_status_checks"[\s\S]*do_not_enforce_on_create: true[\s\S]*strict_required_status_checks_policy: true[\s\S]*required_status_checks: REQUIRED_CI_CHECKS\.map\(\(context\) => \(\{ context \}\)\)/);
+  assert.match(githubReleaseControlsScript, /bypass_actors: \[\{ actor_type: "RepositoryRole", actor_id: REPOSITORY_ADMIN_ROLE_BYPASS_ACTOR_ID, bypass_mode: "always" \}\]/);
+  assert.match(githubReleaseControlsScript, /type: "creation"[\s\S]*type: "deletion"[\s\S]*type: "non_fast_forward"[\s\S]*type: "tag_name_pattern"[\s\S]*pattern: "\^v\[0-9\]\+\\\\\.\[0-9\]\+\\\\\.\[0-9\]\+\$"/);
+  assert.match(githubReleaseControlsScript, /Push main before applying GitHub release controls\./);
+  assert.match(githubReleaseControlsScript, /The npm environment exists but has no protection rules/);
+  assert.ok(
+    githubReleaseControlsScript.indexOf("The npm environment exists but has no protection rules") <
+      githubReleaseControlsScript.indexOf("for (const ruleset of desired)"),
+    "npm environment protection must be checked before mutating rulesets"
+  );
+
+  assert.match(readme, /create the `npm` environment[\s\S]*required reviewers or an equivalent approval gate/);
+  assert.match(readme, /scripts\/configure-github-release-controls\.mjs --apply/);
+  assert.match(readme, /refuses to mutate the repository if the `npm` environment has no protection rules/);
+  assert.match(securityPolicy, /setup script must fail before mutating repository rulesets when the `npm` environment is missing approval protection/);
 });
 
 test("security-sensitive surfaces require code owner review", () => {

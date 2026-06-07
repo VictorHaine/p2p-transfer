@@ -1,0 +1,215 @@
+#!/usr/bin/env node
+import { realpathSync } from "node:fs";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+const API = "https://api.github.com";
+const DEFAULT_REPOSITORY = "VictorHaine/p2p-transfer";
+const MAIN_RULESET_NAME = "p2p-transfer: protect main";
+const TAG_RULESET_NAME = "p2p-transfer: protect release tags";
+const NPM_ENVIRONMENT = "npm";
+const REPOSITORY_ADMIN_ROLE_BYPASS_ACTOR_ID = 5;
+
+const REQUIRED_CI_CHECKS = [
+  "verify",
+  "browser interop",
+  "production docker policy",
+  "platform smoke / ubuntu-24.04 / node 22.22.3",
+  "platform smoke / ubuntu-24.04 / node 24.13.1",
+  "platform smoke / macos-15 / node 22.22.3",
+  "platform smoke / macos-15 / node 24.13.1",
+  "platform smoke / windows-2025 / node 22.22.3",
+  "platform smoke / windows-2025 / node 24.13.1"
+];
+
+if (isMain()) {
+  try {
+    await main();
+  } catch (error) {
+    console.error("GitHub release control setup failed:");
+    console.error(`- ${setupErrorMessage(error)}`);
+    process.exitCode = 1;
+  }
+}
+
+async function main() {
+  const options = parseArgs(process.argv.slice(2));
+  const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+  if (!token) throw new Error("Set GITHUB_TOKEN or GH_TOKEN with repository administration permission.");
+
+  const repo = await github(token, "GET", `/repos/${options.repository}`);
+  if (!repo || typeof repo.id !== "number") throw new Error("GitHub repository response was invalid.");
+  if (options.requireMain) await requireRemoteMain(token, options.repository);
+
+  const desired = [mainRuleset(), tagRuleset()];
+  const environment = await github(token, "GET", `/repos/${options.repository}/environments/${NPM_ENVIRONMENT}`).catch((error) => {
+    if (error instanceof GitHubApiError && error.status === 404) return undefined;
+    throw error;
+  });
+  const existingRulesets = await github(token, "GET", `/repos/${options.repository}/rulesets?includes_parents=false`);
+  const existingByName = new Map(Array.isArray(existingRulesets) ? existingRulesets.map((ruleset) => [ruleset?.name, ruleset]) : []);
+
+  if (!options.apply) {
+    console.log(JSON.stringify({ repository: options.repository, mode: "dry-run", rulesets: desired, environment: environmentStatus(environment) }, null, 2));
+    return;
+  }
+
+  if (!environment) throw new Error("Create the npm environment before applying release controls.");
+  const status = environmentStatus(environment);
+  if (!status.hasProtectionRules) {
+    throw new Error("The npm environment exists but has no protection rules. Add required reviewers or an equivalent release approval gate in GitHub.");
+  }
+
+  for (const ruleset of desired) {
+    const existing = existingByName.get(ruleset.name);
+    if (existing && typeof existing.id === "number") {
+      await github(token, "PUT", `/repos/${options.repository}/rulesets/${existing.id}`, ruleset);
+      continue;
+    }
+    await github(token, "POST", `/repos/${options.repository}/rulesets`, ruleset);
+  }
+
+  console.log(JSON.stringify({ repository: options.repository, mode: "applied", rulesets: desired.map((ruleset) => ruleset.name), environment: status }, null, 2));
+}
+
+function mainRuleset() {
+  return {
+    name: MAIN_RULESET_NAME,
+    target: "branch",
+    enforcement: "active",
+    bypass_actors: [],
+    conditions: { ref_name: { include: ["refs/heads/main"], exclude: [] } },
+    rules: [
+      { type: "deletion" },
+      { type: "non_fast_forward" },
+      {
+        type: "pull_request",
+        parameters: {
+          allowed_merge_methods: ["squash", "rebase"],
+          dismiss_stale_reviews_on_push: true,
+          require_code_owner_review: true,
+          require_last_push_approval: true,
+          required_approving_review_count: 1,
+          required_review_thread_resolution: true
+        }
+      },
+      {
+        type: "required_status_checks",
+        parameters: {
+          do_not_enforce_on_create: true,
+          strict_required_status_checks_policy: true,
+          required_status_checks: REQUIRED_CI_CHECKS.map((context) => ({ context }))
+        }
+      }
+    ]
+  };
+}
+
+function tagRuleset() {
+  return {
+    name: TAG_RULESET_NAME,
+    target: "tag",
+    enforcement: "active",
+    bypass_actors: [{ actor_type: "RepositoryRole", actor_id: REPOSITORY_ADMIN_ROLE_BYPASS_ACTOR_ID, bypass_mode: "always" }],
+    conditions: { ref_name: { include: ["refs/tags/v*"], exclude: [] } },
+    rules: [
+      { type: "creation" },
+      { type: "deletion" },
+      { type: "non_fast_forward" },
+      {
+        type: "tag_name_pattern",
+        parameters: {
+          name: "semantic release tags only",
+          negate: false,
+          operator: "regex",
+          pattern: "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
+        }
+      }
+    ]
+  };
+}
+
+async function requireRemoteMain(token, repository) {
+  await github(token, "GET", `/repos/${repository}/branches/main`).catch((error) => {
+    if (error instanceof GitHubApiError && error.status === 404) {
+      throw new Error("Push main before applying GitHub release controls.");
+    }
+    throw error;
+  });
+}
+
+function environmentStatus(environment) {
+  return {
+    name: NPM_ENVIRONMENT,
+    exists: !!environment,
+    hasProtectionRules: Array.isArray(environment?.protection_rules) && environment.protection_rules.length > 0,
+    deploymentBranchPolicy: environment?.deployment_branch_policy ?? null
+  };
+}
+
+async function github(token, method, path, body) {
+  const response = await fetch(`${API}${path}`, {
+    method,
+    headers: {
+      accept: "application/vnd.github+json",
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+      "x-github-api-version": "2022-11-28"
+    },
+    body: body === undefined ? undefined : JSON.stringify(body)
+  });
+  const text = await response.text();
+  const data = text.length > 0 ? JSON.parse(text) : undefined;
+  if (!response.ok) throw new GitHubApiError(response.status, data);
+  return data;
+}
+
+class GitHubApiError extends Error {
+  constructor(status, data) {
+    super(githubApiErrorMessage(status, data));
+    this.status = status;
+  }
+}
+
+function githubApiErrorMessage(status, data) {
+  if (data && typeof data === "object" && typeof data.message === "string" && data.message.length > 0 && data.message.length < 256) {
+    return `GitHub API returned ${status}: ${data.message}`;
+  }
+  return `GitHub API returned ${status}.`;
+}
+
+function parseArgs(args) {
+  const options = { apply: false, repository: process.env.GITHUB_REPOSITORY || DEFAULT_REPOSITORY, requireMain: true };
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === "--apply") {
+      options.apply = true;
+    } else if (arg === "--dry-run") {
+      options.apply = false;
+    } else if (arg === "--allow-missing-main") {
+      options.requireMain = false;
+    } else if (arg === "--repo") {
+      const value = args[++index];
+      if (!value || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(value)) throw new Error("Repository must be owner/name.");
+      options.repository = value;
+    } else {
+      throw new Error("Usage: node scripts/configure-github-release-controls.mjs [--dry-run|--apply] [--repo owner/name] [--allow-missing-main]");
+    }
+  }
+  return options;
+}
+
+function setupErrorMessage(error) {
+  if (!(error instanceof Error) || typeof error.message !== "string" || error.message.length < 1 || error.message.length > 4096 || /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u.test(error.message)) {
+    return "GitHub release control setup failed with an internal error.";
+  }
+  return error.message;
+}
+
+function isMain() {
+  if (typeof process.argv[1] !== "string") return false;
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return pathToFileURL(process.argv[1]).href === import.meta.url;
+  }
+}

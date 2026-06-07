@@ -261,10 +261,11 @@ git remote add origin git@github.com:victorhaine/p2p-transfer.git
 
 In GitHub:
 
-- create the `npm` environment used by `.github/workflows/release.yml`
+- create the `npm` environment used by `.github/workflows/release.yml` and add required reviewers or an equivalent approval gate before publishing
 - enable private vulnerability reporting
 - create branch protection for `main` requiring CI and CODEOWNERS review
 - create a tag protection rule or repository ruleset for `v*` release tags so only maintainers can create or update release tags
+- after `main` exists remotely, apply the checked release controls with `GITHUB_TOKEN=<admin-token> node scripts/configure-github-release-controls.mjs --apply`; this creates/updates the branch and release-tag rulesets and refuses to mutate the repository if the `npm` environment has no protection rules
 - enable code scanning alerts; `.github/workflows/codeql.yml` runs pinned CodeQL analysis on pull requests, pushes to `main`, and a weekly schedule
 - enable OpenSSF Scorecard alerts; `.github/workflows/scorecard.yml` runs the pinned Scorecard action on pushes to `main` and a weekly schedule, then uploads SARIF to code scanning
 - keep dependency review required on pull requests; `.github/workflows/dependency-review.yml` runs the pinned GitHub dependency review action on pull requests and blocks vulnerable runtime or development dependency changes at low severity or higher
