@@ -26,6 +26,7 @@ type PackageJson = {
   pnpm?: Record<string, unknown>;
   dependencies?: Record<string, string>;
   optionalDependencies?: Record<string, string>;
+  peerDependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
 };
 
@@ -41,12 +42,14 @@ const releaseArtifactScript = fs.readFileSync(new URL("../scripts/verify-release
 const releaseChecksumScript = fs.readFileSync(new URL("../scripts/write-release-checksum.mjs", import.meta.url), "utf8");
 const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
 const cpaceReview = fs.readFileSync(new URL("../docs/security/cpace-review.md", import.meta.url), "utf8");
+const nobleHashesReview = fs.readFileSync(new URL("../docs/security/noble-hashes-review.md", import.meta.url), "utf8");
 const nativeWebrtcReview = fs.readFileSync(new URL("../docs/security/native-webrtc-review.md", import.meta.url), "utf8");
 const dependabotConfig = fs.readFileSync(new URL("../.github/dependabot.yml", import.meta.url), "utf8");
 const ciWorkflow = fs.readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
 const releaseWorkflow = fs.readFileSync(new URL("../.github/workflows/release.yml", import.meta.url), "utf8");
 const conformanceFiles = fs.readdirSync(new URL("../conformance", import.meta.url));
 const pakePackageJson = JSON.parse(fs.readFileSync(new URL("../node_modules/@cipherman/pake-js/package.json", import.meta.url), "utf8")) as PackageJson;
+const nobleHashesPackageJson = JSON.parse(fs.readFileSync(new URL("../node_modules/@noble/hashes/package.json", import.meta.url), "utf8")) as PackageJson;
 const wrtcPackageJson = JSON.parse(fs.readFileSync(new URL("../node_modules/@roamhq/wrtc/package.json", import.meta.url), "utf8")) as PackageJson;
 
 const reviewedWrtcPrebuiltPackages = [
@@ -60,6 +63,7 @@ const reviewedWrtcPrebuiltPackages = [
 const reviewedPakeIntegrity = "sha512-iutxMCmRXYacl3fc19SKFisk1sRD1FNQi7+GWPlnQnFit6l3sUagYOCU2IgRPD8MF3s1HwnkSpqARFUp04+GVQ==";
 const reviewedNobleCurvesIntegrity = "sha512-gbKGcRUYIjA3/zCCNaWDciTMFI0dCkvou3TL8Zmy5Nc7sJ47a0jtOeZoTaMxkuqRo9cRhjOdZJXegxYE5FN/xw==";
 const reviewedNobleHashesCpaceIntegrity = "sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A==";
+const reviewedNobleHashesIntegrity = "sha512-IYqDGiTXab6FniAgnSdZwgWbomxpy9FtYvLKs7wCUs2a8RkITG+DFGO1DM9cr+E3/RgADRpFjrKVaJ1z6sjtEg==";
 
 test("npm package surface is restricted to built artifacts and required docs", () => {
   assert.deepEqual(packageJson.files, [
@@ -717,12 +721,77 @@ test("critical PAKE dependency identity and install surface stay reviewed", () =
   assert.match(cpaceReview, /`pnpm audit --audit-level low`, `pnpm audit signatures`, dependency review, installed-state verification, package-surface tests, CPace protocol tests, or release-artifact verification fails/);
 });
 
+test("direct noble hashes dependency identity and install surface stay reviewed", () => {
+  const hashesPin = packageJson.dependencies?.["@noble/hashes"];
+  assert.match(securityPolicy, /direct `@noble\/hashes` crypto dependency metadata, exports, runtime dependency declarations, lifecycle hooks, and lockfile integrity must stay reviewed/);
+  assert.match(securityPolicy, /Dependabot must track it in its own production update group and exclude it from bulk production dependency groups/);
+  assert.match(dependabotConfig, /direct-crypto-dependency:\n\s+patterns:\n\s+- "@noble\/hashes"\n\s+dependency-type: production/);
+  assert.match(dependabotConfig, /production-dependencies:\n\s+dependency-type: production\n\s+exclude-patterns:\n\s+- "@cipherman\/pake-js"\n\s+- "@noble\/hashes"/);
+  assert.equal(hashesPin, "2.2.0");
+  assert.equal(nobleHashesPackageJson.name, "@noble/hashes");
+  assert.equal(nobleHashesPackageJson.version, hashesPin);
+  assert.equal(nobleHashesPackageJson.license, "MIT");
+  assert.equal(nobleHashesPackageJson.type, "module");
+  assert.equal(nobleHashesPackageJson.main, "index.js");
+  assert.equal(nobleHashesPackageJson.types, "index.d.ts");
+  assert.equal(nobleHashesPackageJson.sideEffects, false);
+  assert.equal(nobleHashesPackageJson.homepage, "https://paulmillr.com/noble/");
+  assert.deepEqual(nobleHashesPackageJson.repository, {
+    type: "git",
+    url: "git+https://github.com/paulmillr/noble-hashes.git"
+  });
+  assert.deepEqual(nobleHashesPackageJson.files, ["*.js", "*.js.map", "*.d.ts", "*.d.ts.map", "src"]);
+  assert.deepEqual(nobleHashesPackageJson.exports, {
+    ".": "./index.js",
+    "./_md.js": "./_md.js",
+    "./argon2.js": "./argon2.js",
+    "./blake1.js": "./blake1.js",
+    "./blake2.js": "./blake2.js",
+    "./blake3.js": "./blake3.js",
+    "./eskdf.js": "./eskdf.js",
+    "./hkdf.js": "./hkdf.js",
+    "./hmac.js": "./hmac.js",
+    "./legacy.js": "./legacy.js",
+    "./pbkdf2.js": "./pbkdf2.js",
+    "./scrypt.js": "./scrypt.js",
+    "./sha2.js": "./sha2.js",
+    "./sha3-addons.js": "./sha3-addons.js",
+    "./sha3.js": "./sha3.js",
+    "./webcrypto.js": "./webcrypto.js",
+    "./utils.js": "./utils.js"
+  });
+  assert.equal(nobleHashesPackageJson.dependencies, undefined);
+  assert.equal(nobleHashesPackageJson.optionalDependencies, undefined);
+  assert.equal(nobleHashesPackageJson.peerDependencies, undefined);
+  for (const lifecycle of ["preinstall", "install", "postinstall", "prepare", "prepublish", "prepublishOnly"]) {
+    assert.equal(nobleHashesPackageJson.scripts?.[lifecycle], undefined);
+  }
+  assert.match(
+    pnpmLock,
+    new RegExp(`^  '@noble/hashes@2\\.2\\.0':\\n    resolution: \\{integrity: ${escapeRegExp(reviewedNobleHashesIntegrity)}\\}`, "m")
+  );
+  assert.match(nobleHashesReview, /# Noble Hashes Dependency Review/);
+  assert.match(nobleHashesReview, new RegExp(`Package: \`${escapeRegExp(nobleHashesPackageJson.name ?? "")}\``));
+  assert.match(nobleHashesReview, new RegExp(`Reviewed package version: \`${escapeRegExp(hashesPin ?? "")}\``));
+  assert.match(nobleHashesReview, new RegExp(`Lockfile entry: \`pnpm-lock\\.yaml\` resolves \`@noble/hashes@2\\.2\\.0\` with integrity \`${escapeRegExp(reviewedNobleHashesIntegrity)}\``));
+  assert.match(nobleHashesReview, /`src\/shared\/security\.ts` and `src\/shared\/hash\.ts`/);
+  assert.match(nobleHashesReview, /HKDF-SHA256, and hex encoding primitives/);
+  assert.match(nobleHashesReview, /`@noble\/hashes\/hkdf\.js`, `@noble\/hashes\/hmac\.js`, `@noble\/hashes\/sha2\.js`, and `@noble\/hashes\/utils\.js`/);
+  assert.match(nobleHashesReview, /Entrypoints reviewed in installed metadata: `type` is `module`, `main` is `index\.js`, `module` is `index\.js`, and `types` is `index\.d\.ts`/);
+  assert.match(nobleHashesReview, /Runtime dependency declarations reviewed: direct `dependencies`, `optionalDependencies`, and `peerDependencies` are absent/);
+  assert.match(nobleHashesReview, /`@noble\/hashes` is not in `allowBuilds`/);
+  assert.match(nobleHashesReview, /This repo does not contain a formal independent audit certificate for `@noble\/hashes@2\.2\.0`/);
+  assert.match(nobleHashesReview, /Dependabot must keep `@noble\/hashes` in a dedicated production update group and exclude it from the bulk production dependency group/);
+  assert.match(nobleHashesReview, /Release must stop if any of these are true:/);
+  assert.match(nobleHashesReview, /`@noble\/hashes` adds `preinstall`, `install`, `postinstall`, `prepare`, or `prepublishOnly` hooks/);
+});
+
 test("native WebRTC dependency identity and install surface stay reviewed", () => {
   const wrtcPin = packageJson.dependencies?.["@roamhq/wrtc"];
   assert.match(securityPolicy, /native WebRTC dependency metadata, optional prebuilt package set, allowed build-script surface, and platform smoke coverage must stay reviewed/);
   assert.match(securityPolicy, /Dependabot must track `@roamhq\/wrtc` and `@roamhq\/wrtc-\*` in their own production update group/);
   assert.match(dependabotConfig, /native-webrtc-dependency:\n\s+patterns:\n\s+- "@roamhq\/wrtc"\n\s+- "@roamhq\/wrtc-\*"\n\s+dependency-type: production/);
-  assert.match(dependabotConfig, /production-dependencies:\n\s+dependency-type: production\n\s+exclude-patterns:\n\s+- "@cipherman\/pake-js"\n\s+- "@roamhq\/wrtc"\n\s+- "@roamhq\/wrtc-\*"/);
+  assert.match(dependabotConfig, /production-dependencies:\n\s+dependency-type: production\n\s+exclude-patterns:\n\s+- "@cipherman\/pake-js"\n\s+- "@noble\/hashes"\n\s+- "@roamhq\/wrtc"\n\s+- "@roamhq\/wrtc-\*"/);
   assert.equal(wrtcPin, "0.10.0");
   assert.equal(wrtcPackageJson.name, "@roamhq/wrtc");
   assert.equal(wrtcPackageJson.version, wrtcPin);

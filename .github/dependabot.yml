@@ -10,6 +10,10 @@ updates:
         patterns:
           - "@cipherman/pake-js"
         dependency-type: production
+      direct-crypto-dependency:
+        patterns:
+          - "@noble/hashes"
+        dependency-type: production
       native-webrtc-dependency:
         patterns:
           - "@roamhq/wrtc"
@@ -19,6 +23,7 @@ updates:
         dependency-type: production
         exclude-patterns:
           - "@cipherman/pake-js"
+          - "@noble/hashes"
           - "@roamhq/wrtc"
           - "@roamhq/wrtc-*"
       development-dependencies:
