@@ -17,7 +17,7 @@ import { assertTransferManifestWithinLimits, safeFileName } from "../shared/limi
 import { isServerMessage, type FileManifest, type ServerMessage, type SignalPayload } from "../shared/messages.js";
 import { sanitizeDisplayText, sanitizeStructuredOutput } from "../shared/output-safety.js";
 import { PACKAGE_VERSION } from "../shared/package-info.js";
-import { generateCode, normalizeCode, parseCode } from "../shared/wordlist.js";
+import { MAX_CODE_INPUT_CHARS, generateCode, normalizeCode, parseCode } from "../shared/wordlist.js";
 import { openManifest, pairDecisionAuthTag, sdpAuthTag, sealManifest, verifyPairDecisionAuthTag, verifySignalAuthTag, wipeSessionKeys, type SessionKeys } from "../shared/security.js";
 import { cloneIceServers } from "../shared/ice.js";
 import { assertReviewedCryptoDependencies } from "./crypto-dependencies.js";
@@ -433,11 +433,15 @@ async function readCodeFromStdin(label: string): Promise<string> {
 function readCodeEnv(name: string): string {
   if (name.length > 128 || !ENV_NAME_PATTERN.test(name)) throw new Error("Environment variable name is invalid.");
   const descriptor = Object.getOwnPropertyDescriptor(process.env, name);
-  if (!descriptor || !("value" in descriptor) || typeof descriptor.value !== "string" || descriptor.value.length === 0) {
+  if (!descriptor || !("value" in descriptor) || descriptor.value === undefined) {
     throw new Error(`Environment variable ${name} is not set.`);
   }
+  const value = descriptor.value;
   delete process.env[name];
-  return descriptor.value;
+  if (typeof value !== "string" || value.length === 0 || value.length > MAX_CODE_INPUT_CHARS) {
+    throw new Error(`Environment variable ${name} is invalid.`);
+  }
+  return value;
 }
 
 async function readBoundedStdin(label: string): Promise<string> {

@@ -143,6 +143,7 @@ test("CLI send supports non-argv code and file path input", () => {
 test("CLI private receive-code inputs are not echoed back into local telemetry", () => {
   assert.match(securityPolicy, /supplied receive codes must not be reprinted in registered output/);
   assert.match(securityPolicy, /environment-sourced codes must be cleared after capture/);
+  assert.match(securityPolicy, /environment-sourced codes must be byte-capped before code normalization/);
   assert.match(securityPolicy, /code-stdin paths must not fall back to echoing terminal prompts/);
   for (const source of [cliSource, distCliSource]) {
     assert.match(source, /function printRegisteredReceiver/);
@@ -150,7 +151,8 @@ test("CLI private receive-code inputs are not echoed back into local telemetry",
     assert.match(source, /Ready to receive with the supplied code/);
     assert.match(source, /printRegisteredReceiver\(options, parsedCode\.handle, registered, registeredCode\.supplied\)/);
     assert.doesNotMatch(source, /code: parsedCode\.handle, rendezvous: registered\.code, expiresInSec: registered\.expiresInSec \}\);[\s\S]*Ready to receive\. Share this code/);
-    assert.match(source, /delete process\.env\[name\]/);
+    assert.match(source, /MAX_CODE_INPUT_CHARS/);
+    assert.match(source, /const value = descriptor\.value;[\s\S]*delete process\.env\[name\];[\s\S]*value\.length > MAX_CODE_INPUT_CHARS/);
     assert.match(source, /function readCodeFromStdin/);
     assert.doesNotMatch(source, /readCodeFromStdinOrPrompt|function promptCode|Receiver code:|Receive code:/);
   }
@@ -162,6 +164,20 @@ test("CLI private receive-code inputs are not echoed back into local telemetry",
   assert.match(readme, /The warnings never include the code or paths/);
   assert.match(securityPolicy, /CLI environment-sourced codes must be documented as protection from argv and shell-history capture only/);
   assert.doesNotMatch(readme, /printf '%s(?:\\n%s\\n)?' '<code>'/);
+});
+
+test("CLI code-env rejects oversized receive codes without echoing them", async () => {
+  const result = spawnSync(process.execPath, [cliEntrypoint, "--json", "recv", "--code-env", "FF_PRIVATE_RECEIVE_CODE"], {
+    encoding: "utf8",
+    env: { ...process.env, FF_PRIVATE_RECEIVE_CODE: "1".repeat(300) }
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.equal(result.stdout, "");
+  assert.doesNotMatch(result.stderr, /1111111111/);
+  const event = JSON.parse(result.stderr.trim()) as { event?: unknown; message?: unknown };
+  assert.equal(event.event, "error");
+  assert.equal(event.message, "Environment variable FF_PRIVATE_RECEIVE_CODE is invalid.");
 });
 
 test("CLI recv code-env errors do not echo supplied receive codes", async () => {
