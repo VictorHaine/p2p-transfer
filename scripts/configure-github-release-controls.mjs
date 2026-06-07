@@ -9,6 +9,8 @@ const TAG_RULESET_NAME = "p2p-transfer: protect release tags";
 const NPM_ENVIRONMENT = "npm";
 const REPOSITORY_ADMIN_ROLE_BYPASS_ACTOR_ID = 5;
 const MAX_NPM_ENVIRONMENT_REVIEWERS = 6;
+const MAX_ENV_VALUE_BYTES = 4_096;
+const REPOSITORY_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 
 const REQUIRED_CI_CHECKS = [
   "verify",
@@ -41,8 +43,7 @@ if (isMain()) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
-  const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
-  if (!token) throw new Error("Set GITHUB_TOKEN or GH_TOKEN with repository administration permission.");
+  const token = githubToken();
 
   const repo = await github(token, "GET", `/repos/${options.repository}`);
   if (!repo || typeof repo.id !== "number") throw new Error("GitHub repository response was invalid.");
@@ -189,7 +190,7 @@ function githubApiErrorMessage(status, data) {
 }
 
 function parseArgs(args) {
-  const options = { apply: false, repository: process.env.GITHUB_REPOSITORY || DEFAULT_REPOSITORY, requireMain: true, npmReviewers: [], preventSelfReview: false };
+  const options = { apply: false, repository: repositoryInput(envString("GITHUB_REPOSITORY") || DEFAULT_REPOSITORY), requireMain: true, npmReviewers: [], preventSelfReview: false };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === "--apply") {
@@ -200,8 +201,7 @@ function parseArgs(args) {
       options.requireMain = false;
     } else if (arg === "--repo") {
       const value = args[++index];
-      if (!value || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(value)) throw new Error("Repository must be owner/name.");
-      options.repository = value;
+      options.repository = repositoryInput(value);
     } else if (arg === "--npm-reviewer") {
       const value = args[++index];
       if (!value || !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(value)) throw new Error("Npm environment reviewer must be a GitHub username.");
@@ -219,11 +219,59 @@ function parseArgs(args) {
   return options;
 }
 
+function githubToken() {
+  const token = envString("GITHUB_TOKEN") || envString("GH_TOKEN");
+  if (!token) throw new Error("Set GITHUB_TOKEN or GH_TOKEN with repository administration permission.");
+  return token;
+}
+
+function repositoryInput(value) {
+  if (typeof value !== "string" || !REPOSITORY_RE.test(value)) throw new Error("Repository must be owner/name.");
+  return value;
+}
+
+function envString(name) {
+  const descriptor = Object.getOwnPropertyDescriptor(process.env, name);
+  if (!descriptor || !("value" in descriptor) || descriptor.value === undefined || descriptor.value === "") return undefined;
+  if (typeof descriptor.value !== "string" || hasUnsafeEnvText(descriptor.value) || utf8ByteLengthExceeds(descriptor.value, MAX_ENV_VALUE_BYTES)) {
+    throw new Error(`${name} must be a non-empty control-free string under ${MAX_ENV_VALUE_BYTES} UTF-8 bytes.`);
+  }
+  return descriptor.value;
+}
+
+function hasUnsafeEnvText(value) {
+  return /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u.test(value);
+}
+
 function setupErrorMessage(error) {
   if (!(error instanceof Error) || typeof error.message !== "string" || error.message.length < 1 || error.message.length > 4096 || /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u.test(error.message)) {
     return "GitHub release control setup failed with an internal error.";
   }
   return error.message;
+}
+
+function utf8ByteLengthExceeds(value, maxBytes) {
+  let bytes = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code < 0x80) {
+      bytes += 1;
+    } else if (code < 0x800) {
+      bytes += 2;
+    } else if (code >= 0xd800 && code <= 0xdbff && index + 1 < value.length) {
+      const next = value.charCodeAt(index + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        bytes += 4;
+        index += 1;
+      } else {
+        bytes += 3;
+      }
+    } else {
+      bytes += 3;
+    }
+    if (bytes > maxBytes) return true;
+  }
+  return false;
 }
 
 function isMain() {

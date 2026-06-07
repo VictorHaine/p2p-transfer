@@ -267,6 +267,11 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(githubReleaseControlsScript, /const NPM_ENVIRONMENT = "npm"/);
   assert.match(githubReleaseControlsScript, /const REPOSITORY_ADMIN_ROLE_BYPASS_ACTOR_ID = 5/);
   assert.match(githubReleaseControlsScript, /const MAX_NPM_ENVIRONMENT_REVIEWERS = 6/);
+  assert.match(githubReleaseControlsScript, /const MAX_ENV_VALUE_BYTES = 4_096/);
+  assert.match(githubReleaseControlsScript, /function githubToken\(\)/);
+  assert.match(githubReleaseControlsScript, /Object\.getOwnPropertyDescriptor\(process\.env, name\)/);
+  assert.match(githubReleaseControlsScript, /\$\{name\} must be a non-empty control-free string under/);
+  assert.doesNotMatch(githubReleaseControlsScript, /process\.env\.GITHUB_TOKEN|process\.env\.GH_TOKEN|process\.env\.GITHUB_REPOSITORY/);
   assert.ok(
     githubReleaseControlsScript.indexOf("class GitHubApiError") < githubReleaseControlsScript.indexOf("if (isMain())"),
     "GitHub API errors must be initialized before the direct entrypoint can run"
@@ -325,6 +330,7 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(readme, /refuses to mutate repository rulesets if the `npm` environment still has no protection rules/);
   assert.match(securityPolicy, /setup script must be able to create or update the `npm` environment approval gate from explicit reviewers/);
   assert.match(securityPolicy, /setup script must[\s\S]*fail before mutating repository rulesets when the `npm` environment is missing approval protection/);
+  assert.match(securityPolicy, /GitHub release setup and release preflight scripts must read token and repository environment variables through own data descriptors/);
 });
 
 test("release preflight checks external GitHub release prerequisites", () => {
@@ -333,6 +339,11 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(contributing, /pnpm verify:release\nGITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
   assert.match(securityPolicy, /local release preflight must fail before tagging when the GitHub token lacks `workflow` scope/);
   assert.match(releaseReadinessScript, /const REQUIRED_OAUTH_SCOPES = \["repo", "workflow"\]/);
+  assert.match(releaseReadinessScript, /const MAX_ENV_VALUE_BYTES = 4_096/);
+  assert.match(releaseReadinessScript, /function githubToken\(\)/);
+  assert.match(releaseReadinessScript, /Object\.getOwnPropertyDescriptor\(process\.env, name\)/);
+  assert.match(releaseReadinessScript, /\$\{name\} must be a non-empty control-free string under/);
+  assert.doesNotMatch(releaseReadinessScript, /process\.env\.GITHUB_TOKEN|process\.env\.GH_TOKEN|process\.env\.GITHUB_REPOSITORY/);
   assert.match(releaseReadinessScript, /headers\.get\("x-oauth-scopes"\)/);
   assert.match(releaseReadinessScript, /GitHub token is missing \$\{scope\} scope\./);
   assert.match(releaseReadinessScript, /\/repos\/\$\{options\.repository\}\/branches\/main/);
