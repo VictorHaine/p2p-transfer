@@ -440,7 +440,9 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.match(ciWorkflow, /pnpm test:e2e/);
   assert.match(ciWorkflow, /pnpm test:browser/);
   assert.match(ciWorkflow, /ubuntu-24\.04/);
+  assert.match(ciWorkflow, /ubuntu-24\.04-arm/);
   assert.match(ciWorkflow, /macos-15/);
+  assert.match(ciWorkflow, /macos-15-intel/);
   assert.match(ciWorkflow, /windows-2025/);
   assert.doesNotMatch(ciWorkflow, /runs-on:\s*[a-z]+-latest|-\s+[a-z]+-latest/);
   assert.equal(packageJson.scripts?.["smoke:docker-policy"], "node scripts/smoke-docker-policy.mjs");
@@ -866,7 +868,9 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(dockerPolicySmokeScript, /"--cap-drop=ALL"/);
   assert.match(dockerPolicySmokeScript, /"no-new-privileges"/);
   assert.match(releaseWorkflow, /ubuntu-24\.04/);
+  assert.match(releaseWorkflow, /ubuntu-24\.04-arm/);
   assert.match(releaseWorkflow, /macos-15/);
+  assert.match(releaseWorkflow, /macos-15-intel/);
   assert.match(releaseWorkflow, /windows-2025/);
   assert.doesNotMatch(releaseWorkflow, /runs-on:\s*[a-z]+-latest|-\s+[a-z]+-latest/);
   assert.match(releaseWorkflow, /- 22\.22\.3/);
@@ -1184,11 +1188,17 @@ test("native WebRTC dependency identity and install surface stay reviewed", () =
   assert.doesNotMatch(cliNativeWebrtcSource, /console\.|process\.exit|resolvedFile\}/);
   assert.match(packedSmokeScript, /onlyBuiltDependencies:[\s\S]*- '@roamhq\/wrtc'/);
   assert.match(ciWorkflow, /ubuntu-24\.04/);
+  assert.match(ciWorkflow, /ubuntu-24\.04-arm/);
   assert.match(ciWorkflow, /macos-15/);
+  assert.match(ciWorkflow, /macos-15-intel/);
   assert.match(ciWorkflow, /windows-2025/);
   assert.match(releaseWorkflow, /ubuntu-24\.04/);
+  assert.match(releaseWorkflow, /ubuntu-24\.04-arm/);
   assert.match(releaseWorkflow, /macos-15/);
+  assert.match(releaseWorkflow, /macos-15-intel/);
   assert.match(releaseWorkflow, /windows-2025/);
+  assert.match(securityPolicy, /native smoke and packed-install checks on Linux x64, Linux arm64, macOS arm64, macOS Intel, and Windows x64 for every supported Node major/);
+  assert.match(securityPolicy, /explicit hosted runner generations \(`ubuntu-24\.04`, `ubuntu-24\.04-arm`, `macos-15`, `macos-15-intel`, `windows-2025`\)/);
   assert.match(nativeWebrtcReview, /# Native WebRTC Dependency Review/);
   assert.match(nativeWebrtcReview, new RegExp(`Package: \`${escapeRegExp(wrtcPackageJson.name ?? "")}\``));
   assert.match(nativeWebrtcReview, new RegExp(`Reviewed package version: \`${escapeRegExp(wrtcPin ?? "")}\``));

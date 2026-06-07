@@ -58,7 +58,7 @@ const PLATFORM_SMOKE_NODE_VERSIONS = ["22.22.3", "24.13.1"];
 const PINNED_NODE_IMAGE = `${PINNED_NODE_VERSION}-bookworm-slim`;
 const PINNED_NODE_IMAGE_DIGEST = "6ed70fbf60557fb3a2faea5657d4105bace34c93449c2571919a1589fae30153";
 const PINNED_NODE_IMAGE_REF = `node:${PINNED_NODE_IMAGE}@sha256:${PINNED_NODE_IMAGE_DIGEST}`;
-const PINNED_RUNNERS = ["ubuntu-24.04", "macos-15", "windows-2025"];
+const PINNED_RUNNERS = ["ubuntu-24.04", "ubuntu-24.04-arm", "macos-15", "macos-15-intel", "windows-2025"];
 const PINNED_ACTIONS = new Map([
   ["actions/checkout", { sha: "11bd71901bbe5b1630ceea73d27597364c9af683", version: "v4.2.2" }],
   ["actions/setup-node", { sha: "49933ea5288caeca8642d1e84afbd3f7d6820020", version: "v4.4.0" }],
@@ -270,7 +270,7 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(ciPlatformSmokeJob, /pnpm check:install-state[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed/);
   assert.doesNotMatch(ciPlatformSmokeJob, /pnpm test:unit[\s\S]*pnpm build[\s\S]*pnpm smoke:native/);
   assert.match(releasePlatformSmokeJob, /node:\n\s+- 22\.22\.3\n\s+- 24\.13\.1/);
-  assert.match(releasePlatformSmokeJob, /os:\n\s+- ubuntu-24\.04\n\s+- macos-15\n\s+- windows-2025/);
+  assert.match(releasePlatformSmokeJob, /os:\n\s+- ubuntu-24\.04\n\s+- ubuntu-24\.04-arm\n\s+- macos-15\n\s+- macos-15-intel\n\s+- windows-2025/);
   assert.match(releasePlatformSmokeJob, /pnpm check:install-state[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed/);
   assert.doesNotMatch(releasePlatformSmokeJob, /pnpm test:unit[\s\S]*pnpm build[\s\S]*pnpm smoke:native/);
   assert.match(ciWorkflow, /pnpm smoke:packed/);
@@ -453,8 +453,12 @@ test("checked GitHub release controls setup matches the protected release surfac
     "production docker policy",
     "platform smoke / ubuntu-24.04 / node 22.22.3",
     "platform smoke / ubuntu-24.04 / node 24.13.1",
+    "platform smoke / ubuntu-24.04-arm / node 22.22.3",
+    "platform smoke / ubuntu-24.04-arm / node 24.13.1",
     "platform smoke / macos-15 / node 22.22.3",
     "platform smoke / macos-15 / node 24.13.1",
+    "platform smoke / macos-15-intel / node 22.22.3",
+    "platform smoke / macos-15-intel / node 24.13.1",
     "platform smoke / windows-2025 / node 22.22.3",
     "platform smoke / windows-2025 / node 24.13.1"
   ]) {
@@ -834,7 +838,7 @@ test("documented release gates require a hardened Docker runtime smoke, not just
   assert.doesNotMatch(readme, /Build from source:[\s\S]*```sh\npnpm install\n/);
   assert.match(contributing, /## Local Setup[\s\S]*node scripts\/prepare-checked-pnpm\.mjs\npnpm install --frozen-lockfile\npnpm exec playwright install --with-deps chromium\npnpm verify:local/);
   assert.match(contributing, /For release-sensitive or protocol-sensitive changes, also run:[\s\S]*pnpm smoke:release-artifact[\s\S]*pnpm smoke:docker-policy[\s\S]*pnpm test:e2e[\s\S]*pnpm test:browser[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures/);
-  assert.match(securityPolicy, /packed-install checks on Linux, macOS, and Windows for every supported Node major/);
+  assert.match(securityPolicy, /packed-install checks on Linux x64, Linux arm64, macOS arm64, macOS Intel, and Windows x64 for every supported Node major/);
   assert.match(securityPolicy, /packs the verified npm tarball with lifecycle scripts disabled after the explicit verified build/);
   assert.match(securityPolicy, /derives the expected packed tarball name from the checked package name and exact semver version before writing `SBOM\.cdx\.json` and `SHA256SUMS`/);
   assert.match(securityPolicy, /validates the single downloaded tarball filename, regular-file status, size cap, checksum, CycloneDX SBOM package identity, packed `package\/package\.json` name and version, and release tag/);

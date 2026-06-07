@@ -24,8 +24,12 @@ const REQUIRED_CI_CHECKS = [
   "production docker policy",
   "platform smoke / ubuntu-24.04 / node 22.22.3",
   "platform smoke / ubuntu-24.04 / node 24.13.1",
+  "platform smoke / ubuntu-24.04-arm / node 22.22.3",
+  "platform smoke / ubuntu-24.04-arm / node 24.13.1",
   "platform smoke / macos-15 / node 22.22.3",
   "platform smoke / macos-15 / node 24.13.1",
+  "platform smoke / macos-15-intel / node 22.22.3",
+  "platform smoke / macos-15-intel / node 24.13.1",
   "platform smoke / windows-2025 / node 22.22.3",
   "platform smoke / windows-2025 / node 24.13.1"
 ];
