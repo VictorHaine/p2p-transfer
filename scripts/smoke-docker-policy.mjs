@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { connect as connectTcp } from "node:net";
 import { tmpdir } from "node:os";
@@ -19,6 +19,7 @@ const MAX_DOCKER_FAILURE_EVIDENCE_CHARS = 128 * 1024;
 const MAX_EXPECTED_EVIDENCE_CHARS = 512;
 const WEBSOCKET_PROBE_TIMEOUT_MS = 10_000;
 const MAX_WEBSOCKET_HANDSHAKE_BYTES = 8_192;
+const CHILD_KILL_GRACE_MS = 5_000;
 const PRODUCTION_ORIGIN = "https://files.example.com";
 const BAD_ORIGIN = "https://evil.example";
 const VERBOSE_ENV = "DOCKER_SMOKE_VERBOSE";
@@ -40,14 +41,14 @@ async function main() {
   const dockerEnv = { DOCKER_CONFIG: dockerConfigDir };
 
   try {
-    run("docker", ["build", "-t", imageTag, "."], "docker image build", BUILD_TIMEOUT_MS, { env: dockerEnv });
-    expectDockerFailure(
+    await run("docker", ["build", "-t", imageTag, "."], "docker image build", BUILD_TIMEOUT_MS, { env: dockerEnv });
+    await expectDockerFailure(
       ["run", "--rm", "--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "-e", "SIGNALING_TOPOLOGY=single-instance", imageTag],
       "container without ALLOWED_ORIGINS",
       "Error: ALLOWED_ORIGINS is required in production.",
       dockerEnv
     );
-    expectDockerFailure(
+    await expectDockerFailure(
       ["run", "--rm", "--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "-e", `ALLOWED_ORIGINS=${PRODUCTION_ORIGIN}`, imageTag],
       "container without SIGNALING_TOPOLOGY",
       "Error: SIGNALING_TOPOLOGY must be single-instance or sticky-sessions for production or non-loopback deployments.",
@@ -56,7 +57,7 @@ async function main() {
 
     assertContainerName(containerName);
     try {
-      run(
+      await run(
         "docker",
         [
           "run",
@@ -79,15 +80,15 @@ async function main() {
         COMMAND_TIMEOUT_MS,
         { env: dockerEnv }
       );
-      const port = publishedPort(containerName, dockerEnv);
+      const port = await publishedPort(containerName, dockerEnv);
       await waitForProbe(`http://127.0.0.1:${port}/healthz`, "200");
-      probe(`http://127.0.0.1:${port}/`, "200", { contains: "ff transfer", maxBytes: "1048576" });
-      probe(`http://127.0.0.1:${port}/v1/ice`, "200", { origin: PRODUCTION_ORIGIN, contains: "\"iceServers\"" });
-      probe(`http://127.0.0.1:${port}/v1/ice`, "403", { origin: BAD_ORIGIN });
+      await probe(`http://127.0.0.1:${port}/`, "200", { contains: "ff transfer", maxBytes: "1048576" });
+      await probe(`http://127.0.0.1:${port}/v1/ice`, "200", { origin: PRODUCTION_ORIGIN, contains: "\"iceServers\"" });
+      await probe(`http://127.0.0.1:${port}/v1/ice`, "403", { origin: BAD_ORIGIN });
       await probeWebSocketOrigin(port, PRODUCTION_ORIGIN, true);
       await probeWebSocketOrigin(port, BAD_ORIGIN, false);
     } finally {
-      run("docker", ["rm", "-f", containerName], "container cleanup", COMMAND_TIMEOUT_MS, { allowFailure: true, env: dockerEnv });
+      await run("docker", ["rm", "-f", containerName], "container cleanup", COMMAND_TIMEOUT_MS, { allowFailure: true, env: dockerEnv });
     }
   } finally {
     rmSync(dockerConfigDir, { recursive: true, force: true });
@@ -110,15 +111,15 @@ function assertContainerName(value) {
   if (!CONTAINER_NAME_RE.test(value)) throw new Error("generated docker container name is invalid.");
 }
 
-function expectDockerFailure(args, label, requiredEvidence, env) {
+async function expectDockerFailure(args, label, requiredEvidence, env) {
   assertExpectedEvidenceLine(requiredEvidence);
-  const result = run("docker", args, label, COMMAND_TIMEOUT_MS, { allowFailure: true, env });
+  const result = await run("docker", args, label, COMMAND_TIMEOUT_MS, { allowFailure: true, env });
   if (result.status === 0) throw new Error(`${label} unexpectedly started.`);
   if (!hasExactOutputLine(result, requiredEvidence)) throw new Error(`${label} did not fail with the expected production policy evidence.`);
 }
 
-function publishedPort(containerName, env) {
-  const result = run("docker", ["port", containerName, "8787/tcp"], "container port lookup", COMMAND_TIMEOUT_MS, { env });
+async function publishedPort(containerName, env) {
+  const result = await run("docker", ["port", containerName, "8787/tcp"], "container port lookup", COMMAND_TIMEOUT_MS, { env });
   const output = `${result.stdout ?? ""}`.trim();
   const match = /^127\.0\.0\.1:(?<port>[1-9][0-9]{0,4})$/u.exec(output);
   const port = match?.groups?.port ? Number(match.groups.port) : 0;
@@ -130,7 +131,7 @@ async function waitForProbe(url, status) {
   let lastError;
   for (let attempt = 0; attempt < PROBE_ATTEMPTS; attempt += 1) {
     try {
-      probe(url, status);
+      await probe(url, status);
       return;
     } catch (error) {
       lastError = error;
@@ -140,12 +141,12 @@ async function waitForProbe(url, status) {
   throw lastError instanceof Error ? lastError : new Error("container health probe failed.");
 }
 
-function probe(url, status, options = {}) {
+async function probe(url, status, options = {}) {
   const env = { PROBE_URL: url, PROBE_STATUS: status };
   if (options.contains) env.PROBE_CONTAINS = options.contains;
   if (options.maxBytes) env.PROBE_MAX_BYTES = options.maxBytes;
   if (options.origin) env.PROBE_ORIGIN = options.origin;
-  run(process.execPath, ["scripts/probe-http.mjs"], "HTTP probe", COMMAND_TIMEOUT_MS, { env });
+  await run(process.execPath, ["scripts/probe-http.mjs"], "HTTP probe", COMMAND_TIMEOUT_MS, { env });
 }
 
 function probeWebSocketOrigin(port, origin, expectedAccepted) {
@@ -220,17 +221,85 @@ function webSocketHandshakeRequest(port, origin) {
 }
 
 function run(command, args, label, timeout, options = {}) {
-  const result = spawnSync(command, args, {
-    cwd: root,
-    encoding: "utf8",
-    env: { ...safeChildEnv(), ...(options.env ?? {}) },
-    maxBuffer: MAX_COMMAND_OUTPUT_BYTES,
-    stdio: verboseEnabled() && !options.allowFailure ? "inherit" : "pipe",
-    timeout
+  return new Promise((resolve, reject) => {
+    const verbose = verboseEnabled() && !options.allowFailure;
+    const child = spawn(command, args, {
+      cwd: root,
+      env: { ...safeChildEnv(), ...(options.env ?? {}) },
+      stdio: verbose ? "inherit" : ["ignore", "pipe", "pipe"]
+    });
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    let killTimer;
+    let timeoutError;
+    let outputError;
+    const timer = setTimeout(() => {
+      timeoutError = new Error(`${label} timed out.`);
+      child.kill("SIGTERM");
+      killTimer = setTimeout(() => child.kill("SIGKILL"), CHILD_KILL_GRACE_MS);
+    }, timeout);
+
+    if (!verbose) {
+      child.stdout.on("data", (chunk) => {
+        try {
+          stdout = appendBoundedOutput(stdout, chunk);
+        } catch (error) {
+          outputError = error instanceof Error ? error : new Error("docker policy smoke output capture failed.");
+          child.kill("SIGTERM");
+          killTimer ??= setTimeout(() => child.kill("SIGKILL"), CHILD_KILL_GRACE_MS);
+        }
+      });
+      child.stderr.on("data", (chunk) => {
+        try {
+          stderr = appendBoundedOutput(stderr, chunk);
+        } catch (error) {
+          outputError = error instanceof Error ? error : new Error("docker policy smoke output capture failed.");
+          child.kill("SIGTERM");
+          killTimer ??= setTimeout(() => child.kill("SIGKILL"), CHILD_KILL_GRACE_MS);
+        }
+      });
+    }
+
+    child.on("error", rejectOnce);
+    child.on("exit", (code, signal) => {
+      if (killTimer) clearTimeout(killTimer);
+      if (timeoutError) {
+        rejectOnce(timeoutError);
+        return;
+      }
+      if (outputError) {
+        rejectOnce(outputError);
+        return;
+      }
+      const status = typeof code === "number" ? code : null;
+      const result = { status, signal, stdout, stderr };
+      if (!options.allowFailure && status !== 0) {
+        rejectOnce(new Error(`${label} failed. Set ${VERBOSE_ENV}=1 to print command output.`));
+        return;
+      }
+      resolveOnce(result);
+    });
+
+    function resolveOnce(value) {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(value);
+    }
+
+    function rejectOnce(error) {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    }
+
+    function cleanup() {
+      clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
+    }
   });
-  if (result.error && result.error.name === "TimeoutError") throw new Error(`${label} timed out.`);
-  if (!options.allowFailure && result.status !== 0) throw new Error(`${label} failed. Set ${VERBOSE_ENV}=1 to print command output.`);
-  return result;
 }
 
 function verboseEnabled() {
@@ -300,6 +369,35 @@ function boundedCombinedOutput(result) {
 function boundedOutputText(value) {
   if (typeof value !== "string") return "";
   return value.length > MAX_DOCKER_FAILURE_EVIDENCE_CHARS ? value.slice(-MAX_DOCKER_FAILURE_EVIDENCE_CHARS) : value;
+}
+
+function appendBoundedOutput(current, chunk) {
+  if (typeof current !== "string" || !Buffer.isBuffer(chunk)) throw new Error("docker policy smoke output capture failed.");
+  const next = current + chunk.toString("utf8").replace(/[\p{Cc}\p{Cf}]/gu, (character) => (character === "\n" || character === "\t" ? character : ""));
+  if (Buffer.byteLength(next, "utf8") <= MAX_COMMAND_OUTPUT_BYTES) return next;
+  return truncateUtf8Tail(next, MAX_COMMAND_OUTPUT_BYTES);
+}
+
+function truncateUtf8Tail(value, maxBytes) {
+  let bytes = 0;
+  let start = value.length;
+  while (start > 0) {
+    const code = value.charCodeAt(start - 1);
+    let width = 3;
+    if (code <= 0x7f) {
+      width = 1;
+    } else if (code <= 0x7ff) {
+      width = 2;
+    } else if (code >= 0xdc00 && code <= 0xdfff && start > 1) {
+      const previous = value.charCodeAt(start - 2);
+      width = previous >= 0xd800 && previous <= 0xdbff ? 4 : 3;
+      if (width === 4) start -= 1;
+    }
+    if (bytes + width > maxBytes) break;
+    bytes += width;
+    start -= 1;
+  }
+  return value.slice(start);
 }
 
 function delay(ms) {
