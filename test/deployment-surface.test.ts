@@ -368,13 +368,20 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(securityPolicy, /must not expose an option that writes `prevent_self_review: false`/);
   assert.match(securityPolicy, /setup script must[\s\S]*fail before mutating repository rulesets when the `npm` environment is missing required-reviewer protection/);
   assert.match(securityPolicy, /GitHub release setup and release preflight scripts must read token and repository environment variables through own data descriptors[\s\S]*send GitHub API requests with an abort deadline/);
+  assert.match(securityPolicy, /byte-cap and fatal-UTF-8\/JSON-decode GitHub API responses with setup-owned deterministic errors/);
   assert.match(securityPolicy, /release setup must reject malformed or duplicate GitHub rulesets list entries before deciding whether to create or update rulesets/);
   assert.match(githubReleaseControlsScript, /const GITHUB_API_TIMEOUT_MS = 30_000/);
+  assert.match(githubReleaseControlsScript, /const MAX_GITHUB_API_RESPONSE_BYTES = 1024 \* 1024/);
   assert.match(githubReleaseControlsScript, /const controller = new AbortController\(\)/);
   assert.match(githubReleaseControlsScript, /const timer = setTimeout\(\(\) => controller\.abort\(\), GITHUB_API_TIMEOUT_MS\)/);
   assert.match(githubReleaseControlsScript, /signal: controller\.signal/);
   assert.match(githubReleaseControlsScript, /clearTimeout\(timer\)/);
   assert.match(githubReleaseControlsScript, /GitHub API request timed out\./);
+  assert.match(githubReleaseControlsScript, /async function boundedGithubResponseText\(response\)/);
+  assert.match(githubReleaseControlsScript, /if \(total > MAX_GITHUB_API_RESPONSE_BYTES\) throw new Error\("GitHub API response exceeded the byte limit\."\)/);
+  assert.match(githubReleaseControlsScript, /new TextDecoder\("utf-8", \{ fatal: true \}\)\.decode\(body\)/);
+  assert.match(githubReleaseControlsScript, /GitHub API response was not valid JSON\./);
+  assert.doesNotMatch(githubReleaseControlsScript, /response\.text\(\)/);
 });
 
 test("release preflight checks external GitHub release prerequisites", () => {
@@ -391,11 +398,17 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /Object\.getOwnPropertyDescriptor\(process\.env, name\)/);
   assert.match(releaseReadinessScript, /\$\{name\} must be a non-empty control-free string under/);
   assert.match(releaseReadinessScript, /const GITHUB_API_TIMEOUT_MS = 30_000/);
+  assert.match(releaseReadinessScript, /const MAX_GITHUB_API_RESPONSE_BYTES = 1024 \* 1024/);
   assert.match(releaseReadinessScript, /const controller = new AbortController\(\)/);
   assert.match(releaseReadinessScript, /const timer = setTimeout\(\(\) => controller\.abort\(\), GITHUB_API_TIMEOUT_MS\)/);
   assert.match(releaseReadinessScript, /signal: controller\.signal/);
   assert.match(releaseReadinessScript, /clearTimeout\(timer\)/);
   assert.match(releaseReadinessScript, /GitHub API request timed out\./);
+  assert.match(releaseReadinessScript, /async function boundedGithubResponseText\(response\)/);
+  assert.match(releaseReadinessScript, /if \(total > MAX_GITHUB_API_RESPONSE_BYTES\) throw new Error\("GitHub API response exceeded the byte limit\."\)/);
+  assert.match(releaseReadinessScript, /new TextDecoder\("utf-8", \{ fatal: true \}\)\.decode\(body\)/);
+  assert.match(releaseReadinessScript, /GitHub API response was not valid JSON\./);
+  assert.doesNotMatch(releaseReadinessScript, /response\.text\(\)/);
   assert.doesNotMatch(releaseReadinessScript, /process\.env\.GITHUB_TOKEN|process\.env\.GH_TOKEN|process\.env\.GITHUB_REPOSITORY/);
   assert.match(releaseReadinessScript, /headers\.get\("x-oauth-scopes"\)/);
   assert.match(releaseReadinessScript, /if \(rawScopes === "" && envString\("GITHUB_ACTIONS"\) === "true"\) return;/);

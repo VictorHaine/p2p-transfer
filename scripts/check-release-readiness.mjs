@@ -22,6 +22,7 @@ const REQUIRED_CI_CHECKS = [
   "platform smoke / windows-2025 / node 24.13.1"
 ];
 const MAX_ENV_VALUE_BYTES = 4_096;
+const MAX_GITHUB_API_RESPONSE_BYTES = 1024 * 1024;
 const GITHUB_API_TIMEOUT_MS = 30_000;
 const REPOSITORY_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 
@@ -236,10 +237,56 @@ async function githubWithHeaders(token, method, path, body) {
   } finally {
     clearTimeout(timer);
   }
-  const text = await response.text();
-  const data = text.length > 0 ? JSON.parse(text) : undefined;
+  const data = await githubJson(response);
   if (!response.ok) throw new GitHubApiError(response.status, data);
   return { data, headers: response.headers };
+}
+
+async function githubJson(response) {
+  const text = await boundedGithubResponseText(response);
+  if (text.length === 0) return undefined;
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error("GitHub API response was not valid JSON.");
+  }
+}
+
+async function boundedGithubResponseText(response) {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (!(value instanceof Uint8Array)) throw new Error("GitHub API response body was invalid.");
+      total += value.byteLength;
+      if (total > MAX_GITHUB_API_RESPONSE_BYTES) throw new Error("GitHub API response exceeded the byte limit.");
+      chunks.push(value);
+    }
+  } catch (error) {
+    await reader.cancel().catch(() => undefined);
+    throw error;
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      // Keep the original GitHub API failure; lock release is best-effort cleanup.
+    }
+  }
+  const body = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(body);
+  } catch {
+    throw new Error("GitHub API response was not valid UTF-8.");
+  }
 }
 
 function isAbortError(error) {
