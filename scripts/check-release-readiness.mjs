@@ -114,14 +114,17 @@ async function collectGitHubRepositoryReadiness(failures, token, repository, aut
     }
   }
 
-  await collectReadinessFailure(failures, async () => {
-    const environment = await github(token, "GET", `/repos/${repository}/environments/${encodeURIComponent(NPM_ENVIRONMENT)}`).catch((error) => {
+  const environment = await collectReadinessValue(failures, () =>
+    github(token, "GET", `/repos/${repository}/environments/${encodeURIComponent(NPM_ENVIRONMENT)}`).catch((error) => {
       if (error instanceof GitHubApiError && error.status === 404) throw new Error("GitHub npm environment is missing.");
       throw error;
+    })
+  );
+  if (environment && collectNpmEnvironmentReadiness(failures, environment, authenticatedLogin)) {
+    await collectReadinessFailure(failures, async () => {
+      await assertNpmDeploymentPolicies(await github(token, "GET", `/repos/${repository}/environments/${encodeURIComponent(NPM_ENVIRONMENT)}/deployment-branch-policies?per_page=100`));
     });
-    assertNpmEnvironment(environment, authenticatedLogin);
-    await assertNpmDeploymentPolicies(await github(token, "GET", `/repos/${repository}/environments/${encodeURIComponent(NPM_ENVIRONMENT)}/deployment-branch-policies?per_page=100`));
-  });
+  }
 }
 
 async function collectReadinessFailure(failures, fn) {
@@ -281,24 +284,29 @@ function requiredAuthenticatedLogin(user) {
   return login;
 }
 
-function assertNpmEnvironment(environment, authenticatedLogin) {
+function collectNpmEnvironmentReadiness(failures, environment, authenticatedLogin) {
   if (!Array.isArray(environment?.protection_rules) || environment.protection_rules.length < 1) {
-    throw new Error("GitHub npm environment has no protection rules.");
+    failures.push(new Error("GitHub npm environment has no protection rules."));
+    return false;
   }
   const requiredReviewers = environment.protection_rules.find((rule) => rule?.type === "required_reviewers");
-  if (!requiredReviewers) throw new Error("GitHub npm environment has no required reviewers protection rule.");
-  if (requiredReviewers.prevent_self_review !== true) throw new Error("GitHub npm environment must prevent self-review.");
-  if (environment.can_admins_bypass !== false) throw new Error("GitHub npm environment must disable admin bypass.");
+  if (!requiredReviewers) {
+    failures.push(new Error("GitHub npm environment has no required reviewers protection rule."));
+  } else {
+    if (requiredReviewers.prevent_self_review !== true) failures.push(new Error("GitHub npm environment must prevent self-review."));
+    if (!Array.isArray(requiredReviewers.reviewers) || requiredReviewers.reviewers.length < 1) {
+      failures.push(new Error("GitHub npm environment required reviewers rule has no reviewers."));
+    } else if (requiredReviewers.reviewers.length === 1 && reviewerLogin(requiredReviewers.reviewers[0])?.toLowerCase() === authenticatedLogin.toLowerCase()) {
+      failures.push(new Error("GitHub npm environment sole required reviewer is the authenticated release operator; add another reviewer to avoid self-review deadlock."));
+    }
+  }
+  if (environment.can_admins_bypass !== false) failures.push(new Error("GitHub npm environment must disable admin bypass."));
   const branchPolicy = environment.deployment_branch_policy;
   if (branchPolicy?.protected_branches !== false || branchPolicy?.custom_branch_policies !== true) {
-    throw new Error("GitHub npm environment must restrict deployments to custom policies.");
+    failures.push(new Error("GitHub npm environment must restrict deployments to custom policies."));
+    return false;
   }
-  if (!Array.isArray(requiredReviewers.reviewers) || requiredReviewers.reviewers.length < 1) {
-    throw new Error("GitHub npm environment required reviewers rule has no reviewers.");
-  }
-  if (requiredReviewers.reviewers.length === 1 && reviewerLogin(requiredReviewers.reviewers[0])?.toLowerCase() === authenticatedLogin.toLowerCase()) {
-    throw new Error("GitHub npm environment sole required reviewer is the authenticated release operator; add another reviewer to avoid self-review deadlock.");
-  }
+  return true;
 }
 
 function assertNpmDeploymentPolicies(response) {

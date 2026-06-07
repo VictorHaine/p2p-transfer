@@ -616,12 +616,14 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /function assertTagBypassActors\(ruleset, name\)/);
   assert.match(releaseReadinessScript, /bypass\.length !== 1/);
   assert.match(releaseReadinessScript, /actor\?\.actor_id !== REPOSITORY_ADMIN_ROLE_BYPASS_ACTOR_ID/);
-  assert.match(releaseReadinessScript, /function assertNpmEnvironment\(environment, authenticatedLogin\)/);
+  assert.match(releaseReadinessScript, /if \(environment && collectNpmEnvironmentReadiness\(failures, environment, authenticatedLogin\)\)/);
+  assert.match(releaseReadinessScript, /function collectNpmEnvironmentReadiness\(failures, environment, authenticatedLogin\)/);
   assert.match(releaseReadinessScript, /GitHub npm environment has no protection rules\./);
   assert.match(releaseReadinessScript, /GitHub npm environment has no required reviewers protection rule\./);
   assert.match(releaseReadinessScript, /GitHub npm environment must prevent self-review\./);
   assert.match(releaseReadinessScript, /GitHub npm environment must disable admin bypass\./);
   assert.match(releaseReadinessScript, /GitHub npm environment must restrict deployments to custom policies\./);
+  assert.match(releaseReadinessScript, /failures\.push\(new Error\("GitHub npm environment must disable admin bypass\."\)\)/);
   assert.match(releaseReadinessScript, /assertNpmDeploymentPolicies\(await github\(token, "GET", `\/repos\/\$\{repository\}\/environments\/\$\{encodeURIComponent\(NPM_ENVIRONMENT\)\}\/deployment-branch-policies\?per_page=100`\)\)/);
   assert.match(releaseReadinessScript, /function assertNpmDeploymentPolicies\(response\)/);
   assert.match(releaseReadinessScript, /GitHub npm environment deployment policy is not exact\./);
