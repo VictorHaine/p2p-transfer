@@ -8,6 +8,7 @@ const RAW_HEADER_NAME = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 const MAX_RAW_HEADER_NAME_CHARS = 64;
 const MAX_HOST_HEADER_CHARS = 255;
 const MAX_ORIGIN_HEADER_BYTES = 2048;
+const MAX_REMOTE_ADDRESS_CHARS = 45;
 const MAX_X_FORWARDED_FOR_BYTES = 2048;
 const MAX_X_FORWARDED_FOR_HOPS = 32;
 const MAX_REQUEST_TARGET_BYTES = 8192;
@@ -60,7 +61,7 @@ function requestSocketRemoteAddress(req: http.IncomingMessage): string {
   const socket = ownDataValue(req, "socket");
   if (!socket || typeof socket !== "object" || Array.isArray(socket)) return "unknown";
   const remoteAddress = ownDataValue(socket, "remoteAddress");
-  return typeof remoteAddress === "string" && remoteAddress.length > 0 ? remoteAddress : "unknown";
+  return typeof remoteAddress === "string" ? normalizeRemoteAddress(remoteAddress) ?? "unknown" : "unknown";
 }
 
 function requestForwardedClientAddress(req: http.IncomingMessage, trustedProxyHops: number): string | undefined {
@@ -111,6 +112,12 @@ function addTrustedProxySource(blockList: BlockList, source: string): boolean {
 function normalizeIpLiteral(address: string): string {
   const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(address);
   return mapped?.[1] ?? address;
+}
+
+function normalizeRemoteAddress(address: string): string | undefined {
+  if (address.length === 0 || address.length > MAX_REMOTE_ADDRESS_CHARS || /[\p{Cc}\p{Cf}\s]/u.test(address)) return undefined;
+  const normalized = normalizeIpLiteral(address);
+  return isIP(normalized) === 0 ? undefined : normalized;
 }
 
 function isValidForwardedForHeader(value: string): boolean {

@@ -1388,7 +1388,8 @@ test("trusted reverse-proxy client IP handling is explicit and documented", () =
   assert.match(serverSource, /const \{ port, host, webRoot, allowedOrigins, browserAllowAnyWss, browserAllowLoopbackWs, trustedProxyHops, trustedProxyIps \} = serverConfig/);
   assert.match(serverSource, /requestRemoteAddress\(req, trustedProxyHops, trustedProxyIps\)/);
   assert.match(readme, /Set `TRUSTED_PROXY_HOPS=1` and `TRUSTED_PROXY_IPS='<proxy-ip-or-cidr>'`/);
-  assert.match(securityPolicy, /server-side abuse buckets must not trust `X-Forwarded-For` unless `TRUSTED_PROXY_HOPS` is explicitly set and the socket peer matches `TRUSTED_PROXY_IPS`/);
+  assert.match(securityPolicy, /server-side abuse buckets must derive keys from normalized IP literals only/);
+  assert.match(securityPolicy, /`X-Forwarded-For` must not be trusted unless `TRUSTED_PROXY_HOPS` is explicitly set and the socket peer matches `TRUSTED_PROXY_IPS`/);
 });
 
 test("README documents the auto-accept consent tradeoff", () => {
