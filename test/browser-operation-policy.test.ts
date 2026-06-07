@@ -198,8 +198,8 @@ test("browser sender honors encrypted resume offsets", () => {
   assert.match(webSource, /value > MAX_FILE_BYTES/);
   assert.match(webSource, /const prefixSha256 = message\.prefixSha256;\n\s+if \(prefixSha256 === undefined\) throw new Error\(`Invalid ready acknowledgement for file \$\{id\}\.`\);/);
   assert.match(webSource, /if \(ready\.offset > plan\.size \|\| \(ready\.offset < plan\.size && ready\.offset % CHUNK_SIZE !== 0\)\) throw new Error\(`Invalid resume offset for \$\{plan\.name\}\.`\);/);
-  assert.match(webSource, /const prefixSha256 = await hashBrowserFilePrefix\(plan, ready\.offset\);[\s\S]*if \(prefixSha256 === ready\.prefixSha256\) return ready;[\s\S]*await sendControl\(control, keys, \{ t: "restart", id: plan\.id \}\);/);
-  assert.match(sendBody, /const ready = await verifiedBrowserReadyState\(control, keys, acks, readyStates, plan\);/);
+  assert.match(webSource, /const prefixSha256 = await hashBrowserFilePrefix\(plan, ready\.offset\);[\s\S]*await throwIfSenderFailed\(\);[\s\S]*if \(prefixSha256 === ready\.prefixSha256\) return ready;[\s\S]*await sendControl\(control, keys, \{ t: "restart", id: plan\.id \}\);/);
+  assert.match(sendBody, /const ready = await verifiedBrowserReadyState\(control, keys, acks, readyStates, plan, throwIfSenderFailed\);/);
   assert.match(sendBody, /const resumeOffset = ready\.offset;/);
   assert.match(sendBody, /transferred \+= resumeOffset;/);
   assert.match(sendBody, /if \(resumeOffset > 0\) updateProgress\(log, "sent", transferred, totalBytes, startedAt\);/);

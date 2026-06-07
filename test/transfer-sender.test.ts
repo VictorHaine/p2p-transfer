@@ -469,6 +469,7 @@ test("CLI sender send-time stream chunks reject non-canonical runtime values bef
   for (const source of [sourceTransfer, distTransfer]) {
     const sendBody = extractFunctionBody(source, "sendFiles");
     assert.match(sendBody, /const \{ hash \} = await hashSendPrefix\(file, resumeOffset\)/);
+    assert.match(sendBody, /const \{ hash \} = await hashSendPrefix\(file, resumeOffset\);\n\s+await throwIfSenderFailed\(\);/);
     const digestBody = extractFunctionBody(source, "digestFilePath");
     assert.match(sendBody, /const payload = toBytes\(chunk\)/);
     assert.doesNotMatch(sendBody, /resumeOffset === 0 && actualSha256/);

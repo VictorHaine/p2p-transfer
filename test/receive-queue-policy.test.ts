@@ -86,6 +86,32 @@ test("queued sender acknowledgement handlers stop after completion", () => {
   assert.doesNotMatch(distWebBundle, /await \w+\.wait\(`all-done-ok`\),\w+=!0\}catch/);
 });
 
+test("senders re-check failure after local file work and backpressure", () => {
+  assert.match(securityPolicy, /browser and CLI senders must re-check authenticated sender failure after local resume-prefix hashing, asynchronous file reads, and DataChannel backpressure waits/);
+
+  const cliSenderBody = extractFunctionBody(cliTransferSource, "sendFiles", "async function");
+  const cliVerifiedReadyBody = extractFunctionBody(cliTransferSource, "verifiedReadyState", "async function");
+  const cliPrefixBody = extractFunctionBody(cliTransferSource, "hashSendPrefix", "async function");
+  const browserSenderBody = extractFunctionBody(webSource, "sendBrowserFiles", "async function");
+  const browserVerifiedReadyBody = extractFunctionBody(webSource, "verifiedBrowserReadyState", "async function");
+  const browserPrefixBody = extractFunctionBody(webSource, "hashBrowserFilePrefix", "async function");
+
+  assert.match(cliSenderBody, /await acks\.wait\("ready", file\.id\);\n\s+await throwIfSenderFailed\(\);\n\s+const ready = await verifiedReadyState\(control, keys, acks, readyStates, file, throwIfSenderFailed\);/);
+  assert.match(cliSenderBody, /const \{ hash \} = await hashSendPrefix\(file, resumeOffset\);\n\s+await throwIfSenderFailed\(\);/);
+  assert.match(cliSenderBody, /for await \(const chunk of file\.createReadStream[\s\S]*await throwIfSenderFailed\(\);[\s\S]*const payload = toBytes\(chunk\);[\s\S]*try \{\n\s+await throwIfSenderFailed\(\);/);
+  assert.match(cliSenderBody, /await waitForBackpressure\(bulk, DATA_CHANNEL_BUFFER_HIGH\);\n\s+await throwIfSenderFailed\(\);/);
+  assert.match(cliTransferSource, /throwIfSenderFailed: \(\) => Promise<void>/);
+  assert.match(cliVerifiedReadyBody, /for \(;;\) \{\n\s+await throwIfSenderFailed\(\);[\s\S]*const \{ prefixSha256 \} = await hashSendPrefix\(file, ready\.offset\);\n\s+await throwIfSenderFailed\(\);/);
+  assert.doesNotMatch(cliPrefixBody, /throwIfSenderFailed/);
+
+  assert.match(browserSenderBody, /await acks\.wait\("ready", plan\.id\);\n\s+await throwIfSenderFailed\(\);\n\s+const ready = await verifiedBrowserReadyState\(control, keys, acks, readyStates, plan, throwIfSenderFailed\);/);
+  assert.match(browserSenderBody, /const payload = await readBrowserFileChunk[\s\S]*try \{\n\s+await throwIfSenderFailed\(\);/);
+  assert.match(browserSenderBody, /await waitBackpressure\(bulk\);\n\s+await throwIfSenderFailed\(\);/);
+  assert.match(webSource, /throwIfSenderFailed: \(\) => Promise<void>/);
+  assert.match(browserVerifiedReadyBody, /for \(;;\) \{\n\s+await throwIfSenderFailed\(\);[\s\S]*const prefixSha256 = await hashBrowserFilePrefix\(plan, ready\.offset\);\n\s+await throwIfSenderFailed\(\);/);
+  assert.doesNotMatch(browserPrefixBody, /throwIfSenderFailed/);
+});
+
 function extractFunctionBody(source: string, name: string, declaration = "const"): string {
   const start = source.indexOf(declaration === "const" ? `const ${name} =` : `${declaration} ${name}`);
   assert.notEqual(start, -1, `missing ${name}`);

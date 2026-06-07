@@ -135,16 +135,19 @@ export async function sendFiles(
       await throwIfSenderFailed();
       await sendControl(control, keys, { t: "file-begin", id: file.id, name: file.name, size: file.size });
       await acks.wait("ready", file.id);
-      const ready = await verifiedReadyState(control, keys, acks, readyStates, file);
+      await throwIfSenderFailed();
+      const ready = await verifiedReadyState(control, keys, acks, readyStates, file, throwIfSenderFailed);
       const resumeOffset = ready.offset;
       const { hash } = await hashSendPrefix(file, resumeOffset);
+      await throwIfSenderFailed();
       let seq = resumeOffset === file.size ? file.chunkSha256.length : resumeOffset / CHUNK_SIZE;
       let fileBytes = resumeOffset;
       progress.transferredBytes += resumeOffset;
       for await (const chunk of file.createReadStream.call(file.handle, { start: resumeOffset, highWaterMark: CHUNK_SIZE, autoClose: false })) {
-        if (failed) throw failed;
+        await throwIfSenderFailed();
         const payload = toBytes(chunk);
         try {
+          await throwIfSenderFailed();
           if (fileBytes + payload.byteLength > file.size) throw new Error(`${file.name} changed while sending.`);
           const expectedChunkSha256 = file.chunkSha256[seq];
           if (expectedChunkSha256 === undefined) throw new Error(`${file.name} changed while sending.`);
@@ -163,6 +166,7 @@ export async function sendFiles(
           progress.transferredBytes += payload.byteLength;
           printProgress("sent", file.name, progress);
           await waitForBackpressure(bulk, DATA_CHANNEL_BUFFER_HIGH);
+          await throwIfSenderFailed();
         } finally {
           payload.fill(0);
         }
@@ -193,13 +197,22 @@ export async function sendFiles(
   }
 }
 
-async function verifiedReadyState(control: RTCDataChannel, keys: SessionKeys, acks: ControlAckWaiter, readyStates: Map<number, ReadyState>, file: SendPlanFile): Promise<ReadyState> {
+async function verifiedReadyState(
+  control: RTCDataChannel,
+  keys: SessionKeys,
+  acks: ControlAckWaiter,
+  readyStates: Map<number, ReadyState>,
+  file: SendPlanFile,
+  throwIfSenderFailed: () => Promise<void>
+): Promise<ReadyState> {
   for (;;) {
+    await throwIfSenderFailed();
     const ready = readyStates.get(file.id) ?? { offset: 0 };
     readyStates.delete(file.id);
     if (ready.offset > file.size || (ready.offset < file.size && ready.offset % CHUNK_SIZE !== 0)) throw new Error(`Invalid resume offset for ${file.name}.`);
     if (ready.offset === 0) return ready;
     const { prefixSha256 } = await hashSendPrefix(file, ready.offset);
+    await throwIfSenderFailed();
     if (prefixSha256 === ready.prefixSha256) return ready;
     const restarted = acks.wait("ready", file.id);
     await sendControl(control, keys, { t: "restart", id: file.id });
