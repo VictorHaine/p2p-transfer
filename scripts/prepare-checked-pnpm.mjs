@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { constants } from "node:fs";
+import { constants, realpathSync } from "node:fs";
 import { lstat, mkdir, mkdtemp, open, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const EXPECTED_PNPM_COREPACK_HASH = "sha512.c85357fe17ca12dd23dd7071822666dfd7e3cb76fe214e3370b5ea2fb34f2a231185509b63e717f3cd0acb38dd3f8d82bcd5e8172400ae678b70ea4fbed0896d";
@@ -14,12 +14,14 @@ const MAX_CHILD_ENV_VALUE_BYTES = 8_192;
 const MAX_PRIVATE_HOME_BYTES = 4_096;
 const CHILD_KILL_GRACE_MS = 5_000;
 
-try {
-  await main();
-} catch (error) {
-  console.error("Checked pnpm preparation failed:");
-  console.error(`- ${safeErrorMessage(error)}`);
-  process.exitCode = 1;
+if (isMain()) {
+  try {
+    await main();
+  } catch (error) {
+    console.error("Checked pnpm preparation failed:");
+    console.error(`- ${safeErrorMessage(error)}`);
+    process.exitCode = 1;
+  }
 }
 
 async function main() {
@@ -235,6 +237,15 @@ function utf8ByteLengthExceeds(value, maxBytes) {
     if (bytes > maxBytes) return true;
   }
   return false;
+}
+
+function isMain() {
+  if (process.argv[1] === undefined) return false;
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return pathToFileURL(process.argv[1]).href === import.meta.url;
+  }
 }
 
 function safeErrorMessage(error) {

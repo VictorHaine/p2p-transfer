@@ -583,6 +583,8 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.match(ciWorkflow, /DOCKER_SMOKE_TAG=p2p-transfer:test node scripts\/smoke-docker-policy\.mjs/);
   assert.match(checkedPnpmScript, /corepack", \["pack", `pnpm@\$\{version\}`, "-o", archive\]/);
   assert.match(checkedPnpmScript, /Corepack pnpm package hash did not match the reviewed integrity/);
+  assert.match(checkedPnpmScript, /if \(isMain\(\)\) \{[\s\S]*await main\(\)/);
+  assert.match(checkedPnpmScript, /realpathSync\(process\.argv\[1\]\) === realpathSync\(fileURLToPath\(import\.meta\.url\)\)/);
   assert.match(checkedPnpmScript, /readCheckedText\(path\.join\(root, "package\.json"\), MAX_PACKAGE_JSON_BYTES, "package metadata"\)/);
   assert.match(checkedPnpmScript, /await lstat\(file\)/);
   assert.match(checkedPnpmScript, /constants\.O_RDONLY \| \(constants\.O_NOFOLLOW \?\? 0\)/);
@@ -1076,6 +1078,8 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.doesNotMatch(releaseWorkflow, /tgz="\$\(node scripts\/verify-release-artifact\.mjs --print-tarball\)"|printf 'tarball=%s\\n'|test -f "\$tgz"|PACKED_SMOKE_TARBALL="\$tgz" node scripts\/smoke-packed\.mjs|pnpm publish "\$tgz"|gh release create "\$GITHUB_REF_NAME"/);
   assert.doesNotMatch(releaseWorkflow, /sha256sum -c SHA256SUMS|execFileSync\('tar'/);
   assert.match(dockerPublishScript, /DOCKER_SMOKE_TAG: versionRef/);
+  assert.match(dockerPublishScript, /if \(isMain\(\)\) \{[\s\S]*await main\(\)/);
+  assert.match(dockerPublishScript, /realpathSync\(process\.argv\[1\]\) === realpathSync\(fileURLToPath\(import\.meta\.url\)\)/);
   assert.match(dockerPublishScript, /const EXPECTED_GITHUB_REPOSITORY = "VictorHaine\/p2p-transfer"/);
   assert.match(dockerPublishScript, /GitHub repository must match the release repository/);
   assert.match(dockerPublishScript, /const tag = releaseTag\(requiredEnvString\("GITHUB_REF_NAME"\)\);\n  assertReleaseTagRef\(tag\);\n  const repository = githubRepository\(requiredEnvString\("GITHUB_REPOSITORY"\)\);\n  requiredCommitSha\(requiredEnvString\("GITHUB_SHA"\)\);\n  const actor = githubActor\(requiredEnvString\("GITHUB_ACTOR"\)\);\n  const token = requiredEnvString\("GITHUB_TOKEN", MAX_TOKEN_BYTES\);\n  const packageJson = await readPackageJson\(\);/);

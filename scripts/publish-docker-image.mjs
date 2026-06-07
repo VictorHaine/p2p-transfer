@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
 import { lstat, open, rm } from "node:fs/promises";
-import { constants } from "node:fs";
+import { constants, realpathSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createIsolatedDockerConfig } from "./docker-config.mjs";
 import { safeChildEnv } from "./smoke-packed.mjs";
 import { assertLiveReleaseRefFromEnv } from "./verify-live-release-ref.mjs";
@@ -21,12 +21,14 @@ const PUSH_TIMEOUT_MS = 300_000;
 const SMOKE_TIMEOUT_MS = 420_000;
 const CHILD_KILL_GRACE_MS = 5_000;
 
-try {
-  await main();
-} catch (error) {
-  console.error("Docker image publish failed:");
-  console.error(`- ${publishErrorMessage(error)}`);
-  process.exitCode = 1;
+if (isMain()) {
+  try {
+    await main();
+  } catch (error) {
+    console.error("Docker image publish failed:");
+    console.error(`- ${publishErrorMessage(error)}`);
+    process.exitCode = 1;
+  }
 }
 
 async function main() {
@@ -65,6 +67,15 @@ async function main() {
     console.log(`Published ${image}@${digest}`);
   } finally {
     await rm(dockerConfigDir, { recursive: true, force: true });
+  }
+}
+
+function isMain() {
+  if (process.argv[1] === undefined) return false;
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return pathToFileURL(process.argv[1]).href === import.meta.url;
   }
 }
 

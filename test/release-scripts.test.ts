@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const REQUIRED_RELEASE_CHECKS = [
@@ -825,6 +825,30 @@ test("Docker publish script rejects wrong repositories before smoke or push work
   assert.equal(result.stdout, "");
   assert.match(result.stderr, /Docker image publish failed:\n- GitHub repository must match the release repository\./);
   assert.doesNotMatch(result.stderr, /Attacker|token-that-must-not-be-used|release docker policy smoke|docker release|api\.github|Error:/);
+});
+
+test("release Docker publisher and checked pnpm imports have no privileged side effects", () => {
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "--eval",
+      [
+        `await import(${JSON.stringify(pathToFileURL(path.join(root, "scripts", "publish-docker-image.mjs")).href)});`,
+        `await import(${JSON.stringify(pathToFileURL(path.join(root, "scripts", "prepare-checked-pnpm.mjs")).href)});`
+      ].join("\n")
+    ],
+    {
+      cwd: root,
+      encoding: "utf8",
+      env: { PATH: process.env.PATH ?? "" },
+      timeout: 10_000
+    }
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, "");
+  assert.equal(result.stderr, "");
 });
 
 test("npm bootstrap script rejects unsupported arguments before token or publish work", () => {
