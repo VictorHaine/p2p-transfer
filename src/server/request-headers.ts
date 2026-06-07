@@ -1,4 +1,5 @@
 import type http from "node:http";
+import { isIP } from "node:net";
 import { isValidAuthority, isValidOriginHostname } from "../shared/authority.js";
 import { HTTP_MAX_HEADERS_COUNT } from "../shared/constants.js";
 
@@ -7,6 +8,8 @@ const RAW_HEADER_NAME = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 const MAX_RAW_HEADER_NAME_CHARS = 64;
 const MAX_HOST_HEADER_CHARS = 255;
 const MAX_ORIGIN_HEADER_BYTES = 2048;
+const MAX_X_FORWARDED_FOR_BYTES = 2048;
+const MAX_X_FORWARDED_FOR_HOPS = 32;
 const MAX_REQUEST_TARGET_BYTES = 8192;
 
 export function requestOriginHeader(req: http.IncomingMessage): string | undefined | null {
@@ -46,11 +49,42 @@ export function requestMethod(req: http.IncomingMessage): string | null {
   return typeof method === "string" ? method : null;
 }
 
-export function requestRemoteAddress(req: http.IncomingMessage): string {
+export function requestRemoteAddress(req: http.IncomingMessage, trustedProxyHops = 0): string {
+  const socketAddress = requestSocketRemoteAddress(req);
+  const hops = trustedProxyHopsInput(trustedProxyHops);
+  if (hops === 0) return socketAddress;
+  return requestForwardedClientAddress(req, hops) ?? socketAddress;
+}
+
+function requestSocketRemoteAddress(req: http.IncomingMessage): string {
   const socket = ownDataValue(req, "socket");
   if (!socket || typeof socket !== "object" || Array.isArray(socket)) return "unknown";
   const remoteAddress = ownDataValue(socket, "remoteAddress");
   return typeof remoteAddress === "string" && remoteAddress.length > 0 ? remoteAddress : "unknown";
+}
+
+function requestForwardedClientAddress(req: http.IncomingMessage, trustedProxyHops: number): string | undefined {
+  const forwardedFor = rawHeaderValue(req, "x-forwarded-for");
+  if (typeof forwardedFor !== "string" || !isValidForwardedForHeader(forwardedFor)) return undefined;
+  const hops = forwardedFor.split(",").map((part) => part.trim());
+  if (hops.length < trustedProxyHops) return undefined;
+  const client = hops[hops.length - trustedProxyHops];
+  return typeof client === "string" && isValidForwardedIp(client) ? client : undefined;
+}
+
+function trustedProxyHopsInput(value: unknown): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 3 ? value : 0;
+}
+
+function isValidForwardedForHeader(value: string): boolean {
+  if (value.length === 0 || value.length > MAX_X_FORWARDED_FOR_BYTES || utf8ByteLengthExceeds(value, MAX_X_FORWARDED_FOR_BYTES) || /[\p{Cc}\p{Cf}]/u.test(value)) return false;
+  const hops = value.split(",");
+  if (hops.length === 0 || hops.length > MAX_X_FORWARDED_FOR_HOPS) return false;
+  return hops.every((hop) => isValidForwardedIp(hop.trim()));
+}
+
+function isValidForwardedIp(value: string): boolean {
+  return value.length > 0 && value.length <= 45 && isIP(value) !== 0;
 }
 
 function isValidHostHeader(host: string): boolean {

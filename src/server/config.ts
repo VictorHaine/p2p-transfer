@@ -23,6 +23,7 @@ export type ServerConfig = {
   signalingTopology: SignalingTopology | undefined;
   browserAllowAnyWss: boolean;
   browserAllowLoopbackWs: boolean;
+  trustedProxyHops: number;
   turnRest: TurnRestConfig | undefined;
 };
 
@@ -41,6 +42,7 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
   const host = parseHost(envValue(env, "HOST"));
   const allowedOrigins = parseAllowedOrigins(envValue(env, "ALLOWED_ORIGINS"));
   const signalingTopology = parseSignalingTopology(envValue(env, "SIGNALING_TOPOLOGY"));
+  const trustedProxyHops = parseTrustedProxyHops(envValue(env, "TRUSTED_PROXY_HOPS"));
   assertNoUnsupportedOriginBypass(env);
   const allowInsecureOrigins = parseBooleanEnv(envValue(env, "ALLOW_INSECURE_ORIGINS"), "ALLOW_INSECURE_ORIGINS");
   assertRequiredOriginPolicy(allowedOrigins, production, host);
@@ -55,6 +57,7 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
     signalingTopology,
     browserAllowAnyWss: parseBooleanEnv(envValue(env, "BROWSER_ALLOW_ANY_WSS"), "BROWSER_ALLOW_ANY_WSS"),
     browserAllowLoopbackWs: parseBrowserLoopbackWs(env, production),
+    trustedProxyHops,
     turnRest: parseTurnRestConfig(env)
   };
 }
@@ -114,6 +117,16 @@ function parseSignalingTopology(raw: unknown): SignalingTopology | undefined {
   if (value !== value.trim()) throw new Error("SIGNALING_TOPOLOGY must be single-instance or sticky-sessions.");
   if (value === "single-instance" || value === "sticky-sessions") return value;
   throw new Error("SIGNALING_TOPOLOGY must be single-instance or sticky-sessions.");
+}
+
+function parseTrustedProxyHops(raw: unknown): number {
+  const value = optionalEnvString(raw, "TRUSTED_PROXY_HOPS");
+  if (value !== undefined) assertEnvStringByteLength(value, "TRUSTED_PROXY_HOPS", MAX_SCALAR_ENV_BYTES);
+  if (value === undefined || value.trim() === "") return 0;
+  if (!/^\d+$/.test(value)) throw new Error("TRUSTED_PROXY_HOPS must be an integer between 0 and 3.");
+  const hops = Number(value);
+  if (!Number.isInteger(hops) || hops < 0 || hops > 3) throw new Error("TRUSTED_PROXY_HOPS must be an integer between 0 and 3.");
+  return hops;
 }
 
 export function iceServersForRequest(config: ServerConfig, now = Date.now()): RTCIceServer[] {

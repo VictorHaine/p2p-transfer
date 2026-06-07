@@ -1342,6 +1342,22 @@ test("server deployment policy requires an explicit in-memory signaling topology
   assert.match(readme, /Do not bootstrap `0\.1\.0` if the tag workflow is expected to publish `v0\.1\.0`; npm versions cannot be reused/);
 });
 
+test("trusted reverse-proxy client IP handling is explicit and documented", () => {
+  const configSource = fs.readFileSync(new URL("../src/server/config.ts", import.meta.url), "utf8");
+  const requestHeaderSource = fs.readFileSync(new URL("../src/server/request-headers.ts", import.meta.url), "utf8");
+  const serverSource = fs.readFileSync(new URL("../src/server/index.ts", import.meta.url), "utf8");
+
+  assert.match(configSource, /trustedProxyHops: number/);
+  assert.match(configSource, /parseTrustedProxyHops\(envValue\(env, "TRUSTED_PROXY_HOPS"\)\)/);
+  assert.match(configSource, /TRUSTED_PROXY_HOPS must be an integer between 0 and 3/);
+  assert.match(requestHeaderSource, /rawHeaderValue\(req, "x-forwarded-for"\)/);
+  assert.match(requestHeaderSource, /isIP\(value\) !== 0/);
+  assert.match(serverSource, /const \{ port, host, webRoot, allowedOrigins, browserAllowAnyWss, browserAllowLoopbackWs, trustedProxyHops \} = serverConfig/);
+  assert.match(serverSource, /requestRemoteAddress\(req, trustedProxyHops\)/);
+  assert.match(readme, /Set `TRUSTED_PROXY_HOPS=1` only when every public request reaches the app through exactly one trusted reverse proxy/);
+  assert.match(securityPolicy, /server-side abuse buckets must not trust `X-Forwarded-For` unless `TRUSTED_PROXY_HOPS` is explicitly set/);
+});
+
 test("README documents the auto-accept consent tradeoff", () => {
   assert.match(readme, /recv --yes.*auto-accept/);
   assert.match(readme, /recv --yes.*bypasses the interactive consent gate/);

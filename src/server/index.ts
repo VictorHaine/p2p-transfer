@@ -101,7 +101,7 @@ type Session = {
 };
 
 const serverConfig = loadServerConfig();
-const { port, host, webRoot, allowedOrigins, browserAllowAnyWss, browserAllowLoopbackWs } = serverConfig;
+const { port, host, webRoot, allowedOrigins, browserAllowAnyWss, browserAllowLoopbackWs, trustedProxyHops } = serverConfig;
 const realWebRoot = fs.realpath(webRoot).catch(() => webRoot);
 const codes = new Map<string, WaitingCode>();
 const sessions = new Map<string, Session>();
@@ -157,7 +157,7 @@ wss.on("connection", (ws, req) => {
   const peer: Peer = {
     id: nanoid(10),
     ws,
-    ip: requestRemoteAddress(req),
+    ip: requestIp(req),
     badMessages: 0,
     messageTimes: [],
     awaitingHeartbeatPong: false,
@@ -808,7 +808,7 @@ function requestCorsHeaders(req: http.IncomingMessage): Record<string, string> |
 }
 
 function requestIp(req: http.IncomingMessage): string {
-  return requestRemoteAddress(req);
+  return requestRemoteAddress(req, trustedProxyHops);
 }
 
 function parseRequestUrl(req: http.IncomingMessage): URL | null {
