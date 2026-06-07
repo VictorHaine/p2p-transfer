@@ -4,11 +4,16 @@ import fs from "node:fs";
 
 const serverSource = fs.readFileSync(new URL("../src/server/index.ts", import.meta.url), "utf8");
 const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
+const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
 
 test("signaling server issues session ICE config only after receiver pair acceptance", () => {
   const connectBody = extractFunctionBody(serverSource, "connect");
   const relayBody = extractFunctionBody(serverSource, "relay");
 
+  assert.match(securityPolicy, /TURN REST credentials must only be issued on the WebSocket path after the receiver sends an authenticated `pair-accept`/);
+  assert.match(securityPolicy, /the server does not decrypt the manifest and must not claim server-side proof of manifest decryption/);
+  assert.match(readme, /server only verifies the authenticated accept message and does not decrypt the manifest/);
+  assert.doesNotMatch(readme, /clients receive short-lived credentials only after the receiver accepts the transfer, which requires successful PAKE confirmation and sealed-manifest decryption first/);
   assert.doesNotMatch(connectBody, /\bsendIceConfig\(/);
   assert.match(
     relayBody,
