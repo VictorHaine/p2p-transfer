@@ -759,6 +759,7 @@ function githubToken() {
 
 function repositoryInput(value) {
   if (typeof value !== "string" || !REPOSITORY_RE.test(value)) throw new Error("Repository must be owner/name.");
+  if (value !== DEFAULT_REPOSITORY) throw new Error("Repository must match the release repository.");
   return value;
 }
 

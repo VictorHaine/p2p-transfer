@@ -1002,7 +1002,9 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(githubReleaseScript, /\/repos\/\$\{repository\}\/releases/);
   assert.match(githubReleaseScript, /uploadReleaseAsset\(token, uploadUrl, asset\)/);
   assert.match(githubReleaseScript, /draft: true/);
-  assert.match(githubReleaseScript, /await github\(token, "PATCH", `\/repos\/\$\{repository\}\/releases\/\$\{id\}`, \{ draft: false \}\)/);
+  assert.match(githubReleaseScript, /await publishDraftRelease\(token, repository, id\)/);
+  assert.match(githubReleaseScript, /await reconcileDraftPublishFailure\(token, repository, id, tag\)\.catch\(\(\) => false\)/);
+  assert.match(githubReleaseScript, /if \(state === "published"\) return true/);
   assert.match(githubReleaseScript, /await deleteDraftRelease\(token, repository, id\)\.catch\(\(\) => undefined\)/);
   assert.doesNotMatch(githubReleaseScript, /"gh"|gh release create|"--verify-tag"/);
   assert.match(githubReleaseScript, /requiredRepository\(requiredEnvString\("GITHUB_REPOSITORY"\)\)/);

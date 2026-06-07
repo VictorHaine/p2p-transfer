@@ -164,7 +164,12 @@ export async function createGitHubRelease(token, repository, tag, expectedSha, n
     await deleteDraftRelease(token, repository, id).catch(() => undefined);
     throw error;
   }
-  await github(token, "PATCH", `/repos/${repository}/releases/${id}`, { draft: false });
+  try {
+    await publishDraftRelease(token, repository, id);
+  } catch (error) {
+    if (await reconcileDraftPublishFailure(token, repository, id, tag).catch(() => false)) return;
+    throw error;
+  }
 }
 
 function assertReleaseAssetChecksums(assets) {
@@ -235,6 +240,25 @@ function releaseDraftInfo(release, tag) {
 
 async function deleteDraftRelease(token, repository, id) {
   await github(token, "DELETE", `/repos/${repository}/releases/${id}`, undefined, { expectedStatus: 204, parseJson: false });
+}
+
+async function publishDraftRelease(token, repository, id) {
+  await github(token, "PATCH", `/repos/${repository}/releases/${id}`, { draft: false });
+}
+
+async function reconcileDraftPublishFailure(token, repository, id, tag) {
+  const release = await github(token, "GET", `/repos/${repository}/releases/${id}`);
+  const state = releaseState(release, id, tag);
+  if (state === "published") return true;
+  await deleteDraftRelease(token, repository, id).catch(() => undefined);
+  return false;
+}
+
+function releaseState(release, id, tag) {
+  if (!release || release.id !== id || release.tag_name !== tag || typeof release.draft !== "boolean") {
+    throw new Error("GitHub release response was invalid.");
+  }
+  return release.draft ? "draft" : "published";
 }
 
 async function uploadReleaseAsset(token, uploadUrl, asset) {

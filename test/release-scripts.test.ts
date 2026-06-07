@@ -405,6 +405,107 @@ test("GitHub release API deletes draft releases when asset upload fails", async 
   }
 });
 
+test("GitHub release API deletes draft releases when final publish fails", async () => {
+  const { createGitHubRelease } = await import(`../scripts/create-github-release.mjs?release-publish-cleanup=${Date.now()}`);
+  const originalFetch = globalThis.fetch;
+  const requests: string[] = [];
+  try {
+    globalThis.fetch = async (url, init = {}) => {
+      const parsed = new URL(String(url));
+      const method = init.method ?? "GET";
+      requests.push(`${method} ${parsed.origin}${parsed.pathname}${parsed.search}`);
+      const json = (status: number, value: unknown) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
+      if (parsed.origin === "https://api.github.com" && method === "GET" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0") {
+        return json(200, { ref: "refs/tags/v0.1.0", object: { type: "commit", sha: RELEASE_TEST_SHA } });
+      }
+      if (parsed.origin === "https://api.github.com" && method === "POST" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/releases") {
+        return json(201, { id: 99, tag_name: "v0.1.0", draft: true, upload_url: "https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets{?name,label}" });
+      }
+      if (parsed.origin === "https://uploads.github.com" && method === "POST" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/releases/99/assets") {
+        return json(201, { name: parsed.searchParams.get("name") });
+      }
+      if (parsed.origin === "https://api.github.com" && method === "PATCH" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/releases/99") {
+        return json(500, { message: "publish failed with token-that-must-not-be-printed" });
+      }
+      if (parsed.origin === "https://api.github.com" && method === "GET" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/releases/99") {
+        return json(200, { id: 99, tag_name: "v0.1.0", draft: true });
+      }
+      if (parsed.origin === "https://api.github.com" && method === "DELETE" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/releases/99") {
+        return new Response("", { status: 204 });
+      }
+      return json(500, {});
+    };
+
+    await assert.rejects(
+      createGitHubRelease("token-that-must-not-be-printed", "VictorHaine/p2p-transfer", "v0.1.0", RELEASE_TEST_SHA, "scoped release notes", releaseAssets()),
+      (error) => {
+        assert.ok(error instanceof Error);
+        assert.equal(error.message, "GitHub API request failed with HTTP status 500.");
+        assert.doesNotMatch(error.message, /token-that-must-not-be-printed|publish failed/);
+        return true;
+      }
+    );
+    assert.deepEqual(requests, [
+      "GET https://api.github.com/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0",
+      "POST https://api.github.com/repos/VictorHaine/p2p-transfer/releases",
+      "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=p2p-transfer-0.1.0.tgz",
+      "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=SHA256SUMS",
+      "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=SBOM.cdx.json",
+      "PATCH https://api.github.com/repos/VictorHaine/p2p-transfer/releases/99",
+      "GET https://api.github.com/repos/VictorHaine/p2p-transfer/releases/99",
+      "DELETE https://api.github.com/repos/VictorHaine/p2p-transfer/releases/99"
+    ]);
+    assert.doesNotMatch(JSON.stringify(requests), /token-that-must-not-be-printed/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("GitHub release API accepts an already-published draft after final publish ambiguity", async () => {
+  const { createGitHubRelease } = await import(`../scripts/create-github-release.mjs?release-publish-reconciled=${Date.now()}`);
+  const originalFetch = globalThis.fetch;
+  const requests: string[] = [];
+  try {
+    globalThis.fetch = async (url, init = {}) => {
+      const parsed = new URL(String(url));
+      const method = init.method ?? "GET";
+      requests.push(`${method} ${parsed.origin}${parsed.pathname}${parsed.search}`);
+      const json = (status: number, value: unknown) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
+      if (parsed.origin === "https://api.github.com" && method === "GET" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0") {
+        return json(200, { ref: "refs/tags/v0.1.0", object: { type: "commit", sha: RELEASE_TEST_SHA } });
+      }
+      if (parsed.origin === "https://api.github.com" && method === "POST" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/releases") {
+        return json(201, { id: 99, tag_name: "v0.1.0", draft: true, upload_url: "https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets{?name,label}" });
+      }
+      if (parsed.origin === "https://uploads.github.com" && method === "POST" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/releases/99/assets") {
+        return json(201, { name: parsed.searchParams.get("name") });
+      }
+      if (parsed.origin === "https://api.github.com" && method === "PATCH" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/releases/99") {
+        return json(500, { message: "ambiguous publish failure" });
+      }
+      if (parsed.origin === "https://api.github.com" && method === "GET" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/releases/99") {
+        return json(200, { id: 99, tag_name: "v0.1.0", draft: false });
+      }
+      return json(500, {});
+    };
+
+    await createGitHubRelease("token-that-must-not-be-printed", "VictorHaine/p2p-transfer", "v0.1.0", RELEASE_TEST_SHA, "scoped release notes", releaseAssets());
+    assert.deepEqual(requests, [
+      "GET https://api.github.com/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0",
+      "POST https://api.github.com/repos/VictorHaine/p2p-transfer/releases",
+      "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=p2p-transfer-0.1.0.tgz",
+      "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=SHA256SUMS",
+      "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=SBOM.cdx.json",
+      "PATCH https://api.github.com/repos/VictorHaine/p2p-transfer/releases/99",
+      "GET https://api.github.com/repos/VictorHaine/p2p-transfer/releases/99"
+    ]);
+    assert.equal(requests.some((request) => request.startsWith("DELETE ")), false);
+    assert.doesNotMatch(JSON.stringify(requests), /token-that-must-not-be-printed/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("live release ref verifier checks current tag and main without leaking API bodies", async () => {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-live-release-ref-"));
   const mock = path.join(tmp, "mock-live-release-ref-fetch.mjs");
@@ -1960,6 +2061,63 @@ globalThis.fetch = async (url, init = {}) => {
     assert.equal(result.stdout, "");
     assert.match(result.stderr, /Release readiness check failed:\n- Set GITHUB_TOKEN or GH_TOKEN before running release preflight\./);
     assert.doesNotMatch(result.stderr, /unexpected network|api\.github|registry\.npmjs|Error:/);
+    assert.equal(requests, "");
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
+test("release preflight rejects wrong repositories before package or network work", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-preflight-repository-"));
+  const mock = path.join(tmp, "mock-release-preflight-repository-fetch.mjs");
+  const log = path.join(tmp, "requests.log");
+  try {
+    await fs.writeFile(
+      mock,
+      `
+import { appendFileSync } from "node:fs";
+
+const log = process.env.FF_MOCK_PREFLIGHT_REPOSITORY_LOG;
+
+globalThis.fetch = async (url, init = {}) => {
+  const parsed = new URL(url);
+  appendFileSync(log, (init.method ?? "GET") + " " + parsed.origin + parsed.pathname + "\\n", "utf8");
+  return new Response(JSON.stringify({ message: "unexpected network" }), { status: 500, headers: { "content-type": "application/json" } });
+};
+`,
+      "utf8"
+    );
+
+    const envResult = runScriptWithNodeArgs(
+      "scripts/check-release-readiness.mjs",
+      {
+        FF_MOCK_PREFLIGHT_REPOSITORY_LOG: log,
+        GITHUB_REPOSITORY: "Attacker/p2p-transfer",
+        GITHUB_TOKEN: "token-that-must-not-be-used"
+      },
+      [],
+      ["--import", mock]
+    );
+    const argResult = runScriptWithNodeArgs(
+      "scripts/check-release-readiness.mjs",
+      {
+        FF_MOCK_PREFLIGHT_REPOSITORY_LOG: log,
+        GITHUB_TOKEN: "token-that-must-not-be-used"
+      },
+      ["--repo", "Attacker/p2p-transfer"],
+      ["--import", mock]
+    );
+    const requests = await fs.readFile(log, "utf8").catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return "";
+      throw error;
+    });
+
+    for (const result of [envResult, argResult]) {
+      assert.notEqual(result.status, 0);
+      assert.equal(result.stdout, "");
+      assert.match(result.stderr, /Release readiness check failed:\n- Repository must match the release repository\./);
+      assert.doesNotMatch(result.stderr, /Attacker|token-that-must-not-be-used|unexpected network|api\.github|registry\.npmjs|Error:/);
+    }
     assert.equal(requests, "");
   } finally {
     await fs.rm(tmp, { force: true, recursive: true });

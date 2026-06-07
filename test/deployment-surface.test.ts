@@ -452,7 +452,9 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(githubReleaseScript, /\/repos\/\$\{repository\}\/releases/);
   assert.match(githubReleaseScript, /uploadReleaseAsset\(token, uploadUrl, asset\)/);
   assert.match(githubReleaseScript, /draft: true/);
-  assert.match(githubReleaseScript, /await github\(token, "PATCH", `\/repos\/\$\{repository\}\/releases\/\$\{id\}`, \{ draft: false \}\)/);
+  assert.match(githubReleaseScript, /await publishDraftRelease\(token, repository, id\)/);
+  assert.match(githubReleaseScript, /await reconcileDraftPublishFailure\(token, repository, id, tag\)\.catch\(\(\) => false\)/);
+  assert.match(githubReleaseScript, /if \(state === "published"\) return true/);
   assert.match(githubReleaseScript, /await deleteDraftRelease\(token, repository, id\)\.catch\(\(\) => undefined\)/);
   assert.doesNotMatch(githubReleaseScript, /"gh"|gh release create|"--verify-tag"/);
   assert.match(githubReleaseScript, /requiredRepository\(requiredEnvString\("GITHUB_REPOSITORY"\)\)/);
@@ -677,7 +679,8 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(securityPolicy, /release setup must re-read the persisted deployment tag policy and fail before mutating repository rulesets when the `npm` environment lacks the exact release-tag deployment policy/);
   assert.match(securityPolicy, /release setup must re-read persisted repository ruleset details after writes and fail before reporting success when GitHub drops, broadens, weakens, bypass-enables, or otherwise normalizes branch\/tag rulesets away from the exact protected surface/);
   assert.match(securityPolicy, /GitHub release setup and release preflight scripts must read token, repository, GitHub Actions mode, and release actor environment variables through own data descriptors[\s\S]*send GitHub API requests with an abort deadline/);
-  assert.match(securityPolicy, /release preflight must reject malformed GitHub token, `GITHUB_ACTIONS`, or Actions-only `GITHUB_ACTOR` values before package reads, npm registry requests, or GitHub API requests/);
+  assert.match(securityPolicy, /release preflight must reject wrong-repository contexts, malformed GitHub token, `GITHUB_ACTIONS`, or Actions-only `GITHUB_ACTOR` values before package reads, npm registry requests, or GitHub API requests/);
+  assert.match(releaseReadinessScript, /if \(value !== DEFAULT_REPOSITORY\) throw new Error\("Repository must match the release repository\."\)/);
   assert.match(securityPolicy, /byte-cap and fatal-UTF-8\/JSON-decode GitHub API responses with setup-owned deterministic errors/);
   assert.match(securityPolicy, /avoid echoing token, malformed environment values, remote response messages, or raw API response bodies in errors/);
   assert.match(releaseReadinessScript, /const token = githubToken\(\);[\s\S]*const runningInGitHubActions = envString\("GITHUB_ACTIONS"\) === "true";[\s\S]*assertReleaseWorkflowTokenClass\(token, runningInGitHubActions\);[\s\S]*const releaseActorLogin = runningInGitHubActions \? githubActor\(\) : undefined;[\s\S]*const failures = \[\];[\s\S]*readPackageMetadata\(\)/);
