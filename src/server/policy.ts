@@ -135,6 +135,7 @@ export function senderDisconnectCanRestoreReceiver(session: Pick<RelayPolicySess
 }
 
 export function publicPairRequestManifestIsRedacted(manifest: FileManifest): boolean {
+  if (!hasOnlyOwnDataKeys(manifest, ["files", "fileCount", "totalBytes"])) return false;
   const files = ownDataValue(manifest, "files");
   const fileCount = ownDataValue(manifest, "fileCount");
   const totalBytes = ownDataValue(manifest, "totalBytes");
@@ -155,11 +156,25 @@ export function publicPairRequestManifestIsRedacted(manifest: FileManifest): boo
     const descriptor = Object.getOwnPropertyDescriptor(files, String(index));
     if (!descriptor || !("value" in descriptor)) return false;
     const file = descriptor.value;
+    if (!hasOnlyOwnDataKeys(file, ["id", "name", "size"])) return false;
     const expectedSize = Math.min(remainingBytes, MAX_FILE_BYTES);
     if (ownDataValue(file, "id") !== index || ownDataValue(file, "name") !== `encrypted-${index}` || ownDataValue(file, "size") !== expectedSize || ownDataValue(file, "mime") !== undefined) return false;
     remainingBytes -= expectedSize;
   }
   return remainingBytes === 0;
+}
+
+function hasOnlyOwnDataKeys(value: unknown, expectedKeys: readonly string[]): boolean {
+  if (!value || typeof value !== "object") return false;
+  if (Object.getOwnPropertySymbols(value).length !== 0) return false;
+  const keys = Object.getOwnPropertyNames(value);
+  if (keys.length !== expectedKeys.length) return false;
+  for (const key of keys) {
+    if (!expectedKeys.includes(key)) return false;
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !("value" in descriptor)) return false;
+  }
+  return true;
 }
 
 function messageType(message: unknown): unknown {

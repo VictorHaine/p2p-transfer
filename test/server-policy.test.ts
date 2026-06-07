@@ -135,6 +135,9 @@ test("relay phase policy caps authenticated ICE candidates per peer", () => {
 });
 
 test("server-visible pair request manifests must be redacted", () => {
+  assert.match(securityPolicy, /server-visible redacted pair-request manifests must reject unknown manifest and file-entry fields/);
+  assert.match(policySource, /function hasOnlyOwnDataKeys/);
+  assert.match(policySource, /Object\.getOwnPropertySymbols\(value\)\.length !== 0/);
   assert.equal(
     publicPairRequestManifestIsRedacted({
       fileCount: 2,
@@ -161,6 +164,29 @@ test("server-visible pair request manifests must be redacted", () => {
   assert.equal(publicPairRequestManifestIsRedacted({ fileCount: 1, totalBytes: 1, files: [{ id: 0, name: "encrypted-0", size: 1, mime: "application/pdf" }] }), false);
   assert.equal(publicPairRequestManifestIsRedacted({ fileCount: 1, totalBytes: 1, files: [{ id: 7, name: "encrypted-0", size: 1 }] }), false);
   assert.equal(publicPairRequestManifestIsRedacted({ fileCount: 1, totalBytes: 1, files: [{ id: 0, name: "encrypted-1", size: 1 }] }), false);
+
+  const manifestWithExtraField = {
+    fileCount: 1,
+    totalBytes: 1,
+    files: [{ id: 0, name: "encrypted-0", size: 1 }],
+    leaked: "taxes.pdf"
+  };
+  assert.equal(publicPairRequestManifestIsRedacted(manifestWithExtraField as never), false);
+
+  const manifestWithExtraFileField = {
+    fileCount: 1,
+    totalBytes: 1,
+    files: [{ id: 0, name: "encrypted-0", size: 1, leaked: "taxes.pdf" }]
+  };
+  assert.equal(publicPairRequestManifestIsRedacted(manifestWithExtraFileField as never), false);
+
+  const manifestWithSymbolField = {
+    fileCount: 1,
+    totalBytes: 1,
+    files: [{ id: 0, name: "encrypted-0", size: 1 }]
+  };
+  Object.defineProperty(manifestWithSymbolField, Symbol("leaked"), { value: "taxes.pdf" });
+  assert.equal(publicPairRequestManifestIsRedacted(manifestWithSymbolField as never), false);
 });
 
 test("relay policy helpers reject accessor-backed records without invoking getters", () => {
