@@ -10,6 +10,7 @@ import { assertLiveReleaseRefFromEnv } from "./verify-live-release-ref.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const REGISTRY = "ghcr.io";
+const EXPECTED_GITHUB_REPOSITORY = "VictorHaine/p2p-transfer";
 const MAX_PACKAGE_JSON_BYTES = 128 * 1024;
 const MAX_ENV_VALUE_BYTES = 8_192;
 const MAX_TOKEN_BYTES = 32 * 1024;
@@ -120,6 +121,7 @@ function releaseTag(value) {
 
 function githubRepository(value) {
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(value)) throw new Error("GitHub repository is invalid.");
+  if (value !== EXPECTED_GITHUB_REPOSITORY) throw new Error("GitHub repository must match the release repository.");
   return value;
 }
 

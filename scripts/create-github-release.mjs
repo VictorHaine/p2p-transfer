@@ -12,6 +12,7 @@ import { assertLiveReleaseRefFromEnv } from "./verify-live-release-ref.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const API = "https://api.github.com";
+const EXPECTED_GITHUB_REPOSITORY = "VictorHaine/p2p-transfer";
 const MAX_ENV_VALUE_BYTES = 8_192;
 const MAX_TARBALL_OUTPUT_BYTES = 512;
 const MAX_RELEASE_NOTES_BYTES = 128 * 1024;
@@ -329,6 +330,7 @@ function requiredRepository(value) {
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(value)) {
     throw new Error("GITHUB_REPOSITORY must be an exact owner/name repository.");
   }
+  if (value !== EXPECTED_GITHUB_REPOSITORY) throw new Error("GITHUB_REPOSITORY must match the release repository.");
   return value;
 }
 

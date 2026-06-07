@@ -420,7 +420,8 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releasePublishScript, /ACTIONS_ID_TOKEN_REQUEST_TOKEN/);
   assert.match(releasePublishScript, /if \(out\.GITHUB_REPOSITORY !== EXPECTED_GITHUB_REPOSITORY\) throw new Error\("GITHUB_REPOSITORY must match the trusted publishing repository\."\)/);
   assert.match(releasePublishScript, /if \(!\/\^\[1-9\]\\d\{0,19\}\$\/\.test\(out\.GITHUB_RUN_ID\)\) throw new Error\("GITHUB_RUN_ID must be a positive decimal GitHub Actions run id\."\)/);
-  assert.match(securityPolicy, /must reject static npm token variables and malformed trusted-publishing repository or run-id context before trusted publishing or artifact work/);
+  assert.match(securityPolicy, /must reject static npm token variables, malformed trusted-publishing repository or run-id context, and wrong-repository release contexts before trusted publishing, Docker publish, GitHub API, or artifact work/);
+  assert.match(securityPolicy, /wrong-repository release contexts before trusted publishing, Docker publish, GitHub API, or artifact work/);
   assert.match(releasePublishScript, /isolatedChildEnv\(privateHome\)/);
   assert.match(releasePublishScript, /PACKED_SMOKE_TARBALL: tarball/);
   assert.match(releasePublishScript, /const NPM_REGISTRY = "https:\/\/registry\.npmjs\.org"/);
@@ -430,11 +431,13 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(githubReleaseScript, /requiredReleaseTag\(requiredEnvString\("GITHUB_REF_NAME"\)\)/);
   assert.match(githubReleaseScript, /const sha = requiredCommitSha\(requiredEnvString\("GITHUB_SHA"\)\)/);
   assert.match(githubReleaseScript, /const API = "https:\/\/api\.github\.com"/);
+  assert.match(githubReleaseScript, /const EXPECTED_GITHUB_REPOSITORY = "VictorHaine\/p2p-transfer"/);
   assert.match(githubReleaseScript, /const token = requiredEnvString\("GH_TOKEN"\)/);
   assert.match(githubReleaseScript, /import \{ assertLiveReleaseRefFromEnv \} from "\.\/verify-live-release-ref\.mjs"/);
   assert.match(githubReleaseScript, /const token = requiredEnvString\("GH_TOKEN"\);\n  await assertLiveReleaseRefFromEnv\(\);\n  const tmp = await mkdtemp/);
   assert.match(githubReleaseScript, /verifiedTarballPath\(\{ \.\.\.childEnv, GITHUB_REF_NAME: tag, GITHUB_REF_TYPE: "tag", GITHUB_REF: `refs\/tags\/\$\{tag\}` \}\)/);
   assert.match(githubReleaseScript, /\/repos\/\$\{repository\}\/git\/ref\/tags\/\$\{tag\}/);
+  assert.match(githubReleaseScript, /GITHUB_REPOSITORY must match the release repository/);
   assert.match(githubReleaseScript, /if \(\(await githubReleaseTagCommitSha\(token, repository, tag\)\) !== expectedSha\) throw new Error\("GitHub tag ref does not match the release workflow commit\."\)/);
   assert.match(liveReleaseRefScript, /export async function assertLiveReleaseRefFromEnv\(\)/);
   assert.match(liveReleaseRefScript, /\/repos\/\$\{repository\}\/git\/ref\/tags\/\$\{tag\}/);
@@ -444,6 +447,8 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(liveReleaseRefScript, /return error instanceof Error && error\.name === "AbortError"/);
   assert.match(securityPolicy, /last-mile live release-ref verifier must re-check the GitHub tag ref or annotated tag object and GitHub `main` ref against `GITHUB_SHA` through bounded GitHub API calls immediately before release artifact attestation, before npm publish, and before Docker smoke or GHCR push/);
   assert.match(securityPolicy, /Docker publishing subprocesses must use a minimal allowlisted child environment plus a temporary 0700 `DOCKER_CONFIG`/);
+  assert.match(dockerPublishScript, /const EXPECTED_GITHUB_REPOSITORY = "VictorHaine\/p2p-transfer"/);
+  assert.match(dockerPublishScript, /GitHub repository must match the release repository/);
   assert.match(githubReleaseScript, /\/repos\/\$\{repository\}\/releases/);
   assert.match(githubReleaseScript, /uploadReleaseAsset\(token, uploadUrl, asset\)/);
   assert.match(githubReleaseScript, /draft: true/);

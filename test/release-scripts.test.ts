@@ -114,6 +114,19 @@ test("GitHub release script rejects malformed repositories before artifact or Gi
   assert.doesNotMatch(result.stderr, /not\/a\/repo|release artifact directory|api\.github|token-that-must-not-be-used|Error:/);
 });
 
+test("GitHub release script rejects wrong repositories before artifact or GitHub API work", () => {
+  const result = runScript("scripts/create-github-release.mjs", {
+    ...releaseTagEnv("v0.1.0"),
+    GITHUB_REPOSITORY: "Attacker/p2p-transfer",
+    GH_TOKEN: "token-that-must-not-be-used"
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.equal(result.stdout, "");
+  assert.match(result.stderr, /GitHub Release creation failed:\n- GITHUB_REPOSITORY must match the release repository\./);
+  assert.doesNotMatch(result.stderr, /Attacker|release artifact directory|api\.github|token-that-must-not-be-used|Error:/);
+});
+
 test("GitHub release script rejects branch refs before artifact or GitHub API work", () => {
   const result = runScript("scripts/create-github-release.mjs", {
     ...releaseTagEnv("v0.1.0"),
@@ -571,6 +584,20 @@ test("Docker publish script rejects non-file package metadata before env, smoke,
   } finally {
     await fs.rm(tmp, { force: true, recursive: true });
   }
+});
+
+test("Docker publish script rejects wrong repositories before smoke or push work", () => {
+  const result = runScript("scripts/publish-docker-image.mjs", {
+    ...releaseTagEnv("v0.1.0"),
+    GITHUB_REPOSITORY: "Attacker/p2p-transfer",
+    GITHUB_ACTOR: "VictorHaine",
+    GITHUB_TOKEN: "token-that-must-not-be-used"
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.equal(result.stdout, "");
+  assert.match(result.stderr, /Docker image publish failed:\n- GitHub repository must match the release repository\./);
+  assert.doesNotMatch(result.stderr, /Attacker|token-that-must-not-be-used|release docker policy smoke|docker release|api\.github|Error:/);
 });
 
 test("npm bootstrap script rejects unsupported arguments before token or publish work", () => {

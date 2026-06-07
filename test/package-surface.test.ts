@@ -949,8 +949,9 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseWorkflow, /environment: npm/);
   assert.match(releaseWorkflow, /id-token: write/);
   assert.match(securityPolicy, /release publishing must pass the verifier-emitted tarball path to packed smoke and `pnpm publish` instead of rediscovering the artifact with `find` or a shell glob after verification/);
-  assert.match(securityPolicy, /release publishing and GitHub Release creation must run through checked Node scripts/);
+  assert.match(securityPolicy, /release publishing, Docker publishing, and GitHub Release creation must run through checked Node scripts/);
   assert.match(securityPolicy, /descriptor-read, non-empty, control-free, byte-capped allowlisted environments/);
+  assert.match(securityPolicy, /wrong-repository release contexts before trusted publishing, Docker publish, GitHub API, or artifact work/);
   assert.match(securityPolicy, /private 0700 package-manager homes\/userconfig paths/);
   assert.match(securityPolicy, /release publishing and GitHub Release creation subprocess timeouts must signal the child, arm a bounded `SIGKILL` fallback, and reject only after the subprocess exits/);
   assert.match(securityPolicy, /nonzero release subprocess exits must report only the exit status or signal and must not embed captured child stdout or stderr in release logs/);
@@ -961,6 +962,8 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releasePublishScript, /STATIC_NPM_TOKEN_ENV = \["NODE_AUTH_TOKEN", "NPM_TOKEN"\]/);
   assert.match(releasePublishScript, /ACTIONS_ID_TOKEN_REQUEST_TOKEN/);
   assert.match(releasePublishScript, /GITHUB_ACTIONS must be true for trusted publishing/);
+  assert.match(releasePublishScript, /const EXPECTED_GITHUB_REPOSITORY = "VictorHaine\/p2p-transfer"/);
+  assert.match(releasePublishScript, /GITHUB_REPOSITORY must match the trusted publishing repository/);
   assert.match(releasePublishScript, /requiredEnvString\("GITHUB_REF_TYPE"\) !== "tag"/);
   assert.match(releasePublishScript, /requiredEnvString\("GITHUB_REF"\) !== `refs\/tags\/\$\{tag\}`/);
   assert.match(releasePublishScript, /\/\[\\p\{Cc\}\\p\{Cf\}\]\/u\.test\(value\)/);
@@ -989,6 +992,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(githubReleaseScript, /requiredEnvString\("GITHUB_REF"\) !== `refs\/tags\/\$\{tag\}`/);
   assert.match(githubReleaseScript, /const sha = requiredCommitSha\(requiredEnvString\("GITHUB_SHA"\)\)/);
   assert.match(githubReleaseScript, /const API = "https:\/\/api\.github\.com"/);
+  assert.match(githubReleaseScript, /const EXPECTED_GITHUB_REPOSITORY = "VictorHaine\/p2p-transfer"/);
   assert.match(githubReleaseScript, /const token = requiredEnvString\("GH_TOKEN"\)/);
   assert.match(githubReleaseScript, /import \{ assertLiveReleaseRefFromEnv \} from "\.\/verify-live-release-ref\.mjs"/);
   assert.match(githubReleaseScript, /const token = requiredEnvString\("GH_TOKEN"\);\n  await assertLiveReleaseRefFromEnv\(\);\n  const tmp = await mkdtemp/);
@@ -1002,6 +1006,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(githubReleaseScript, /await deleteDraftRelease\(token, repository, id\)\.catch\(\(\) => undefined\)/);
   assert.doesNotMatch(githubReleaseScript, /"gh"|gh release create|"--verify-tag"/);
   assert.match(githubReleaseScript, /requiredRepository\(requiredEnvString\("GITHUB_REPOSITORY"\)\)/);
+  assert.match(githubReleaseScript, /GITHUB_REPOSITORY must match the release repository/);
   assert.match(githubReleaseScript, /\/\[\\p\{Cc\}\\p\{Cf\}\]\/u\.test\(value\)/);
   assert.match(githubReleaseScript, /\$\{name\} must be a non-empty control-free environment value under \$\{MAX_ENV_VALUE_BYTES\} UTF-8 bytes\./);
   assert.match(githubReleaseScript, /await mkdir\(privateHome, \{ recursive: true, mode: 0o700 \}\)/);
@@ -1032,6 +1037,8 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.doesNotMatch(releaseWorkflow, /tgz="\$\(node scripts\/verify-release-artifact\.mjs --print-tarball\)"|printf 'tarball=%s\\n'|test -f "\$tgz"|PACKED_SMOKE_TARBALL="\$tgz" node scripts\/smoke-packed\.mjs|pnpm publish "\$tgz"|gh release create "\$GITHUB_REF_NAME"/);
   assert.doesNotMatch(releaseWorkflow, /sha256sum -c SHA256SUMS|execFileSync\('tar'/);
   assert.match(dockerPublishScript, /DOCKER_SMOKE_TAG: versionRef/);
+  assert.match(dockerPublishScript, /const EXPECTED_GITHUB_REPOSITORY = "VictorHaine\/p2p-transfer"/);
+  assert.match(dockerPublishScript, /GitHub repository must match the release repository/);
   assert.match(dockerPublishScript, /import \{ safeChildEnv \} from "\.\/smoke-packed\.mjs"/);
   assert.match(dockerPublishScript, /env: \{ \.\.\.safeChildEnv\(\), \.\.\.\(options\.env \?\? \{\}\) \}/);
   assert.match(dockerPublishScript, /import \{ assertLiveReleaseRefFromEnv \} from "\.\/verify-live-release-ref\.mjs"/);
