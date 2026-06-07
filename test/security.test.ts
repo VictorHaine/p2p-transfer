@@ -372,7 +372,7 @@ test("PAKE cleanup helpers read own data properties without invoking accessors",
   let wipeGetterInvoked = false;
   const ephemeralSecret = new Uint8Array(32).fill(1);
   const share = new Uint8Array(32).fill(2);
-  const wipeState = { role: "receiver" as const, sid: "sid", ephemeralSecret, share };
+  const wipeState = { role: "receiver" as const, sid: "sid", protocolVersion: PROTOCOL_VERSION, ephemeralSecret, share };
   Object.defineProperty(wipeState, "trap", {
     get() {
       wipeGetterInvoked = true;
@@ -409,6 +409,7 @@ test("PAKE cleanup helpers read own data properties without invoking accessors",
   const subclassState = {
     role: "sender",
     sid: "sid",
+    protocolVersion: PROTOCOL_VERSION,
     ephemeralSecret: new HostilePakeBytes(32),
     share: new Uint8Array(32)
   };
@@ -769,6 +770,22 @@ test("PAKE confirmation proves both peers derived the same session key", async (
   assert.equal(verifySessionConfirmTag(receiverKeys.signalAuthKey, sid, "receiver", senderTag), false);
   assert.equal(verifySessionConfirmTag(wrongKeys.signalAuthKey, sid, "sender", senderTag), false);
   assert.equal(verifySessionConfirmTag(receiverKeys.signalAuthKey, "other-session", "sender", senderTag), false);
+});
+
+test("PAKE transcript binds the protocol version", async () => {
+  assert.match(securityPolicy, /PAKE confirmation and session key derivation must bind the protocol version/);
+  const sid = "protocol-version-session";
+  const sender = startPake("sender", "123456-apple-anchor", sid, PROTOCOL_VERSION);
+  const receiver = startPake("receiver", "123456-apple-anchor", sid, PROTOCOL_VERSION + 1);
+  const senderShare = ownPakeShareB64(sender);
+  const receiverShare = ownPakeShareB64(receiver);
+  const senderKeys = await finishPake(sender, receiverShare);
+  const receiverKeys = await finishPake(receiver, senderShare);
+  const senderTag = sessionConfirmTag(senderKeys.signalAuthKey, sid, "sender", senderKeys.protocolVersion);
+  assert.equal(senderKeys.protocolVersion, PROTOCOL_VERSION);
+  assert.equal(receiverKeys.protocolVersion, PROTOCOL_VERSION + 1);
+  assert.equal(verifySessionConfirmTag(receiverKeys.signalAuthKey, sid, "sender", senderTag, receiverKeys.protocolVersion), false);
+  assert.notEqual(senderKeys.sas, receiverKeys.sas);
 });
 
 test("pair decisions are authenticated and bound to the sealed manifest", async () => {
@@ -1828,6 +1845,7 @@ async function vectorSessionKeys(sid: string, keyHex: string, role: "encrypt" | 
   return {
     sid,
     role: role === "encrypt" ? "sender" : "receiver",
+    protocolVersion: PROTOCOL_VERSION,
     sas: "vector",
     destroyed: false,
     signalAuthKey: new Uint8Array(32),

@@ -4,7 +4,7 @@ import { hkdf } from "@noble/hashes/hkdf.js";
 import { hmac } from "@noble/hashes/hmac.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
-import { CHUNK_SIZE, ENCRYPTED_JSON_MAX_CHARS } from "./constants.js";
+import { CHUNK_SIZE, ENCRYPTED_JSON_MAX_CHARS, PROTOCOL_VERSION } from "./constants.js";
 import type { SignalPayload } from "./messages.js";
 
 type CryptoKey = webcrypto.CryptoKey;
@@ -15,6 +15,7 @@ export type PakeRole = "sender" | "receiver";
 export type PakeState = {
   role: PakeRole;
   sid: string;
+  protocolVersion: number;
   ephemeralSecret: Uint8Array;
   share: Uint8Array;
 };
@@ -22,6 +23,7 @@ export type PakeState = {
 export type SessionKeys = {
   sid: string;
   role: PakeRole;
+  protocolVersion: number;
   sas: string;
   destroyed: boolean;
   signalAuthKey: Uint8Array;
@@ -44,14 +46,15 @@ type ActiveAeadSessionKeys = {
 type PakeStateParts = {
   role: PakeRole;
   sid: string;
+  protocolVersion: number;
   ephemeralSecret: Uint8Array;
   share: Uint8Array;
 };
 
 const text = new TextEncoder();
 const jsonText = new TextDecoder("utf-8", { fatal: true });
-const CPACE_CONTEXT = text.encode("p2p-transfer cpace v1");
-const HKDF_CONTEXT = text.encode("p2p-transfer session keys v1");
+const CPACE_CONTEXT_PREFIX = "p2p-transfer cpace";
+const HKDF_CONTEXT_PREFIX = "p2p-transfer session keys";
 const CPACE_SHARE_BYTES = 32;
 const CPACE_SHARE_BASE64_CHARS = 44;
 const AUTHENTICATION_KEY_BYTES = 32;
@@ -59,6 +62,7 @@ const HMAC_SHA256_BASE64_CHARS = 44;
 const BASE64_DECODE_MAX_CHARS = ENCRYPTED_JSON_MAX_CHARS;
 const MAX_PAKE_MESSAGE_BYTES = 4096;
 const MAX_PAKE_CONTEXT_CHARS = 256;
+const MAX_PAKE_PROTOCOL_VERSION = 255;
 const MAX_AUTH_SDP_BYTES = 128 * 1024;
 const MAX_AUTH_CANDIDATE_BYTES = 4096;
 const MAX_AUTH_TOKEN_BYTES = 256;
@@ -75,18 +79,19 @@ const TYPED_ARRAY_PROTOTYPE = Object.getPrototypeOf(Uint8Array.prototype);
 const TYPED_ARRAY_BYTE_LENGTH_GETTER = Object.getOwnPropertyDescriptor(TYPED_ARRAY_PROTOTYPE, "byteLength")?.get;
 const RuntimeCryptoKey = (globalThis as typeof globalThis & { CryptoKey?: { new (...args: never[]): webcrypto.CryptoKey } }).CryptoKey;
 
-export function startPake(role: PakeRole, code: string, sid: string): PakeState {
+export function startPake(role: PakeRole, code: string, sid: string, protocolVersion = PROTOCOL_VERSION): PakeState {
   assertPakeRole(role);
   assertPakeCode(code);
   assertPakeSid(sid);
+  assertPakeProtocolVersion(protocolVersion);
   const password = passwordBytes(code);
   try {
     const started = cpace.ristretto255.init({
       PRS: password,
       sid: text.encode(sid),
-      CI: CPACE_CONTEXT
+      CI: protocolContext(CPACE_CONTEXT_PREFIX, protocolVersion)
     });
-    return { role, sid, ephemeralSecret: started.ephemeralSecret, share: started.share };
+    return { role, sid, protocolVersion, ephemeralSecret: started.ephemeralSecret, share: started.share };
   } finally {
     password.fill(0);
   }
@@ -110,11 +115,12 @@ export async function finishPake(state: PakeState, peerShareB64: string): Promis
       sid: text.encode(stateParts.sid),
       role: stateParts.role === "sender" ? "initiator" : "responder"
     });
-    raw = deriveRawKeys(isk, stateParts.sid);
+    raw = deriveRawKeys(isk, stateParts.sid, stateParts.protocolVersion);
     const sasHex = bytesToHex(raw.sas).slice(0, 12);
     return {
       sid: stateParts.sid,
       role: stateParts.role,
+      protocolVersion: stateParts.protocolVersion,
       sas: sasHex.match(/.{1,4}/g)?.join("-") ?? sasHex,
       destroyed: false,
       signalAuthKey: webBytes(raw.signalAuthKey),
@@ -244,11 +250,12 @@ function signalPayloadForAuth(signal: SignalPayload): SignalPayloadForAuth {
   return { kind: "candidate", candidate: ownDataValue(signal, "candidate") as RTCIceCandidateInit };
 }
 
-export function sessionConfirmTag(key: Uint8Array, sid: string, fromRole: PakeRole): string {
+export function sessionConfirmTag(key: Uint8Array, sid: string, fromRole: PakeRole, protocolVersion = PROTOCOL_VERSION): string {
   const authKey = authenticationKeyCopy(key);
   assertPakeSid(sid);
   assertPakeRole(fromRole);
-  const tag = hmac(sha256, authKey, text.encode(JSON.stringify({ v: 1, t: "session-confirm", sid, fromRole })));
+  assertPakeProtocolVersion(protocolVersion);
+  const tag = hmac(sha256, authKey, text.encode(JSON.stringify({ v: 1, t: "session-confirm", protocolVersion, sid, fromRole })));
   try {
     return bytesToBase64(tag);
   } finally {
@@ -257,12 +264,12 @@ export function sessionConfirmTag(key: Uint8Array, sid: string, fromRole: PakeRo
   }
 }
 
-export function verifySessionConfirmTag(key: Uint8Array, sid: string, fromRole: PakeRole, tag: string): boolean {
+export function verifySessionConfirmTag(key: Uint8Array, sid: string, fromRole: PakeRole, tag: string, protocolVersion = PROTOCOL_VERSION): boolean {
   if (typeof tag !== "string" || tag.length !== HMAC_SHA256_BASE64_CHARS) return false;
   let expected: Uint8Array | undefined;
   let actual: Uint8Array | undefined;
   try {
-    expected = base64ToBytes(sessionConfirmTag(key, sid, fromRole));
+    expected = base64ToBytes(sessionConfirmTag(key, sid, fromRole, protocolVersion));
     actual = base64ToBytes(tag);
     return timingSafeEqual(expected, actual);
   } catch {
@@ -332,6 +339,12 @@ function canonicalPairDecisionForAuth(sid: string, fromRole: PakeRole, decision:
 function assertPakeSid(sid: unknown): asserts sid is string {
   if (typeof sid !== "string" || sid.length === 0 || sid.length > MAX_PAKE_CONTEXT_CHARS || !SESSION_ID_VALUE.test(sid)) {
     throw new Error("PAKE session id is invalid.");
+  }
+}
+
+function assertPakeProtocolVersion(protocolVersion: unknown): asserts protocolVersion is number {
+  if (typeof protocolVersion !== "number" || !Number.isSafeInteger(protocolVersion) || protocolVersion < 1 || protocolVersion > MAX_PAKE_PROTOCOL_VERSION) {
+    throw new Error("PAKE protocol version is invalid.");
   }
 }
 
@@ -463,8 +476,8 @@ function assertCryptoKey(value: unknown): asserts value is CryptoKey {
   if (typeof RuntimeCryptoKey !== "function" || !(value instanceof RuntimeCryptoKey)) throw new Error("Session keys have been wiped.");
 }
 
-function deriveRawKeys(isk: Uint8Array, sid: string) {
-  const salt = concat(HKDF_CONTEXT, text.encode(sid));
+function deriveRawKeys(isk: Uint8Array, sid: string, protocolVersion: number) {
+  const salt = concat(protocolContext(HKDF_CONTEXT_PREFIX, protocolVersion), text.encode(sid));
   return {
     signalAuthKey: derive(isk, salt, "signal-auth", 32),
     manifestKey: derive(isk, salt, "manifest-aead", 32),
@@ -474,6 +487,11 @@ function deriveRawKeys(isk: Uint8Array, sid: string) {
     bulkReceiverToSender: derive(isk, salt, "bulk-aead receiver-to-sender", 32),
     sas: derive(isk, salt, "sas", 8)
   };
+}
+
+function protocolContext(prefix: string, protocolVersion: number): Uint8Array {
+  assertPakeProtocolVersion(protocolVersion);
+  return text.encode(`${prefix} protocol ${protocolVersion}`);
 }
 
 function derive(ikm: Uint8Array, salt: Uint8Array, info: string, length: number): Uint8Array {
@@ -929,10 +947,12 @@ function readPakeState(state: unknown): PakeStateParts {
   if (!isObjectLike(state)) throw new Error("PAKE state is invalid.");
   const role = ownDataValue(state, "role");
   const sid = ownDataValue(state, "sid");
+  const protocolVersion = ownDataValue(state, "protocolVersion");
   const ephemeralSecret = ownDataValue(state, "ephemeralSecret");
   const share = ownDataValue(state, "share");
   assertPakeRole(role);
   assertPakeSid(sid);
+  assertPakeProtocolVersion(protocolVersion);
   if (!(ephemeralSecret instanceof Uint8Array) || !(share instanceof Uint8Array)) throw new Error("PAKE state is invalid.");
   if (
     canonicalUint8ArrayByteLength(ephemeralSecret, "PAKE state is invalid.") !== CPACE_SHARE_BYTES ||
@@ -940,7 +960,7 @@ function readPakeState(state: unknown): PakeStateParts {
   ) {
     throw new Error("PAKE state is invalid.");
   }
-  return { role, sid, ephemeralSecret, share };
+  return { role, sid, protocolVersion, ephemeralSecret, share };
 }
 
 function isObjectLike(value: unknown): value is object {

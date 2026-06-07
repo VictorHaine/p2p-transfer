@@ -310,14 +310,14 @@
       "keyHex": "1111111111111111111111111111111111111111111111111111111111111111",
       "sid": "sid-fixture",
       "fromRole": "sender",
-      "tagBase64": "kgIWm1/SybS//lAopAFvGHRaF5xnHjnOzf0S7mlWhbM="
+      "tagBase64": "mMfGlYCNYbAQaobhlqGht0nG8yXTbU9aCjOmLAEC/PA="
     },
     {
       "name": "receiver session confirmation",
       "keyHex": "1111111111111111111111111111111111111111111111111111111111111111",
       "sid": "sid-fixture",
       "fromRole": "receiver",
-      "tagBase64": "wfqi+JgnR4/WhhgnNcnKRleoi0kuNAMjk5AHzdAD4pw="
+      "tagBase64": "grOxx9ZZ5Mg7nJfmybcFHTc3PN0d3OuCOX79Lnwd5lA="
     }
   ]
 }

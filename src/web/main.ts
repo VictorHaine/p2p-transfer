@@ -1451,10 +1451,10 @@ async function establishBrowserKeys(signaling: BrowserSignaling, sid: string, ro
     signaling.send({ type: "pake", sid, data: JSON.stringify({ t: "cpace-share", share: ownPakeShareB64(state) }) });
     const peer = await peerWait;
     keys = await finishPake(state, parsePakeShareMessage(peer.data));
-    signaling.send({ type: "confirm", sid, tag: sessionConfirmTag(keys.signalAuthKey, sid, role) });
+    signaling.send({ type: "confirm", sid, tag: sessionConfirmTag(keys.signalAuthKey, sid, role, keys.protocolVersion) });
     const confirm = await confirmWait;
     const peerRole = role === "sender" ? "receiver" : "sender";
-    if (!verifySessionConfirmTag(keys.signalAuthKey, sid, peerRole, confirm.tag)) {
+    if (!verifySessionConfirmTag(keys.signalAuthKey, sid, peerRole, confirm.tag, keys.protocolVersion)) {
       throw new Error("PAKE confirmation failed. Wrong code or signaling MITM.");
     }
     return keys;
