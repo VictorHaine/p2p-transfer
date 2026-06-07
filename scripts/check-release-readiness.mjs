@@ -1,8 +1,11 @@
 #!/usr/bin/env node
-import { realpathSync } from "node:fs";
+import { constants, realpathSync } from "node:fs";
+import { lstat, open } from "node:fs/promises";
+import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const API = "https://api.github.com";
+const NPM_REGISTRY = "https://registry.npmjs.org";
 const DEFAULT_REPOSITORY = "VictorHaine/p2p-transfer";
 const MAIN_RULESET_NAME = "p2p-transfer: protect main";
 const TAG_RULESET_NAME = "p2p-transfer: protect release tags";
@@ -22,9 +25,14 @@ const REQUIRED_CI_CHECKS = [
   "platform smoke / windows-2025 / node 24.13.1"
 ];
 const MAX_ENV_VALUE_BYTES = 4_096;
+const MAX_PACKAGE_JSON_BYTES = 128 * 1024;
 const MAX_GITHUB_API_RESPONSE_BYTES = 1024 * 1024;
+const MAX_NPM_REGISTRY_RESPONSE_BYTES = 1024 * 1024;
 const GITHUB_API_TIMEOUT_MS = 30_000;
+const NPM_REGISTRY_TIMEOUT_MS = 20_000;
 const REPOSITORY_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+const PACKAGE_NAME_RE = /^(?:@[a-z0-9][a-z0-9._-]{0,213}\/)?[a-z0-9][a-z0-9._-]{0,213}$/;
+const SEMVER_RE = /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/;
 
 class GitHubApiError extends Error {
   constructor(status) {
@@ -45,6 +53,8 @@ if (isMain()) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
+  const packageJson = await readPackageMetadata();
+  await assertNpmPackageReady(packageJson);
   const token = githubToken();
 
   const auth = await githubWithHeaders(token, "GET", "/user");
@@ -68,6 +78,98 @@ async function main() {
   assertNpmEnvironment(environment);
 
   console.log(JSON.stringify({ repository: options.repository, ok: true }, null, 2));
+}
+
+async function readPackageMetadata() {
+  const text = await readText(path.join(projectRoot(), "package.json"), MAX_PACKAGE_JSON_BYTES, "package metadata");
+  let packageJson;
+  try {
+    packageJson = JSON.parse(text);
+  } catch {
+    throw new Error("package metadata is not valid JSON.");
+  }
+  if (!packageJson || typeof packageJson !== "object" || Array.isArray(packageJson)) throw new Error("package metadata must be a JSON object.");
+  const { name, version } = packageJson;
+  if (typeof name !== "string" || !PACKAGE_NAME_RE.test(name)) throw new Error("package name must be an exact npm package name.");
+  if (typeof version !== "string" || !SEMVER_RE.test(version)) throw new Error("package version must be an exact semver release.");
+  return { name, version };
+}
+
+async function readText(file, maxBytes, label) {
+  const info = await lstat(file).catch(() => {
+    throw new Error(`${label} could not be read.`);
+  });
+  if (!info.isFile()) throw new Error(`${label} is not a regular file.`);
+  if (info.size < 1 || info.size > maxBytes) throw new Error(`${label} size is outside the allowed range.`);
+  const handle = await open(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0)).catch(() => {
+    throw new Error(`${label} could not be opened.`);
+  });
+  try {
+    const opened = await handle.stat();
+    if (!opened.isFile()) throw new Error(`${label} is not a regular file.`);
+    if (opened.size < 1 || opened.size > maxBytes) throw new Error(`${label} size is outside the allowed range.`);
+    if (!sameFile(info, opened)) throw new Error(`${label} changed before verification.`);
+    return await readHandleText(handle, opened.size, label);
+  } finally {
+    await handle.close();
+  }
+}
+
+async function readHandleText(handle, size, label) {
+  const buffer = Buffer.alloc(size);
+  let offset = 0;
+  while (offset < size) {
+    const { bytesRead } = await handle.read(buffer, offset, size - offset, offset);
+    if (bytesRead === 0) break;
+    offset += bytesRead;
+  }
+  if (offset !== size) throw new Error(`${label} changed while being read.`);
+  const opened = await handle.stat();
+  if (opened.size !== size) throw new Error(`${label} changed while being read.`);
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+  } catch {
+    throw new Error(`${label} is not valid UTF-8.`);
+  }
+}
+
+function sameFile(left, right) {
+  if (typeof left.dev === "number" && typeof left.ino === "number" && typeof right.dev === "number" && typeof right.ino === "number") {
+    return left.dev === right.dev && left.ino === right.ino;
+  }
+  return left.size === right.size && left.mtimeMs === right.mtimeMs;
+}
+
+async function assertNpmPackageReady(packageJson) {
+  const metadata = await npmPackageMetadata(packageJson.name);
+  const versions = metadata?.versions;
+  if (!versions || typeof versions !== "object" || Array.isArray(versions)) throw new Error("npm package metadata is invalid.");
+  if (Object.hasOwn(versions, packageJson.version)) throw new Error("npm package version already exists; bump package.json before tagging.");
+}
+
+async function npmPackageMetadata(name) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), NPM_REGISTRY_TIMEOUT_MS);
+  let response;
+  try {
+    response = await fetch(`${NPM_REGISTRY}/${encodeURIComponent(name)}`, {
+      headers: { accept: "application/vnd.npm.install-v1+json" },
+      signal: controller.signal
+    });
+  } catch (error) {
+    if (isAbortError(error)) throw new Error("npm registry request timed out.");
+    throw new Error("npm registry request failed.");
+  } finally {
+    clearTimeout(timer);
+  }
+  if (response.status === 404) throw new Error("npm package is missing; bootstrap a lower throwaway version before trusted publishing.");
+  if (!response.ok) throw new Error("npm registry returned an unexpected status.");
+  const text = await boundedNpmResponseText(response);
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error("npm registry response was not valid JSON.");
+  }
 }
 
 function assertTokenScopes(headers) {
@@ -252,6 +354,43 @@ async function githubJson(response) {
   }
 }
 
+async function boundedNpmResponseText(response) {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (!(value instanceof Uint8Array)) throw new Error("npm registry response body was invalid.");
+      total += value.byteLength;
+      if (total > MAX_NPM_REGISTRY_RESPONSE_BYTES) throw new Error("npm registry response exceeded the byte limit.");
+      chunks.push(value);
+    }
+  } catch (error) {
+    await reader.cancel().catch(() => undefined);
+    throw error;
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      // Keep the original npm registry failure; lock release is best-effort cleanup.
+    }
+  }
+  const body = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(body);
+  } catch {
+    throw new Error("npm registry response was not valid UTF-8.");
+  }
+}
+
 async function boundedGithubResponseText(response) {
   if (!response.body) return "";
   const reader = response.body.getReader();
@@ -333,6 +472,10 @@ function envString(name) {
 
 function hasUnsafeEnvText(value) {
   return /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u.test(value);
+}
+
+function projectRoot() {
+  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 }
 
 function readinessErrorMessage(error) {
