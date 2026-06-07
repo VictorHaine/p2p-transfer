@@ -11,7 +11,8 @@ const artifactDir = path.join(root, "release-artifacts");
 const MAX_PROJECT_PACKAGE_JSON_BYTES = 128 * 1024;
 const MAX_TARBALL_BYTES = 50 * 1024 * 1024;
 const MAX_PACKED_PACKAGE_JSON_BYTES = 64 * 1024;
-const MAX_CHECKSUM_FILE_BYTES = 256;
+const MAX_CHECKSUM_FILE_BYTES = 512;
+const MAX_SBOM_BYTES = 1024 * 1024;
 const MAX_ARTIFACT_ENTRY_NAME_BYTES = 255;
 const MAX_RELEASE_ENV_VALUE_BYTES = 256;
 const MAX_GITHUB_OUTPUT_BYTES = 1024 * 1024;
@@ -19,6 +20,7 @@ const MAX_TAR_SCAN_BYTES = 256 * 1024 * 1024;
 const MAX_EXPECTED_PACKED_FILES = 4096;
 const MAX_EXPECTED_PACKED_BYTES = 256 * 1024 * 1024;
 const TAR_BLOCK_BYTES = 512;
+const SBOM_NAME = "SBOM.cdx.json";
 
 if (isMain()) {
   try {
@@ -38,9 +40,11 @@ async function main() {
   const tag = requiredReleaseTag(envString("GITHUB_REF_NAME"), expectedVersion);
   const releaseArtifactDir = await verifiedArtifactDir();
   const tarball = await singleReleaseTarball(releaseArtifactDir, expectedName, expectedVersion);
+  const sbom = await releaseSbomFile(releaseArtifactDir);
 
   try {
-    await verifyChecksumFile(releaseArtifactDir, tarball);
+    await verifyChecksumFile(releaseArtifactDir, tarball, sbom);
+    await verifySbomFile(sbom, expectedName, expectedVersion);
     const packed = await verifyPackedFileContents(tarball, expected);
     assertPackedPackageMetadataMatchesWorkspace(expected, packed);
     const packedName = requiredPackageName(packed.name, "package/package.json name");
@@ -53,6 +57,7 @@ async function main() {
     if (options.githubOutputName) await writeGithubOutput(options.githubOutputName, tarballPath);
   } finally {
     await tarball.handle.close().catch(() => undefined);
+    await sbom.handle.close().catch(() => undefined);
   }
 }
 
@@ -362,6 +367,23 @@ function packedPackageName(name) {
   return name.startsWith("@") ? name.slice(1).replace("/", "-") : name;
 }
 
+function packagePurl(name, version) {
+  if (name.startsWith("@")) {
+    const [scope, localName] = name.slice(1).split("/");
+    return `pkg:npm/%40${scope}/${localName}@${version}`;
+  }
+  return `pkg:npm/${name}@${version}`;
+}
+
+function packageGroup(name) {
+  if (!name.startsWith("@")) return undefined;
+  return `@${name.slice(1).split("/")[0]}`;
+}
+
+function packageLocalName(name) {
+  return name.startsWith("@") ? name.slice(1).split("/")[1] : name;
+}
+
 function releaseArtifactEntryName(value) {
   if (
     typeof value !== "string" ||
@@ -380,10 +402,28 @@ function releaseArtifactEntryName(value) {
 }
 
 function assertExactArtifactEntries(entries, expectedBasename) {
-  const expected = ["SHA256SUMS", expectedBasename].sort();
+  const expected = ["SHA256SUMS", SBOM_NAME, expectedBasename].sort();
   const actual = [...entries].sort();
   if (actual.length !== expected.length || actual.some((entry, index) => entry !== expected[index])) {
     throw new Error(`release-artifacts must contain only ${expected.join(" and ")}.`);
+  }
+}
+
+async function releaseSbomFile(releaseArtifactDir) {
+  const sbom = path.join(releaseArtifactDir, SBOM_NAME);
+  const info = await lstat(sbom);
+  if (!info.isFile()) throw new Error("release SBOM is not a regular file.");
+  if (info.size < 1 || info.size > MAX_SBOM_BYTES) throw new Error("release SBOM size is outside the allowed range.");
+  const handle = await open(sbom, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  try {
+    const opened = await handle.stat();
+    if (!opened.isFile()) throw new Error("release SBOM is not a regular file.");
+    if (opened.size < 1 || opened.size > MAX_SBOM_BYTES) throw new Error("release SBOM size is outside the allowed range.");
+    if (!sameFile(info, opened)) throw new Error("release SBOM changed before verification.");
+    return { path: sbom, basename: SBOM_NAME, handle, size: opened.size, label: "release SBOM" };
+  } catch (error) {
+    await handle.close().catch(() => undefined);
+    throw error;
   }
 }
 
@@ -446,7 +486,7 @@ async function writeGithubOutput(name, value) {
   }
 }
 
-async function verifyChecksumFile(releaseArtifactDir, tarball) {
+async function verifyChecksumFile(releaseArtifactDir, tarball, sbom) {
   const checksumFile = path.join(releaseArtifactDir, "SHA256SUMS");
   const info = await lstat(checksumFile);
   if (!info.isFile()) throw new Error("SHA256SUMS is not a regular file.");
@@ -458,12 +498,39 @@ async function verifyChecksumFile(releaseArtifactDir, tarball) {
     if (opened.size < 1 || opened.size > MAX_CHECKSUM_FILE_BYTES) throw new Error("SHA256SUMS size is outside the allowed range.");
     if (!sameFile(info, opened)) throw new Error("SHA256SUMS changed before verification.");
     const checksumText = await readHandleText(handle, opened.size, "SHA256SUMS");
-    const match = /^([a-f0-9]{64})  ([A-Za-z0-9._-]+\.tgz)\n$/.exec(checksumText);
-    if (!match || match[2] !== tarball.basename) throw new Error("SHA256SUMS must contain exactly one checksum for the release tarball.");
-    const actual = await sha256File(tarball);
-    if (actual !== match[1]) throw new Error("release tarball checksum does not match SHA256SUMS.");
+    const match = /^([a-f0-9]{64})  ([A-Za-z0-9._-]+\.tgz)\n([a-f0-9]{64})  (SBOM\.cdx\.json)\n$/.exec(checksumText);
+    if (!match || match[2] !== tarball.basename || match[4] !== sbom.basename) throw new Error("SHA256SUMS must contain exactly one checksum for the release tarball and one checksum for the SBOM.");
+    const actualTarball = await sha256File(tarball);
+    if (actualTarball !== match[1]) throw new Error("release tarball checksum does not match SHA256SUMS.");
+    const actualSbom = await sha256File(sbom);
+    if (actualSbom !== match[3]) throw new Error("release SBOM checksum does not match SHA256SUMS.");
   } finally {
     await handle.close();
+  }
+}
+
+async function verifySbomFile(sbom, packageName, packageVersion) {
+  const document = parseJson(await readHandleText(sbom.handle, sbom.size, "release SBOM"), "release SBOM");
+  if (!isPlainRecord(document)) throw new Error("release SBOM must be a plain JSON object.");
+  if (ownValue(document, "bomFormat") !== "CycloneDX") throw new Error("release SBOM must be CycloneDX.");
+  if (ownValue(document, "specVersion") !== "1.7") throw new Error("release SBOM must use CycloneDX 1.7.");
+  const metadata = requiredPlainRecord(document, "metadata", "release SBOM");
+  const component = requiredPlainRecord(metadata, "component", "release SBOM metadata");
+  if (ownValue(component, "type") !== "application") throw new Error("release SBOM component type is invalid.");
+  if (ownValue(component, "name") !== packageLocalName(packageName)) throw new Error("release SBOM component name does not match the package.");
+  if (ownValue(component, "version") !== packageVersion) throw new Error("release SBOM component version does not match the package.");
+  const purl = packagePurl(packageName, packageVersion);
+  if (ownValue(component, "purl") !== purl || ownValue(component, "bom-ref") !== purl) {
+    throw new Error("release SBOM component purl does not match the package.");
+  }
+  const expectedGroup = packageGroup(packageName);
+  const group = optionalOwnValue(component, "group");
+  if (expectedGroup === undefined ? group !== undefined : group !== expectedGroup) {
+    throw new Error("release SBOM component group does not match the package.");
+  }
+  const components = ownValue(document, "components");
+  if (!Array.isArray(components) || components.length < 1 || components.length > 4096) {
+    throw new Error("release SBOM components are outside the allowed range.");
   }
 }
 
@@ -765,9 +832,9 @@ async function sha256File(tarball) {
     hash.update(scratch.subarray(0, bytesRead));
     total += bytesRead;
   }
-  if (total !== tarball.size) throw new Error("release tarball changed while being read.");
+  if (total !== tarball.size) throw new Error(`${tarball.label ?? "release tarball"} changed while being read.`);
   const opened = await tarball.handle.stat();
-  if (opened.size !== tarball.size) throw new Error("release tarball changed while being read.");
+  if (opened.size !== tarball.size) throw new Error(`${tarball.label ?? "release tarball"} changed while being read.`);
   return hash.digest("hex");
 }
 

@@ -22,6 +22,21 @@ test("release artifact verifier accepts a bounded well-formed npm tarball", asyn
   assert.equal(result.status, 0, result.stderr);
 });
 
+test("release artifact verifier rejects checksummed SBOMs for the wrong package", async () => {
+  const result = await runVerifierInFixture({
+    packageName: "@victorhaine/p2p-transfer",
+    version: "1.2.3",
+    sbom: Buffer.from(`${JSON.stringify(fixtureSbom("@victorhaine/p2p-transfer", "9.9.9"))}\n`, "utf8"),
+    tarBlocks: packageJsonTarBlocks("@victorhaine/p2p-transfer", "1.2.3", {
+      endBlocks: 2
+    })
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /release SBOM component version does not match the package\./);
+  assert.doesNotMatch(result.stderr, /9\.9\.9|victorhaine/);
+});
+
 test("release artifact verifier prints the verified tarball path on request", async () => {
   const result = await runVerifierInFixture({
     packageName: "@victorhaine/p2p-transfer",
@@ -381,6 +396,7 @@ async function runVerifierInFixture(options: {
   githubOutputFileName?: string;
   tarBlocks?: Buffer[];
   tarball?: Buffer;
+  sbom?: Buffer;
   extraArtifactEntries?: { name: string; body?: Buffer }[];
   extraWorkspaceFiles?: Record<string, Buffer>;
   artifactDirSymlinkTarget?: string;
@@ -401,9 +417,12 @@ async function runVerifierInFixture(options: {
 
   const tarballName = `${packedPackageName(options.packageName)}-${options.version}.tgz`;
   const tarball = options.tarball ?? gzipSync(Buffer.concat(options.tarBlocks ?? []));
+  const sbom = options.sbom ?? Buffer.from(`${JSON.stringify(fixtureSbom(options.packageName, options.version))}\n`, "utf8");
   const digest = createHash("sha256").update(tarball).digest("hex");
+  const sbomDigest = createHash("sha256").update(sbom).digest("hex");
   await fs.writeFile(path.join(artifactDir, tarballName), tarball);
-  await fs.writeFile(path.join(artifactDir, "SHA256SUMS"), `${digest}  ${tarballName}\n`);
+  await fs.writeFile(path.join(artifactDir, "SBOM.cdx.json"), sbom);
+  await fs.writeFile(path.join(artifactDir, "SHA256SUMS"), `${digest}  ${tarballName}\n${sbomDigest}  SBOM.cdx.json\n`);
   for (const entry of options.extraArtifactEntries ?? []) {
     await fs.writeFile(path.join(artifactDir, entry.name), entry.body ?? Buffer.alloc(0));
   }
@@ -429,6 +448,56 @@ function packageJsonTarBlocks(packageName: string, version: string, options: { b
 
 function packedPackageName(packageName: string): string {
   return packageName.startsWith("@") ? packageName.slice(1).replace("/", "-") : packageName;
+}
+
+function packagePurl(packageName: string, version: string): string {
+  if (packageName.startsWith("@")) {
+    const [scope, localName] = packageName.slice(1).split("/");
+    assert.ok(scope);
+    assert.ok(localName);
+    return `pkg:npm/%40${scope}/${localName}@${version}`;
+  }
+  return `pkg:npm/${packageName}@${version}`;
+}
+
+function packageLocalName(packageName: string): string {
+  if (!packageName.startsWith("@")) return packageName;
+  const localName = packageName.slice(1).split("/")[1];
+  assert.ok(localName);
+  return localName;
+}
+
+function packageGroup(packageName: string): string | undefined {
+  if (!packageName.startsWith("@")) return undefined;
+  const scope = packageName.slice(1).split("/")[0];
+  assert.ok(scope);
+  return `@${scope}`;
+}
+
+function fixtureSbom(packageName: string, version: string) {
+  return {
+    bomFormat: "CycloneDX",
+    specVersion: "1.7",
+    metadata: {
+      component: {
+        type: "application",
+        name: packageLocalName(packageName),
+        version,
+        purl: packagePurl(packageName, version),
+        "bom-ref": packagePurl(packageName, version),
+        ...(packageGroup(packageName) ? { group: packageGroup(packageName) } : {})
+      }
+    },
+    components: [
+      {
+        type: "library",
+        name: "ws",
+        version: "8.20.1",
+        purl: "pkg:npm/ws@8.20.1",
+        "bom-ref": "pkg:npm/ws@8.20.1"
+      }
+    ]
+  };
 }
 
 function packageTarBlocks(

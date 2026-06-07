@@ -44,6 +44,7 @@ const releaseArtifactScript = fs.readFileSync(new URL("../scripts/verify-release
 const releasePublishScript = fs.readFileSync(new URL("../scripts/publish-release-artifact.mjs", import.meta.url), "utf8");
 const githubReleaseScript = fs.readFileSync(new URL("../scripts/create-github-release.mjs", import.meta.url), "utf8");
 const releaseChecksumScript = fs.readFileSync(new URL("../scripts/write-release-checksum.mjs", import.meta.url), "utf8");
+const releaseSbomScript = fs.readFileSync(new URL("../scripts/write-release-sbom.mjs", import.meta.url), "utf8");
 const releaseNotesScript = fs.readFileSync(new URL("../scripts/write-release-notes.mjs", import.meta.url), "utf8");
 const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
 const cpaceReview = fs.readFileSync(new URL("../docs/security/cpace-review.md", import.meta.url), "utf8");
@@ -471,7 +472,7 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
 test("release workflow is tag-only, verifies one artifact, and publishes with trusted provenance", () => {
   assert.match(securityPolicy, /release workflow is tag-only/);
   assert.match(securityPolicy, /Release publishing must use npm trusted publishing with OIDC provenance/);
-  assert.match(securityPolicy, /GitHub Releases must be tag-only, run only after npm publishing succeeds, re-verify the downloaded npm tarball/);
+  assert.match(securityPolicy, /GitHub Releases must be tag-only, run only after npm publishing succeeds, re-verify the downloaded npm tarball and SBOM/);
   assert.match(releaseWorkflow, /tags:\n\s+- "v\*\.\*\.\*"/);
   assert.doesNotMatch(releaseWorkflow, /workflow_dispatch/);
   assert.doesNotMatch(releaseWorkflow, /pull_request:/);
@@ -517,8 +518,10 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseArtifactSmokeScript, /const CHILD_TIMEOUT_MS = 120_000/);
   assert.match(releaseArtifactSmokeScript, /const CHILD_KILL_GRACE_MS = 5_000/);
   assert.match(releaseArtifactSmokeScript, /await run\(pnpm, \["--config\.ignore-scripts=true", "pack", "--pack-destination", "release-artifacts"\], \{\}, "release artifact pack"\)/);
+  assert.match(releaseArtifactSmokeScript, /await run\(process\.execPath, \["scripts\/write-release-sbom\.mjs"\], \{\}, "release SBOM generation"\)/);
   assert.match(releaseArtifactSmokeScript, /await run\(process\.execPath, \["scripts\/write-release-checksum\.mjs"\], \{\}, "release checksum generation"\)/);
   assert.match(releaseArtifactSmokeScript, /await run\(process\.execPath, \["scripts\/verify-release-artifact\.mjs"\], \{ GITHUB_REF_NAME: `v\$\{version\}` \}, "release artifact verification"\)/);
+  assert.match(releaseArtifactSmokeScript, /"scripts\/write-release-sbom\.mjs"/);
   assert.match(releaseArtifactSmokeScript, /"scripts\/write-release-checksum\.mjs"/);
   assert.match(releaseArtifactSmokeScript, /"scripts\/verify-release-artifact\.mjs"/);
   assert.match(releaseArtifactSmokeScript, /GITHUB_REF_NAME: `v\$\{version\}`/);
@@ -540,7 +543,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseArtifactSmokeScript, /await lstat\(filePath\)[\s\S]*await open\(filePath, noFollowReadFlags\(\)\)[\s\S]*if \(!sameFile\(info, stat\)\)/);
   assert.match(releaseArtifactSmokeScript, /new TextDecoder\("utf-8", \{ fatal: true \}\)\.decode\(bytes\)/);
   assert.doesNotMatch(releaseArtifactSmokeScript, /readFile\(path\.join\(root, "package\.json"\)/);
-  assert.match(securityPolicy, /release-artifact smoke must run `pnpm pack`, checksum generation, and release-artifact verification with the same minimal allowlisted child environment/);
+  assert.match(securityPolicy, /release-artifact smoke must run `pnpm pack`, CycloneDX SBOM generation, checksum generation, and release-artifact verification with the same minimal allowlisted child environment/);
   assert.match(securityPolicy, /release-artifact smoke command timeouts must signal the child, arm a bounded `SIGKILL` fallback, reject only after the child exits, and ignore child stdout\/stderr/);
   assert.match(releaseArtifactSmokeScript, /await rm\(artifactDir, \{ recursive: true, force: true \}\)/);
   assert.match(releaseArtifactSmokeScript, /Release artifact smoke failed:/);
@@ -550,12 +553,14 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseWorkflow, /pnpm check:install-state[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed[\s\S]*pnpm test:e2e[\s\S]*pnpm test:browser[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures/);
   assert.match(releaseWorkflow, /Verify release notes[\s\S]*node scripts\/write-release-notes\.mjs --check[\s\S]*pack release artifact[\s\S]*node scripts\/smoke-release-artifact\.mjs --keep-artifacts/);
   assert.doesNotMatch(releaseWorkflow, /pack release artifact[\s\S]*(rm -rf release-artifacts|mkdir -p release-artifacts|pnpm --config\.ignore-scripts=true pack --pack-destination release-artifacts|node scripts\/write-release-checksum\.mjs)/);
-  assert.match(releaseChecksumScript, /return `\$\{packedPackageName\(name\)\}-\$\{version\}\.tgz`[\s\S]*const expectedTarballName = expectedTarballNameFor\(packageJson\)[\s\S]*entries\.length !== 1 \|\| !entries\[0\]\?\.isFile\(\) \|\| entries\[0\]\.name !== expectedTarballName[\s\S]*createHash\("sha256"\)[\s\S]*writeFile\(path\.join\(artifactDir, "SHA256SUMS"\), `\$\{checksum\}  \$\{expectedTarballName\}\\n`, \{ flag: "wx" \}\)/);
+  assert.match(releaseSbomScript, /spawn\(pnpm, \["sbom", "--sbom-format", "cyclonedx", "--prod", "--sbom-type", "application"\]/);
+  assert.match(releaseSbomScript, /await writeFile\(path\.join\(artifactDir, SBOM_NAME\), sbomText, \{ flag: "wx" \}\)/);
+  assert.match(releaseChecksumScript, /return `\$\{packedPackageName\(name\)\}-\$\{version\}\.tgz`[\s\S]*const expectedTarballName = expectedTarballNameFor\(packageJson\)[\s\S]*entries\.length !== 2[\s\S]*entry\.name === expectedTarballName[\s\S]*entry\.name === SBOM_NAME[\s\S]*const tarballChecksum = createHash\("sha256"\)[\s\S]*const sbomChecksum = createHash\("sha256"\)[\s\S]*writeFile\(path\.join\(artifactDir, "SHA256SUMS"\), `\$\{tarballChecksum\}  \$\{expectedTarballName\}\\n\$\{sbomChecksum\}  \$\{SBOM_NAME\}\\n`, \{ flag: "wx" \}\)/);
   assert.match(releaseChecksumScript, /async function verifiedArtifactDir\(\)/);
   assert.match(releaseChecksumScript, /const artifactDir = await verifiedArtifactDir\(\)/);
   assert.match(releaseNotesScript, /async function verifiedArtifactDir\(\)/);
   assert.match(releaseNotesScript, /writeFile\(path\.join\(await verifiedArtifactDir\(\), "RELEASE_NOTES\.md"\), notes, \{ flag: "wx" \}\)/);
-  assert.match(securityPolicy, /release checksum and release-notes writers must verify `release-artifacts` is a real directory inside the project root/);
+  assert.match(securityPolicy, /release checksum, SBOM, and release-notes writers must verify `release-artifacts` is a real directory inside the project root/);
   assert.match(releaseChecksumScript, /fileURLToPath\(import\.meta\.url\)/);
   assert.match(releaseChecksumScript, /const MAX_TARBALL_BYTES = 50 \* 1024 \* 1024/);
   assert.match(releaseChecksumScript, /constants\.O_NOFOLLOW/);
@@ -573,7 +578,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(securityPolicy, /release artifact verification must use the checked script with a symlink-safe realpath entrypoint check and verifier-owned top-level failure reporting that does not print stack traces or raw path-sensitive evidence, verify `release-artifacts` is a real directory inside the project root before listing or opening release evidence/);
   assert.match(securityPolicy, /validate artifact directory entry names before sorting, filtering, or reporting them/);
   assert.match(securityPolicy, /reject control\/format\/path-shaped or over-byte-budget entry names without echoing them/);
-  assert.match(securityPolicy, /prove the downloaded artifact directory contains only `SHA256SUMS` and the expected tarball/);
+  assert.match(securityPolicy, /prove the downloaded artifact directory contains only `SHA256SUMS`, `SBOM\.cdx\.json`, and the expected tarball/);
   assert.match(securityPolicy, /release artifact verification must extract exactly one regular-file `package\/package\.json` with bounded in-process gzip\/tar parsing/);
   assert.match(securityPolicy, /reject invalid gzip archives with verifier-owned deterministic errors/);
   assert.match(securityPolicy, /release artifact verification must fatal-UTF-8-decode workspace metadata, checksum files, tar header text, and packed metadata through verifier-owned deterministic errors/);
@@ -603,7 +608,8 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.doesNotMatch(releaseArtifactScript, /readFile\(file, "utf8"\)/);
   assert.match(releaseArtifactScript, /const MAX_PACKED_PACKAGE_JSON_BYTES = 64 \* 1024/);
   assert.match(releaseArtifactScript, /const MAX_TAR_SCAN_BYTES = 256 \* 1024 \* 1024/);
-  assert.match(releaseArtifactScript, /const MAX_CHECKSUM_FILE_BYTES = 256/);
+  assert.match(releaseArtifactScript, /const MAX_CHECKSUM_FILE_BYTES = 512/);
+  assert.match(releaseArtifactScript, /const MAX_SBOM_BYTES = 1024 \* 1024/);
   assert.match(releaseArtifactScript, /requiredPackageVersion\(expected\.version\)/);
   assert.match(releaseArtifactScript, /assertPackedPackageMetadataMatchesWorkspace\(expected, packed\)/);
   assert.match(releaseArtifactScript, /function releasePackageMetadata\(record, label, options\)/);
@@ -643,7 +649,8 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseArtifactScript, /release-artifacts contains an invalid artifact entry name/);
   assert.match(releaseArtifactScript, /assertExactArtifactEntries\(entries, expectedBasename\)/);
   assert.match(releaseArtifactScript, /release-artifacts must contain only/);
-  assert.match(releaseArtifactScript, /await verifyChecksumFile\(releaseArtifactDir, tarball\)/);
+  assert.match(releaseArtifactScript, /await verifyChecksumFile\(releaseArtifactDir, tarball, sbom\)/);
+  assert.match(releaseArtifactScript, /await verifySbomFile\(sbom, expectedName, expectedVersion\)/);
   assert.match(releaseArtifactScript, /SHA256SUMS is not a regular file/);
   assert.match(releaseArtifactScript, /info\.size < 1 \|\| info\.size > MAX_CHECKSUM_FILE_BYTES/);
   assert.match(releaseArtifactScript, /const handle = await open\(checksumFile, constants\.O_RDONLY \| \(constants\.O_NOFOLLOW \?\? 0\)\)/);
@@ -664,7 +671,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseArtifactScript, /if \(!sameFile\(info, opened\)\) throw new Error\("release tarball changed before verification\."\)/);
   assert.match(releaseArtifactScript, /await tarball\.handle\.close\(\)/);
   assert.match(releaseArtifactScript, /tarball\.handle\.createReadStream\(\{ start: 0, end: tarball\.size - 1, autoClose: false \}\)/);
-  assert.match(releaseArtifactScript, /release tarball changed while being read/);
+  assert.match(releaseArtifactScript, /\$\{tarball\.label \?\? "release tarball"\} changed while being read/);
   assert.match(releaseArtifactScript, /const gunzip = createGunzip\(\)/);
   assert.match(releaseArtifactScript, /const stream = source\.pipe\(gunzip\)/);
   assert.match(releaseArtifactScript, /function nextTarGzChunk\(chunks\)/);
@@ -691,7 +698,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseArtifactScript, /await reader\.close\(\)/);
   assert.doesNotMatch(releaseArtifactScript, /execFileSync|child_process|maxBuffer: MAX_PACKED_PACKAGE_JSON_BYTES/);
   assert.match(securityPolicy, /release publishing must packed-install smoke the exact downloaded tarball artifact immediately before `pnpm publish`/);
-  assert.match(securityPolicy, /release artifact attestation must run after the checked release-artifact verifier proves the downloaded npm tarball and before npm publish/);
+  assert.match(securityPolicy, /release artifact attestation must run after the checked release-artifact verifier proves the downloaded npm tarball, SBOM, checksums, and package identity before npm publish/);
   assert.match(releaseWorkflow, /attest release artifact[\s\S]*node scripts\/verify-release-artifact\.mjs --github-output tarball[\s\S]*uses: actions\/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4\.1\.0[\s\S]*subject-path: \$\{\{ steps\.verify_artifact\.outputs\.tarball \}\}/);
   assert.match(releaseWorkflow, /needs:\n\s+- verify\n\s+- attest\n\s+- docker\n\s+- platform-smoke/);
   assert.match(releaseWorkflow, /environment: npm/);
@@ -714,13 +721,14 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.doesNotMatch(releasePublishScript, /release publish subprocess failed[\s\S]*stdout:/);
   assert.doesNotMatch(releasePublishScript, /release publish subprocess failed[\s\S]*stderr:/);
   assert.doesNotMatch(releasePublishScript, /env: \{ \.\.\.process\.env|process\.env\.NODE_AUTH_TOKEN|process\.env\.NPM_TOKEN/);
-  assert.match(securityPolicy, /GitHub Release job must run only after npm publishing succeeds, re-verify the downloaded tarball through `scripts\/create-github-release\.mjs`, generate version-scoped release notes from the checked changelog/);
+  assert.match(securityPolicy, /GitHub Release job must run only after npm publishing succeeds, re-verify the downloaded tarball and SBOM through `scripts\/create-github-release\.mjs`, generate version-scoped release notes from the checked changelog/);
   assert.match(releaseWorkflow, /github-release:[\s\S]*needs:\n      - publish[\s\S]*permissions:\n      contents: write[\s\S]*node scripts\/create-github-release\.mjs/);
   assert.match(githubReleaseScript, /requiredReleaseTag\(requiredEnvString\("GITHUB_REF_NAME"\)\)/);
   assert.match(githubReleaseScript, /requiredRepository\(requiredEnvString\("GITHUB_REPOSITORY"\)\)/);
   assert.match(githubReleaseScript, /\["scripts\/write-release-notes\.mjs"\]/);
   assert.match(githubReleaseScript, /assertArtifactFile\("release-artifacts\/SHA256SUMS", MAX_CHECKSUM_BYTES, "SHA256SUMS"\)/);
-  assert.match(githubReleaseScript, /\[\s+"release",\s+"create",\s+tag,\s+tarball,\s+"release-artifacts\/SHA256SUMS"[\s\S]*"--notes-file",\s+"release-artifacts\/RELEASE_NOTES\.md"[\s\S]*"--repo",\s+repository/s);
+  assert.match(githubReleaseScript, /assertArtifactFile\("release-artifacts\/SBOM\.cdx\.json", MAX_SBOM_BYTES, "release SBOM"\)/);
+  assert.match(githubReleaseScript, /\[\s+"release",\s+"create",\s+tag,\s+tarball,\s+"release-artifacts\/SHA256SUMS",\s+"release-artifacts\/SBOM\.cdx\.json"[\s\S]*"--notes-file",\s+"release-artifacts\/RELEASE_NOTES\.md"[\s\S]*"--repo",\s+repository/s);
   assert.match(githubReleaseScript, /timeoutError = new Error\("GitHub Release subprocess timed out\."\);\s*child\.kill\("SIGTERM"\);\s*killTimer = setTimeout\(\(\) => child\.kill\("SIGKILL"\), 5_000\);/s);
   assert.match(githubReleaseScript, /child\.on\("exit", \(code, signal\) => \{[\s\S]*if \(killTimer\) clearTimeout\(killTimer\);[\s\S]*if \(timeoutError\) \{[\s\S]*rejectOnce\(timeoutError\);[\s\S]*return;[\s\S]*\}/);
   assert.match(githubReleaseScript, /GitHub Release subprocess failed with \$\{childExitStatus\(code, signal\)\}\./);

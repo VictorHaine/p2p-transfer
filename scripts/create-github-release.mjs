@@ -11,7 +11,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const MAX_ENV_VALUE_BYTES = 8_192;
 const MAX_TARBALL_OUTPUT_BYTES = 512;
 const MAX_RELEASE_NOTES_BYTES = 128 * 1024;
-const MAX_CHECKSUM_BYTES = 256;
+const MAX_CHECKSUM_BYTES = 512;
+const MAX_SBOM_BYTES = 1024 * 1024;
 const CHILD_TIMEOUT_MS = 120_000;
 
 if (isMain()) {
@@ -34,6 +35,7 @@ async function main() {
     await run(process.execPath, ["scripts/write-release-notes.mjs"], { env: childEnv, timeoutMs: CHILD_TIMEOUT_MS });
     await assertArtifactFile(tarball, 50 * 1024 * 1024, "release tarball");
     await assertArtifactFile("release-artifacts/SHA256SUMS", MAX_CHECKSUM_BYTES, "SHA256SUMS");
+    await assertArtifactFile("release-artifacts/SBOM.cdx.json", MAX_SBOM_BYTES, "release SBOM");
     await assertArtifactFile("release-artifacts/RELEASE_NOTES.md", MAX_RELEASE_NOTES_BYTES, "release notes");
     await run(
       "gh",
@@ -43,6 +45,7 @@ async function main() {
         tag,
         tarball,
         "release-artifacts/SHA256SUMS",
+        "release-artifacts/SBOM.cdx.json",
         "--title",
         tag,
         "--notes-file",
@@ -90,7 +93,7 @@ async function verifiedTarballPath(env) {
 }
 
 async function assertArtifactFile(relative, maxBytes, description) {
-  if (typeof relative !== "string" || !/^release-artifacts\/[A-Za-z0-9._-]+(?:\.tgz|\.md)?$/.test(relative) || relative.endsWith("/")) {
+  if (typeof relative !== "string" || !/^release-artifacts\/[A-Za-z0-9._-]+(?:\.tgz|\.md|\.json)?$/.test(relative) || relative.endsWith("/")) {
     throw new Error(`${description} path is invalid.`);
   }
   const file = path.join(root, relative);

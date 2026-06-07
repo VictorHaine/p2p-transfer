@@ -30,6 +30,7 @@ async function main() {
   await rm(artifactDir, { recursive: true, force: true });
   try {
     await run(pnpm, ["--config.ignore-scripts=true", "pack", "--pack-destination", "release-artifacts"], {}, "release artifact pack");
+    await run(process.execPath, ["scripts/write-release-sbom.mjs"], {}, "release SBOM generation");
     await run(process.execPath, ["scripts/write-release-checksum.mjs"], {}, "release checksum generation");
     await run(process.execPath, ["scripts/verify-release-artifact.mjs"], { GITHUB_REF_NAME: `v${version}` }, "release artifact verification");
   } finally {

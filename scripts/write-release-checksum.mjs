@@ -7,7 +7,9 @@ import { fileURLToPath } from "node:url";
 
 const MAX_PACKAGE_JSON_BYTES = 1024 * 1024;
 const MAX_TARBALL_BYTES = 50 * 1024 * 1024;
+const MAX_SBOM_BYTES = 1024 * 1024;
 const MAX_ERROR_MESSAGE_CHARS = 1024;
+const SBOM_NAME = "SBOM.cdx.json";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const projectRoot = path.resolve(path.dirname(scriptPath), "..");
@@ -184,8 +186,13 @@ async function writeReleaseChecksum() {
   const artifactDir = await verifiedArtifactDir();
   const entries = await readdir(artifactDir, { withFileTypes: true });
 
-  if (entries.length !== 1 || !entries[0]?.isFile() || entries[0].name !== expectedTarballName) {
-    throw new Error("release artifact directory must contain exactly the expected tarball.");
+  if (
+    entries.length !== 2 ||
+    !entries.every((entry) => entry.isFile()) ||
+    !entries.some((entry) => entry.name === expectedTarballName) ||
+    !entries.some((entry) => entry.name === SBOM_NAME)
+  ) {
+    throw new Error("release artifact directory must contain exactly the expected tarball and SBOM.");
   }
 
   const tarballBytes = await readBoundedRegularFile(
@@ -193,8 +200,14 @@ async function writeReleaseChecksum() {
     MAX_TARBALL_BYTES,
     "release tarball",
   );
-  const checksum = createHash("sha256").update(tarballBytes).digest("hex");
-  await writeFile(path.join(artifactDir, "SHA256SUMS"), `${checksum}  ${expectedTarballName}\n`, { flag: "wx" });
+  const sbomBytes = await readBoundedRegularFile(
+    path.join(artifactDir, SBOM_NAME),
+    MAX_SBOM_BYTES,
+    "release SBOM",
+  );
+  const tarballChecksum = createHash("sha256").update(tarballBytes).digest("hex");
+  const sbomChecksum = createHash("sha256").update(sbomBytes).digest("hex");
+  await writeFile(path.join(artifactDir, "SHA256SUMS"), `${tarballChecksum}  ${expectedTarballName}\n${sbomChecksum}  ${SBOM_NAME}\n`, { flag: "wx" });
 }
 
 if (isDirectEntrypoint) {

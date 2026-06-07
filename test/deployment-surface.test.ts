@@ -24,6 +24,7 @@ const releaseArtifactScript = fs.readFileSync(new URL("../scripts/verify-release
 const releasePublishScript = fs.readFileSync(new URL("../scripts/publish-release-artifact.mjs", import.meta.url), "utf8");
 const githubReleaseScript = fs.readFileSync(new URL("../scripts/create-github-release.mjs", import.meta.url), "utf8");
 const releaseChecksumScript = fs.readFileSync(new URL("../scripts/write-release-checksum.mjs", import.meta.url), "utf8");
+const releaseSbomScript = fs.readFileSync(new URL("../scripts/write-release-sbom.mjs", import.meta.url), "utf8");
 const releaseNotesScript = fs.readFileSync(new URL("../scripts/write-release-notes.mjs", import.meta.url), "utf8");
 const githubReleaseControlsScript = fs.readFileSync(new URL("../scripts/configure-github-release-controls.mjs", import.meta.url), "utf8");
 const releaseReadinessScript = fs.readFileSync(new URL("../scripts/check-release-readiness.mjs", import.meta.url), "utf8");
@@ -309,7 +310,9 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releaseWorkflow, /pack release artifact[\s\S]*node scripts\/smoke-release-artifact\.mjs --keep-artifacts/);
   assert.doesNotMatch(releaseWorkflow, /pack release artifact[\s\S]*(rm -rf release-artifacts|mkdir -p release-artifacts|pnpm --config\.ignore-scripts=true pack --pack-destination release-artifacts|node scripts\/write-release-checksum\.mjs)/);
   assert.match(releaseWorkflow, /Verify release notes[\s\S]*node scripts\/write-release-notes\.mjs --check[\s\S]*pack release artifact/);
-  assert.match(releaseChecksumScript, /return `\$\{packedPackageName\(name\)\}-\$\{version\}\.tgz`[\s\S]*const expectedTarballName = expectedTarballNameFor\(packageJson\)[\s\S]*entries\.length !== 1 \|\| !entries\[0\]\?\.isFile\(\) \|\| entries\[0\]\.name !== expectedTarballName[\s\S]*createHash\("sha256"\)[\s\S]*writeFile\(path\.join\(artifactDir, "SHA256SUMS"\), `\$\{checksum\}  \$\{expectedTarballName\}\\n`, \{ flag: "wx" \}\)/);
+  assert.match(releaseSbomScript, /spawn\(pnpm, \["sbom", "--sbom-format", "cyclonedx", "--prod", "--sbom-type", "application"\]/);
+  assert.match(releaseSbomScript, /await writeFile\(path\.join\(artifactDir, SBOM_NAME\), sbomText, \{ flag: "wx" \}\)/);
+  assert.match(releaseChecksumScript, /return `\$\{packedPackageName\(name\)\}-\$\{version\}\.tgz`[\s\S]*const expectedTarballName = expectedTarballNameFor\(packageJson\)[\s\S]*entries\.length !== 2[\s\S]*entry\.name === expectedTarballName[\s\S]*entry\.name === SBOM_NAME[\s\S]*const tarballChecksum = createHash\("sha256"\)[\s\S]*const sbomChecksum = createHash\("sha256"\)[\s\S]*writeFile\(path\.join\(artifactDir, "SHA256SUMS"\), `\$\{tarballChecksum\}  \$\{expectedTarballName\}\\n\$\{sbomChecksum\}  \$\{SBOM_NAME\}\\n`, \{ flag: "wx" \}\)/);
   assert.match(releaseChecksumScript, /async function verifiedArtifactDir\(\)/);
   assert.match(releaseChecksumScript, /const artifactDir = await verifiedArtifactDir\(\)/);
   assert.match(releaseNotesScript, /const headingPattern = \/\^##\\s\+\(\?:\\\[\(\?<bracketVersion>/);
@@ -317,7 +320,7 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releaseNotesScript, /if \(options\.check\) return/);
   assert.match(releaseNotesScript, /async function verifiedArtifactDir\(\)/);
   assert.match(releaseNotesScript, /writeFile\(path\.join\(await verifiedArtifactDir\(\), "RELEASE_NOTES\.md"\), notes, \{ flag: "wx" \}\)/);
-  assert.match(securityPolicy, /release checksum and release-notes writers must verify `release-artifacts` is a real directory inside the project root/);
+  assert.match(securityPolicy, /release checksum, SBOM, and release-notes writers must verify `release-artifacts` is a real directory inside the project root/);
   assert.doesNotMatch(releaseWorkflow, /pack release artifact[\s\S]*(find release-artifacts|basename "\$tgz"|sha256sum)/);
   assert.match(releaseWorkflow, /DOCKER_SMOKE_TAG=p2p-transfer:release pnpm smoke:docker-policy/);
   assert.match(releaseDockerJob, /actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3/);
@@ -338,7 +341,7 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(githubReleaseScript, /requiredReleaseTag\(requiredEnvString\("GITHUB_REF_NAME"\)\)/);
   assert.match(githubReleaseScript, /requiredRepository\(requiredEnvString\("GITHUB_REPOSITORY"\)\)/);
   assert.match(githubReleaseScript, /\["scripts\/write-release-notes\.mjs"\]/);
-  assert.match(githubReleaseScript, /\[\s+"release",\s+"create",\s+tag,\s+tarball,\s+"release-artifacts\/SHA256SUMS"[\s\S]*"--notes-file",\s+"release-artifacts\/RELEASE_NOTES\.md"[\s\S]*"--repo",\s+repository/s);
+  assert.match(githubReleaseScript, /\[\s+"release",\s+"create",\s+tag,\s+tarball,\s+"release-artifacts\/SHA256SUMS",\s+"release-artifacts\/SBOM\.cdx\.json"[\s\S]*"--notes-file",\s+"release-artifacts\/RELEASE_NOTES\.md"[\s\S]*"--repo",\s+repository/s);
   assert.doesNotMatch(releaseWorkflow, /--notes-file CHANGELOG\.md/);
   assert.doesNotMatch(releaseWorkflow, /tgz="\$\(node scripts\/verify-release-artifact\.mjs --print-tarball\)"|printf 'tarball=%s\\n'|test -f "\$tgz"|PACKED_SMOKE_TARBALL="\$tgz" node scripts\/smoke-packed\.mjs|pnpm publish "\$tgz"|gh release create "\$GITHUB_REF_NAME"/);
   const publishJob = releaseWorkflow.slice(releaseWorkflow.indexOf("  publish:"));
@@ -614,8 +617,8 @@ test("documented release gates require a hardened Docker runtime smoke, not just
   assert.match(contributing, /For release-sensitive or protocol-sensitive changes, also run:[\s\S]*pnpm smoke:release-artifact[\s\S]*pnpm smoke:docker-policy[\s\S]*pnpm test:e2e[\s\S]*pnpm test:browser[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures/);
   assert.match(securityPolicy, /packed-install checks on Linux, macOS, and Windows for every supported Node major/);
   assert.match(securityPolicy, /packs the verified npm tarball with lifecycle scripts disabled after the explicit verified build/);
-  assert.match(securityPolicy, /derives the expected packed tarball name from the checked package name and exact semver version before writing `SHA256SUMS`/);
-  assert.match(securityPolicy, /validates the single downloaded tarball filename, regular-file status, size cap, checksum, packed `package\/package\.json` name and version, and release tag/);
+  assert.match(securityPolicy, /derives the expected packed tarball name from the checked package name and exact semver version before writing `SBOM\.cdx\.json` and `SHA256SUMS`/);
+  assert.match(securityPolicy, /validates the single downloaded tarball filename, regular-file status, size cap, checksum, CycloneDX SBOM package identity, packed `package\/package\.json` name and version, and release tag/);
   assert.match(securityPolicy, /packed-install smokes that exact downloaded tarball/);
   assert.match(securityPolicy, /packed-install smoke must byte-cap the provided tarball path by UTF-8 bytes, no-follow-open, identity-check, and stage the verified tarball into a distinct no-follow-copied file in its private temp workspace before fresh-project install/);
   assert.match(securityPolicy, /provided tarball paths must reject terminal control\/format characters and staging\/open failures must not echo raw tarball paths/);
@@ -629,9 +632,9 @@ test("documented release gates require a hardened Docker runtime smoke, not just
   assert.match(securityPolicy, /checked release-artifact verifier/);
   assert.match(securityPolicy, /publish that resolved tarball path with `--ignore-scripts`/);
   assert.match(securityPolicy, /Release publishing must use npm trusted publishing with OIDC provenance, not long-lived `NPM_TOKEN` secrets/);
-  assert.match(securityPolicy, /GitHub Releases must be tag-only, run only after npm publishing succeeds, re-verify the downloaded npm tarball/);
+  assert.match(securityPolicy, /GitHub Releases must be tag-only, run only after npm publishing succeeds, re-verify the downloaded npm tarball and SBOM/);
   assert.match(readme, /OIDC trusted publishing from the `npm` environment/);
-  assert.match(readme, /creates the GitHub Release with that exact tarball plus `SHA256SUMS`/);
+  assert.match(readme, /creates the GitHub Release with that exact tarball plus `SHA256SUMS` and `SBOM\.cdx\.json`/);
   assert.match(readme, /runs the packed-install smoke against a no-follow-verified staged copy of that downloaded tarball/);
   assert.match(securityPolicy, /trusted publishing from the GitHub `npm` environment/);
   assert.match(securityPolicy, /must not use static npm tokens/);
@@ -684,7 +687,7 @@ test("release artifact verification is bounded and exact", () => {
   assert.match(securityPolicy, /release artifact verification must use the checked script with a symlink-safe realpath entrypoint check and verifier-owned top-level failure reporting that does not print stack traces or raw path-sensitive evidence, verify `release-artifacts` is a real directory inside the project root before listing or opening release evidence/);
   assert.match(securityPolicy, /validate artifact directory entry names before sorting, filtering, or reporting them/);
   assert.match(securityPolicy, /reject control\/format\/path-shaped or over-byte-budget entry names without echoing them/);
-  assert.match(securityPolicy, /prove the downloaded artifact directory contains only `SHA256SUMS` and the expected tarball/);
+  assert.match(securityPolicy, /prove the downloaded artifact directory contains only `SHA256SUMS`, `SBOM\.cdx\.json`, and the expected tarball/);
   assert.match(releaseWorkflow, /verify downloaded release artifact[\s\S]*node scripts\/verify-release-artifact\.mjs/);
   assert.doesNotMatch(releaseWorkflow, /verify release artifact checksum[\s\S]*sha256sum -c SHA256SUMS/);
   assert.doesNotMatch(releaseWorkflow, /node --input-type=module <<'NODE'/);
@@ -715,7 +718,8 @@ test("release artifact verification is bounded and exact", () => {
   assert.match(releaseArtifactScript, /const MAX_PROJECT_PACKAGE_JSON_BYTES = 128 \* 1024/);
   assert.match(releaseArtifactScript, /const MAX_PACKED_PACKAGE_JSON_BYTES = 64 \* 1024/);
   assert.match(releaseArtifactScript, /const MAX_TAR_SCAN_BYTES = 256 \* 1024 \* 1024/);
-  assert.match(releaseArtifactScript, /const MAX_CHECKSUM_FILE_BYTES = 256/);
+  assert.match(releaseArtifactScript, /const MAX_CHECKSUM_FILE_BYTES = 512/);
+  assert.match(releaseArtifactScript, /const MAX_SBOM_BYTES = 1024 \* 1024/);
   assert.match(releaseArtifactScript, /requiredPackageName\(expected\.name\)/);
   assert.match(releaseArtifactScript, /requiredPackageVersion\(expected\.version\)/);
   assert.match(releaseArtifactScript, /const packedName = requiredPackageName\(packed\.name, "package\/package\.json name"\)/);
@@ -736,7 +740,8 @@ test("release artifact verification is bounded and exact", () => {
   assert.match(releaseArtifactScript, /if \(tarballs\[0\] !== expectedBasename\)/);
   assert.match(releaseArtifactScript, /if \(!info\.isFile\(\)\)/);
   assert.match(releaseArtifactScript, /if \(info\.size < 1 \|\| info\.size > MAX_TARBALL_BYTES\)/);
-  assert.match(releaseArtifactScript, /SHA256SUMS must contain exactly one checksum for the release tarball/);
+  assert.match(releaseArtifactScript, /SHA256SUMS must contain exactly one checksum for the release tarball and one checksum for the SBOM/);
+  assert.match(releaseArtifactScript, /release SBOM component version does not match the package/);
   assert.match(releaseArtifactScript, /if \(!info\.isFile\(\)\) throw new Error\("SHA256SUMS is not a regular file\."\)/);
   assert.match(releaseArtifactScript, /if \(info\.size < 1 \|\| info\.size > MAX_CHECKSUM_FILE_BYTES\)/);
   assert.match(releaseArtifactScript, /const handle = await open\(checksumFile, constants\.O_RDONLY \| \(constants\.O_NOFOLLOW \?\? 0\)\)/);
@@ -753,12 +758,13 @@ test("release artifact verification is bounded and exact", () => {
   assert.match(releaseArtifactScript, /function parseJson\(text, label\)/);
   assert.match(releaseArtifactScript, /throw new Error\(`\$\{label\} is not valid JSON\.`\)/);
   assert.doesNotMatch(releaseArtifactScript, /readFile\(checksumFile, "utf8"\)/);
-  assert.match(releaseArtifactScript, /if \(actual !== match\[1\]\)/);
+  assert.match(releaseArtifactScript, /if \(actualTarball !== match\[1\]\)/);
+  assert.match(releaseArtifactScript, /if \(actualSbom !== match\[3\]\)/);
   assert.match(releaseArtifactScript, /constants\.O_RDONLY \| \(constants\.O_NOFOLLOW \?\? 0\)/);
   assert.match(releaseArtifactScript, /if \(!sameFile\(info, opened\)\) throw new Error\("release tarball changed before verification\."\)/);
   assert.match(releaseArtifactScript, /await tarball\.handle\.close\(\)/);
   assert.match(releaseArtifactScript, /tarball\.handle\.createReadStream\(\{ start: 0, end: tarball\.size - 1, autoClose: false \}\)/);
-  assert.match(releaseArtifactScript, /release tarball changed while being read/);
+  assert.match(releaseArtifactScript, /\$\{tarball\.label \?\? "release tarball"\} changed while being read/);
   assert.match(releaseArtifactScript, /const gunzip = createGunzip\(\)/);
   assert.match(releaseArtifactScript, /function nextTarGzChunk\(chunks\)/);
   assert.match(releaseArtifactScript, /release tarball is not a valid gzip archive/);
