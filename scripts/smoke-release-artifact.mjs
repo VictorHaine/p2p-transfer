@@ -195,7 +195,12 @@ function smokeErrorMessage(error) {
   if (!(error instanceof Error) || typeof error.message !== "string" || error.message.length < 1 || error.message.length > 4096 || /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u.test(error.message)) {
     return "release artifact smoke failed with an internal error.";
   }
+  if (containsPathLikeText(error.message)) return "release artifact smoke failed with path-sensitive evidence.";
   return error.message;
+}
+
+function containsPathLikeText(value) {
+  return /(^|[\s("'=])(?:\/|[A-Za-z]:[\\/])/.test(value);
 }
 
 function isMain() {

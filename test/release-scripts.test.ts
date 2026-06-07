@@ -42,6 +42,25 @@ test("direct workspace publish guard fails closed", () => {
   assert.doesNotMatch(result.stderr, /Error:|at file:|\/scripts\/guard-direct-publish\.mjs/);
 });
 
+test("release artifact smoke redacts path-sensitive top-level failures", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-artifact-smoke-path-"));
+  const missingTempRoot = path.join(tmp, "missing-root");
+  try {
+    const result = runScript("scripts/smoke-release-artifact.mjs", {
+      TMPDIR: missingTempRoot,
+      TMP: missingTempRoot,
+      TEMP: missingTempRoot
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Release artifact smoke failed:\n- release artifact smoke failed with path-sensitive evidence\./);
+    assert.doesNotMatch(result.stderr, /ff-release-artifact-smoke-path|missing-root|ENOENT|Error:/);
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
 test("release publish script rejects static npm tokens before artifact work", () => {
   const result = runScript("scripts/publish-release-artifact.mjs", {
     NODE_AUTH_TOKEN: "static-token-that-must-not-publish",

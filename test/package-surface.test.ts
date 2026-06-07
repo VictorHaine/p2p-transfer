@@ -413,7 +413,7 @@ test("packed package smoke installs and executes published bins", () => {
   assert.match(packedSmokeScript, /ff transfer/);
   assert.match(securityPolicy, /packed-install smoke must use an OS-assigned loopback port/);
   assert.match(securityPolicy, /packed-install smoke options and subprocesses must run with descriptor-read, non-empty, control-free, byte-capped environment values/);
-  assert.match(securityPolicy, /packed-install smoke must use a symlink-safe realpath entrypoint check and smoke-owned top-level failure reporting that does not print stack traces or raw path-sensitive evidence, strip terminal control and format characters from captured subprocess output and rendered command labels, reject non-string command label parts and non-Buffer child output chunks before coercion, bound that sanitized output, and force-kill timed-out subprocesses/);
+  assert.match(securityPolicy, /packed-install smoke must use a symlink-safe realpath entrypoint check and smoke-owned top-level failure reporting that does not print stack traces or raw path-sensitive evidence, strip terminal control and format characters and redact path-shaped evidence from captured subprocess output and rendered command labels, reject non-string command label parts and non-Buffer child output chunks before coercion, bound that sanitized output, and force-kill timed-out subprocesses/);
   assert.match(securityPolicy, /packed-install smoke command timeouts must reject only after the timed-out subprocess exits/);
   assert.match(securityPolicy, /packed-install smoke startup waits must clean up listeners, terminate timed-out server subprocesses, and reject only after the server subprocess exits/);
   assert.match(securityPolicy, /packed-install smoke must byte-cap server health and web UI response bodies/);
@@ -443,6 +443,7 @@ test("packed package smoke installs and executes published bins", () => {
   assert.doesNotMatch(packedSmokeScript, /chunk\.toString\("utf8"\)/);
   assert.match(packedSmokeScript, /function renderCommandForLog\(command, args\)/);
   assert.match(packedSmokeScript, /function commandParts\(command, args\)/);
+  assert.match(packedSmokeScript, /function redactPathLikeText\(value\)/);
   assert.match(packedSmokeScript, /Object\.getOwnPropertyDescriptor\(args, String\(index\)\)/);
   assert.match(packedSmokeScript, /const commandLabel = renderCommandForLog\(command, args\)/);
   assert.doesNotMatch(packedSmokeScript, /\$\{command\} \$\{args\.join\(" "\)\}/);
@@ -761,9 +762,12 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseArtifactSmokeScript, /new TextDecoder\("utf-8", \{ fatal: true \}\)\.decode\(bytes\)/);
   assert.doesNotMatch(releaseArtifactSmokeScript, /readFile\(path\.join\(root, "package\.json"\)/);
   assert.match(securityPolicy, /release-artifact smoke must run `pnpm pack`, CycloneDX SBOM generation, checksum generation, and release-artifact verification with the same minimal allowlisted child environment/);
+  assert.match(securityPolicy, /release-artifact smoke top-level failure reporting must not print stack traces or raw path-sensitive evidence/);
   assert.match(securityPolicy, /release-artifact smoke command timeouts must signal the child, arm a bounded `SIGKILL` fallback, reject only after the child exits, and ignore child stdout\/stderr/);
   assert.match(releaseArtifactSmokeScript, /await rm\(artifactDir, \{ recursive: true, force: true \}\)/);
   assert.match(releaseArtifactSmokeScript, /Release artifact smoke failed:/);
+  assert.match(releaseArtifactSmokeScript, /function containsPathLikeText\(value\)/);
+  assert.match(releaseArtifactSmokeScript, /return "release artifact smoke failed with path-sensitive evidence\."/);
   assert.match(releaseArtifactSmokeScript, /realpathSync\(process\.argv\[1\]\) === realpathSync\(fileURLToPath\(import\.meta\.url\)\)/);
   assert.match(releaseWorkflow, /release docker image[\s\S]*needs:\n      - publish[\s\S]*permissions:\n      contents: read\n      packages: write\n      id-token: write\n      attestations: write/);
   assert.match(releaseWorkflow, /pre-publish docker validation[\s\S]*needs:\n      - verify\n      - platform-smoke[\s\S]*permissions:\n      contents: read[\s\S]*Validate release Docker image[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:release-gate node scripts\/smoke-docker-policy\.mjs/);

@@ -446,7 +446,11 @@ function commandParts(command, args) {
 }
 
 function sanitizeLogText(value) {
-  return value.replace(/[\p{Cc}\p{Cf}]/gu, (character) => (character === "\n" || character === "\t" ? character : ""));
+  return redactPathLikeText(value.replace(/[\p{Cc}\p{Cf}]/gu, (character) => (character === "\n" || character === "\t" ? character : "")));
+}
+
+function redactPathLikeText(value) {
+  return value.replace(/(^|[\s("'=])(?:\/[^\s"'()]+|[A-Za-z]:[\\/][^\s"'()]+)/g, "$1[path]");
 }
 
 async function packCurrentProject(destination, env, expectedTarballName) {

@@ -91,6 +91,13 @@ test("packed smoke child output strips terminal controls before logging", () => 
   assert.equal(/\u001b|\u202e|\r/.test(captured), false);
 });
 
+test("packed smoke child output redacts path-shaped evidence before logging", () => {
+  const captured = appendBoundedOutput("", Buffer.from("failed at /Users/alice/private/file.txt and C:\\Users\\alice\\secret.txt", "utf8"));
+
+  assert.equal(captured, "failed at [path] and [path]");
+  assert.doesNotMatch(captured, /Users|alice|private|secret/);
+});
+
 function escapeRegExp(value: string): string {
   return value.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
 }
@@ -100,6 +107,13 @@ test("packed smoke command labels strip terminal controls before logging", () =>
 
   assert.equal(label, "pnpm add verified-tarball.tgz linebreak");
   assert.equal(/\u001b|\u202e|\r/.test(label), false);
+});
+
+test("packed smoke command labels redact path-shaped arguments before logging", () => {
+  const label = renderCommandForLog("pnpm", ["add", "/private/tmp/package.tgz", "C:\\Users\\alice\\package.tgz", "safe"]);
+
+  assert.equal(label, "pnpm add [path] [path] safe");
+  assert.doesNotMatch(label, /private|Users|alice|package\.tgz/);
 });
 
 test("packed smoke output helpers reject hostile coercion inputs", () => {
