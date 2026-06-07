@@ -716,11 +716,13 @@ test("security-sensitive surfaces require code owner review", () => {
     "/test/cli-error-redaction.test.ts",
     "/test/cli-json-policy.test.ts",
     "/test/smoke-packed.test.ts",
+    "/test/publish.test.ts",
     "/test/privacy-surface.test.ts",
     "/test/browser-operation-policy.test.ts",
     "/test/crypto-dependencies.test.ts",
-    "/test/cpace-vectors.test.ts"
-	  ]) {
+    "/test/cpace-vectors.test.ts",
+    "/test/native-webrtc-dependencies.test.ts"
+  ]) {
     assert.match(codeowners, new RegExp(`^${escapeRegExp(path)}\\s+@VictorHaine$`, "m"), `${path} must be owned`);
   }
 });

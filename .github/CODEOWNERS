@@ -35,7 +35,9 @@
 /test/cli-error-redaction.test.ts @VictorHaine
 /test/cli-json-policy.test.ts @VictorHaine
 /test/smoke-packed.test.ts @VictorHaine
+/test/publish.test.ts @VictorHaine
 /test/privacy-surface.test.ts @VictorHaine
 /test/browser-operation-policy.test.ts @VictorHaine
 /test/crypto-dependencies.test.ts @VictorHaine
 /test/cpace-vectors.test.ts @VictorHaine
+/test/native-webrtc-dependencies.test.ts @VictorHaine
