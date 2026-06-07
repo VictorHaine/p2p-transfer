@@ -172,7 +172,7 @@ app.innerHTML = staticTrustedHtml`
         </label>
         <label class="serverIce">
           <input id="opaqueNames" type="checkbox" />
-          <span>Opaque names</span>
+          <span>Opaque output names</span>
         </label>
       </div>
     </header>
@@ -902,7 +902,7 @@ async function receiveBrowserFiles(
         const name = browserFinalOutputName(message.name, opaqueOutputNames);
         let writableState: Partial<BrowserWritableReceiveFile> = {};
         if (directory) {
-          const resumeKey = await browserResumeKey(acceptedManifest, expected);
+          const resumeKey = resume ? await browserResumeKey(acceptedManifest, expected) : undefined;
           writableState = await createBrowserReceiveFile(directory, message.name, message.size, resumeKey, resume, opaqueOutputNames);
         }
         states.set(message.id, {
@@ -2095,17 +2095,19 @@ async function createBrowserReceiveFile(
   directory: FileSystemDirectoryHandle,
   name: string,
   size: number,
-  resumeKey: string,
+  resumeKey: string | undefined,
   resume: boolean,
   opaqueOutputNames: boolean
 ): Promise<BrowserWritableReceiveFile> {
   if (resume) {
+    if (!resumeKey) throw new Error("Browser resume key is required.");
     const resumed = await resumeBrowserPartialFile(directory, name, size, resumeKey, opaqueOutputNames);
     if (resumed) return resumed;
+    const created = await createWritableFile(directory, name, opaqueOutputNames, resumeKey);
+    rememberBrowserResumePartial(resumeKey, { partName: created.partName, updatedAt: Date.now() });
+    return { ...created, resumeKey };
   }
-  const created = await createWritableFile(directory, name, opaqueOutputNames, resume ? resumeKey : undefined);
-  if (resume) rememberBrowserResumePartial(resumeKey, { partName: created.partName, updatedAt: Date.now() });
-  return resume ? { ...created, resumeKey } : created;
+  return createWritableFile(directory, name, opaqueOutputNames);
 }
 
 async function resumeBrowserPartialFile(directory: FileSystemDirectoryHandle, name: string, size: number, resumeKey: string, opaqueOutputNames: boolean): Promise<BrowserWritableReceiveFile | undefined> {

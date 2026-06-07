@@ -217,7 +217,7 @@ test("CLI sender interoperates with browser folder-only receiver", browserTestOp
     assert.deepEqual(folder.partFiles, []);
     assert.equal(folder.removed.some((name) => /\.part$/.test(name)), true);
     assert.equal(await browserResumeRegistry(page), null);
-    assert.deepEqual(await browserResumeLookupKeyAlgorithm(page), { name: "HMAC", hash: "SHA-256", length: 256 });
+    assert.deepEqual(await browserResumeLookupKeyAlgorithm(page), { name: "HMAC", hash: "SHA-1", length: 256 });
   } finally {
     await browser?.close();
     server.kill();
@@ -432,6 +432,7 @@ test("browser folder receiver resumes from a valid saved partial", browserTestOp
     assert.notEqual(seekIndex, -1);
     assert.notEqual(resumedWriteIndex, -1);
     assert.equal(rewriteFromZeroIndex, -1);
+    assert.deepEqual(await browserResumeLookupKeyAlgorithm(page), { name: "HMAC", hash: "SHA-256", length: 256 });
   } finally {
     await browser?.close();
     server.kill();

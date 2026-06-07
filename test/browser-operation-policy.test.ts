@@ -63,9 +63,9 @@ test("browser exposes opaque receive output names", () => {
   const outputNameBody = extractFunctionBody(webSource, "browserFinalOutputName");
 
   assert.match(securityPolicy, /browser receive must expose an explicit opaque-names mode for sensitive receives/);
-  assert.match(readme, /Enable `Opaque names` before starting receive/);
+  assert.match(readme, /Enable `Opaque output names` before starting receive/);
   assert.match(webSource, /<input id="opaqueNames" type="checkbox" \/>/);
-  assert.match(webSource, /<span>Opaque names<\/span>/);
+  assert.match(webSource, /<span>Opaque output names<\/span>/);
   assert.match(webSource, /const opaqueNames = byId<HTMLInputElement>\("opaqueNames"\);/);
   assert.match(webSource, /function shouldUseBrowserOpaqueNames\(\): boolean \{[\s\S]*return opaqueNames\.checked;/);
   assert.match(receiveBody, /const opaqueOutputNames = shouldUseBrowserOpaqueNames\(\);/);
@@ -236,7 +236,7 @@ test("browser sender rejects too many files before hashing", () => {
 
 test("browser download fallback uses the selected final output name policy", () => {
   assert.match(webSource, /const name = browserFinalOutputName\(message\.name, opaqueOutputNames\);/);
-  assert.match(webSource, /let writableState: Partial<BrowserWritableReceiveFile> = \{\};[\s\S]*if \(directory\) \{[\s\S]*const resumeKey = await browserResumeKey\(acceptedManifest, expected\);[\s\S]*writableState = await createBrowserReceiveFile\(directory, message\.name, message\.size, resumeKey, resume, opaqueOutputNames\);[\s\S]*\}/);
+  assert.match(webSource, /let writableState: Partial<BrowserWritableReceiveFile> = \{\};[\s\S]*if \(directory\) \{[\s\S]*const resumeKey = resume \? await browserResumeKey\(acceptedManifest, expected\) : undefined;[\s\S]*writableState = await createBrowserReceiveFile\(directory, message\.name, message\.size, resumeKey, resume, opaqueOutputNames\);[\s\S]*\}/);
   assert.match(webSource, /anchor\.download = state\.name;/);
 });
 
@@ -253,6 +253,8 @@ test("browser receive resume is explicit and limited to saved opaque folder part
   assert.match(promptBody, /Resume in folder keeps opaque tokenized \.part files after failures/);
   assert.match(webSource, /receiveBrowserFiles\(control, bulk, keys, recvLog, manifest, accept\.accepted \? accept\.directory : undefined, accept\.accepted \? accept\.resume : false, accept\.accepted \? accept\.opaqueNames : false\)/);
   assert.match(webSource, /resume = false,\n  opaqueOutputNames = false\s*\): Promise<void> \{/);
+  assert.match(securityPolicy, /browser receive must not create or load browser resume HMAC key material for ordinary folder receives/);
+  assert.match(receiveBody, /const resumeKey = resume \? await browserResumeKey\(acceptedManifest, expected\) : undefined;/);
   assert.match(receiveBody, /createBrowserReceiveFile\(directory, message\.name, message\.size, resumeKey, resume, opaqueOutputNames\)/);
   assert.match(receiveBody, /hash: writableState\.hash \?\? createSha256\(\)/);
   assert.match(receiveBody, /bytes: writableState\.bytes \?\? 0/);
@@ -264,7 +266,7 @@ test("browser receive resume is explicit and limited to saved opaque folder part
   assert.match(receiveBody, /if \(state\.resume\) \{[\s\S]*await preserveBrowserPartialFile\(state\);[\s\S]*\} else \{[\s\S]*await discardBrowserPartialFile\(state\)/);
   assert.match(webSource, /async function preserveBrowserPartialFile\(state: BrowserReceiveState\): Promise<void> \{[\s\S]*await state\.writable\.close\(\);[\s\S]*await state\.writable\.abort\(\);/);
   assert.match(webSource, /if \(actual !== state\.expectedSha256\) \{[\s\S]*state\.resume = false;[\s\S]*forgetBrowserResumePartial\(state\.resumeKey\);[\s\S]*Hash mismatch/);
-  assert.match(fileFactoryBody, /if \(resume\) \{[\s\S]*const resumed = await resumeBrowserPartialFile\(directory, name, size, resumeKey, opaqueOutputNames\);[\s\S]*if \(resumed\) return resumed;/);
+  assert.match(fileFactoryBody, /if \(resume\) \{[\s\S]*if \(!resumeKey\) throw new Error\("Browser resume key is required\."\);[\s\S]*const resumed = await resumeBrowserPartialFile\(directory, name, size, resumeKey, opaqueOutputNames\);[\s\S]*if \(resumed\) return resumed;/);
   assert.match(fileFactoryBody, /rememberBrowserResumePartial\(resumeKey, \{ partName: created\.partName, updatedAt: Date\.now\(\) \}\)/);
   assert.match(resumeBody, /assertBrowserOpaquePartFileName\(record\.partName\);/);
   assert.match(resumeBody, /name: browserFinalOutputName\(name, opaqueOutputNames, resumeKey\)/);
@@ -302,6 +304,7 @@ test("browser receive resume is explicit and limited to saved opaque folder part
   assert.match(browserInteropTest, /seedInvalidBrowserResumeState\(page\)/);
   assert.match(browserInteropTest, /hash: "SHA-1"/);
   assert.match(browserInteropTest, /browserResumeRegistry\(page\), null/);
+  assert.match(browserInteropTest, /browserResumeLookupKeyAlgorithm\(page\), \{ name: "HMAC", hash: "SHA-1", length: 256 \}/);
   assert.match(browserInteropTest, /browserResumeLookupKeyAlgorithm\(page\), \{ name: "HMAC", hash: "SHA-256", length: 256 \}/);
   assert.match(browserInteropTest, /browser folder receiver restarts after a corrupted saved partial/);
   assert.match(browserInteropTest, /corruptFolderPartFile\(page, partial\.partFiles\[0\]!\)/);
