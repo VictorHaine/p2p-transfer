@@ -66,6 +66,7 @@ if (isMain()) {
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   const token = githubToken();
+  const runningInGitHubActions = envString("GITHUB_ACTIONS") === "true";
   const failures = [];
 
   await collectReadinessFailure(failures, async () => {
@@ -81,7 +82,7 @@ async function main() {
         authenticatedLogin = requiredAuthenticatedLogin(auth.data);
       });
       collectReadinessFailureSync(failures, () => {
-        assertTokenScopes(auth.headers);
+        assertTokenScopes(auth.headers, runningInGitHubActions);
       });
     }
     if (authenticatedLogin) {
@@ -266,10 +267,10 @@ async function npmPackageMetadata(name) {
   }
 }
 
-function assertTokenScopes(headers) {
+function assertTokenScopes(headers, runningInGitHubActions = false) {
   const rawScopes = headers.get("x-oauth-scopes") ?? "";
-  if (rawScopes === "" && envString("GITHUB_ACTIONS") === "true") return;
-  assertOAuthScopes(rawScopes, envString("GITHUB_ACTIONS") === "true" ? GITHUB_ACTIONS_REQUIRED_OAUTH_SCOPES : REQUIRED_OAUTH_SCOPES);
+  if (rawScopes === "" && runningInGitHubActions) return;
+  assertOAuthScopes(rawScopes, runningInGitHubActions ? GITHUB_ACTIONS_REQUIRED_OAUTH_SCOPES : REQUIRED_OAUTH_SCOPES);
 }
 
 function assertOAuthScopes(rawScopes, requiredScopes = REQUIRED_OAUTH_SCOPES) {

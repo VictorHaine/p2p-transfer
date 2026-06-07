@@ -488,11 +488,11 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(securityPolicy, /release setup must reject malformed, unexpected, wrong-target, or duplicate GitHub rulesets list entries/);
   assert.match(securityPolicy, /setup script must reject unknown or read-only reviewers and sole-reviewer self-approval deadlocks/);
   assert.match(securityPolicy, /fail before mutating repository rulesets when the `npm` environment is missing required-reviewer protection, allows admin bypass or branch deployments, lacks the exact release-tag deployment policy, or has the authenticated setup operator as its sole required reviewer/);
-  assert.match(securityPolicy, /GitHub release setup and release preflight scripts must read token and repository environment variables through own data descriptors[\s\S]*send GitHub API requests with an abort deadline/);
-  assert.match(securityPolicy, /release preflight must reject malformed GitHub token values before package reads, npm registry requests, or GitHub API requests/);
+  assert.match(securityPolicy, /GitHub release setup and release preflight scripts must read token, repository, and GitHub Actions mode environment variables through own data descriptors[\s\S]*send GitHub API requests with an abort deadline/);
+  assert.match(securityPolicy, /release preflight must reject malformed GitHub token or `GITHUB_ACTIONS` values before package reads, npm registry requests, or GitHub API requests/);
   assert.match(securityPolicy, /byte-cap and fatal-UTF-8\/JSON-decode GitHub API responses with setup-owned deterministic errors/);
   assert.match(securityPolicy, /avoid echoing token, malformed environment values, remote response messages, or raw API response bodies in errors/);
-  assert.match(releaseReadinessScript, /const token = githubToken\(\);[\s\S]*const failures = \[\];[\s\S]*readPackageMetadata\(\)/);
+  assert.match(releaseReadinessScript, /const token = githubToken\(\);[\s\S]*const runningInGitHubActions = envString\("GITHUB_ACTIONS"\) === "true";[\s\S]*const failures = \[\];[\s\S]*readPackageMetadata\(\)/);
   assert.doesNotMatch(releaseReadinessScript, /collectReadinessValue\(failures, \(\) => githubToken\(\)\)/);
   assert.match(securityPolicy, /release setup must reject malformed, unexpected, wrong-target, or duplicate GitHub rulesets list entries before deciding whether to create or update rulesets/);
   assert.match(githubReleaseControlsScript, /const GITHUB_API_TIMEOUT_MS = 30_000/);
@@ -564,7 +564,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /const GITHUB_ACTIONS_REQUIRED_OAUTH_SCOPES = \["repo"\]/);
   assert.match(releaseReadinessScript, /const RELEASE_PREFLIGHT_SECRET = "RELEASE_PREFLIGHT_TOKEN"/);
   assert.match(releaseReadinessScript, /class ReleaseReadinessFailure extends Error/);
-  assert.match(releaseReadinessScript, /const token = githubToken\(\);[\s\S]*const failures = \[\]/);
+  assert.match(releaseReadinessScript, /const token = githubToken\(\);[\s\S]*const runningInGitHubActions = envString\("GITHUB_ACTIONS"\) === "true";[\s\S]*const failures = \[\]/);
   assert.match(releaseReadinessScript, /await collectReadinessFailure\(failures, async \(\) => \{/);
   assert.doesNotMatch(releaseReadinessScript, /const token = await collectReadinessValue\(failures, \(\) => githubToken\(\)\)/);
   assert.match(releaseReadinessScript, /let authenticatedLogin/);
@@ -573,7 +573,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /function readinessErrorMessages\(error\)/);
   assert.match(releaseReadinessScript, /return error\.failures\.map\(\(failure\) => readinessErrorMessage\(failure\)\)/);
   assert.match(releaseReadinessScript, /const auth = await collectReadinessValue\(failures, \(\) => githubWithHeaders\(token, "GET", "\/user"\)\)/);
-  assert.match(releaseReadinessScript, /collectReadinessFailureSync\(failures, \(\) => \{[\s\S]*assertTokenScopes\(auth\.headers\)/);
+  assert.match(releaseReadinessScript, /collectReadinessFailureSync\(failures, \(\) => \{[\s\S]*assertTokenScopes\(auth\.headers, runningInGitHubActions\)/);
   assert.match(releaseReadinessScript, /await collectGitHubRepositoryReadiness\(failures, token, options\.repository, authenticatedLogin\)/);
   assert.match(releaseReadinessScript, /const NPM_REGISTRY = "https:\/\/registry\.npmjs\.org"/);
   assert.match(releaseReadinessScript, /const MAX_PACKAGE_JSON_BYTES = 128 \* 1024/);
@@ -609,8 +609,10 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.doesNotMatch(releaseReadinessScript, /response\.text\(\)/);
   assert.doesNotMatch(releaseReadinessScript, /process\.env\.GITHUB_TOKEN|process\.env\.GH_TOKEN|process\.env\.GITHUB_REPOSITORY/);
   assert.match(releaseReadinessScript, /headers\.get\("x-oauth-scopes"\)/);
-  assert.match(releaseReadinessScript, /if \(rawScopes === "" && envString\("GITHUB_ACTIONS"\) === "true"\) return;/);
-  assert.match(releaseReadinessScript, /assertOAuthScopes\(rawScopes, envString\("GITHUB_ACTIONS"\) === "true" \? GITHUB_ACTIONS_REQUIRED_OAUTH_SCOPES : REQUIRED_OAUTH_SCOPES\)/);
+  assert.match(releaseReadinessScript, /assertTokenScopes\(auth\.headers, runningInGitHubActions\)/);
+  assert.match(releaseReadinessScript, /if \(rawScopes === "" && runningInGitHubActions\) return;/);
+  assert.match(releaseReadinessScript, /assertOAuthScopes\(rawScopes, runningInGitHubActions \? GITHUB_ACTIONS_REQUIRED_OAUTH_SCOPES : REQUIRED_OAUTH_SCOPES\)/);
+  assert.doesNotMatch(releaseReadinessScript, /envString\("GITHUB_ACTIONS"\)[\s\S]{0,180}assertOAuthScopes/);
   assert.match(releaseReadinessScript, /function assertOAuthScopes\(rawScopes, requiredScopes = REQUIRED_OAUTH_SCOPES\)/);
   assert.match(releaseReadinessScript, /for \(const scope of requiredScopes\)/);
   assert.match(releaseReadinessScript, /GitHub token is missing \$\{scope\} scope\.\$\{refresh\}/);

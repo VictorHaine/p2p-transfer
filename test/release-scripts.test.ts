@@ -513,6 +513,52 @@ globalThis.fetch = async (url, init = {}) => {
   }
 });
 
+test("release preflight rejects control-bearing GitHub Actions mode before package or network work", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-preflight-actions-"));
+  const mock = path.join(tmp, "mock-release-preflight-actions-fetch.mjs");
+  const log = path.join(tmp, "requests.log");
+  try {
+    await fs.writeFile(
+      mock,
+      `
+import { appendFileSync } from "node:fs";
+
+const log = process.env.FF_MOCK_PREFLIGHT_ACTIONS_LOG;
+
+globalThis.fetch = async (url, init = {}) => {
+  const parsed = new URL(url);
+  appendFileSync(log, (init.method ?? "GET") + " " + parsed.origin + parsed.pathname + "\\n", "utf8");
+  return new Response(JSON.stringify({ message: "unexpected network" }), { status: 500, headers: { "content-type": "application/json" } });
+};
+`,
+      "utf8"
+    );
+
+    const result = runScriptWithNodeArgs(
+      "scripts/check-release-readiness.mjs",
+      {
+        FF_MOCK_PREFLIGHT_ACTIONS_LOG: log,
+        GITHUB_ACTIONS: "true\nwith-control",
+        GITHUB_TOKEN: "token-that-must-not-be-used"
+      },
+      [],
+      ["--import", mock]
+    );
+    const requests = await fs.readFile(log, "utf8").catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return "";
+      throw error;
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Release readiness check failed:\n- GITHUB_ACTIONS must be a non-empty control-free string under 4096 UTF-8 bytes\./);
+    assert.doesNotMatch(result.stderr, /token-that-must-not-be-used|with-control|unexpected network|api\.github|registry\.npmjs|Error:/);
+    assert.equal(requests, "");
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
 test("release workflow preflight verifies the full remote gate with a repo-scoped token", async () => {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-preflight-"));
   const mock = path.join(tmp, "mock-release-preflight-fetch.mjs");
