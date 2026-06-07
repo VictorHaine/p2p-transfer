@@ -679,7 +679,9 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(securityPolicy, /release setup must re-read the persisted deployment tag policy and fail before mutating repository rulesets when the `npm` environment lacks the exact release-tag deployment policy/);
   assert.match(securityPolicy, /release setup must re-read persisted repository ruleset details after writes and fail before reporting success when GitHub drops, broadens, weakens, bypass-enables, or otherwise normalizes branch\/tag rulesets away from the exact protected surface/);
   assert.match(securityPolicy, /GitHub release setup and release preflight scripts must read token, repository, GitHub Actions mode, and release actor environment variables through own data descriptors[\s\S]*send GitHub API requests with an abort deadline/);
-  assert.match(securityPolicy, /release preflight must reject wrong-repository contexts, malformed GitHub token, `GITHUB_ACTIONS`, or Actions-only `GITHUB_ACTOR` values before package reads, npm registry requests, or GitHub API requests/);
+  assert.match(securityPolicy, /reject wrong-repository contexts before token use, package reads, npm registry requests, GitHub API requests, or repository mutation/);
+  assert.match(githubReleaseControlsScript, /if \(value !== DEFAULT_REPOSITORY\) throw new Error\("Repository must match the release repository\."\)/);
+  assert.match(securityPolicy, /release preflight must also reject malformed GitHub token, `GITHUB_ACTIONS`, or Actions-only `GITHUB_ACTOR` values before package reads, npm registry requests, or GitHub API requests/);
   assert.match(releaseReadinessScript, /if \(value !== DEFAULT_REPOSITORY\) throw new Error\("Repository must match the release repository\."\)/);
   assert.match(securityPolicy, /byte-cap and fatal-UTF-8\/JSON-decode GitHub API responses with setup-owned deterministic errors/);
   assert.match(securityPolicy, /avoid echoing token, malformed environment values, remote response messages, or raw API response bodies in errors/);

@@ -1214,6 +1214,63 @@ test("GitHub release controls do not apply with the missing-main bypass", () => 
   assert.doesNotMatch(result.stderr, /token-that-must-not-be-printed|Error:|api\.github/);
 });
 
+test("GitHub release controls reject wrong repositories before token or network work", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-controls-repository-"));
+  const mock = path.join(tmp, "mock-release-controls-repository-fetch.mjs");
+  const log = path.join(tmp, "requests.log");
+  try {
+    await fs.writeFile(
+      mock,
+      `
+import { appendFileSync } from "node:fs";
+
+const log = process.env.FF_MOCK_GITHUB_REPOSITORY_LOG;
+
+globalThis.fetch = async (url, init = {}) => {
+  const parsed = new URL(url);
+  appendFileSync(log, (init.method ?? "GET") + " " + parsed.origin + parsed.pathname + "\\n", "utf8");
+  return new Response(JSON.stringify({ message: "unexpected network" }), { status: 500, headers: { "content-type": "application/json" } });
+};
+`,
+      "utf8"
+    );
+
+    const envResult = runScriptWithNodeArgs(
+      "scripts/configure-github-release-controls.mjs",
+      {
+        FF_MOCK_GITHUB_REPOSITORY_LOG: log,
+        GITHUB_REPOSITORY: "Attacker/p2p-transfer",
+        GITHUB_TOKEN: "token-that-must-not-be-used\nwith-control"
+      },
+      ["--dry-run"],
+      ["--import", mock]
+    );
+    const argResult = runScriptWithNodeArgs(
+      "scripts/configure-github-release-controls.mjs",
+      {
+        FF_MOCK_GITHUB_REPOSITORY_LOG: log,
+        GITHUB_TOKEN: "token-that-must-not-be-used\nwith-control"
+      },
+      ["--dry-run", "--repo", "Attacker/p2p-transfer"],
+      ["--import", mock]
+    );
+    const requests = await fs.readFile(log, "utf8").catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return "";
+      throw error;
+    });
+
+    for (const result of [envResult, argResult]) {
+      assert.notEqual(result.status, 0);
+      assert.equal(result.stdout, "");
+      assert.match(result.stderr, /GitHub release control setup failed:\n- Repository must match the release repository\./);
+      assert.doesNotMatch(result.stderr, /Attacker|token-that-must-not-be-used|with-control|unexpected network|api\.github|Error:/);
+    }
+    assert.equal(requests, "");
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
 test("GitHub release controls apply environment and rulesets after reviewer validation", async () => {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-controls-"));
   const mock = path.join(tmp, "mock-github-fetch.mjs");
