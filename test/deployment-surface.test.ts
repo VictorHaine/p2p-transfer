@@ -726,6 +726,7 @@ test("security-sensitive surfaces require code owner review", () => {
     "/src/shared/messages.ts",
     "/src/shared/chunks.ts",
     "/src/shared/transfer.ts",
+    "/src/shared/signal-replay.ts",
     "/src/cli/crypto-dependencies.ts",
     "/src/cli/dependency-metadata.ts",
     "/src/cli/error-redaction.ts",

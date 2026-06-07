@@ -46,6 +46,7 @@ The project is expected to preserve these invariants:
 - session ids in every signaling message schema must be restricted to the URL-safe nanoid alphabet, not arbitrary bounded or printable strings
 - PAKE confirmation must complete before pair requests and WebRTC signaling advance
 - PAKE confirmation and session key derivation must bind the protocol version, session id, and peer roles so future mixed-version or downgraded peers fail before pair request acceptance or WebRTC signaling
+- clients must enforce a local authenticated WebRTC signaling replay guard before native `RTCPeerConnection` handling: one expected SDP transition per role, no opposite-role SDP, and no repeated ICE candidate payloads
 - base64 encoding and decoding helpers must reject malformed or non-canonical runtime values before Buffer, atob, btoa, byte-length, iterator, or string conversion; decoding must have a global maximum input size, and low-level PAKE share and HMAC tag handling must reject wrong-sized base64 values before decoding so embedders and future call sites cannot turn malformed peer input into avoidable allocation pressure
 - low-level PAKE and signal-auth helpers must validate role, session id, and code context bounds before key derivation or HMAC so future call sites cannot bypass signaling-schema limits
 - PAKE share and encrypted manifest wrapper parsers must read wrapper fields through own data descriptors so missing wrapper tags cannot be supplied by Object prototype pollution

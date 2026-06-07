@@ -29,6 +29,7 @@ import { isServerMessage, parseBrowserJsonMessage, serializeMessage, signalingEr
 import { sanitizeDisplayText } from "../shared/output-safety.js";
 import { normalizeSignalingServerUrl } from "../shared/server-url.js";
 import { signalingBackpressureExceeded } from "../shared/signaling-backpressure.js";
+import { WebRtcSignalReplayGuard } from "../shared/signal-replay.js";
 import { SignalMessageQueue, type SignalServerMessage } from "../shared/signal-queue.js";
 import { cloneIceServers } from "../shared/ice.js";
 import {
@@ -1662,6 +1663,7 @@ function browserWaitAbortSignal(signal: unknown): AbortSignal | undefined {
 
 function wireSignals(signaling: BrowserSignaling, pc: RTCPeerConnection, sid: string, keys: SessionKeys, answerOffers: boolean): { dispose: () => void; failure: Promise<never> } {
   const queuedCandidates: Extract<SignalPayload, { kind: "candidate" }>[] = [];
+  const replayGuard = new WebRtcSignalReplayGuard(answerOffers);
   let disposed = false;
   let failed = false;
   let failSignal!: (error: Error) => void;
@@ -1692,6 +1694,7 @@ function wireSignals(signaling: BrowserSignaling, pc: RTCPeerConnection, sid: st
         throw new Error("Authenticated WebRTC signal check failed. Wrong code or signaling MITM.");
       }
       const signal = message.signal.kind === "candidate" ? copyCandidateSignal(message.signal) : message.signal;
+      replayGuard.accept(signal);
       if (signal.kind === "candidate" && !pc.remoteDescription) {
         if (queuedCandidates.length >= MAX_QUEUED_ICE_CANDIDATES) throw new Error("Too many queued ICE candidates before SDP.");
         queuedCandidates.push(signal);

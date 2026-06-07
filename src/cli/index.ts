@@ -17,6 +17,7 @@ import { assertTransferManifestWithinLimits, safeFileName } from "../shared/limi
 import { isServerMessage, type FileManifest, type ServerMessage, type SignalPayload } from "../shared/messages.js";
 import { sanitizeDisplayText, sanitizeStructuredOutput } from "../shared/output-safety.js";
 import { PACKAGE_VERSION } from "../shared/package-info.js";
+import { WebRtcSignalReplayGuard } from "../shared/signal-replay.js";
 import { codeInputUtf8ByteLengthExceeds, generateCode, normalizeCode, parseCode } from "../shared/wordlist.js";
 import type { SessionKeys } from "../shared/security.js";
 import { cloneIceServers } from "../shared/ice.js";
@@ -669,6 +670,7 @@ function waitForPairAccept(runtime: ReviewedCliRuntime, signaling: SignalingClie
 
 function wireSignals(runtime: ReviewedCliRuntime, signaling: SignalingClient, pc: RTCPeerConnection, sid: string, keys: SessionKeys, answerOffers: boolean): { dispose: () => void; failure: Promise<never> } {
   const queuedCandidates: Extract<SignalPayload, { kind: "candidate" }>[] = [];
+  const replayGuard = new WebRtcSignalReplayGuard(answerOffers);
   let disposed = false;
   let failed = false;
   let failSignal!: (error: Error) => void;
@@ -699,6 +701,7 @@ function wireSignals(runtime: ReviewedCliRuntime, signaling: SignalingClient, pc
         throw new Error("Authenticated WebRTC signal check failed. Wrong code or signaling MITM.");
       }
       const signal = message.signal.kind === "candidate" ? copyCandidateSignal(message.signal) : message.signal;
+      replayGuard.accept(signal);
       if (signal.kind === "candidate" && !pc.remoteDescription) {
         if (queuedCandidates.length >= MAX_QUEUED_ICE_CANDIDATES) throw new Error("Too many queued ICE candidates before SDP.");
         queuedCandidates.push(signal);
