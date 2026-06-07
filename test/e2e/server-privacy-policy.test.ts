@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { randomInt } from "node:crypto";
 import WebSocket from "ws";
-import { PROTOCOL_VERSION } from "../../src/shared/constants.js";
+import { PROTOCOL_VERSION, RECEIVER_MAX_PREPAIR_ATTEMPTS } from "../../src/shared/constants.js";
 
 type ServerEvent = { type?: string; sid?: string; code?: string; message?: string; [key: string]: unknown };
 
@@ -74,6 +74,72 @@ test("built signaling server rejects unredacted pair requests without forwarding
   }
 
   assert.doesNotMatch(serverOutput.text(), /taxes\.pdf|sender-share|receiver-share|12345678/);
+});
+
+test("built signaling server exhausts receive codes after invalid pre-pair sender attempts", async () => {
+  const root = process.cwd();
+  const port = 21_000 + randomInt(1_000);
+  const origin = `http://127.0.0.1:${port}`;
+  const serverUrl = `ws://127.0.0.1:${port}/v1/ws`;
+  const code = "12345679";
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-server-prepair-"));
+  const server = spawn(process.execPath, ["dist-node/server/index.js"], {
+    cwd: root,
+    env: {
+      ...testChildEnv(tmp),
+      PORT: String(port),
+      HOST: "127.0.0.1",
+      NODE_ENV: "production",
+      ALLOWED_ORIGINS: origin,
+      SIGNALING_TOPOLOGY: "single-instance",
+      ALLOW_INSECURE_ORIGINS: "true"
+    }
+  });
+  const serverOutput = collectOutput(server);
+
+  let receiver: WebSocket | undefined;
+  const senders: WebSocket[] = [];
+  try {
+    await waitForOutput(server, /listening/);
+    receiver = await connectWs(serverUrl, origin);
+    sendJson(receiver, { type: "register", role: "receiver", code, protocolVersion: PROTOCOL_VERSION });
+    assert.equal((await waitForServerEvent(receiver, "registered")).code, code);
+
+    for (let attempt = 1; attempt <= RECEIVER_MAX_PREPAIR_ATTEMPTS; attempt += 1) {
+      const sender = await connectWs(serverUrl, origin);
+      senders.push(sender);
+      sendJson(sender, { type: "connect", role: "sender", code, protocolVersion: PROTOCOL_VERSION });
+      const receiverJoined = await waitForServerEvent(receiver, "peer-joined");
+      const senderJoined = await waitForServerEvent(sender, "peer-joined");
+      assert.equal(senderJoined.sid, receiverJoined.sid);
+      const sid = String(senderJoined.sid);
+
+      sendJson(sender, { type: "pair-accept", sid, auth: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" });
+      const senderError = await waitForServerEvent(sender, "error");
+      assert.equal(senderError.code, "bad_message");
+
+      if (attempt < RECEIVER_MAX_PREPAIR_ATTEMPTS) {
+        assert.equal((await waitForServerEvent(receiver, "registered")).code, code);
+      } else {
+        const receiverError = await waitForServerEvent(receiver, "error");
+        assert.equal(receiverError.code, "expired");
+        assert.equal(receiverError.message, "Receive code expired after too many invalid pairing attempts.");
+      }
+    }
+
+    const lateSender = await connectWs(serverUrl, origin);
+    senders.push(lateSender);
+    sendJson(lateSender, { type: "connect", role: "sender", code, protocolVersion: PROTOCOL_VERSION });
+    const lateError = await waitForServerEvent(lateSender, "error");
+    assert.equal(lateError.code, "code_not_found");
+  } finally {
+    receiver?.terminate();
+    for (const sender of senders) sender.terminate();
+    server.kill();
+    await serverOutput.done;
+  }
+
+  assert.doesNotMatch(serverOutput.text(), /12345679|Receive code expired after too many invalid pairing attempts|pair-accept/);
 });
 
 function testChildEnv(tmp: string): NodeJS.ProcessEnv {
