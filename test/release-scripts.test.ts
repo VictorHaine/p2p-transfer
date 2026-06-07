@@ -1541,6 +1541,7 @@ globalThis.fetch = async (url, init = {}) => {
     assert.match(result.stderr, /Release readiness check failed:/);
     assert.match(result.stderr, /npm package is missing; bootstrap a lower throwaway version before trusted publishing\./);
     assert.match(result.stderr, /GitHub token is missing workflow scope\. Run `gh auth refresh -h github\.com -s workflow`, then rerun release preflight\./);
+    assert.match(result.stderr, /GitHub repository security analysis status was missing\./);
     assert.match(result.stderr, /GitHub private vulnerability reporting must be enabled\./);
     assert.match(result.stderr, /Remote main branch is missing\. Push main before releasing\./);
     assert.match(result.stderr, /GitHub Actions secret RELEASE_PREFLIGHT_TOKEN is missing\./);
@@ -2010,6 +2011,7 @@ const bootstrapLatest = process.env.FF_MOCK_BOOTSTRAP_LATEST === "true";
 const mainSha = "0123456789abcdef0123456789abcdef01234567";
 const codeqlRunSha = process.env.FF_MOCK_CODEQL_STALE === "true" ? "ffffffffffffffffffffffffffffffffffffffff" : mainSha;
 const codeqlRunConclusion = process.env.FF_MOCK_CODEQL_FAILED === "true" ? "failure" : "success";
+const secretScanningStatus = process.env.FF_MOCK_SECRET_SCANNING_DISABLED === "true" ? "disabled" : "enabled";
 
 function record(method, origin, path) {
   appendFileSync(log, method + " " + origin + path + "\\n", "utf8");
@@ -2060,6 +2062,14 @@ function tagRuleset() {
   };
 }
 
+function securityAndAnalysis() {
+  return {
+    secret_scanning: { status: secretScanningStatus },
+    secret_scanning_push_protection: { status: "enabled" },
+    dependabot_security_updates: { status: "enabled" }
+  };
+}
+
 globalThis.fetch = async (url, init = {}) => {
   const parsed = new URL(url);
   const method = init.method ?? "GET";
@@ -2074,7 +2084,7 @@ globalThis.fetch = async (url, init = {}) => {
   }
   if (parsed.origin !== "https://api.github.com") return json(500, {});
   if (method === "GET" && path === "/user") return json(200, { login: "operator" }, { "x-oauth-scopes": "repo" });
-  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer") return json(200, { id: 1 });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer") return json(200, { id: 1, security_and_analysis: securityAndAnalysis() });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/private-vulnerability-reporting") return json(200, { enabled: true });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/branches/main") return json(200, { name: "main", commit: { sha: mainSha } });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/actions/workflows/codeql.yml/runs?branch=main&per_page=1") {
@@ -2186,6 +2196,23 @@ globalThis.fetch = async (url, init = {}) => {
     assert.equal(failedCodeqlResult.stdout, "");
     assert.match(failedCodeqlResult.stderr, /GitHub codeql workflow latest main run is not a successful current-main run\./);
     assert.doesNotMatch(failedCodeqlResult.stderr, /token-that-must-not-be-printed|failure|api\.github|registry\.npmjs|Error:/);
+
+    const disabledSecretScanningResult = runScriptWithNodeArgs(
+      "scripts/check-release-readiness.mjs",
+      {
+        FF_MOCK_PREFLIGHT_LOG: log,
+        FF_MOCK_SECRET_SCANNING_DISABLED: "true",
+        GITHUB_ACTIONS: "true",
+        GITHUB_ACTOR: "tagger",
+        GITHUB_TOKEN: "ghs_token-that-must-not-be-printed"
+      },
+      [],
+      ["--import", mock]
+    );
+    assert.notEqual(disabledSecretScanningResult.status, 0);
+    assert.equal(disabledSecretScanningResult.stdout, "");
+    assert.match(disabledSecretScanningResult.stderr, /GitHub repository secret scanning must be enabled\./);
+    assert.doesNotMatch(disabledSecretScanningResult.stderr, /token-that-must-not-be-printed|disabled|api\.github|registry\.npmjs|Error:/);
 
     const bootstrapLatestResult = runScriptWithNodeArgs(
       "scripts/check-release-readiness.mjs",

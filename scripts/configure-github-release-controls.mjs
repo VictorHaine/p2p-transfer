@@ -59,6 +59,7 @@ async function main() {
 
   const repo = await github(token, "GET", `/repos/${options.repository}`);
   if (!repo || typeof repo.id !== "number") throw new Error("GitHub repository response was invalid.");
+  const repositorySecurity = repositorySecurityStatus(repo);
   if (options.requireMain) await requireRemoteMain(token, options.repository);
 
   const desired = [mainRuleset(), tagRuleset()];
@@ -73,7 +74,7 @@ async function main() {
   const privateVulnerabilityReporting = await privateVulnerabilityReportingStatus(token, options.repository);
 
   if (!options.apply) {
-    console.log(JSON.stringify({ repository: options.repository, mode: "dry-run", rulesets: desired, environment: environmentStatus(environment), desiredEnvironment, privateVulnerabilityReporting }, null, 2));
+    console.log(JSON.stringify({ repository: options.repository, mode: "dry-run", rulesets: desired, environment: environmentStatus(environment), desiredEnvironment, privateVulnerabilityReporting, repositorySecurity }, null, 2));
     return;
   }
 
@@ -319,6 +320,21 @@ function environmentStatus(environment) {
     usesCustomDeploymentPolicies: environment?.deployment_branch_policy?.protected_branches === false && environment?.deployment_branch_policy?.custom_branch_policies === true,
     deploymentBranchPolicy: environment?.deployment_branch_policy ?? null
   };
+}
+
+function repositorySecurityStatus(repository) {
+  const security = repository?.security_and_analysis;
+  return {
+    secretScanning: securityFeatureStatus(security, "secret_scanning"),
+    secretScanningPushProtection: securityFeatureStatus(security, "secret_scanning_push_protection"),
+    dependabotSecurityUpdates: securityFeatureStatus(security, "dependabot_security_updates")
+  };
+}
+
+function securityFeatureStatus(security, key) {
+  const feature = security?.[key];
+  const status = feature?.status;
+  return status === "enabled" || status === "disabled" ? status : "unknown";
 }
 
 function assertNpmEnvironmentStatus(status) {

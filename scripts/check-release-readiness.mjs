@@ -109,8 +109,12 @@ async function main() {
 }
 
 async function collectGitHubRepositoryReadiness(failures, token, repository, authenticatedLogin, releaseActorLogin) {
-  const repositoryOk = await collectReadinessFailure(failures, () => github(token, "GET", `/repos/${repository}`));
-  if (!repositoryOk) return;
+  const repositoryMetadata = await collectReadinessValue(failures, () => github(token, "GET", `/repos/${repository}`));
+  if (!repositoryMetadata) return;
+
+  collectReadinessFailureSync(failures, () => {
+    assertRepositorySecurityAndAnalysis(repositoryMetadata);
+  });
 
   await collectReadinessFailure(failures, async () => {
     assertPrivateVulnerabilityReporting(await github(token, "GET", `/repos/${repository}/private-vulnerability-reporting`));
@@ -360,6 +364,22 @@ async function assertSuccessfulMainWorkflowRun(token, repository, workflow, main
 function assertPrivateVulnerabilityReporting(status) {
   if (!status || typeof status !== "object" || Array.isArray(status)) throw new Error("GitHub private vulnerability reporting status response was invalid.");
   if (status.enabled !== true) throw new Error("GitHub private vulnerability reporting must be enabled.");
+}
+
+function assertRepositorySecurityAndAnalysis(repository) {
+  if (!repository || typeof repository !== "object" || Array.isArray(repository)) throw new Error("GitHub repository response was invalid.");
+  const security = repository.security_and_analysis;
+  if (!security || typeof security !== "object" || Array.isArray(security)) {
+    throw new Error("GitHub repository security analysis status was missing.");
+  }
+  assertSecurityAnalysisFeature(security, "secret_scanning", "GitHub repository secret scanning must be enabled.");
+  assertSecurityAnalysisFeature(security, "secret_scanning_push_protection", "GitHub repository secret scanning push protection must be enabled.");
+  assertSecurityAnalysisFeature(security, "dependabot_security_updates", "GitHub repository Dependabot security updates must be enabled.");
+}
+
+function assertSecurityAnalysisFeature(security, key, message) {
+  const feature = security[key];
+  if (!feature || typeof feature !== "object" || Array.isArray(feature) || feature.status !== "enabled") throw new Error(message);
 }
 
 function collectNpmEnvironmentReadiness(failures, environment, authenticatedLogin, releaseActorLogin) {
