@@ -39,6 +39,7 @@ const dockerPolicySmokeScript = fs.readFileSync(new URL("../scripts/smoke-docker
 const nativeSmokeScript = fs.readFileSync(new URL("../scripts/smoke-native.mjs", import.meta.url), "utf8");
 const installStateScript = fs.readFileSync(new URL("../scripts/check-install-state.mjs", import.meta.url), "utf8");
 const cliCryptoDependenciesSource = fs.readFileSync(new URL("../src/cli/crypto-dependencies.ts", import.meta.url), "utf8");
+const cliDependencyMetadataSource = fs.readFileSync(new URL("../src/cli/dependency-metadata.ts", import.meta.url), "utf8");
 const cliNativeWebrtcSource = fs.readFileSync(new URL("../src/cli/native-webrtc.ts", import.meta.url), "utf8");
 const cliRtcSource = fs.readFileSync(new URL("../src/cli/rtc.ts", import.meta.url), "utf8");
 const releaseTagScript = fs.readFileSync(new URL("../scripts/check-release-tag.mjs", import.meta.url), "utf8");
@@ -161,6 +162,17 @@ test("package publishing config keeps provenance and reproducible dependency pin
   assert.match(securityPolicy, /installed-state verification must validate direct dependency names and package pins before installed package reads, check both installed direct package identity and installed direct package version against `package\.json` pins before accepting the local dependency tree, and mismatch output must not echo raw workspace paths, raw filesystem errors, stack traces, or installed package metadata/);
   assert.match(securityPolicy, /installed-state verification must resolve the project root from the checked script location, use a symlink-safe realpath entrypoint check, avoid filesystem verification side effects when imported, and use verifier-owned top-level failure reporting/);
   assert.match(securityPolicy, /installed-state verification must byte-cap, no-follow-open, identity-check, handle-read, and fatal-UTF-8-decode package and lockfile evidence/);
+  assert.match(securityPolicy, /runtime crypto and native WebRTC dependency attestation must byte-cap, no-follow-open, identity-check, handle-read, and fatal-UTF-8-decode dependency package metadata before accepting installed package identity/);
+  assert.match(cliDependencyMetadataSource, /const MAX_PACKAGE_JSON_BYTES = 128 \* 1024/);
+  assert.match(cliDependencyMetadataSource, /lstatSync\(file\)/);
+  assert.match(cliDependencyMetadataSource, /openSync\(file, constants\.O_RDONLY \| noFollowFlag\(\)\)/);
+  assert.match(cliDependencyMetadataSource, /opened\.size !== info\.size \|\| opened\.dev !== info\.dev \|\| opened\.ino !== info\.ino/);
+  assert.match(cliDependencyMetadataSource, /while \(offset < opened\.size\)/);
+  assert.match(cliDependencyMetadataSource, /readSync\(fd, bytes, offset, opened\.size - offset, offset\)/);
+  assert.match(cliDependencyMetadataSource, /new TextDecoder\("utf-8", \{ fatal: true \}\)/);
+  assert.doesNotMatch(cliDependencyMetadataSource, /readFileSync|buffer\.toString\("utf8"\)/);
+  assert.doesNotMatch(cliCryptoDependenciesSource, /readFileSync\(path\.join\(root, "package\.json"\)/);
+  assert.doesNotMatch(cliNativeWebrtcSource, /readFileSync\(path\.join\(root, "package\.json"\)/);
   assert.match(securityPolicy, /installed-state verification must reject duplicate direct dependency declarations across `dependencies` and `devDependencies`/);
   assert.match(securityPolicy, /release verification scripts must resolve the project root from the checked script location/);
   assert.match(securityPolicy, /release verification scripts must byte-cap, no-follow-open, identity-check, and handle-read project metadata before parsing/);

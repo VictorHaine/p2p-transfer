@@ -33,6 +33,12 @@ test("server logging stays operational and does not log signaling payload fields
   assert.match(readme, /A modified client can still transmit a malformed public pair-request containing plaintext metadata before rejection/);
   assert.match(readme, /server rejects unredacted public manifests and does not forward or log them/);
   assert.match(readme, /from conforming clients and accepted protocol flow: two secret words, PAKE output, plaintext file names, MIME types/);
+  assert.match(readme, /host\/private LAN ICE candidates, public server-reflexive candidates, relay candidates/);
+  assert.match(readme, /traffic shape/);
+  assert.match(readme, /absence of padding or cover traffic/);
+  assert.match(readme, /Managed endpoint \/ MDM \/ EDR/);
+  assert.match(readme, /cryptography does not hide local endpoint activity from a privileged endpoint monitor/);
+  assert.match(readme, /Relay-only ICE reduces direct peer IP exposure to the other peer, but it shifts traffic metadata to the TURN operator/);
   assert.doesNotMatch(readme, /It does not receive the two secret words[\s\S]*MIME types/);
 });
 
@@ -106,6 +112,15 @@ test("CLI redacted error output does not render transfer exception metadata", ()
     assert.match(redactedErrorBody, /Command failed\. Re-run without --redact-output for details\./);
     assert.doesNotMatch(redactedErrorBody, /safeErrorMessage|redactLocalPathEvidence|formatBytes|error\.message|file\.name|state\.name/);
   }
+});
+
+test("README documents endpoint-visible local path and browser filename limits", () => {
+  const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
+  assert.match(readme, /`--files-stdin` protects the `ff` process argv only/);
+  assert.match(readme, /command that produces the file list can still leak local paths/);
+  assert.match(readme, /`Folder only` protects streaming behavior and partial-overwrite handling, not final filename opacity/);
+  assert.match(readme, /final browser output name still includes the sanitized original basename plus the random reservation token/);
+  assert.match(readme, /browser DOM previews, browser download behavior, final output names/);
 });
 
 test("remote encrypted abort reasons are not promoted to local user-facing errors", () => {

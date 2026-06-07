@@ -1,17 +1,13 @@
-import { lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
+import { lstatSync, readdirSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
+import { packageEvidenceFromResolvedFile, type DependencyEvidence } from "./dependency-metadata.js";
 
 type NativeWebRtc = {
   RTCPeerConnection: { new (configuration?: RTCConfiguration): RTCPeerConnection };
   RTCDataChannel: { new (): RTCDataChannel };
   RTCIceCandidate: { new (candidateInitDict?: RTCIceCandidateInit): RTCIceCandidate };
-};
-
-type DependencyEvidence = {
-  name: string;
-  version: string;
 };
 
 const requireFromCli = createRequire(import.meta.url);
@@ -156,28 +152,4 @@ function reviewedPlatformTriple(): keyof typeof REVIEWED_NATIVE_WEBRTC_DEPENDENC
 
 function assertEvidence(actual: DependencyEvidence, expected: { name: string; version: string }): void {
   if (actual.name !== expected.name || actual.version !== expected.version) throw new Error("Native WebRTC dependency evidence is invalid.");
-}
-
-function packageEvidenceFromResolvedFile(resolvedFile: string): DependencyEvidence & { root: string } {
-  const root = packageRootFromResolvedFile(resolvedFile);
-  const evidence = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")) as { name?: unknown; version?: unknown };
-  if (typeof evidence.name !== "string" || typeof evidence.version !== "string") {
-    throw new Error("Dependency package metadata is invalid.");
-  }
-  return { root, name: evidence.name, version: evidence.version };
-}
-
-function packageRootFromResolvedFile(resolvedFile: string): string {
-  let current = path.dirname(resolvedFile);
-  for (;;) {
-    try {
-      const evidence = JSON.parse(readFileSync(path.join(current, "package.json"), "utf8")) as { name?: unknown };
-      if (typeof evidence.name === "string") return current;
-    } catch {
-      // Keep walking toward the package root.
-    }
-    const parent = path.dirname(current);
-    if (parent === current) throw new Error("Dependency package metadata is missing.");
-    current = parent;
-  }
 }

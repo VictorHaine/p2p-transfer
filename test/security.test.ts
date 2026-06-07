@@ -862,6 +862,9 @@ test("low-level WebRTC signal authentication rejects noncanonical signal shapes"
   const hiddenExtraOffer = { kind: "offer", sdp: "v=0\r\n" };
   Object.defineProperty(hiddenExtraOffer, "extra", { enumerable: false, value: true });
   assert.throws(() => signalAuthTag(senderKeys.signalAuthKey, sid, "sender", hiddenExtraOffer as never), /signal auth payload/);
+  const hiddenRequiredOffer = { kind: "offer" };
+  Object.defineProperty(hiddenRequiredOffer, "sdp", { enumerable: false, value: "v=0\r\n" });
+  assert.throws(() => signalAuthTag(senderKeys.signalAuthKey, sid, "sender", hiddenRequiredOffer as never), /signal auth payload/);
   const symbolExtraCandidate = { candidate: "candidate:0 1 UDP 1 127.0.0.1 9 typ host", sdpMid: "0", sdpMLineIndex: 0 };
   Object.defineProperty(symbolExtraCandidate, Symbol("extra"), { enumerable: true, value: true });
   assert.throws(() => signalAuthTag(senderKeys.signalAuthKey, sid, "sender", { kind: "candidate", candidate: symbolExtraCandidate } as never), /signal auth payload/);
@@ -1022,12 +1025,12 @@ test("signal authentication helper validates the exact canonical shape before si
     assert.match(source, /hasOnlyKeys\(signal, \["kind", "sdp", "auth"\]\)/);
     assert.match(source, /isIceCandidateInitForAuth/);
     assert.match(source, /hasOnlyKeys\(value, \["candidate", "sdpMid", "sdpMLineIndex", "usernameFragment"\]\)/);
-    assert.match(source, /Object\.getOwnPropertyNames\(value\)/);
-    assert.match(source, /Object\.getOwnPropertySymbols\(value\)/);
+    assert.match(source, /Reflect\.ownKeys\(value\)/);
+    assert.match(source, /!descriptor\.enumerable/);
   }
   assert.match(distWebBundle, /WebRTC signal auth payload is invalid/);
   assert.match(distWebBundle, /Object\.getOwnPropertyDescriptor/);
-  assert.match(distWebBundle, /Object\.getOwnPropertySymbols/);
+  assert.match(distWebBundle, /Reflect\.ownKeys/);
   assert.match(distWebBundle, /4096/);
   assert.doesNotMatch(distWebBundle, /function \w+\(e\)\{[\s\S]{0,700}e\.sdpMid/);
   assert.doesNotMatch(distWebBundle, /function \w+\(e\)\{[\s\S]{0,260}e\.kind/);
@@ -1318,8 +1321,8 @@ test("signaling schema rejects malformed signal and manifest fields", () => {
     assert.match(source, /Object\.getOwnPropertyDescriptor\(value, String\(index\)\)/);
     assert.match(source, /function ownDataValue/);
     assert.match(source, /Object\.getOwnPropertyDescriptor\(value, key\)/);
-    assert.match(source, /Object\.getOwnPropertyNames\(value\)/);
-    assert.match(source, /Object\.getOwnPropertySymbols\(value\)/);
+    assert.match(source, /Reflect\.ownKeys\(value\)/);
+    assert.match(source, /!descriptor\.enumerable/);
     assert.doesNotMatch(source, /value\.files\)\s*\{[\s\S]{0,200}for \(const file of value\.files\)/);
     assert.match(source, /SESSION_ID_VALUE = \/\^\[A-Za-z0-9_-\]\+\$\//);
     assert.match(source, /SESSION_ID_VALUE\.test\(value\)/);
@@ -1355,6 +1358,10 @@ test("signaling schema rejects malformed signal and manifest fields", () => {
   const hiddenExtraRegister = { type: "register", role: "receiver", code: "12345678", protocolVersion: PROTOCOL_VERSION };
   Object.defineProperty(hiddenExtraRegister, "extra", { enumerable: false, value: true });
   assert.equal(isClientMessage(hiddenExtraRegister), false);
+  const hiddenRequiredRegister = { type: "register", role: "receiver", protocolVersion: PROTOCOL_VERSION };
+  Object.defineProperty(hiddenRequiredRegister, "code", { enumerable: false, value: "12345678" });
+  assert.equal(isClientMessage(hiddenRequiredRegister), false);
+  assert.equal(distIsClientMessage(hiddenRequiredRegister), false);
   const symbolExtraRegistered = { type: "registered", code: "12345678", expiresInSec: 60 };
   Object.defineProperty(symbolExtraRegistered, Symbol("extra"), { enumerable: true, value: true });
   assert.equal(isServerMessage(symbolExtraRegistered), false);

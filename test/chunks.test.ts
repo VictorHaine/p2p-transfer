@@ -432,16 +432,20 @@ test("control manifest parsing rejects sparse and accessor-backed file arrays", 
 
   const hiddenExtraReady = { t: "ready", id: 0 };
   Object.defineProperty(hiddenExtraReady, "extra", { enumerable: false, value: true });
-  assert.throws(() => assertControlMessage(hiddenExtraReady), /ready control message/i);
+  assert.throws(() => assertControlMessage(hiddenExtraReady), /control message/i);
+  const hiddenRequiredDone = {};
+  Object.defineProperty(hiddenRequiredDone, "t", { enumerable: false, value: "all-done" });
+  assert.throws(() => assertControlMessage(hiddenRequiredDone), /control message/i);
   const symbolExtraDone = { t: "all-done" };
   Object.defineProperty(symbolExtraDone, Symbol("extra"), { enumerable: true, value: true });
   assert.throws(() => assertControlMessage(symbolExtraDone), /all-done control message/i);
 
   for (const source of [transferSource, distTransferSource]) {
-    assert.match(source, /Object\.getOwnPropertyNames\(value\)/);
-    assert.match(source, /Object\.getOwnPropertySymbols\(value\)/);
+    assert.match(source, /Reflect\.ownKeys\(value\)/);
+    assert.match(source, /!descriptor\.enumerable/);
   }
-  assert.match(distWebBundle, /Object\.getOwnPropertySymbols\(\w+\)\.length===0&&Object\.getOwnPropertyNames\(\w+\)\.every/);
+  assert.match(distWebBundle, /Reflect\.ownKeys/);
+  assert.match(distWebBundle, /\.enumerable/);
 });
 
 test("manifest limit validators do not read inherited manifest getters", () => {
@@ -748,7 +752,8 @@ test("encrypted control messages are schema-validated before transfer handling",
   for (const source of [limitsSource, distLimitsSource]) {
     assert.match(source, /hasOnlyKeys\(manifest, \["files", "fileCount", "totalBytes"\]\)/);
     assert.match(source, /hasOnlyKeys\(file, \["id", "name", "size", "mime"\]\)/);
-    assert.match(source, /Object\.getOwnPropertySymbols\(value\)\.length === 0/);
+    assert.match(source, /Reflect\.ownKeys\(value\)/);
+    assert.match(source, /!descriptor\.enumerable/);
   }
   assert.match(distWebBundle, /`files`,`fileCount`,`totalBytes`/);
   assert.match(distWebBundle, /`id`,`name`,`size`,`mime`/);

@@ -193,7 +193,12 @@ function isSafeReason(value: unknown, maxChars: number): value is string {
 const UNSAFE_REASON_CHARS = /[\p{Cc}\p{Cf}]/u;
 
 function hasOnlyKeys(value: Record<string, unknown>, allowed: readonly string[]): boolean {
-  return Object.getOwnPropertySymbols(value).length === 0 && Object.getOwnPropertyNames(value).every((key) => allowed.includes(key));
+  for (const key of Reflect.ownKeys(value)) {
+    if (typeof key !== "string" || !allowed.includes(key)) return false;
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !descriptor.enumerable || !("value" in descriptor)) return false;
+  }
+  return true;
 }
 
 function ownDataValue(value: unknown, key: string): unknown {

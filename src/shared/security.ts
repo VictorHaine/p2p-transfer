@@ -920,7 +920,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 function hasOnlyDataProperties(value: object): boolean {
   for (const key of Reflect.ownKeys(value)) {
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
-    if (!descriptor || !("value" in descriptor)) return false;
+    if (!descriptor || !descriptor.enumerable || !("value" in descriptor)) return false;
   }
   return true;
 }
@@ -985,7 +985,12 @@ function defineOwnData(value: object, key: string, data: unknown): void {
 }
 
 function hasOnlyKeys(value: Record<string, unknown>, allowed: readonly string[]): boolean {
-  return Object.getOwnPropertySymbols(value).length === 0 && Object.getOwnPropertyNames(value).every((key) => allowed.includes(key));
+  for (const key of Reflect.ownKeys(value)) {
+    if (typeof key !== "string" || !allowed.includes(key)) return false;
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !descriptor.enumerable || !("value" in descriptor)) return false;
+  }
+  return true;
 }
 
 function hasOwnKey(value: Record<string, unknown>, key: string): boolean {

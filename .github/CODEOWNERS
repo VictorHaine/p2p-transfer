@@ -16,6 +16,7 @@
 /src/shared/chunks.ts @VictorHaine
 /src/shared/transfer.ts @VictorHaine
 /src/cli/crypto-dependencies.ts @VictorHaine
+/src/cli/dependency-metadata.ts @VictorHaine
 /src/cli/error-redaction.ts @VictorHaine
 /src/cli/files.ts @VictorHaine
 /src/cli/index.ts @VictorHaine
