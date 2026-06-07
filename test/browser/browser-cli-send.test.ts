@@ -155,6 +155,75 @@ test("CLI sender interoperates with browser folder-only receiver", { skip: chrom
   }
 });
 
+test("browser folder receiver resumes after a failed partial write", { skip: chromiumPath ? false : "No Chromium executable found" }, async () => {
+  const root = process.cwd();
+  const port = 23_000 + randomInt(1_000);
+  const origin = `http://127.0.0.1:${port}`;
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-cli-browser-resume-"));
+  const childEnv = testChildEnv(tmp);
+  const server = spawn(process.execPath, ["dist-node/server/index.js"], {
+    cwd: root,
+    env: { ...childEnv, PORT: String(port), HOST: "127.0.0.1", NODE_ENV: "production", ALLOWED_ORIGINS: origin, SIGNALING_TOPOLOGY: "single-instance", ALLOW_INSECURE_ORIGINS: "true" }
+  });
+
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  try {
+    await waitForOutput(server, /listening/);
+    const source = path.join(tmp, "resume.txt");
+    const payload = "browser resume integrity chunk\n".repeat(3_000);
+    await fs.writeFile(source, payload);
+
+    const serverUrl = `ws://127.0.0.1:${port}/v1/ws`;
+    browser = await chromium.launch(chromiumLaunchOptions());
+    const page = await browser.newPage();
+    await installFolderPickerMock(page);
+    await page.goto(`http://127.0.0.1:${port}/`);
+    await page.locator("#serverUrl").fill(serverUrl);
+    await page.locator("#folderOnly").check();
+
+    await setFolderMockFailure(page, 1);
+    await page.locator("#receiveButton").click();
+    await page.locator("#codeBox").waitFor({ state: "visible", timeout: 30_000 });
+    const firstCode = (await page.locator("#codeBox").textContent())?.trim();
+    assert.match(firstCode ?? "", /^[0-9]{8}-[a-z]+-[a-z]+$/);
+    const failedSender = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "send", firstCode!, source], { cwd: root, env: childEnv });
+    const failedSenderDone = collectExit(failedSender);
+    await page.locator("#resumeButton").waitFor({ state: "visible", timeout: 30_000 });
+    await page.locator("#resumeButton").click();
+    const failedSenderResult = await failedSenderDone;
+    assert.notEqual(failedSenderResult.code, 0);
+    await waitForReceiveIdle(page);
+    const partial = await folderPickerSnapshot(page);
+    assert.equal(partial.partFiles.length, 1);
+    assert.ok(partial.byteLengths[partial.partFiles[0]!]! > 0);
+
+    await setFolderMockFailure(page, null);
+    await page.locator("#receiveButton").click();
+    const secondCode = await waitForNewCode(page, firstCode!);
+    assert.match(secondCode ?? "", /^[0-9]{8}-[a-z]+-[a-z]+$/);
+    assert.notEqual(secondCode, firstCode);
+    const resumedSender = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "send", secondCode!, source], { cwd: root, env: childEnv });
+    const resumedSenderDone = collectExit(resumedSender);
+    await page.locator("#resumeButton").waitFor({ state: "visible", timeout: 30_000 });
+    await page.locator("#resumeButton").click();
+    await expectText(page.locator("#recvStatus"), "Done");
+
+    const resumedSenderResult = await resumedSenderDone;
+    assert.equal(resumedSenderResult.code, 0, resumedSenderResult.stderr);
+    assert.match(resumedSenderResult.stdout, /"secure_session"/);
+    const folder = await folderPickerSnapshot(page);
+    const entries = Object.entries(folder.files);
+    assert.equal(entries.length, 1);
+    assert.match(entries[0]![0], /^resume \(ff-[a-f0-9]{32}\)\.txt$/);
+    assert.equal(entries[0]![1], payload);
+    assert.deepEqual(folder.partFiles, []);
+    assert.equal(folder.removed.some((name) => name === partial.partFiles[0]), true);
+  } finally {
+    await browser?.close();
+    server.kill();
+  }
+});
+
 function findChromium(): string | undefined {
   for (const bin of ["chromium", "google-chrome", "chrome"]) {
     const result = spawnSync("which", [bin], { encoding: "utf8" });
@@ -228,6 +297,7 @@ async function installFolderPickerMock(page: Page): Promise<void> {
     const files = new Map();
     const removed = [];
     let pickerCalls = 0;
+    let failAfterPartBytes = null;
 
     class MockFileHandle {
       constructor(name) {
@@ -268,6 +338,10 @@ async function installFolderPickerMock(page: Page): Promise<void> {
             next.set(source, position);
             files.set(this.name, next);
             position += source.byteLength;
+            if (this.name.endsWith(".part") && failAfterPartBytes !== null && position >= failAfterPartBytes) {
+              failAfterPartBytes = null;
+              throw new Error("mock partial write failure");
+            }
           },
           close: async () => {},
           abort: async () => {}
@@ -305,10 +379,14 @@ async function installFolderPickerMock(page: Page): Promise<void> {
           const fileEntries = [...files.entries()].sort(([left], [right]) => left.localeCompare(right));
           return {
             files: Object.fromEntries(fileEntries.map(([name, bytes]) => [name, decoder.decode(bytes)])),
+            byteLengths: Object.fromEntries(fileEntries.map(([name, bytes]) => [name, bytes.byteLength])),
             partFiles: fileEntries.map(([name]) => name).filter((name) => name.endsWith(".part")),
             removed: [...removed],
             pickerCalls
           };
+        },
+        setFailAfterPartBytes: (bytes) => {
+          failAfterPartBytes = bytes;
         }
       }
     });
@@ -317,8 +395,16 @@ async function installFolderPickerMock(page: Page): Promise<void> {
   });
 }
 
-function folderPickerSnapshot(page: Page): Promise<{ files: Record<string, string>; partFiles: string[]; removed: string[]; pickerCalls: number }> {
-  return page.evaluate(() => (window as unknown as { __ffTestFs: { snapshot: () => { files: Record<string, string>; partFiles: string[]; removed: string[]; pickerCalls: number } } }).__ffTestFs.snapshot());
+type FolderSnapshot = { files: Record<string, string>; byteLengths: Record<string, number>; partFiles: string[]; removed: string[]; pickerCalls: number };
+
+function folderPickerSnapshot(page: Page): Promise<FolderSnapshot> {
+  return page.evaluate(() => (window as unknown as { __ffTestFs: { snapshot: () => FolderSnapshot } }).__ffTestFs.snapshot());
+}
+
+function setFolderMockFailure(page: Page, bytes: number | null): Promise<void> {
+  return page.evaluate((value) => {
+    (window as unknown as { __ffTestFs: { setFailAfterPartBytes: (bytes: number | null) => void } }).__ffTestFs.setFailAfterPartBytes(value);
+  }, bytes);
 }
 
 function folderPickerProbe(page: Page): Promise<{ hasMock: boolean; pickerType: string; hasGetFileHandle: boolean }> {
@@ -331,6 +417,21 @@ function folderPickerProbe(page: Page): Promise<{ hasMock: boolean; pickerType: 
     const directory = hasMock ? await probeWindow.showDirectoryPicker?.() : undefined;
     return { hasMock, pickerType: typeof probeWindow.showDirectoryPicker, hasGetFileHandle: typeof directory?.getFileHandle === "function" };
   });
+}
+
+async function waitForReceiveIdle(page: Page): Promise<void> {
+  await page.waitForFunction(() => {
+    const button = document.querySelector<HTMLButtonElement>("#receiveButton");
+    return Boolean(button && !button.disabled);
+  }, undefined, { timeout: 30_000 });
+}
+
+async function waitForNewCode(page: Page, oldCode: string): Promise<string> {
+  await page.waitForFunction((previous) => {
+    const text = document.querySelector("#codeBox")?.textContent?.trim();
+    return Boolean(text && text !== previous);
+  }, oldCode, { timeout: 30_000 });
+  return (await page.locator("#codeBox").textContent())!.trim();
 }
 
 function testChildEnv(tmp: string): NodeJS.ProcessEnv {
