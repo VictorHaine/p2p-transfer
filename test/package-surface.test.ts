@@ -611,7 +611,7 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.doesNotMatch(dockerPolicySmokeScript, /"DOCKER_HOST"/);
   assert.doesNotMatch(dockerPolicySmokeScript, /"DOCKER_CONTEXT"/);
   assert.match(dockerPolicySmokeScript, /import \{ createIsolatedDockerConfig \} from "\.\/docker-config\.mjs"/);
-  assert.match(dockerConfigScript, /export function createIsolatedDockerConfig\(prefix = "p2p-transfer-docker-"\)/);
+  assert.match(dockerConfigScript, /export function createIsolatedDockerConfig\(prefix = "p2p-transfer-docker-", sourceConfigRoot = defaultDockerConfigRoot\(\)\)/);
   assert.match(dockerConfigScript, /mkdtempSync\(path\.join\(tmpdir\(\), prefix\)\)/);
   assert.match(dockerConfigScript, /chmodSync\(dir, 0o700\)/);
   assert.match(dockerConfigScript, /JSON\.stringify\(config\), \{ mode: 0o600 \}/);

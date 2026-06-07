@@ -7,10 +7,10 @@ const MAX_DOCKER_CONFIG_BYTES = 64 * 1024;
 const MAX_DOCKER_CONTEXT_BYTES = 32 * 1024;
 const DOCKER_CONTEXT_NAME_RE = /^[A-Za-z0-9_.-]{1,128}$/u;
 
-export function createIsolatedDockerConfig(prefix = "p2p-transfer-docker-") {
+export function createIsolatedDockerConfig(prefix = "p2p-transfer-docker-", sourceConfigRoot = defaultDockerConfigRoot()) {
   const dir = mkdtempSync(path.join(tmpdir(), prefix));
   chmodSync(dir, 0o700);
-  const localContext = localDockerContext(defaultDockerConfigRoot());
+  const localContext = localDockerContext(sourceConfigRoot);
   const config = localContext ? { auths: {}, currentContext: localContext.name } : { auths: {} };
   writeFileSync(path.join(dir, "config.json"), JSON.stringify(config), { mode: 0o600 });
   if (localContext) writeDockerContext(dir, localContext);
