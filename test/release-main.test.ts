@@ -47,6 +47,25 @@ test("release main verifier accepts a tag commit that exactly matches origin mai
   }
 });
 
+test("release main verifier ignores hostile global Git config", async () => {
+  const fixture = await createGitFixture();
+  const hostileHome = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-main-home-"));
+  try {
+    await fs.writeFile(
+      path.join(hostileHome, ".gitconfig"),
+      `[url "https://example.invalid/blocked/"]\n\tinsteadOf = ${path.dirname(fixture.root)}/origin.git\n`,
+      "utf8"
+    );
+    const result = runVerifier(fixture.script, fixture.mainSha, { HOME: hostileHome });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, "");
+    assert.equal(result.stderr, "");
+  } finally {
+    await fs.rm(path.dirname(fixture.root), { force: true, recursive: true });
+    await fs.rm(hostileHome, { force: true, recursive: true });
+  }
+});
+
 test("release main verifier rejects commits outside origin main", async () => {
   const fixture = await createGitFixture();
   try {

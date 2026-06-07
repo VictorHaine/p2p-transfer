@@ -645,8 +645,12 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseMainScript, /\["merge-base", "--is-ancestor", sha, "origin\/main"\]/);
   assert.match(releaseMainScript, /\["merge-base", "--is-ancestor", "origin\/main", sha\]/);
   assert.match(releaseMainScript, /release tag commit does not match current main\./);
+  assert.match(releaseMainScript, /import \{ devNull \} from "node:os"/);
+  assert.match(releaseMainScript, /GIT_CONFIG_GLOBAL: devNull/);
+  assert.match(releaseMainScript, /GIT_CONFIG_NOSYSTEM: "1"/);
+  assert.match(releaseMainScript, /GIT_TERMINAL_PROMPT: "0"/);
   assert.doesNotMatch(releaseMainScript, /process\.env\.GITHUB_SHA|String\(error\)|error\.stack|\.\.\.process\.env/);
-  assert.match(securityPolicy, /release tag current-main matching must use the checked release main verifier with control-free byte-capped `GITHUB_SHA`, a control-free minimal Git child environment, ignored Git output, bidirectional ancestry checks/);
+  assert.match(securityPolicy, /release tag current-main matching must use the checked release main verifier with control-free byte-capped `GITHUB_SHA`, a control-free minimal Git child environment that ignores global and system Git config and disables terminal prompts, ignored Git output, bidirectional ancestry checks/);
   assert.match(securityPolicy, /release main checks must signal timed-out Git subprocesses, arm a bounded `SIGKILL` fallback, and reject only after the child exits/);
   assert.match(releaseWorkflow, /pnpm install --frozen-lockfile/);
   assert.match(packageJson.scripts?.["verify:release"] ?? "", /pnpm smoke:packed && pnpm smoke:release-artifact && pnpm test:e2e/);

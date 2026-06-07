@@ -250,6 +250,11 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releaseMainScript, /\["merge-base", "--is-ancestor", sha, "origin\/main"\]/);
   assert.match(releaseMainScript, /\["merge-base", "--is-ancestor", "origin\/main", sha\]/);
   assert.match(releaseMainScript, /release tag commit does not match current main\./);
+  assert.match(releaseMainScript, /import \{ devNull \} from "node:os"/);
+  assert.match(releaseMainScript, /GIT_CONFIG_GLOBAL: devNull/);
+  assert.match(releaseMainScript, /GIT_CONFIG_NOSYSTEM: "1"/);
+  assert.match(releaseMainScript, /GIT_TERMINAL_PROMPT: "0"/);
+  assert.match(securityPolicy, /a control-free minimal Git child environment that ignores global and system Git config and disables terminal prompts/);
   assert.match(securityPolicy, /release main checks must signal timed-out Git subprocesses, arm a bounded `SIGKILL` fallback, and reject only after the child exits/);
   assert.match(releaseWorkflow, /Release controls preflight[\s\S]*GITHUB_TOKEN: \$\{\{ secrets\.RELEASE_PREFLIGHT_TOKEN \}\}[\s\S]*run: node scripts\/check-release-readiness\.mjs[\s\S]*Install/);
   const ciVerifyJob = workflowJob(ciWorkflow, "verify");
