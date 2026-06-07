@@ -42,7 +42,7 @@ test("direct workspace publish guard fails closed", () => {
   assert.doesNotMatch(result.stderr, /Error:|at file:|\/scripts\/guard-direct-publish\.mjs/);
 });
 
-test("release artifact smoke redacts path-sensitive top-level failures", async () => {
+test("release artifact smoke owns invalid temporary filesystem failures", async () => {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-artifact-smoke-path-"));
   const missingTempRoot = path.join(tmp, "missing-root");
   try {
@@ -54,7 +54,7 @@ test("release artifact smoke redacts path-sensitive top-level failures", async (
 
     assert.notEqual(result.status, 0);
     assert.equal(result.stdout, "");
-    assert.match(result.stderr, /Release artifact smoke failed:\n- release artifact smoke failed with path-sensitive evidence\./);
+    assert.match(result.stderr, /Release artifact smoke failed:\n- Could not inspect temporary disk capacity\./);
     assert.doesNotMatch(result.stderr, /ff-release-artifact-smoke-path|missing-root|ENOENT|Error:/);
   } finally {
     await fs.rm(tmp, { force: true, recursive: true });
