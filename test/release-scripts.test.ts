@@ -942,7 +942,7 @@ function tagRuleset() {
     name: "p2p-transfer: protect release tags",
     target: "tag",
     enforcement: "active",
-    bypass_actors: [{ actor_type: "RepositoryRole", actor_id: 5, bypass_mode: "always" }],
+    bypass_actors: [],
     conditions: { ref_name: { include: [tagRulesetRef], exclude: [] } },
     rules: [{ type: "creation" }, { type: "deletion" }, { type: "non_fast_forward" }]
   };

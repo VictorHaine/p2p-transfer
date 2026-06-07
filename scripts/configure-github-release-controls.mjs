@@ -9,7 +9,6 @@ const TAG_RULESET_NAME = "p2p-transfer: protect release tags";
 const NPM_ENVIRONMENT = "npm";
 const NPM_DEPLOYMENT_TAG_POLICY = "v*.*.*";
 const RELEASE_TAG_REF_PATTERN = `refs/tags/${NPM_DEPLOYMENT_TAG_POLICY}`;
-const REPOSITORY_ADMIN_ROLE_BYPASS_ACTOR_ID = 5;
 const GITHUB_ACTIONS_INTEGRATION_ID = 15368;
 const MAX_NPM_ENVIRONMENT_REVIEWERS = 6;
 const MAX_ENV_VALUE_BYTES = 4_096;
@@ -147,7 +146,7 @@ function tagRuleset() {
     name: TAG_RULESET_NAME,
     target: "tag",
     enforcement: "active",
-    bypass_actors: [{ actor_type: "RepositoryRole", actor_id: REPOSITORY_ADMIN_ROLE_BYPASS_ACTOR_ID, bypass_mode: "always" }],
+    bypass_actors: [],
     conditions: { ref_name: { include: [RELEASE_TAG_REF_PATTERN], exclude: [] } },
     rules: [
       { type: "creation" },

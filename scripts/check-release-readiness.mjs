@@ -13,7 +13,6 @@ const NPM_ENVIRONMENT = "npm";
 const NPM_DEPLOYMENT_TAG_POLICY = "v*.*.*";
 const RELEASE_TAG_REF_PATTERN = `refs/tags/${NPM_DEPLOYMENT_TAG_POLICY}`;
 const RELEASE_PREFLIGHT_SECRET = "RELEASE_PREFLIGHT_TOKEN";
-const REPOSITORY_ADMIN_ROLE_BYPASS_ACTOR_ID = 5;
 const GITHUB_ACTIONS_INTEGRATION_ID = 15368;
 const REQUIRED_OAUTH_SCOPES = ["repo", "workflow"];
 const REQUIRED_CI_CHECKS = [
@@ -405,11 +404,11 @@ function assertMainRuleset(ruleset) {
 
 function assertTagRuleset(ruleset) {
   assertRulesetBase(ruleset, TAG_RULESET_NAME, "tag", RELEASE_TAG_REF_PATTERN);
+  assertNoBypassActors(ruleset, TAG_RULESET_NAME);
   const rules = rulesByType(ruleset, TAG_RULESET_NAME, ["creation", "deletion", "non_fast_forward"]);
   assertRulePresent(rules, "creation", TAG_RULESET_NAME);
   assertRulePresent(rules, "deletion", TAG_RULESET_NAME);
   assertRulePresent(rules, "non_fast_forward", TAG_RULESET_NAME);
-  assertTagBypassActors(ruleset, TAG_RULESET_NAME);
 }
 
 function assertRulesetBase(ruleset, name, target, refName) {
@@ -425,15 +424,6 @@ function assertRulesetBase(ruleset, name, target, refName) {
 function assertNoBypassActors(ruleset, name) {
   if (!Array.isArray(ruleset?.bypass_actors) || ruleset.bypass_actors.length !== 0) {
     throw new Error(`${name} must not allow bypass actors.`);
-  }
-}
-
-function assertTagBypassActors(ruleset, name) {
-  const bypass = ruleset?.bypass_actors;
-  if (!Array.isArray(bypass) || bypass.length !== 1) throw new Error(`${name} bypass policy is not exact.`);
-  const actor = bypass[0];
-  if (actor?.actor_type !== "RepositoryRole" || actor?.actor_id !== REPOSITORY_ADMIN_ROLE_BYPASS_ACTOR_ID || actor?.bypass_mode !== "always") {
-    throw new Error(`${name} admin bypass policy is not configured.`);
   }
 }
 
