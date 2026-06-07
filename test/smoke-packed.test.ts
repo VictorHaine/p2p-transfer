@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { appendBoundedOutput, expectedPackedTarballName, isolatedChildEnv, optionalProvidedTarball, parseJsonEvidence, readBoundedResponseText, renderCommandForLog, safeChildEnv, stageVerifiedTarball } from "../scripts/smoke-packed.mjs";
+import { appendBoundedOutput, expectedPackedTarballName, isolatedChildEnv, optionalEnvString, optionalProvidedTarball, parseJsonEvidence, readBoundedResponseText, renderCommandForLog, safeChildEnv, stageVerifiedTarball } from "../scripts/smoke-packed.mjs";
 
 const packedSmokeSource = await readFile(new URL("../scripts/smoke-packed.mjs", import.meta.url), "utf8");
 
@@ -164,6 +164,23 @@ test("packed smoke child environment rejects unsafe required inherited values", 
   } finally {
     if (originalPath === undefined) delete process.env.PATH;
     else process.env.PATH = originalPath;
+  }
+});
+
+test("packed smoke optional environment inputs are descriptor-read and byte-capped", () => {
+  const original = process.env.KEEP_PACKED_SMOKE_TMP;
+  try {
+    process.env.KEEP_PACKED_SMOKE_TMP = "true";
+    assert.equal(optionalEnvString("KEEP_PACKED_SMOKE_TMP"), "true");
+
+    process.env.KEEP_PACKED_SMOKE_TMP = `${"a".repeat(8192)}b`;
+    assert.throws(
+      () => optionalEnvString("KEEP_PACKED_SMOKE_TMP"),
+      /KEEP_PACKED_SMOKE_TMP must be a non-empty NUL-free environment value under 8192 UTF-8 bytes\./
+    );
+  } finally {
+    if (original === undefined) delete process.env.KEEP_PACKED_SMOKE_TMP;
+    else process.env.KEEP_PACKED_SMOKE_TMP = original;
   }
 });
 

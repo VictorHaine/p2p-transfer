@@ -1,4 +1,5 @@
 export function safeChildEnv(): Record<string, string>;
+export function optionalEnvString(name: string): string | undefined;
 export function isolatedChildEnv(privateHome: string): Record<string, string>;
 export function parseJsonEvidence(text: string, label: string): unknown;
 export function appendBoundedOutput(current: string, chunk: Buffer): string;

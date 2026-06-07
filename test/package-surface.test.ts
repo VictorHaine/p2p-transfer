@@ -262,7 +262,7 @@ test("packed package smoke installs and executes published bins", () => {
   assert.match(packedSmokeScript, /\/healthz/);
   assert.match(packedSmokeScript, /ff transfer/);
   assert.match(securityPolicy, /packed-install smoke must use an OS-assigned loopback port/);
-  assert.match(securityPolicy, /packed-install smoke subprocesses must run with a minimal allowlisted environment/);
+  assert.match(securityPolicy, /packed-install smoke options and subprocesses must run with descriptor-read, non-empty, NUL-free, byte-capped environment values/);
   assert.match(securityPolicy, /packed-install smoke must use a symlink-safe realpath entrypoint check and smoke-owned top-level failure reporting that does not print stack traces or raw path-sensitive evidence, strip terminal control and format characters from captured subprocess output and rendered command labels, reject non-string command label parts and non-Buffer child output chunks before coercion, bound that sanitized output, and force-kill timed-out subprocesses/);
   assert.match(securityPolicy, /packed-install smoke command timeouts must reject only after the timed-out subprocess exits/);
   assert.match(securityPolicy, /packed-install smoke startup waits must clean up listeners and terminate timed-out server subprocesses/);
@@ -350,6 +350,10 @@ test("packed package smoke installs and executes published bins", () => {
   assert.match(packedSmokeScript, /lstat\(tarball\)/);
   assert.match(packedSmokeScript, /info\.size < 1 \|\| info\.size > MAX_PACKED_SMOKE_TARBALL_BYTES/);
   assert.match(packedSmokeScript, /function safeChildEnv\(\)/);
+  assert.match(packedSmokeScript, /const keepTemp = optionalEnvString\("KEEP_PACKED_SMOKE_TMP"\) === "true"/);
+  assert.match(packedSmokeScript, /export function optionalEnvString\(name\)/);
+  assert.match(packedSmokeScript, /\$\{name\} must be a non-empty NUL-free environment value under \$\{MAX_CHILD_ENV_VALUE_BYTES\} UTF-8 bytes\./);
+  assert.doesNotMatch(packedSmokeScript, /process\.env\.KEEP_PACKED_SMOKE_TMP/);
   assert.match(packedSmokeScript, /function isolatedChildEnv\(privateHome\)/);
   assert.match(packedSmokeScript, /const MAX_CHILD_ENV_VALUE_BYTES = 8_192/);
   assert.match(packedSmokeScript, /\["PATH", true\]/);

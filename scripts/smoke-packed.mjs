@@ -41,7 +41,7 @@ async function main() {
   const packageManager = requiredPackageManager(packageJson.packageManager);
   const protocolVersion = requiredProtocolVersion(parseJsonEvidence(await readText(path.join(root, "conformance", "protocol-v5.json"), MAX_CONFORMANCE_JSON_BYTES), "conformance/protocol-v5.json").protocolVersion);
   const providedTarball = optionalProvidedTarball();
-  const keepTemp = process.env.KEEP_PACKED_SMOKE_TMP === "true";
+  const keepTemp = optionalEnvString("KEEP_PACKED_SMOKE_TMP") === "true";
   const tmp = await mkdtemp(path.join(tmpdir(), "ff-packed-smoke-"));
   const packDir = path.join(tmp, "pack");
   const consumerDir = path.join(tmp, "consumer");
@@ -229,6 +229,15 @@ export function safeChildEnv() {
     }
   }
   return env;
+}
+
+export function optionalEnvString(name) {
+  const descriptor = Object.getOwnPropertyDescriptor(process.env, name);
+  if (!descriptor || !("value" in descriptor) || descriptor.value === undefined || descriptor.value === "") return undefined;
+  if (!isSafeChildEnvValue(descriptor.value)) {
+    throw new Error(`${name} must be a non-empty NUL-free environment value under ${MAX_CHILD_ENV_VALUE_BYTES} UTF-8 bytes.`);
+  }
+  return descriptor.value;
 }
 
 export function isolatedChildEnv(privateHome) {
