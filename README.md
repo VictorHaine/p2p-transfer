@@ -293,6 +293,7 @@ git remote add origin https://github.com/VictorHaine/p2p-transfer.git
 In GitHub:
 
 - create the `npm` environment used by `.github/workflows/release.yml` and add required reviewers with self-review prevention before publishing
+- ensure the `npm` environment has at least one reviewer other than the person or token owner that will push the release tag; a sole self-reviewer deadlocks the publish job
 - enable private vulnerability reporting
 - create branch protection for `main` requiring CI and CODEOWNERS review
 - create a tag protection rule or repository ruleset for `v*` release tags so only maintainers can create or update release tags
@@ -306,7 +307,14 @@ In GitHub:
 In npm:
 
 - create or verify ownership of the `@victorhaine` scope
-- if `@victorhaine/p2p-transfer` does not exist yet, create the package with a controlled, one-time bootstrap publish of a lower throwaway version such as `0.0.0-bootstrap.0`, then revoke that publish credential. Do not bootstrap `0.1.0` if the tag workflow is expected to publish `v0.1.0`; npm versions cannot be reused.
+- if `@victorhaine/p2p-transfer` does not exist yet, create the package with the checked one-time bootstrap helper, then revoke that publish credential:
+
+```sh
+pnpm bootstrap:npm --dry-run
+NPM_BOOTSTRAP_TOKEN=<one-time-npm-token> pnpm bootstrap:npm --apply
+```
+
+  The helper publishes only a minimal temporary `0.0.0-bootstrap.0` package from a private temp directory. It does not mutate this workspace, does not publish the real release artifact, and refuses to run when the npm package already exists. Do not bootstrap `0.1.0` if the tag workflow is expected to publish `v0.1.0`; npm versions cannot be reused.
 - configure trusted publishing for package `@victorhaine/p2p-transfer`; npm currently requires the package to exist first, and `package.json` `repository.url` must exactly match this GitHub repository
 - set the trusted publisher to this GitHub repository, workflow `.github/workflows/release.yml`, environment `npm`
 
@@ -338,4 +346,4 @@ MIT. See `LICENSE`.
 - Browser folder receives cannot get CLI-style exclusive create from File System Access, so every browser-created folder entry must carry an unguessable `ff-<128-bit>` reservation token; data streams to opaque tokenized `.part` entries and publishes a final tokenized name only after hash verification.
 - Browser receive resume is exposed only through the explicit `Resume in folder` accept action. It preserves opaque tokenized `.part` files on failure and can resume a later matching manifest only when the same browser profile still has the saved opaque partial record and browser-held lookup key, and the user selects a folder containing that entry. Browser startup and registry reads scrub legacy metadata-bearing resume records so saved records do not retain plaintext filenames, MIME types, or sizes. Without that saved browser state, or when using the Blob download fallback, browser receive starts fresh. This is intentionally narrower than CLI `recv --resume` because File System Access does not provide CLI-style path identity and atomic publish primitives.
 
-The conformance fixture covers chunk framing, encrypted transfer control messages including resume offsets, canonical signaling-message serialization, PAKE confirmation tags, SDP offer/answer authentication, and ICE candidate authentication including username fragments.
+The conformance fixture covers chunk framing, transfer control-message schemas used inside the encrypted channel including resume offsets, canonical signaling-message serialization, PAKE confirmation tags, SDP offer/answer authentication, and ICE candidate authentication including username fragments.

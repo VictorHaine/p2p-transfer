@@ -12,6 +12,7 @@ updates:
         dependency-type: production
       direct-crypto-dependency:
         patterns:
+          - "@noble/curves"
           - "@noble/hashes"
         dependency-type: production
       native-webrtc-dependency:
@@ -23,6 +24,7 @@ updates:
         dependency-type: production
         exclude-patterns:
           - "@cipherman/pake-js"
+          - "@noble/curves"
           - "@noble/hashes"
           - "@roamhq/wrtc"
           - "@roamhq/wrtc-*"

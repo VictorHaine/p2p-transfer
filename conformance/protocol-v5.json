@@ -126,16 +126,21 @@
           "files": [
             {
               "id": 0,
-              "name": "photo.jpg",
+              "name": "encrypted-0",
               "size": 184320
+            },
+            {
+              "id": 1,
+              "name": "encrypted-1",
+              "size": 0
             }
           ],
-          "fileCount": 1,
+          "fileCount": 2,
           "totalBytes": 184320
         },
         "sealedManifest": "AAAAAAAAAAAAAAAAAAAA"
       },
-      "json": "{\"type\":\"pair-request\",\"sid\":\"sid-fixture\",\"manifest\":{\"files\":[{\"id\":0,\"name\":\"photo.jpg\",\"size\":184320}],\"fileCount\":1,\"totalBytes\":184320},\"sealedManifest\":\"AAAAAAAAAAAAAAAAAAAA\"}"
+      "json": "{\"type\":\"pair-request\",\"sid\":\"sid-fixture\",\"manifest\":{\"files\":[{\"id\":0,\"name\":\"encrypted-0\",\"size\":184320},{\"id\":1,\"name\":\"encrypted-1\",\"size\":0}],\"fileCount\":2,\"totalBytes\":184320},\"sealedManifest\":\"AAAAAAAAAAAAAAAAAAAA\"}"
     },
     {
       "name": "server ice config",

@@ -41,43 +41,98 @@ class GitHubApiError extends Error {
   }
 }
 
+class ReleaseReadinessFailure extends Error {
+  constructor(failures) {
+    super("release readiness failed");
+    this.failures = failures;
+  }
+}
+
 if (isMain()) {
   try {
     await main();
   } catch (error) {
     console.error("Release readiness check failed:");
-    console.error(`- ${readinessErrorMessage(error)}`);
+    for (const message of readinessErrorMessages(error)) console.error(`- ${message}`);
     process.exitCode = 1;
   }
 }
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
-  const packageJson = await readPackageMetadata();
-  await assertNpmPackageReady(packageJson);
-  const token = githubToken();
+  const failures = [];
 
-  const auth = await githubWithHeaders(token, "GET", "/user");
-  assertTokenScopes(auth.headers);
-  await github(token, "GET", `/repos/${options.repository}`);
-  await github(token, "GET", `/repos/${options.repository}/branches/main`).catch((error) => {
-    if (error instanceof GitHubApiError && error.status === 404) throw new Error("Remote main branch is missing. Push main before releasing.");
-    throw error;
+  await collectReadinessFailure(failures, async () => {
+    const packageJson = await readPackageMetadata();
+    await assertNpmPackageReady(packageJson);
   });
 
-  const rulesets = await github(token, "GET", `/repos/${options.repository}/rulesets?includes_parents=false`);
-  const mainRuleset = assertRequiredRuleset(rulesets, MAIN_RULESET_NAME, "branch");
-  const tagRuleset = assertRequiredRuleset(rulesets, TAG_RULESET_NAME, "tag");
-  assertMainRuleset(await rulesetDetails(token, options.repository, mainRuleset.id));
-  assertTagRuleset(await rulesetDetails(token, options.repository, tagRuleset.id));
+  const token = await collectReadinessValue(failures, () => githubToken());
+  if (token) {
+    let authenticatedLogin;
+    const authOk = await collectReadinessFailure(failures, async () => {
+      const auth = await githubWithHeaders(token, "GET", "/user");
+      assertTokenScopes(auth.headers);
+      authenticatedLogin = requiredAuthenticatedLogin(auth.data);
+    });
+    if (authOk) {
+      await collectReadinessFailure(failures, () => github(token, "GET", `/repos/${options.repository}`));
+      await collectReadinessFailure(failures, async () => {
+        await github(token, "GET", `/repos/${options.repository}/branches/main`).catch((error) => {
+          if (error instanceof GitHubApiError && error.status === 404) throw new Error("Remote main branch is missing. Push main before releasing.");
+          throw error;
+        });
+      });
 
-  const environment = await github(token, "GET", `/repos/${options.repository}/environments/${encodeURIComponent(NPM_ENVIRONMENT)}`).catch((error) => {
-    if (error instanceof GitHubApiError && error.status === 404) throw new Error("GitHub npm environment is missing.");
-    throw error;
-  });
-  assertNpmEnvironment(environment);
+      const rulesets = await collectReadinessValue(failures, () => github(token, "GET", `/repos/${options.repository}/rulesets?includes_parents=false`));
+      if (rulesets) {
+        const mainRuleset = collectReadinessValueSync(failures, () => assertRequiredRuleset(rulesets, MAIN_RULESET_NAME, "branch"));
+        const tagRuleset = collectReadinessValueSync(failures, () => assertRequiredRuleset(rulesets, TAG_RULESET_NAME, "tag"));
+        if (mainRuleset) await collectReadinessFailure(failures, async () => assertMainRuleset(await rulesetDetails(token, options.repository, mainRuleset.id)));
+        if (tagRuleset) await collectReadinessFailure(failures, async () => assertTagRuleset(await rulesetDetails(token, options.repository, tagRuleset.id)));
+      }
+
+      await collectReadinessFailure(failures, async () => {
+        const environment = await github(token, "GET", `/repos/${options.repository}/environments/${encodeURIComponent(NPM_ENVIRONMENT)}`).catch((error) => {
+          if (error instanceof GitHubApiError && error.status === 404) throw new Error("GitHub npm environment is missing.");
+          throw error;
+        });
+        assertNpmEnvironment(environment, authenticatedLogin);
+      });
+    }
+  }
+
+  if (failures.length > 0) throw new ReleaseReadinessFailure(failures);
 
   console.log(JSON.stringify({ repository: options.repository, ok: true }, null, 2));
+}
+
+async function collectReadinessFailure(failures, fn) {
+  try {
+    await fn();
+    return true;
+  } catch (error) {
+    failures.push(error);
+    return false;
+  }
+}
+
+async function collectReadinessValue(failures, fn) {
+  try {
+    return await fn();
+  } catch (error) {
+    failures.push(error);
+    return undefined;
+  }
+}
+
+function collectReadinessValueSync(failures, fn) {
+  try {
+    return fn();
+  } catch (error) {
+    failures.push(error);
+    return undefined;
+  }
 }
 
 async function readPackageMetadata() {
@@ -193,7 +248,13 @@ function assertOAuthScopes(rawScopes) {
   }
 }
 
-function assertNpmEnvironment(environment) {
+function requiredAuthenticatedLogin(user) {
+  const login = user?.login;
+  if (typeof login !== "string" || !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(login)) throw new Error("Authenticated GitHub user response was invalid.");
+  return login;
+}
+
+function assertNpmEnvironment(environment, authenticatedLogin) {
   if (!Array.isArray(environment?.protection_rules) || environment.protection_rules.length < 1) {
     throw new Error("GitHub npm environment has no protection rules.");
   }
@@ -203,6 +264,16 @@ function assertNpmEnvironment(environment) {
   if (!Array.isArray(requiredReviewers.reviewers) || requiredReviewers.reviewers.length < 1) {
     throw new Error("GitHub npm environment required reviewers rule has no reviewers.");
   }
+  if (requiredReviewers.reviewers.length === 1 && reviewerLogin(requiredReviewers.reviewers[0])?.toLowerCase() === authenticatedLogin.toLowerCase()) {
+    throw new Error("GitHub npm environment sole required reviewer is the authenticated release operator; add another reviewer to avoid self-review deadlock.");
+  }
+}
+
+function reviewerLogin(reviewerEntry) {
+  const type = reviewerEntry?.type ?? reviewerEntry?.reviewer?.type;
+  if (type !== "User") return undefined;
+  const login = reviewerEntry?.reviewer?.login ?? reviewerEntry?.login;
+  return typeof login === "string" ? login : undefined;
 }
 
 function assertRequiredRuleset(rulesets, name, target) {
@@ -476,6 +547,13 @@ function hasUnsafeEnvText(value) {
 
 function projectRoot() {
   return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+}
+
+function readinessErrorMessages(error) {
+  if (error instanceof ReleaseReadinessFailure) {
+    return error.failures.map((failure) => readinessErrorMessage(failure));
+  }
+  return [readinessErrorMessage(error)];
 }
 
 function readinessErrorMessage(error) {

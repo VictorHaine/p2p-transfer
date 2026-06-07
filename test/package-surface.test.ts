@@ -149,6 +149,7 @@ test("package publishing config keeps provenance and reproducible dependency pin
   assert.equal(packageJson.scripts?.["smoke:native"], "node scripts/smoke-native.mjs");
   assert.equal(packageJson.scripts?.["smoke:packed"], "node scripts/smoke-packed.mjs");
   assert.equal(packageJson.scripts?.["smoke:release-artifact"], "node scripts/smoke-release-artifact.mjs");
+  assert.equal(packageJson.scripts?.["bootstrap:npm"], "node scripts/bootstrap-npm-package.mjs");
   assert.equal(packageJson.scripts?.["check:install-state"], "node scripts/check-install-state.mjs");
   assert.match(securityPolicy, /typecheck gates must explicitly run the shipping Node project config and the test project config/);
   assert.match(securityPolicy, /release dependency audits must fail on known vulnerabilities at low severity or higher/);
@@ -815,11 +816,14 @@ test("known vulnerable dependency versions cannot be reintroduced", () => {
 
 test("critical PAKE dependency identity and install surface stay reviewed", () => {
   const pakePin = packageJson.dependencies?.["@cipherman/pake-js"];
+  const curvesPin = packageJson.dependencies?.["@noble/curves"];
   assert.match(securityPolicy, /critical PAKE dependency metadata must stay reviewed and must not add install lifecycle hooks/);
   assert.match(securityPolicy, /Dependabot must track the critical `@cipherman\/pake-js` PAKE dependency in its own production update group/);
   assert.match(dependabotConfig, /critical-pake-dependency:\n\s+patterns:\n\s+- "@cipherman\/pake-js"\n\s+dependency-type: production/);
-  assert.match(dependabotConfig, /production-dependencies:\n\s+dependency-type: production\n\s+exclude-patterns:\n\s+- "@cipherman\/pake-js"/);
+  assert.match(dependabotConfig, /direct-crypto-dependency:\n\s+patterns:\n\s+- "@noble\/curves"\n\s+- "@noble\/hashes"\n\s+dependency-type: production/);
+  assert.match(dependabotConfig, /production-dependencies:\n\s+dependency-type: production\n\s+exclude-patterns:\n\s+- "@cipherman\/pake-js"\n\s+- "@noble\/curves"/);
   assert.equal(pakePin, "0.1.1");
+  assert.equal(curvesPin, "1.9.7");
   assert.equal(pakePackageJson.name, "@cipherman/pake-js");
   assert.equal(pakePackageJson.version, pakePin);
   assert.equal(pakePackageJson.license, "MIT");
@@ -882,8 +886,10 @@ test("critical PAKE dependency identity and install surface stay reviewed", () =
   assert.match(cpaceReview, /Consumer install lifecycle hooks reviewed: `preinstall`, `install`, `postinstall`, `prepare`, and `prepublish` are absent/);
   assert.match(cpaceReview, /`prepublishOnly` is present upstream but is not run during consumer installs/);
   assert.match(cpaceReview, /`strictDepBuilds: true`; `@cipherman\/pake-js` is not in `allowBuilds`/);
+  assert.match(cpaceReview, /Direct runtime dependencies reviewed: `@cipherman\/pake-js@0\.1\.1` and `@noble\/curves@1\.9\.7`/);
   assert.match(cpaceReview, /Package runtime dependency declaration reviewed: `@noble\/curves` is declared as `\^1\.6\.0` upstream/);
-  assert.match(cpaceReview, /Locked transitive crypto dependency reviewed: `@noble\/curves@1\.9\.7`, with `@noble\/hashes@1\.8\.0`/);
+  assert.match(cpaceReview, /Consumer resolution hardening reviewed: this package also declares `@noble\/curves@1\.9\.7` as a direct exact production dependency/);
+  assert.match(cpaceReview, /Locked crypto dependency reviewed: `@noble\/curves@1\.9\.7`, with `@noble\/hashes@1\.8\.0`/);
   assert.match(cpaceReview, new RegExp(`Reviewed lockfile integrity for \`@cipherman/pake-js@0\\.1\\.1\`: \`${escapeRegExp(reviewedPakeIntegrity)}\``));
   assert.match(
     cpaceReview,
@@ -900,7 +906,7 @@ test("critical PAKE dependency identity and install surface stay reviewed", () =
   assert.match(cpaceVectorTest, /__scalarMultVfy/);
   assert.match(cpaceVectorTest, /b69effbf61b51d56401c0f65601abe428de8206feaaf0e32198896dcae7b35cd2b38950a39dfd5d4a79164614c2984f7daa460b588c1e80c3fa2068af7900447/);
   assert.match(cpaceReview, /This repo does not contain a formal independent audit certificate for `@cipherman\/pake-js`/);
-  assert.match(cpaceReview, /Dependabot must keep `@cipherman\/pake-js` in the `critical-pake-dependency` production group and excluded from the bulk production dependency group/);
+  assert.match(cpaceReview, /Dependabot must keep `@cipherman\/pake-js` in the `critical-pake-dependency` production group and keep `@noble\/curves` in the direct crypto dependency group/);
   assert.match(cpaceReview, /Release verification must run `pnpm security:audit` and `pnpm security:signatures`/);
   assert.match(cpaceReview, /CPace dependency updates must update this artifact in the same change as the package pin and lockfile/);
   assert.match(cpaceReview, /Release must stop if any of these are true:/);
@@ -912,8 +918,8 @@ test("direct noble hashes dependency identity and install surface stay reviewed"
   const hashesPin = packageJson.dependencies?.["@noble/hashes"];
   assert.match(securityPolicy, /direct `@noble\/hashes` crypto dependency metadata, exports, runtime dependency declarations, lifecycle hooks, and lockfile integrity must stay reviewed/);
   assert.match(securityPolicy, /Dependabot must track it in its own production update group and exclude it from bulk production dependency groups/);
-  assert.match(dependabotConfig, /direct-crypto-dependency:\n\s+patterns:\n\s+- "@noble\/hashes"\n\s+dependency-type: production/);
-  assert.match(dependabotConfig, /production-dependencies:\n\s+dependency-type: production\n\s+exclude-patterns:\n\s+- "@cipherman\/pake-js"\n\s+- "@noble\/hashes"/);
+  assert.match(dependabotConfig, /direct-crypto-dependency:\n\s+patterns:\n\s+- "@noble\/curves"\n\s+- "@noble\/hashes"\n\s+dependency-type: production/);
+  assert.match(dependabotConfig, /production-dependencies:\n\s+dependency-type: production\n\s+exclude-patterns:\n\s+- "@cipherman\/pake-js"\n\s+- "@noble\/curves"\n\s+- "@noble\/hashes"/);
   assert.equal(hashesPin, "2.2.0");
   assert.equal(nobleHashesPackageJson.name, "@noble/hashes");
   assert.equal(nobleHashesPackageJson.version, hashesPin);
@@ -978,7 +984,7 @@ test("native WebRTC dependency identity and install surface stay reviewed", () =
   assert.match(securityPolicy, /native WebRTC dependency metadata, optional prebuilt package set, allowed build-script surface, and platform smoke coverage must stay reviewed/);
   assert.match(securityPolicy, /Dependabot must track `@roamhq\/wrtc` and `@roamhq\/wrtc-\*` in their own production update group/);
   assert.match(dependabotConfig, /native-webrtc-dependency:\n\s+patterns:\n\s+- "@roamhq\/wrtc"\n\s+- "@roamhq\/wrtc-\*"\n\s+dependency-type: production/);
-  assert.match(dependabotConfig, /production-dependencies:\n\s+dependency-type: production\n\s+exclude-patterns:\n\s+- "@cipherman\/pake-js"\n\s+- "@noble\/hashes"\n\s+- "@roamhq\/wrtc"\n\s+- "@roamhq\/wrtc-\*"/);
+  assert.match(dependabotConfig, /production-dependencies:\n\s+dependency-type: production\n\s+exclude-patterns:\n\s+- "@cipherman\/pake-js"\n\s+- "@noble\/curves"\n\s+- "@noble\/hashes"\n\s+- "@roamhq\/wrtc"\n\s+- "@roamhq\/wrtc-\*"/);
   assert.equal(wrtcPin, "0.10.0");
   assert.equal(wrtcPackageJson.name, "@roamhq/wrtc");
   assert.equal(wrtcPackageJson.version, wrtcPin);

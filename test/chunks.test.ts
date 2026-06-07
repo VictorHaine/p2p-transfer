@@ -85,6 +85,22 @@ test("signaling-message conformance vectors validate schema and canonical serial
   }
 });
 
+test("pair-request conformance vector exposes only redacted public manifest metadata", () => {
+  const pairRequest = vectors.signalingMessages.find((vector) => vector.name === "sender pair request")?.message as
+    | { type?: unknown; manifest?: unknown }
+    | undefined;
+  assert.equal(pairRequest?.type, "pair-request");
+  assert.deepEqual(pairRequest.manifest, {
+    files: [
+      { id: 0, name: "encrypted-0", size: 184320 },
+      { id: 1, name: "encrypted-1", size: 0 }
+    ],
+    fileCount: 2,
+    totalBytes: 184320
+  });
+  assert.doesNotMatch(JSON.stringify(pairRequest.manifest), /photo\.jpg|image\/jpeg/);
+});
+
 test("chunk framing rejects malformed lengths and oversized payloads", () => {
   const frame = new Uint8Array(12);
   const view = new DataView(frame.buffer);

@@ -44,8 +44,19 @@ test("GitHub release script rejects malformed repositories before artifact or gh
   assert.doesNotMatch(result.stderr, /not\/a\/repo|release artifact directory|gh:|token-that-must-not-be-used|Error:/);
 });
 
-function runScript(script: string, env: Record<string, string>) {
-  return spawnSync(process.execPath, [script], {
+test("npm bootstrap script rejects unsupported arguments before token or publish work", () => {
+  const result = runScript("scripts/bootstrap-npm-package.mjs", {
+    NPM_BOOTSTRAP_TOKEN: "token-that-must-not-be-used"
+  }, ["--apply", "--extra"]);
+
+  assert.notEqual(result.status, 0);
+  assert.equal(result.stdout, "");
+  assert.match(result.stderr, /npm bootstrap failed:\n- Usage: node scripts\/bootstrap-npm-package\.mjs \[--dry-run\|--apply\]/);
+  assert.doesNotMatch(result.stderr, /token-that-must-not-be-used|npm registry|publish|Error:/);
+});
+
+function runScript(script: string, env: Record<string, string>, args: string[] = []) {
+  return spawnSync(process.execPath, [script, ...args], {
     cwd: root,
     encoding: "utf8",
     env: {

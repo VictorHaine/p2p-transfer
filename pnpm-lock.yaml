@@ -15,6 +15,9 @@ importers:
       '@cipherman/pake-js':
         specifier: 0.1.1
         version: 0.1.1
+      '@noble/curves':
+        specifier: 1.9.7
+        version: 1.9.7
       '@noble/hashes':
         specifier: 2.2.0
         version: 2.2.0

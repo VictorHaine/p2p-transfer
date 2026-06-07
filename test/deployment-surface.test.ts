@@ -28,6 +28,7 @@ const releaseSbomScript = fs.readFileSync(new URL("../scripts/write-release-sbom
 const releaseNotesScript = fs.readFileSync(new URL("../scripts/write-release-notes.mjs", import.meta.url), "utf8");
 const githubReleaseControlsScript = fs.readFileSync(new URL("../scripts/configure-github-release-controls.mjs", import.meta.url), "utf8");
 const releaseReadinessScript = fs.readFileSync(new URL("../scripts/check-release-readiness.mjs", import.meta.url), "utf8");
+const npmBootstrapScript = fs.readFileSync(new URL("../scripts/bootstrap-npm-package.mjs", import.meta.url), "utf8");
 const dockerPolicySmokeScript = fs.readFileSync(new URL("../scripts/smoke-docker-policy.mjs", import.meta.url), "utf8");
 const dependabotConfig = fs.readFileSync(new URL("../.github/dependabot.yml", import.meta.url), "utf8");
 const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
@@ -456,16 +457,45 @@ test("checked GitHub release controls setup matches the protected release surfac
 
 test("release preflight checks external GitHub release prerequisites", () => {
   assert.equal(packageJson.scripts?.["release:preflight"], "node scripts/check-release-readiness.mjs");
+  assert.equal(packageJson.scripts?.["bootstrap:npm"], "node scripts/bootstrap-npm-package.mjs");
   assert.match(readme, /gh auth refresh -h github\.com -s workflow/);
   assert.match(readme, /GITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
   assert.match(contributing, /pnpm exec playwright install --with-deps chromium\npnpm verify:release\ngh auth refresh -h github\.com -s workflow\nGITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
   assert.match(securityPolicy, /local release preflight must fail before tagging when the npm package is missing, the target npm version already exists, the GitHub token lacks `workflow` scope/);
+  assert.match(securityPolicy, /GitHub `npm` environment lacks required reviewers, allows self-review, or has the authenticated release operator as its sole required reviewer/);
+  assert.match(securityPolicy, /first-time npm package bootstrap must use the checked bootstrap script, publish only the minimal temporary `0\.0\.0-bootstrap\.0` package from a private temporary directory/);
+  assert.match(securityPolicy, /must not mutate workspace package metadata, publish the real release artifact, or appear in the trusted release workflow/);
   assert.match(securityPolicy, /branch\/tag rulesets have ref exclusions, unexpected or duplicate rules, or unexpected bypass actors/);
   assert.match(securityPolicy, /release workflow preflight must run before dependency install through the checked Node script with an explicit `RELEASE_PREFLIGHT_TOKEN` secret/);
   assert.match(securityPolicy, /must still verify the npm package exists without the target version, remote `main`, rulesets/);
   assert.match(securityPolicy, /exact bypass policy including bypass actors, required status checks, and the npm environment approval gate before packaging/);
   assert.match(readme, /verifies the npm package already exists and the target version has not been published/);
+  assert.match(readme, /pnpm bootstrap:npm --dry-run/);
+  assert.match(readme, /NPM_BOOTSTRAP_TOKEN=<one-time-npm-token> pnpm bootstrap:npm --apply/);
+  assert.match(readme, /The helper publishes only a minimal temporary `0\.0\.0-bootstrap\.0` package from a private temp directory/);
+  assert.match(readme, /ensure the `npm` environment has at least one reviewer other than the person or token owner that will push the release tag/);
+  assert.doesNotMatch(releaseWorkflow, /bootstrap-npm-package|bootstrap:npm|NPM_BOOTSTRAP_TOKEN/);
+  assert.match(npmBootstrapScript, /const BOOTSTRAP_VERSION = "0\.0\.0-bootstrap\.0"/);
+  assert.match(npmBootstrapScript, /const EXPECTED_REPOSITORY_URL = "git\+https:\/\/github\.com\/VictorHaine\/p2p-transfer\.git"/);
+  assert.match(npmBootstrapScript, /if \(workspace\.version === BOOTSTRAP_VERSION\) throw new Error\("workspace package version must not be the bootstrap version\."\)/);
+  assert.match(npmBootstrapScript, /if \(await npmPackageExists\(workspace\.name\)\) throw new Error\("npm package already exists; do not run bootstrap\."\)/);
+  assert.match(npmBootstrapScript, /if \(!options\.apply\) \{/);
+  assert.match(npmBootstrapScript, /const token = envString\("NPM_BOOTSTRAP_TOKEN"\)/);
+  assert.match(npmBootstrapScript, /if \(envString\("NODE_AUTH_TOKEN"\) \|\| envString\("NPM_TOKEN"\)\) throw new Error\("Use only NPM_BOOTSTRAP_TOKEN for bootstrap publishing\."\)/);
+  assert.match(npmBootstrapScript, /await mkdtemp\(path\.join\(tmpdir\(\), "ff-npm-bootstrap-"\)\)/);
+  assert.match(npmBootstrapScript, /await writeBootstrapPackage\(packageDir, workspace\)/);
+  assert.match(npmBootstrapScript, /\["--config\.ignore-scripts=true", "publish", "--access", "public", "--no-git-checks", "--registry", NPM_REGISTRY\]/);
+  assert.doesNotMatch(npmBootstrapScript, /writeFile\(path\.join\(root, "package\.json"\)|pnpm, \["publish"\], \{ cwd: root/);
   assert.match(releaseReadinessScript, /const REQUIRED_OAUTH_SCOPES = \["repo", "workflow"\]/);
+  assert.match(releaseReadinessScript, /class ReleaseReadinessFailure extends Error/);
+  assert.match(releaseReadinessScript, /const failures = \[\]/);
+  assert.match(releaseReadinessScript, /await collectReadinessFailure\(failures, async \(\) => \{/);
+  assert.match(releaseReadinessScript, /const token = await collectReadinessValue\(failures, \(\) => githubToken\(\)\)/);
+  assert.match(releaseReadinessScript, /let authenticatedLogin/);
+  assert.match(releaseReadinessScript, /authenticatedLogin = requiredAuthenticatedLogin\(auth\.data\)/);
+  assert.match(releaseReadinessScript, /if \(failures\.length > 0\) throw new ReleaseReadinessFailure\(failures\)/);
+  assert.match(releaseReadinessScript, /function readinessErrorMessages\(error\)/);
+  assert.match(releaseReadinessScript, /return error\.failures\.map\(\(failure\) => readinessErrorMessage\(failure\)\)/);
   assert.match(releaseReadinessScript, /const NPM_REGISTRY = "https:\/\/registry\.npmjs\.org"/);
   assert.match(releaseReadinessScript, /const MAX_PACKAGE_JSON_BYTES = 128 \* 1024/);
   assert.match(releaseReadinessScript, /const MAX_NPM_REGISTRY_RESPONSE_BYTES = 1024 \* 1024/);
@@ -540,11 +570,13 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /function assertTagBypassActors\(ruleset, name\)/);
   assert.match(releaseReadinessScript, /bypass\.length !== 1/);
   assert.match(releaseReadinessScript, /actor\?\.actor_id !== REPOSITORY_ADMIN_ROLE_BYPASS_ACTOR_ID/);
-  assert.match(releaseReadinessScript, /function assertNpmEnvironment\(environment\)/);
+  assert.match(releaseReadinessScript, /function assertNpmEnvironment\(environment, authenticatedLogin\)/);
   assert.match(releaseReadinessScript, /GitHub npm environment has no protection rules\./);
   assert.match(releaseReadinessScript, /GitHub npm environment has no required reviewers protection rule\./);
   assert.match(releaseReadinessScript, /GitHub npm environment must prevent self-review\./);
   assert.match(releaseReadinessScript, /GitHub npm environment required reviewers rule has no reviewers\./);
+  assert.match(releaseReadinessScript, /GitHub npm environment sole required reviewer is the authenticated release operator/);
+  assert.match(releaseReadinessScript, /function reviewerLogin\(reviewerEntry\)/);
   assert.match(releaseReadinessScript, /realpathSync\(process\.argv\[1\]\) === realpathSync\(fileURLToPath\(import\.meta\.url\)\)/);
   assert.doesNotMatch(releaseReadinessScript, /NPM_TOKEN|NODE_AUTH_TOKEN|npm publish|git tag/);
 });
@@ -876,7 +908,7 @@ test("server deployment policy requires an explicit in-memory signaling topology
   assert.match(readme, /Local browser smoke run, deliberately allowing the loopback HTTP origin:[\s\S]*ALLOW_INSECURE_ORIGINS=true/);
   assert.match(readme, /The signaling server defaults to `PORT=8787`; if `PORT` is set, it must be a fixed integer between 1 and 65535/);
   assert.match(readme, /Install Chromium with `pnpm exec playwright install --with-deps chromium`/);
-  assert.match(readme, /bootstrap publish of a lower throwaway version such as `0\.0\.0-bootstrap\.0`/);
+  assert.match(readme, /checked one-time bootstrap helper[\s\S]*0\.0\.0-bootstrap\.0/);
   assert.match(readme, /Do not bootstrap `0\.1\.0` if the tag workflow is expected to publish `v0\.1\.0`; npm versions cannot be reused/);
 });
 
@@ -904,7 +936,7 @@ test("README reports implemented release capabilities without stale MVP-gap lang
   assert.match(readme, /saved opaque partial record and browser-held lookup key/);
   assert.match(readme, /scrub legacy metadata-bearing resume records/);
   assert.doesNotMatch(readme, /saved tokenized partial record/);
-  assert.match(readme, /The conformance fixture covers chunk framing, encrypted transfer control messages including resume offsets, canonical signaling-message serialization, PAKE confirmation tags, SDP offer\/answer authentication, and ICE candidate authentication including username fragments/);
+  assert.match(readme, /The conformance fixture covers chunk framing, transfer control-message schemas used inside the encrypted channel including resume offsets, canonical signaling-message serialization, PAKE confirmation tags, SDP offer\/answer authentication, and ICE candidate authentication including username fragments/);
 });
 
 test("interop tests run the signaling server behind an explicit origin policy", () => {
