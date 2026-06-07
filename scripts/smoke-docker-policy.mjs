@@ -166,8 +166,6 @@ export function safeChildEnv() {
     ["SYSTEMROOT", false],
     ["COMSPEC", false],
     ["PATHEXT", false],
-    ["DOCKER_HOST", false],
-    ["DOCKER_CONTEXT", false],
     ["DOCKER_BUILDKIT", false],
     ["BUILDKIT_PROGRESS", false],
     [VERBOSE_ENV, false]

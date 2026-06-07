@@ -7,8 +7,21 @@ const DEFAULT_REPOSITORY = "VictorHaine/p2p-transfer";
 const MAIN_RULESET_NAME = "p2p-transfer: protect main";
 const TAG_RULESET_NAME = "p2p-transfer: protect release tags";
 const NPM_ENVIRONMENT = "npm";
+const REPOSITORY_ADMIN_ROLE_BYPASS_ACTOR_ID = 5;
 const REQUIRED_OAUTH_SCOPES = ["repo", "workflow"];
+const REQUIRED_CI_CHECKS = [
+  "verify",
+  "browser interop",
+  "production docker policy",
+  "platform smoke / ubuntu-24.04 / node 22.22.3",
+  "platform smoke / ubuntu-24.04 / node 24.13.1",
+  "platform smoke / macos-15 / node 22.22.3",
+  "platform smoke / macos-15 / node 24.13.1",
+  "platform smoke / windows-2025 / node 22.22.3",
+  "platform smoke / windows-2025 / node 24.13.1"
+];
 const MAX_ENV_VALUE_BYTES = 4_096;
+const GITHUB_API_TIMEOUT_MS = 30_000;
 const REPOSITORY_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 
 class GitHubApiError extends Error {
@@ -41,8 +54,10 @@ async function main() {
   });
 
   const rulesets = await github(token, "GET", `/repos/${options.repository}/rulesets?includes_parents=false`);
-  assertRequiredRuleset(rulesets, MAIN_RULESET_NAME, "branch");
-  assertRequiredRuleset(rulesets, TAG_RULESET_NAME, "tag");
+  const mainRuleset = assertRequiredRuleset(rulesets, MAIN_RULESET_NAME, "branch");
+  const tagRuleset = assertRequiredRuleset(rulesets, TAG_RULESET_NAME, "tag");
+  assertMainRuleset(await rulesetDetails(token, options.repository, mainRuleset.id));
+  assertTagRuleset(await rulesetDetails(token, options.repository, tagRuleset.id));
 
   const environment = await github(token, "GET", `/repos/${options.repository}/environments/${encodeURIComponent(NPM_ENVIRONMENT)}`).catch((error) => {
     if (error instanceof GitHubApiError && error.status === 404) throw new Error("GitHub npm environment is missing.");
@@ -75,6 +90,81 @@ function assertRequiredRuleset(rulesets, name, target) {
   const ruleset = rulesets.find((candidate) => candidate?.name === name);
   if (!ruleset) throw new Error(`GitHub ruleset is missing: ${name}.`);
   if (ruleset.target !== target || ruleset.enforcement !== "active") throw new Error(`GitHub ruleset is not active for ${target}: ${name}.`);
+  if (typeof ruleset.id !== "number") throw new Error(`GitHub ruleset response is missing id: ${name}.`);
+  return ruleset;
+}
+
+async function rulesetDetails(token, repository, id) {
+  return github(token, "GET", `/repos/${repository}/rulesets/${id}`);
+}
+
+function assertMainRuleset(ruleset) {
+  assertRulesetBase(ruleset, MAIN_RULESET_NAME, "branch", "refs/heads/main");
+  const rules = rulesByType(ruleset);
+  assertRulePresent(rules, "deletion", MAIN_RULESET_NAME);
+  assertRulePresent(rules, "non_fast_forward", MAIN_RULESET_NAME);
+  const pullRequest = assertRulePresent(rules, "pull_request", MAIN_RULESET_NAME);
+  const pullRequestParameters = parameters(pullRequest, MAIN_RULESET_NAME, "pull_request");
+  assertArrayIncludesExactly(pullRequestParameters.allowed_merge_methods, ["squash", "rebase"], `${MAIN_RULESET_NAME} pull request allowed merge methods`);
+  assertBoolean(pullRequestParameters.dismiss_stale_reviews_on_push, true, `${MAIN_RULESET_NAME} stale review dismissal`);
+  assertBoolean(pullRequestParameters.require_code_owner_review, true, `${MAIN_RULESET_NAME} code owner review`);
+  assertBoolean(pullRequestParameters.require_last_push_approval, true, `${MAIN_RULESET_NAME} last push approval`);
+  assertBoolean(pullRequestParameters.required_review_thread_resolution, true, `${MAIN_RULESET_NAME} review thread resolution`);
+  if (pullRequestParameters.required_approving_review_count !== 1) throw new Error(`${MAIN_RULESET_NAME} approving review count is not enforced.`);
+  const statusChecks = assertRulePresent(rules, "required_status_checks", MAIN_RULESET_NAME);
+  const statusParameters = parameters(statusChecks, MAIN_RULESET_NAME, "required_status_checks");
+  assertBoolean(statusParameters.strict_required_status_checks_policy, true, `${MAIN_RULESET_NAME} strict status checks`);
+  assertStatusContexts(statusParameters.required_status_checks, REQUIRED_CI_CHECKS, MAIN_RULESET_NAME);
+}
+
+function assertTagRuleset(ruleset) {
+  assertRulesetBase(ruleset, TAG_RULESET_NAME, "tag", "refs/tags/v*");
+  const rules = rulesByType(ruleset);
+  assertRulePresent(rules, "creation", TAG_RULESET_NAME);
+  assertRulePresent(rules, "deletion", TAG_RULESET_NAME);
+  assertRulePresent(rules, "non_fast_forward", TAG_RULESET_NAME);
+  const bypass = Array.isArray(ruleset?.bypass_actors) ? ruleset.bypass_actors : [];
+  const adminBypass = bypass.find((actor) => actor?.actor_type === "RepositoryRole" && actor?.actor_id === REPOSITORY_ADMIN_ROLE_BYPASS_ACTOR_ID && actor?.bypass_mode === "always");
+  if (!adminBypass) throw new Error(`${TAG_RULESET_NAME} admin bypass policy is not configured.`);
+}
+
+function assertRulesetBase(ruleset, name, target, refName) {
+  if (!ruleset || typeof ruleset !== "object") throw new Error(`GitHub ruleset details are invalid: ${name}.`);
+  if (ruleset.name !== name || ruleset.target !== target || ruleset.enforcement !== "active") throw new Error(`GitHub ruleset details are not active for ${target}: ${name}.`);
+  const includes = ruleset.conditions?.ref_name?.include;
+  if (!Array.isArray(includes) || !includes.includes(refName)) throw new Error(`GitHub ruleset does not protect ${refName}: ${name}.`);
+}
+
+function rulesByType(ruleset) {
+  if (!Array.isArray(ruleset?.rules)) throw new Error(`GitHub ruleset has no rules: ${ruleset?.name ?? "unknown"}.`);
+  return new Map(ruleset.rules.map((rule) => [rule?.type, rule]));
+}
+
+function assertRulePresent(rules, type, name) {
+  const rule = rules.get(type);
+  if (!rule) throw new Error(`${name} is missing ${type} rule.`);
+  return rule;
+}
+
+function parameters(rule, name, type) {
+  if (!rule.parameters || typeof rule.parameters !== "object") throw new Error(`${name} ${type} rule parameters are invalid.`);
+  return rule.parameters;
+}
+
+function assertArrayIncludesExactly(actual, expected, description) {
+  if (!Array.isArray(actual) || actual.length !== expected.length || !expected.every((value) => actual.includes(value))) {
+    throw new Error(`${description} are not enforced.`);
+  }
+}
+
+function assertBoolean(actual, expected, description) {
+  if (actual !== expected) throw new Error(`${description} is not enforced.`);
+}
+
+function assertStatusContexts(actual, expected, name) {
+  if (!Array.isArray(actual)) throw new Error(`${name} required status checks are invalid.`);
+  const contexts = actual.map((entry) => entry?.context).filter((context) => typeof context === "string");
+  assertArrayIncludesExactly(contexts, expected, `${name} required status checks`);
 }
 
 async function github(token, method, path, body) {
@@ -82,20 +172,35 @@ async function github(token, method, path, body) {
 }
 
 async function githubWithHeaders(token, method, path, body) {
-  const response = await fetch(`${API}${path}`, {
-    method,
-    headers: {
-      accept: "application/vnd.github+json",
-      authorization: `Bearer ${token}`,
-      "content-type": "application/json",
-      "x-github-api-version": "2022-11-28"
-    },
-    body: body === undefined ? undefined : JSON.stringify(body)
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), GITHUB_API_TIMEOUT_MS);
+  let response;
+  try {
+    response = await fetch(`${API}${path}`, {
+      method,
+      headers: {
+        accept: "application/vnd.github+json",
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+        "x-github-api-version": "2022-11-28"
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: controller.signal
+    });
+  } catch (error) {
+    if (isAbortError(error)) throw new Error("GitHub API request timed out.");
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
   const text = await response.text();
   const data = text.length > 0 ? JSON.parse(text) : undefined;
   if (!response.ok) throw new GitHubApiError(response.status, data);
   return { data, headers: response.headers };
+}
+
+function isAbortError(error) {
+  return error instanceof Error && error.name === "AbortError";
 }
 
 function githubApiErrorMessage(status, data) {

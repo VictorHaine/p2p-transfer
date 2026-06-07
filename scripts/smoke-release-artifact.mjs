@@ -9,6 +9,7 @@ import { safeChildEnv } from "./smoke-packed.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const artifactDir = path.join(root, "release-artifacts");
 const MAX_PACKAGE_JSON_BYTES = 128 * 1024;
+const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 
 if (isMain()) {
   try {
@@ -25,7 +26,7 @@ async function main() {
   const version = requiredVersion(packageJson.version);
   await rm(artifactDir, { recursive: true, force: true });
   try {
-    run("pnpm", ["--config.ignore-scripts=true", "pack", "--pack-destination", "release-artifacts"], {});
+    run(pnpm, ["--config.ignore-scripts=true", "pack", "--pack-destination", "release-artifacts"], {});
     run(process.execPath, ["scripts/write-release-checksum.mjs"], {});
     run(process.execPath, ["scripts/verify-release-artifact.mjs"], { GITHUB_REF_NAME: `v${version}` });
   } finally {

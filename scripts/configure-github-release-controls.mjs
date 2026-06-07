@@ -10,6 +10,7 @@ const NPM_ENVIRONMENT = "npm";
 const REPOSITORY_ADMIN_ROLE_BYPASS_ACTOR_ID = 5;
 const MAX_NPM_ENVIRONMENT_REVIEWERS = 6;
 const MAX_ENV_VALUE_BYTES = 4_096;
+const GITHUB_API_TIMEOUT_MS = 30_000;
 const REPOSITORY_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 
 const REQUIRED_CI_CHECKS = [
@@ -166,20 +167,35 @@ function environmentStatus(environment) {
 }
 
 async function github(token, method, path, body) {
-  const response = await fetch(`${API}${path}`, {
-    method,
-    headers: {
-      accept: "application/vnd.github+json",
-      authorization: `Bearer ${token}`,
-      "content-type": "application/json",
-      "x-github-api-version": "2022-11-28"
-    },
-    body: body === undefined ? undefined : JSON.stringify(body)
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), GITHUB_API_TIMEOUT_MS);
+  let response;
+  try {
+    response = await fetch(`${API}${path}`, {
+      method,
+      headers: {
+        accept: "application/vnd.github+json",
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+        "x-github-api-version": "2022-11-28"
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: controller.signal
+    });
+  } catch (error) {
+    if (isAbortError(error)) throw new Error("GitHub API request timed out.");
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
   const text = await response.text();
   const data = text.length > 0 ? JSON.parse(text) : undefined;
   if (!response.ok) throw new GitHubApiError(response.status, data);
   return data;
+}
+
+function isAbortError(error) {
+  return error instanceof Error && error.name === "AbortError";
 }
 
 function githubApiErrorMessage(status, data) {

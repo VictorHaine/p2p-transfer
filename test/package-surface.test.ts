@@ -394,8 +394,8 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.match(dockerPolicySmokeScript, /Set \$\{VERBOSE_ENV\}=1 to print command output/);
   assert.match(dockerPolicySmokeScript, /export function safeChildEnv\(\)/);
   assert.match(dockerPolicySmokeScript, /\["PATH", true\]/);
-  assert.match(dockerPolicySmokeScript, /\["DOCKER_HOST", false\]/);
-  assert.match(dockerPolicySmokeScript, /\["DOCKER_CONTEXT", false\]/);
+  assert.doesNotMatch(dockerPolicySmokeScript, /"DOCKER_HOST"/);
+  assert.doesNotMatch(dockerPolicySmokeScript, /"DOCKER_CONTEXT"/);
   assert.match(dockerPolicySmokeScript, /function createIsolatedDockerConfig\(\)/);
   assert.match(dockerPolicySmokeScript, /mkdtempSync\(path\.join\(tmpdir\(\), "p2p-transfer-docker-"\)\)/);
   assert.match(dockerPolicySmokeScript, /writeFileSync\(path\.join\(dir, "config\.json"\), JSON\.stringify\(\{ auths: \{\} \}\), \{ mode: 0o600 \}\)/);
@@ -406,6 +406,8 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.doesNotMatch(dockerPolicySmokeScript, /timer\.unref\?\.\(\)/);
   assert.doesNotMatch(dockerPolicySmokeScript, /env: \{ \.\.\.process\.env/);
   assert.match(securityPolicy, /Docker policy smoke subprocesses must run with a minimal allowlisted environment/);
+  assert.match(securityPolicy, /`DOCKER_HOST`, or `DOCKER_CONTEXT`/);
+  assert.match(securityPolicy, /send the release build context to a caller-configured remote Docker daemon/);
   assert.match(securityPolicy, /temporary `DOCKER_CONFIG` containing no credential helper or registry credentials/);
   assert.doesNotMatch(ciWorkflow, /\bnpm\s+(?:install|ci|publish)\b|npx\b/);
 });
@@ -424,7 +426,8 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseWorkflow, /Verify release tag is on main[\s\S]*git fetch --no-tags --prune origin \+refs\/heads\/main:refs\/remotes\/origin\/main[\s\S]*git merge-base --is-ancestor "\$GITHUB_SHA" origin\/main/);
   assert.match(releaseWorkflow, /pnpm install --frozen-lockfile/);
   assert.match(packageJson.scripts?.["verify:release"] ?? "", /pnpm smoke:packed && pnpm smoke:release-artifact && pnpm test:e2e/);
-  assert.match(releaseArtifactSmokeScript, /"pnpm", \["--config\.ignore-scripts=true", "pack", "--pack-destination", "release-artifacts"\]/);
+  assert.match(releaseArtifactSmokeScript, /const pnpm = process\.platform === "win32" \? "pnpm\.cmd" : "pnpm"/);
+  assert.match(releaseArtifactSmokeScript, /run\(pnpm, \["--config\.ignore-scripts=true", "pack", "--pack-destination", "release-artifacts"\]/);
   assert.match(releaseArtifactSmokeScript, /"scripts\/write-release-checksum\.mjs"/);
   assert.match(releaseArtifactSmokeScript, /"scripts\/verify-release-artifact\.mjs"/);
   assert.match(releaseArtifactSmokeScript, /GITHUB_REF_NAME: `v\$\{version\}`/);

@@ -339,7 +339,13 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(readme, /refuses to mutate repository rulesets if the `npm` environment still has no protection rules/);
   assert.match(securityPolicy, /setup script must be able to create or update the `npm` environment approval gate from explicit reviewers/);
   assert.match(securityPolicy, /setup script must[\s\S]*fail before mutating repository rulesets when the `npm` environment is missing approval protection/);
-  assert.match(securityPolicy, /GitHub release setup and release preflight scripts must read token and repository environment variables through own data descriptors/);
+  assert.match(securityPolicy, /GitHub release setup and release preflight scripts must read token and repository environment variables through own data descriptors[\s\S]*send GitHub API requests with an abort deadline/);
+  assert.match(githubReleaseControlsScript, /const GITHUB_API_TIMEOUT_MS = 30_000/);
+  assert.match(githubReleaseControlsScript, /const controller = new AbortController\(\)/);
+  assert.match(githubReleaseControlsScript, /const timer = setTimeout\(\(\) => controller\.abort\(\), GITHUB_API_TIMEOUT_MS\)/);
+  assert.match(githubReleaseControlsScript, /signal: controller\.signal/);
+  assert.match(githubReleaseControlsScript, /clearTimeout\(timer\)/);
+  assert.match(githubReleaseControlsScript, /GitHub API request timed out\./);
 });
 
 test("release preflight checks external GitHub release prerequisites", () => {
@@ -353,6 +359,12 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /function githubToken\(\)/);
   assert.match(releaseReadinessScript, /Object\.getOwnPropertyDescriptor\(process\.env, name\)/);
   assert.match(releaseReadinessScript, /\$\{name\} must be a non-empty control-free string under/);
+  assert.match(releaseReadinessScript, /const GITHUB_API_TIMEOUT_MS = 30_000/);
+  assert.match(releaseReadinessScript, /const controller = new AbortController\(\)/);
+  assert.match(releaseReadinessScript, /const timer = setTimeout\(\(\) => controller\.abort\(\), GITHUB_API_TIMEOUT_MS\)/);
+  assert.match(releaseReadinessScript, /signal: controller\.signal/);
+  assert.match(releaseReadinessScript, /clearTimeout\(timer\)/);
+  assert.match(releaseReadinessScript, /GitHub API request timed out\./);
   assert.doesNotMatch(releaseReadinessScript, /process\.env\.GITHUB_TOKEN|process\.env\.GH_TOKEN|process\.env\.GITHUB_REPOSITORY/);
   assert.match(releaseReadinessScript, /headers\.get\("x-oauth-scopes"\)/);
   assert.match(releaseReadinessScript, /GitHub token is missing \$\{scope\} scope\.\$\{refresh\}/);
@@ -362,6 +374,21 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /assertRequiredRuleset\(rulesets, MAIN_RULESET_NAME, "branch"\)/);
   assert.match(releaseReadinessScript, /assertRequiredRuleset\(rulesets, TAG_RULESET_NAME, "tag"\)/);
   assert.match(releaseReadinessScript, /ruleset\.target !== target \|\| ruleset\.enforcement !== "active"/);
+  assert.match(releaseReadinessScript, /rulesetDetails\(token, options\.repository, mainRuleset\.id\)/);
+  assert.match(releaseReadinessScript, /rulesetDetails\(token, options\.repository, tagRuleset\.id\)/);
+  assert.match(releaseReadinessScript, /function assertMainRuleset\(ruleset\)/);
+  assert.match(releaseReadinessScript, /assertRulesetBase\(ruleset, MAIN_RULESET_NAME, "branch", "refs\/heads\/main"\)/);
+  assert.match(releaseReadinessScript, /assertRulePresent\(rules, "deletion", MAIN_RULESET_NAME\)/);
+  assert.match(releaseReadinessScript, /assertRulePresent\(rules, "non_fast_forward", MAIN_RULESET_NAME\)/);
+  assert.match(releaseReadinessScript, /assertRulePresent\(rules, "pull_request", MAIN_RULESET_NAME\)/);
+  assert.match(releaseReadinessScript, /assertBoolean\(pullRequestParameters\.require_code_owner_review, true/);
+  assert.match(releaseReadinessScript, /assertBoolean\(pullRequestParameters\.require_last_push_approval, true/);
+  assert.match(releaseReadinessScript, /pullRequestParameters\.required_approving_review_count !== 1/);
+  assert.match(releaseReadinessScript, /assertStatusContexts\(statusParameters\.required_status_checks, REQUIRED_CI_CHECKS, MAIN_RULESET_NAME\)/);
+  assert.match(releaseReadinessScript, /function assertTagRuleset\(ruleset\)/);
+  assert.match(releaseReadinessScript, /assertRulesetBase\(ruleset, TAG_RULESET_NAME, "tag", "refs\/tags\/v\*"\)/);
+  assert.match(releaseReadinessScript, /assertRulePresent\(rules, "creation", TAG_RULESET_NAME\)/);
+  assert.match(releaseReadinessScript, /actor_id === REPOSITORY_ADMIN_ROLE_BYPASS_ACTOR_ID/);
   assert.match(releaseReadinessScript, /GitHub npm environment has no protection rules\./);
   assert.match(releaseReadinessScript, /realpathSync\(process\.argv\[1\]\) === realpathSync\(fileURLToPath\(import\.meta\.url\)\)/);
   assert.doesNotMatch(releaseReadinessScript, /NPM_TOKEN|NODE_AUTH_TOKEN|npm publish|git tag/);
