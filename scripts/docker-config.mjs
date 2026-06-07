@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 
@@ -82,15 +82,33 @@ function readJsonFile(file, maxBytes) {
     return undefined;
   }
   if (!info.isFile() || info.size < 1 || info.size > maxBytes) return undefined;
-  let text;
+  let fd;
   try {
-    text = readFileSync(file, "utf8");
-  } catch {
-    return undefined;
-  }
-  try {
+    fd = openSync(file, constants.O_RDONLY | noFollowFlag());
+    const opened = fstatSync(fd);
+    if (!opened.isFile() || !sameFile(info, opened)) return undefined;
+    const bytes = Buffer.allocUnsafe(opened.size);
+    let offset = 0;
+    while (offset < opened.size) {
+      const bytesRead = readSync(fd, bytes, offset, opened.size - offset, offset);
+      if (bytesRead === 0) break;
+      offset += bytesRead;
+    }
+    if (offset !== opened.size) return undefined;
+    if (!sameFile(opened, fstatSync(fd))) return undefined;
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     return JSON.parse(text);
   } catch {
     return undefined;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
   }
+}
+
+function sameFile(left, right) {
+  return left.dev === right.dev && left.ino === right.ino && left.size === right.size && left.mtimeMs === right.mtimeMs && left.ctimeMs === right.ctimeMs;
+}
+
+function noFollowFlag() {
+  return typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0;
 }

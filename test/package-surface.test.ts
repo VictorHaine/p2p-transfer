@@ -621,6 +621,11 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.match(dockerConfigScript, /if \(host\.startsWith\("unix:\/\/"\)\) return path\.isAbsolute\(host\.slice\("unix:\/\/"\.length\)\)/);
   assert.match(dockerConfigScript, /npipe:[\s\S]*docker_engine/);
   assert.match(dockerConfigScript, /if \(metadata\.TLSMaterial && Object\.keys\(metadata\.TLSMaterial\)\.length > 0\) return undefined/);
+  assert.match(dockerConfigScript, /openSync\(file, constants\.O_RDONLY \| noFollowFlag\(\)\)/);
+  assert.match(dockerConfigScript, /if \(!opened\.isFile\(\) \|\| !sameFile\(info, opened\)\) return undefined/);
+  assert.match(dockerConfigScript, /if \(!sameFile\(opened, fstatSync\(fd\)\)\) return undefined/);
+  assert.match(dockerConfigScript, /new TextDecoder\("utf-8", \{ fatal: true \}\)\.decode\(bytes\)/);
+  assert.doesNotMatch(dockerConfigScript, /readFileSync/);
   assert.doesNotMatch(dockerConfigScript, /tcp:\/\/|ssh:\/\/|https:\/\//);
   assert.match(dockerPolicySmokeScript, /const dockerEnv = \{ DOCKER_CONFIG: dockerConfigDir \}/);
   assert.match(dockerPolicySmokeScript, /rmSync\(dockerConfigDir, \{ recursive: true, force: true \}\)/);
@@ -643,6 +648,7 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.match(securityPolicy, /`DOCKER_HOST`, or `DOCKER_CONTEXT`/);
   assert.match(securityPolicy, /send the release build context to a caller-configured remote Docker daemon/);
   assert.match(securityPolicy, /temporary 0700 `DOCKER_CONFIG` containing no credential helper or registry credentials/);
+  assert.match(securityPolicy, /byte-cap, no-follow-open, identity-check, handle-read, and fatal-UTF-8-decode that source Docker config\/context metadata/);
   assert.doesNotMatch(ciWorkflow, /\bnpm\s+(?:install|ci|publish)\b|npx\b/);
 });
 

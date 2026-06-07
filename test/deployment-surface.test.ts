@@ -384,7 +384,13 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(dockerConfigScript, /currentContext: localContext\.name/);
   assert.match(dockerConfigScript, /function isLocalDockerHost\(host\)/);
   assert.match(dockerConfigScript, /path\.isAbsolute\(host\.slice\("unix:\/\/"\.length\)\)/);
+  assert.match(dockerConfigScript, /openSync\(file, constants\.O_RDONLY \| noFollowFlag\(\)\)/);
+  assert.match(dockerConfigScript, /if \(!opened\.isFile\(\) \|\| !sameFile\(info, opened\)\) return undefined/);
+  assert.match(dockerConfigScript, /if \(!sameFile\(opened, fstatSync\(fd\)\)\) return undefined/);
+  assert.match(dockerConfigScript, /new TextDecoder\("utf-8", \{ fatal: true \}\)\.decode\(bytes\)/);
+  assert.doesNotMatch(dockerConfigScript, /readFileSync/);
   assert.match(securityPolicy, /release Docker publishing must read package metadata through no-follow regular-file opens with exact-size handle reads and pre\/post-read identity checks/);
+  assert.match(securityPolicy, /byte-cap, no-follow-open, identity-check, handle-read, and fatal-UTF-8-decode that source Docker config\/context metadata/);
   assert.match(securityPolicy, /emit the digest through checked `GITHUB_OUTPUT` no-follow regular-file appends with size and identity checks/);
   assert.match(dockerPublishScript, /const MAX_GITHUB_OUTPUT_BYTES = 1024 \* 1024/);
   assert.match(dockerPublishScript, /await open\(file, constants\.O_WRONLY \| constants\.O_APPEND \| \(constants\.O_NOFOLLOW \?\? 0\)\)/);
