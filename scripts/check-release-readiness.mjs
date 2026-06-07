@@ -10,6 +10,7 @@ const DEFAULT_REPOSITORY = "VictorHaine/p2p-transfer";
 const MAIN_RULESET_NAME = "p2p-transfer: protect main";
 const TAG_RULESET_NAME = "p2p-transfer: protect release tags";
 const NPM_ENVIRONMENT = "npm";
+const NPM_DEPLOYMENT_TAG_POLICY = "v*.*.*";
 const REPOSITORY_ADMIN_ROLE_BYPASS_ACTOR_ID = 5;
 const GITHUB_ACTIONS_INTEGRATION_ID = 15368;
 const REQUIRED_OAUTH_SCOPES = ["repo", "workflow"];
@@ -119,6 +120,7 @@ async function collectGitHubRepositoryReadiness(failures, token, repository, aut
       throw error;
     });
     assertNpmEnvironment(environment, authenticatedLogin);
+    await assertNpmDeploymentPolicies(await github(token, "GET", `/repos/${repository}/environments/${encodeURIComponent(NPM_ENVIRONMENT)}/deployment-branch-policies?per_page=100`));
   });
 }
 
@@ -286,11 +288,26 @@ function assertNpmEnvironment(environment, authenticatedLogin) {
   const requiredReviewers = environment.protection_rules.find((rule) => rule?.type === "required_reviewers");
   if (!requiredReviewers) throw new Error("GitHub npm environment has no required reviewers protection rule.");
   if (requiredReviewers.prevent_self_review !== true) throw new Error("GitHub npm environment must prevent self-review.");
+  if (environment.can_admins_bypass !== false) throw new Error("GitHub npm environment must disable admin bypass.");
+  const branchPolicy = environment.deployment_branch_policy;
+  if (branchPolicy?.protected_branches !== false || branchPolicy?.custom_branch_policies !== true) {
+    throw new Error("GitHub npm environment must restrict deployments to custom policies.");
+  }
   if (!Array.isArray(requiredReviewers.reviewers) || requiredReviewers.reviewers.length < 1) {
     throw new Error("GitHub npm environment required reviewers rule has no reviewers.");
   }
   if (requiredReviewers.reviewers.length === 1 && reviewerLogin(requiredReviewers.reviewers[0])?.toLowerCase() === authenticatedLogin.toLowerCase()) {
     throw new Error("GitHub npm environment sole required reviewer is the authenticated release operator; add another reviewer to avoid self-review deadlock.");
+  }
+}
+
+function assertNpmDeploymentPolicies(response) {
+  if (!response || typeof response !== "object" || !Array.isArray(response.branch_policies)) throw new Error("GitHub npm environment deployment policies response was invalid.");
+  if (typeof response.total_count === "number" && response.total_count !== response.branch_policies.length) throw new Error("GitHub npm environment deployment policies response was paginated unexpectedly.");
+  if (response.branch_policies.length !== 1) throw new Error("GitHub npm environment deployment policy is not exact.");
+  const policy = response.branch_policies[0];
+  if (!policy || typeof policy !== "object" || policy.name !== NPM_DEPLOYMENT_TAG_POLICY || policy.type !== "tag") {
+    throw new Error("GitHub npm environment must deploy only from release tags.");
   }
 }
 

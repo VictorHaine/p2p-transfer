@@ -7,6 +7,7 @@ const DEFAULT_REPOSITORY = "VictorHaine/p2p-transfer";
 const MAIN_RULESET_NAME = "p2p-transfer: protect main";
 const TAG_RULESET_NAME = "p2p-transfer: protect release tags";
 const NPM_ENVIRONMENT = "npm";
+const NPM_DEPLOYMENT_TAG_POLICY = "v*.*.*";
 const REPOSITORY_ADMIN_ROLE_BYPASS_ACTOR_ID = 5;
 const GITHUB_ACTIONS_INTEGRATION_ID = 15368;
 const MAX_NPM_ENVIRONMENT_REVIEWERS = 6;
@@ -81,7 +82,14 @@ async function main() {
   if (!status.preventsSelfReview) {
     throw new Error("The npm environment must prevent self-review.");
   }
+  if (!status.disablesAdminBypass) {
+    throw new Error("The npm environment must disable admin bypass.");
+  }
+  if (!status.usesCustomDeploymentPolicies) {
+    throw new Error("The npm environment must restrict deployments to custom policies.");
+  }
   assertEnvironmentDoesNotSelfReviewDeadlock(environment, authenticatedLogin);
+  await ensureNpmDeploymentPolicy(token, options.repository);
 
   for (const ruleset of desired) {
     const existing = existingByName.get(ruleset.name);
@@ -168,10 +176,39 @@ async function requireRemoteMain(token, repository) {
 async function npmEnvironmentConfig(token, options) {
   return {
     wait_timer: 0,
+    can_admins_bypass: false,
     prevent_self_review: true,
     reviewers: await Promise.all(options.npmReviewers.map(async (login) => ({ type: "User", id: await userId(token, login) }))),
-    deployment_branch_policy: null
+    deployment_branch_policy: { protected_branches: false, custom_branch_policies: true }
   };
+}
+
+async function ensureNpmDeploymentPolicy(token, repository) {
+  const policies = await github(token, "GET", `/repos/${repository}/environments/${encodeURIComponent(NPM_ENVIRONMENT)}/deployment-branch-policies?per_page=100`);
+  const existing = deploymentPoliciesByName(policies);
+  for (const policy of existing.values()) {
+    if (policy.name !== NPM_DEPLOYMENT_TAG_POLICY || (policy.type !== undefined && policy.type !== "tag")) {
+      await github(token, "DELETE", `/repos/${repository}/environments/${encodeURIComponent(NPM_ENVIRONMENT)}/deployment-branch-policies/${policy.id}`);
+    }
+  }
+  if (!existing.has(NPM_DEPLOYMENT_TAG_POLICY) || (existing.get(NPM_DEPLOYMENT_TAG_POLICY).type !== undefined && existing.get(NPM_DEPLOYMENT_TAG_POLICY).type !== "tag")) {
+    await github(token, "POST", `/repos/${repository}/environments/${encodeURIComponent(NPM_ENVIRONMENT)}/deployment-branch-policies`, { name: NPM_DEPLOYMENT_TAG_POLICY, type: "tag" });
+  }
+}
+
+function deploymentPoliciesByName(response) {
+  if (!response || typeof response !== "object" || !Array.isArray(response.branch_policies)) throw new Error("GitHub deployment branch policies response was invalid.");
+  if (typeof response.total_count === "number" && response.total_count !== response.branch_policies.length) throw new Error("GitHub deployment branch policies response was paginated unexpectedly.");
+  const byName = new Map();
+  for (const policy of response.branch_policies) {
+    if (!policy || typeof policy !== "object" || typeof policy.id !== "number" || typeof policy.name !== "string") {
+      throw new Error("GitHub deployment branch policies response was invalid.");
+    }
+    if (policy.type !== undefined && policy.type !== "branch" && policy.type !== "tag") throw new Error("GitHub deployment branch policy type was invalid.");
+    if (byName.has(policy.name)) throw new Error("GitHub deployment branch policies response contained duplicate names.");
+    byName.set(policy.name, policy);
+  }
+  return byName;
 }
 
 async function userId(token, login) {
@@ -215,6 +252,8 @@ function environmentStatus(environment) {
     hasProtectionRules: Array.isArray(environment?.protection_rules) && environment.protection_rules.length > 0,
     hasRequiredReviewers: !!requiredReviewers && Array.isArray(requiredReviewers.reviewers) && requiredReviewers.reviewers.length > 0,
     preventsSelfReview: requiredReviewers?.prevent_self_review === true,
+    disablesAdminBypass: environment?.can_admins_bypass === false,
+    usesCustomDeploymentPolicies: environment?.deployment_branch_policy?.protected_branches === false && environment?.deployment_branch_policy?.custom_branch_policies === true,
     deploymentBranchPolicy: environment?.deployment_branch_policy ?? null
   };
 }
