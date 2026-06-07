@@ -1095,7 +1095,9 @@ test("native WebRTC dependency identity and install surface stay reviewed", () =
   assert.match(cliNativeWebrtcSource, /"linux-x64": \{ name: "@roamhq\/wrtc-linux-x64", version: "0\.10\.0" \}/);
   assert.match(cliNativeWebrtcSource, /"win32-x64": \{ name: "@roamhq\/wrtc-win32-x64", version: "0\.10\.0" \}/);
   assert.match(cliNativeWebrtcSource, /assertReviewedNativeWebRtcDependencies\(\)/);
-  assert.match(cliNativeWebrtcSource, /requireFromWrtc\.resolve\(prebuiltName\)/);
+  assert.match(cliNativeWebrtcSource, /requireFromWrtc\.resolve\(`\$\{prebuiltName\}\/wrtc\.node`\)/);
+  assert.match(cliNativeWebrtcSource, /assertLoadReviewedNativePrebuilt\(prebuiltBinary\)/);
+  assert.match(cliNativeWebrtcSource, /assertNoNativeFallbackSurfaces\(wrtc\.root, reviewedPlatformTriple\(\)\)/);
   assert.match(cliNativeWebrtcSource, /requireFromWrtc\.resolve\("domexception"\)/);
   assert.match(cliNativeWebrtcSource, /Reviewed native WebRTC dependency versions are not installed\./);
   assert.doesNotMatch(cliNativeWebrtcSource, /console\.|process\.exit|resolvedFile\}/);
@@ -1122,6 +1124,8 @@ test("native WebRTC dependency identity and install surface stay reviewed", () =
   assert.match(nativeWebrtcReview, /`prepare` is present upstream but is not run during registry consumer installs/);
   assert.match(nativeWebrtcReview, /Runtime consumer-install hardening reviewed: CLI WebRTC helpers load `@roamhq\/wrtc` lazily/);
   assert.match(nativeWebrtcReview, /fail closed unless the resolved package graph matches `@roamhq\/wrtc@0\.10\.0`, the current platform's reviewed `@roamhq\/wrtc-\*` prebuilt, and `domexception@4\.0\.0`/);
+  assert.match(nativeWebrtcReview, /resolves and loads the exact reviewed platform `wrtc\.node` before package-root import/);
+  assert.match(nativeWebrtcReview, /rejects root `build-\*` fallback outputs, and rejects nested `node_modules\/@roamhq\/wrtc-\*` fallback outputs/);
   assert.match(nativeWebrtcReview, /Optional platform prebuilt packages reviewed: `@roamhq\/wrtc-darwin-arm64@0\.10\.0`, `@roamhq\/wrtc-darwin-x64@0\.10\.0`, `@roamhq\/wrtc-linux-arm64@0\.10\.0`, `@roamhq\/wrtc-linux-x64@0\.10\.0`, and `@roamhq\/wrtc-win32-x64@0\.10\.0`/);
   assert.match(nativeWebrtcReview, new RegExp(`Reviewed lockfile integrity for \`@roamhq/wrtc@0\\.10\\.0\`: \`${escapeRegExp(reviewedWrtcIntegrity)}\``));
   for (const name of reviewedWrtcPrebuiltPackages) {

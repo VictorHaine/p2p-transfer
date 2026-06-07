@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -46,12 +46,15 @@ export function assertReviewedNativeWebRtcDependencies(): void {
   try {
     const wrtc = packageEvidenceFromResolvedFile(requireFromCli.resolve("@roamhq/wrtc"));
     assertEvidence(wrtc, REVIEWED_NATIVE_WEBRTC_DEPENDENCIES.wrtc);
-    assertNoLocalNativeBuildOutputs(wrtc.root);
+    assertNoNativeFallbackSurfaces(wrtc.root, reviewedPlatformTriple());
     const requireFromWrtc = createRequire(path.join(wrtc.root, "package.json"));
 
     const prebuiltName = reviewedPlatformPrebuiltName();
-    const prebuilt = packageEvidenceFromResolvedFile(requireFromWrtc.resolve(prebuiltName));
+    const prebuiltBinary = resolveReviewedPrebuiltBinary(requireFromWrtc, prebuiltName);
+    const prebuilt = packageEvidenceFromResolvedFile(prebuiltBinary);
     assertEvidence(prebuilt, REVIEWED_NATIVE_WEBRTC_DEPENDENCIES.prebuilts[reviewedPlatformTriple()]);
+    assertResolvedFileWithinPackageRoot(prebuiltBinary, prebuilt.root, "Reviewed native WebRTC prebuilt binary");
+    assertLoadReviewedNativePrebuilt(prebuiltBinary);
 
     const domException = packageEvidenceFromResolvedFile(requireFromWrtc.resolve("domexception"));
     assertEvidence(domException, REVIEWED_NATIVE_WEBRTC_DEPENDENCIES.domException);
@@ -61,13 +64,53 @@ export function assertReviewedNativeWebRtcDependencies(): void {
   }
 }
 
-function assertNoLocalNativeBuildOutputs(packageRoot: string): void {
+export function assertNoNativeFallbackSurfaces(packageRoot: string, triple: string = reviewedPlatformTriple()): void {
   const entries = readdirSync(packageRoot, { withFileTypes: true });
   for (const entry of entries) {
     if (entry.isDirectory() && /^build-[a-z0-9_-]+$/u.test(entry.name)) {
       throw new Error("Native WebRTC package contains unreviewed local build outputs.");
     }
   }
+  const nestedPrebuilt = path.join(packageRoot, "node_modules", `@roamhq/wrtc-${triple}`);
+  try {
+    lstatSync(nestedPrebuilt);
+    throw new Error("Native WebRTC package contains unreviewed nested prebuilt outputs.");
+  } catch (error) {
+    if (isMissingPathError(error)) return;
+    if (error instanceof Error && error.message === "Native WebRTC package contains unreviewed nested prebuilt outputs.") throw error;
+    throw new Error("Native WebRTC package contains unreviewed nested prebuilt outputs.");
+  }
+}
+
+function resolveReviewedPrebuiltBinary(requireFromWrtc: NodeRequire, prebuiltName: string): string {
+  return requireFromWrtc.resolve(`${prebuiltName}/wrtc.node`);
+}
+
+function assertResolvedFileWithinPackageRoot(resolvedFile: string, packageRoot: string, label: string): void {
+  const resolvedReal = realpathSync(resolvedFile);
+  const rootReal = realpathSync(packageRoot);
+  const relative = path.relative(rootReal, resolvedReal);
+  if (relative.startsWith("..") || path.isAbsolute(relative) || relative.length === 0) {
+    throw new Error(`${label} is outside the reviewed package.`);
+  }
+  if (!lstatSync(resolvedReal).isFile()) throw new Error(`${label} is not a regular file.`);
+}
+
+function assertLoadReviewedNativePrebuilt(prebuiltBinary: string): void {
+  const binding = requireFromCli(prebuiltBinary) as unknown;
+  for (const key of ["RTCPeerConnection", "RTCDataChannel", "setDOMException"]) {
+    if (!binding || typeof binding !== "object") throw new Error("Reviewed native WebRTC prebuilt is invalid.");
+    const descriptor = Object.getOwnPropertyDescriptor(binding, key);
+    if (!descriptor || !("value" in descriptor) || typeof descriptor.value !== "function") {
+      throw new Error("Reviewed native WebRTC prebuilt is invalid.");
+    }
+  }
+}
+
+function isMissingPathError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const descriptor = Object.getOwnPropertyDescriptor(error, "code");
+  return Boolean(descriptor && "value" in descriptor && descriptor.value === "ENOENT");
 }
 
 function nativeWebRtcInput(value: unknown): NativeWebRtc {

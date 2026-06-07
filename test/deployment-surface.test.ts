@@ -210,9 +210,10 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.doesNotMatch(releaseWorkflow, /workflow_dispatch/);
   assert.match(releaseWorkflow, /^concurrency:\n  group: release-\$\{\{ github\.ref \}\}\n  cancel-in-progress: false$/m);
   assert.match(releaseWorkflow, /^on:\n  push:\n    tags:\n      - "v\*\.\*\.\*"$/m);
-  assert.match(securityPolicy, /release tags matching `v\*` must be protected by a GitHub tag protection rule or repository ruleset/);
-  assert.match(readme, /tag protection rule or repository ruleset for `v\*` release tags/);
-  assert.match(readme, /Protect `v\*` tags with a ruleset\/tag-protection rule before the first release/);
+  assert.match(securityPolicy, /release tags matching `v\*` must be protected by the checked GitHub repository ruleset before publishing/);
+  assert.match(securityPolicy, /classic tag protection is not validated by release preflight/);
+  assert.match(readme, /exact repository rulesets that release preflight requires for `main` and `v\*` release tags/);
+  assert.match(readme, /The checked repository ruleset for `v\*` tags must be active before the first release/);
   assert.match(securityPolicy, /release tag and package-version matching must use the checked release tag verifier/);
   assert.match(releaseWorkflow, /Verify tag matches package version[\s\S]*run: node scripts\/check-release-tag\.mjs[\s\S]*Verify release tag is on main/);
   assert.doesNotMatch(releaseWorkflow, /readFileSync\('package\.json'|node -p|test "\$\{GITHUB_REF_NAME\}" = "v\$\{version\}"/);
@@ -498,11 +499,20 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.equal(packageJson.scripts?.["release:preflight"], "node scripts/check-release-readiness.mjs");
   assert.equal(packageJson.scripts?.["bootstrap:npm"], "node scripts/bootstrap-npm-package.mjs");
   assert.match(readme, /gh auth refresh -h github\.com -s workflow/);
-  assert.match(readme, /git push -u origin main\nGITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
+  assert.match(readme, /node scripts\/write-release-notes\.mjs --check\nDOCKER_SMOKE_TAG=p2p-transfer:test pnpm smoke:docker-policy/);
+  assert.match(readme, /First remote bootstrap:[\s\S]*gh auth refresh -h github\.com -s workflow\ngit push -u origin main/);
+  assert.match(readme, /git fetch origin main\ngit tag v0\.1\.0 origin\/main/);
   assert.match(readme, /`main` must exist remotely before `pnpm release:preflight` can pass/);
   assert.match(readme, /The first push needs a GitHub token with `workflow` scope because this repository ships GitHub Actions workflow files/);
+  assert.match(readme, /Once those controls are active, do not direct-push release changes to `main`/);
+  assert.match(readme, /For normal releases, fetch `origin\/main` and tag that exact remote commit after the protected pull request has merged/);
+  assert.doesNotMatch(readme, /git push -u origin main\nGITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
+  assert.match(readme, /the exact repository rulesets that release preflight requires for `main` and `v\*` release tags/);
+  assert.match(readme, /read repository metadata, the `main` branch, Actions secret metadata, repository rulesets including bypass actors, repository environments, and deployment branch policies/);
+  assert.match(readme, /The checked repository ruleset for `v\*` tags must be active before the first release/);
+  assert.doesNotMatch(readme, /create branch protection for `main`|tag protection rule or repository ruleset/);
   assert.match(readme, /GITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
-  assert.match(contributing, /pnpm exec playwright install --with-deps chromium\npnpm verify:release\ngh auth refresh -h github\.com -s workflow\nGITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
+  assert.match(contributing, /pnpm exec playwright install --with-deps chromium\npnpm verify:release\nnode scripts\/write-release-notes\.mjs --check\nDOCKER_SMOKE_TAG=p2p-transfer:test pnpm smoke:docker-policy\ngh auth refresh -h github\.com -s workflow\nGITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
   assert.match(contributing, /make sure `main` already exists on\nGitHub, then run the full release gate/);
   assert.match(securityPolicy, /local release preflight must fail before tagging when the npm package is missing, the target npm version already exists, the GitHub token lacks `workflow` scope/);
   assert.match(securityPolicy, /the `RELEASE_PREFLIGHT_TOKEN` repository secret is missing/);
@@ -656,7 +666,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
 
 test("security-sensitive surfaces require code owner review", () => {
   assert.match(securityPolicy, /security-sensitive crypto, protocol, release, dependency, dependency-review artifacts, Docker, server, and file-publish surfaces must be covered by `\.github\/CODEOWNERS`/);
-  assert.match(readme, /branch protection for `main` requiring CI, CodeQL, dependency review, platform smoke, Docker smoke, and CODEOWNERS review/);
+  assert.match(readme, /exact repository rulesets that release preflight requires for `main` and `v\*` release tags/);
   for (const path of [
     "/.github/",
     "/Dockerfile",

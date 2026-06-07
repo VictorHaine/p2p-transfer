@@ -301,14 +301,21 @@ In GitHub:
 - create the `npm` environment used by `.github/workflows/release.yml`, add required reviewers with self-review prevention, disable admin bypass, and restrict deployments to the `v*.*.*` tag policy before publishing
 - ensure the `npm` environment has at least one reviewer with write, maintain, or admin repository permission other than the person or token owner that will push the release tag; a sole self-reviewer deadlocks the publish job, and read-only collaborators cannot approve the environment
 - enable private vulnerability reporting
-- create branch protection for `main` requiring CI, CodeQL, dependency review, platform smoke, Docker smoke, and CODEOWNERS review
-- create a tag protection rule or repository ruleset for `v*` release tags so only maintainers can create or update release tags
-- after `main` exists remotely, apply the checked release controls with `GITHUB_TOKEN=<admin-token> node scripts/configure-github-release-controls.mjs --apply --npm-reviewer <release-approver-login>`; this creates/updates the `npm` environment approval gate with self-review prevention, admin bypass disabled, and `v*.*.*` tag-only deployment, plus the branch and release-tag rulesets. It refuses read-only or unknown reviewers, refuses to create a sole-reviewer self-approval deadlock, and refuses to mutate repository rulesets if the `npm` environment still has no required-reviewer protection, still allows admin bypass or branch deployments, lacks the exact release-tag deployment policy, or still has the authenticated setup operator as its sole required reviewer
+- after the first `main` push, apply the checked release controls with `GITHUB_TOKEN=<admin-token> node scripts/configure-github-release-controls.mjs --apply --npm-reviewer <release-approver-login>`; this creates/updates the `npm` environment approval gate with self-review prevention, admin bypass disabled, and `v*.*.*` tag-only deployment, plus the exact repository rulesets that release preflight requires for `main` and `v*` release tags. It refuses read-only or unknown reviewers, refuses to create a sole-reviewer self-approval deadlock, and refuses to mutate repository rulesets if the `npm` environment still has no required-reviewer protection, still allows admin bypass or branch deployments, lacks the exact release-tag deployment policy, or still has the authenticated setup operator as its sole required reviewer
 - enable code scanning alerts; `.github/workflows/codeql.yml` runs pinned CodeQL analysis on pull requests, pushes to `main`, and a weekly schedule
 - enable OpenSSF Scorecard alerts; `.github/workflows/scorecard.yml` runs the pinned Scorecard action on pushes to `main` and a weekly schedule, then uploads SARIF to code scanning
 - keep dependency review required on pull requests; `.github/workflows/dependency-review.yml` runs the pinned GitHub dependency review action on pull requests and blocks vulnerable runtime or development dependency changes at low severity or higher
 - enable artifact attestations for the release workflow; `.github/workflows/release.yml` attests the same verifier-checked npm tarball and SBOM before publish
-- create an Actions secret named `RELEASE_PREFLIGHT_TOKEN` from a GitHub App token or fine-grained PAT with enough repository-administration/ruleset visibility to read exact ruleset bypass actors; the tag workflow runs the checked release preflight before installing dependencies, so `${{ github.token }}` is not enough for this gate
+- create an Actions secret named `RELEASE_PREFLIGHT_TOKEN` from a GitHub App token or fine-grained PAT that can read repository metadata, the `main` branch, Actions secret metadata, repository rulesets including bypass actors, repository environments, and deployment branch policies; the tag workflow runs the checked release preflight before installing dependencies, so `${{ github.token }}` is not enough for this gate
+
+First remote bootstrap:
+
+```sh
+gh auth refresh -h github.com -s workflow
+git push -u origin main
+```
+
+`main` must exist remotely before `pnpm release:preflight` can pass. The first push needs a GitHub token with `workflow` scope because this repository ships GitHub Actions workflow files. After that first push, apply the checked release controls above. Once those controls are active, do not direct-push release changes to `main`; merge through the protected pull-request path.
 
 In npm:
 
@@ -332,16 +339,18 @@ corepack prepare pnpm@11.1.3 --activate
 pnpm install --frozen-lockfile
 pnpm exec playwright install --with-deps chromium
 pnpm verify:release
+node scripts/write-release-notes.mjs --check
+DOCKER_SMOKE_TAG=p2p-transfer:test pnpm smoke:docker-policy
 gh auth refresh -h github.com -s workflow
-git push -u origin main
 GITHUB_TOKEN="$(gh auth token)" pnpm release:preflight
-git tag v0.1.0
+git fetch origin main
+git tag v0.1.0 origin/main
 git push origin v0.1.0
 ```
 
-`main` must exist remotely before `pnpm release:preflight` can pass. The first push needs a GitHub token with `workflow` scope because this repository ships GitHub Actions workflow files.
+For normal releases, fetch `origin/main` and tag that exact remote commit after the protected pull request has merged.
 
-The tag starts the release workflow. It verifies the tag matches `package.json`, verifies the tagged commit exactly matches protected `main`, verifies the npm package already exists and the target version has not been published, repeats the release gate, attests the exact checked tarball and SBOM from `SHA256SUMS`, publishes that tarball to npm with provenance, then creates the GitHub Release with the same tarball, `SHA256SUMS`, and `SBOM.cdx.json`. Protect `v*` tags with a ruleset/tag-protection rule before the first release; branch protection alone does not restrict who can create release tags.
+The tag starts the release workflow. It verifies the tag matches `package.json`, verifies the tagged commit exactly matches protected `main`, verifies the npm package already exists and the target version has not been published, repeats the release gate, attests the exact checked tarball and SBOM from `SHA256SUMS`, publishes that tarball to npm with provenance, then creates the GitHub Release with the same tarball, `SHA256SUMS`, and `SBOM.cdx.json`. The checked repository ruleset for `v*` tags must be active before the first release; branch protection alone does not restrict who can create release tags.
 
 ## License
 
