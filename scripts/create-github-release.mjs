@@ -107,7 +107,7 @@ async function readArtifactFile(relative, maxBytes, description) {
   try {
     const opened = await handle.stat();
     if (!opened.isFile()) throw new Error(`${description} must be a regular file.`);
-    if (opened.size !== info.size || opened.dev !== info.dev || opened.ino !== info.ino) throw new Error(`${description} changed before release creation.`);
+    if (!sameFile(info, opened)) throw new Error(`${description} changed before release creation.`);
     const bytes = Buffer.allocUnsafe(opened.size);
     let offset = 0;
     while (offset < opened.size) {
@@ -117,13 +117,15 @@ async function readArtifactFile(relative, maxBytes, description) {
     }
     if (offset !== opened.size) throw new Error(`${description} could not be read completely.`);
     const afterRead = await handle.stat();
-    if (afterRead.size !== opened.size || afterRead.dev !== opened.dev || afterRead.ino !== opened.ino) {
-      throw new Error(`${description} changed while being read.`);
-    }
+    if (!sameFile(opened, afterRead)) throw new Error(`${description} changed while being read.`);
     return { name: path.basename(relative), bytes };
   } finally {
     await handle.close();
   }
+}
+
+function sameFile(left, right) {
+  return left.dev === right.dev && left.ino === right.ino && left.size === right.size && left.mtimeMs === right.mtimeMs && left.ctimeMs === right.ctimeMs;
 }
 
 export async function createGitHubRelease(token, repository, tag, expectedSha, notes, assets) {

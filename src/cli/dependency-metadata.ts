@@ -40,7 +40,7 @@ function readPackageMetadata(file: string): { name?: unknown; version?: unknown 
   const fd = openSync(file, constants.O_RDONLY | noFollowFlag());
   try {
     const opened = fstatSync(fd);
-    if (!opened.isFile() || opened.size !== info.size || opened.dev !== info.dev || opened.ino !== info.ino) {
+    if (!opened.isFile() || !sameFile(info, opened)) {
       throw new Error("Dependency package metadata is invalid.");
     }
     const bytes = Buffer.allocUnsafe(opened.size);
@@ -51,10 +51,18 @@ function readPackageMetadata(file: string): { name?: unknown; version?: unknown 
       offset += bytesRead;
     }
     if (offset !== opened.size) throw new Error("Dependency package metadata is invalid.");
+    if (!sameFile(opened, fstatSync(fd))) throw new Error("Dependency package metadata is invalid.");
     return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as { name?: unknown; version?: unknown };
   } finally {
     closeSync(fd);
   }
+}
+
+function sameFile(
+  left: { dev: number; ino: number; size: number; mtimeMs: number; ctimeMs: number },
+  right: { dev: number; ino: number; size: number; mtimeMs: number; ctimeMs: number }
+): boolean {
+  return left.dev === right.dev && left.ino === right.ino && left.size === right.size && left.mtimeMs === right.mtimeMs && left.ctimeMs === right.ctimeMs;
 }
 
 function pathExists(file: string): boolean {

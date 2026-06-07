@@ -63,6 +63,7 @@ const fileStabilityCheckedScripts = [
   packedSmokeScript,
   releaseArtifactSmokeScript,
   dockerPublishScript,
+  githubReleaseScript,
   releaseTagScript,
   releaseArtifactScript,
   releaseChecksumScript,
@@ -255,14 +256,16 @@ test("package publishing config keeps provenance and reproducible dependency pin
   assert.match(securityPolicy, /installed direct dependency tree does not match the exact `package\.json` pins or when `node_modules\/\.pnpm\/lock\.yaml` diverges from `pnpm-lock\.yaml`/);
   assert.match(securityPolicy, /installed-state verification must validate direct dependency names and package pins before installed package reads, check both installed direct package identity and installed direct package version against `package\.json` pins before accepting the local dependency tree, and mismatch output must not echo raw workspace paths, raw filesystem errors, stack traces, or installed package metadata/);
   assert.match(securityPolicy, /installed-state verification must resolve the project root from the checked script location, use a symlink-safe realpath entrypoint check, avoid filesystem verification side effects when imported, and use verifier-owned top-level failure reporting/);
-  assert.match(securityPolicy, /installed-state verification must byte-cap, no-follow-open, identity-check, handle-read, and fatal-UTF-8-decode package and lockfile evidence/);
-  assert.match(securityPolicy, /runtime crypto and native WebRTC dependency attestation must byte-cap, no-follow-open, identity-check, handle-read, and fatal-UTF-8-decode dependency package metadata before accepting installed package identity/);
+  assert.match(securityPolicy, /installed-state verification must byte-cap, no-follow-open, identity-check, mutation-metadata-check, handle-read, and fatal-UTF-8-decode package and lockfile evidence/);
+  assert.match(securityPolicy, /runtime crypto and native WebRTC dependency attestation must byte-cap, no-follow-open, identity-check, mutation-metadata-check, handle-read, and fatal-UTF-8-decode dependency package metadata before accepting installed package identity/);
   assert.match(cliDependencyMetadataSource, /const MAX_PACKAGE_JSON_BYTES = 128 \* 1024/);
   assert.match(cliDependencyMetadataSource, /lstatSync\(file\)/);
   assert.match(cliDependencyMetadataSource, /openSync\(file, constants\.O_RDONLY \| noFollowFlag\(\)\)/);
-  assert.match(cliDependencyMetadataSource, /opened\.size !== info\.size \|\| opened\.dev !== info\.dev \|\| opened\.ino !== info\.ino/);
+  assert.match(cliDependencyMetadataSource, /if \(!opened\.isFile\(\) \|\| !sameFile\(info, opened\)\)/);
   assert.match(cliDependencyMetadataSource, /while \(offset < opened\.size\)/);
   assert.match(cliDependencyMetadataSource, /readSync\(fd, bytes, offset, opened\.size - offset, offset\)/);
+  assert.match(cliDependencyMetadataSource, /if \(!sameFile\(opened, fstatSync\(fd\)\)\) throw new Error\("Dependency package metadata is invalid\."\)/);
+  assert.match(cliDependencyMetadataSource, /left\.dev === right\.dev && left\.ino === right\.ino && left\.size === right\.size && left\.mtimeMs === right\.mtimeMs && left\.ctimeMs === right\.ctimeMs/);
   assert.match(cliDependencyMetadataSource, /new TextDecoder\("utf-8", \{ fatal: true \}\)/);
   assert.doesNotMatch(cliDependencyMetadataSource, /readFileSync|buffer\.toString\("utf8"\)/);
   assert.doesNotMatch(cliCryptoDependenciesSource, /readFileSync\(path\.join\(root, "package\.json"\)/);
@@ -973,7 +976,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(githubReleaseScript, /while \(offset < opened\.size\) \{[\s\S]*await handle\.read\(bytes, offset, opened\.size - offset, offset\)[\s\S]*offset \+= bytesRead/);
   assert.match(githubReleaseScript, /await readArtifactFile\("release-artifacts\/SHA256SUMS", MAX_CHECKSUM_BYTES, "SHA256SUMS"\)/);
   assert.match(githubReleaseScript, /await readArtifactFile\("release-artifacts\/SBOM\.cdx\.json", MAX_SBOM_BYTES, "release SBOM"\)/);
-  assert.match(githubReleaseScript, /const afterRead = await handle\.stat\(\);[\s\S]*afterRead\.size !== opened\.size[\s\S]*afterRead\.dev !== opened\.dev[\s\S]*afterRead\.ino !== opened\.ino[\s\S]*changed while being read/);
+  assert.match(githubReleaseScript, /const afterRead = await handle\.stat\(\);[\s\S]*if \(!sameFile\(opened, afterRead\)\) throw new Error\(`\$\{description\} changed while being read\.`\)/);
   assert.match(githubReleaseScript, /assetNames\.filter\(\(name\) => name\.endsWith\("\.tgz"\)\)\.length !== 1/);
   assert.match(githubReleaseScript, /!assetNames\.includes\("SHA256SUMS"\) \|\| !assetNames\.includes\("SBOM\.cdx\.json"\)/);
   assert.match(githubReleaseScript, /assertReleaseAssetChecksums\(assets\)/);
