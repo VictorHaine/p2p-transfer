@@ -443,7 +443,56 @@ globalThis.fetch = async (url, init = {}) => {
     assert.notEqual(result.status, 0);
     assert.equal(result.stdout, "");
     assert.match(result.stderr, /npm bootstrap failed:\n- NPM_BOOTSTRAP_TOKEN must be a non-empty control-free environment value under 8192 UTF-8 bytes\./);
-    assert.doesNotMatch(result.stderr, /token-that-must-not-be-used|evil\.example|publish|Error:/);
+    assert.doesNotMatch(result.stderr, /token-that-must-not-be-used|evil\.example|Error:/);
+    assert.equal(requests, "");
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
+test("npm bootstrap script rejects ambient npm publish config before package, registry, npmrc, or publish work", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-npm-bootstrap-"));
+  const mock = path.join(tmp, "mock-npm-bootstrap-fetch.mjs");
+  const log = path.join(tmp, "requests.log");
+  try {
+    await fs.writeFile(
+      mock,
+      `
+import { appendFileSync } from "node:fs";
+
+const log = process.env.FF_MOCK_NPM_BOOTSTRAP_LOG;
+
+globalThis.fetch = async (url, init = {}) => {
+  const parsed = new URL(url);
+  appendFileSync(log, (init.method ?? "GET") + " " + parsed.origin + parsed.pathname + "\\n", "utf8");
+  if (parsed.origin === "https://registry.npmjs.org" && parsed.pathname === "/%40victorhaine%2Fp2p-transfer") {
+    return new Response(JSON.stringify({ message: "missing package" }), { status: 404, headers: { "content-type": "application/json" } });
+  }
+  return new Response(JSON.stringify({ message: "unexpected route" }), { status: 500, headers: { "content-type": "application/json" } });
+};
+`,
+      "utf8"
+    );
+
+    const result = runScriptWithNodeArgs(
+      "scripts/bootstrap-npm-package.mjs",
+      {
+        FF_MOCK_NPM_BOOTSTRAP_LOG: log,
+        NPM_BOOTSTRAP_TOKEN: "token-that-must-not-be-used",
+        NPM_CONFIG_REGISTRY: "https://evil.example"
+      },
+      ["--apply"],
+      ["--import", mock]
+    );
+    const requests = await fs.readFile(log, "utf8").catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return "";
+      throw error;
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /npm bootstrap failed:\n- Remove NPM_CONFIG_REGISTRY before bootstrap publishing; use only NPM_BOOTSTRAP_TOKEN and the checked npm registry\./);
+    assert.doesNotMatch(result.stderr, /token-that-must-not-be-used|evil\.example|Error:/);
     assert.equal(requests, "");
   } finally {
     await fs.rm(tmp, { force: true, recursive: true });

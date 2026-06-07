@@ -18,6 +18,7 @@ const MAX_CHILD_OUTPUT_CHARS = 200_000;
 const NPM_TIMEOUT_MS = 20_000;
 const CHILD_TIMEOUT_MS = 120_000;
 const CHILD_KILL_GRACE_MS = 5_000;
+const STATIC_NPM_TOKEN_ENV = ["NODE_AUTH_TOKEN", "NPM_TOKEN"];
 const PACKAGE_NAME_RE = /^(?:@[a-z0-9][a-z0-9._-]{0,213}\/)?[a-z0-9][a-z0-9._-]{0,213}$/;
 const SEMVER_RE = /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/;
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
@@ -35,7 +36,7 @@ if (isMain()) {
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   const token = options.apply ? consumeEnvString("NPM_BOOTSTRAP_TOKEN") : undefined;
-  if (options.apply && (envString("NODE_AUTH_TOKEN") || envString("NPM_TOKEN"))) throw new Error("Use only NPM_BOOTSTRAP_TOKEN for bootstrap publishing.");
+  if (options.apply) rejectAmbientNpmPublishEnv();
 
   const workspace = await readWorkspacePackage();
   if (workspace.version === BOOTSTRAP_VERSION) throw new Error("workspace package version must not be the bootstrap version.");
@@ -294,6 +295,21 @@ function consumeEnvString(name) {
   delete process.env[name];
   if (!value) throw new Error(`Set ${name} to a one-time npm automation token before --apply.`);
   return value;
+}
+
+function rejectAmbientNpmPublishEnv() {
+  for (const name of Object.keys(process.env)) {
+    if (!isForbiddenNpmPublishEnvName(name)) continue;
+    if (envString(name)) throw new Error(`Remove ${name} before bootstrap publishing; use only NPM_BOOTSTRAP_TOKEN and the checked npm registry.`);
+  }
+}
+
+function isForbiddenNpmPublishEnvName(name) {
+  if (STATIC_NPM_TOKEN_ENV.includes(name)) return true;
+  const lower = name.toLowerCase();
+  if (!lower.startsWith("npm_config_")) return false;
+  const option = lower.slice("npm_config_".length).replaceAll("-", "_");
+  return option === "registry" || option === "userconfig" || option.includes("auth") || option.includes("token") || option.includes("password") || option.includes("certfile") || option.includes("keyfile");
 }
 
 function sameFile(left, right) {

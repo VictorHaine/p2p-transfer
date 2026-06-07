@@ -589,7 +589,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(securityPolicy, /the `RELEASE_PREFLIGHT_TOKEN` repository secret is missing/);
   assert.match(securityPolicy, /GitHub `npm` environment lacks required reviewers, allows self-review, allows admin bypass, allows branch deployments, lacks the exact `v\*\.\*\.\*` tag deployment policy, or has the authenticated release operator as its sole required reviewer/);
   assert.match(securityPolicy, /first-time npm package bootstrap must use the checked bootstrap script, publish only the minimal temporary `0\.0\.0-bootstrap\.0` package from a private temporary directory/);
-  assert.match(securityPolicy, /reject and clear control-bearing or over-budget bootstrap token environment values before package reads, registry requests, npm config, or publish work/);
+  assert.match(securityPolicy, /reject and clear control-bearing or over-budget bootstrap token environment values and reject ambient npm credential, registry, and userconfig environment values before package reads, registry requests, npm config, or publish work/);
   assert.match(securityPolicy, /must not mutate workspace package metadata, publish the real release artifact, or appear in the trusted release workflow/);
   assert.match(securityPolicy, /branch\/tag rulesets have ref exclusions, unexpected or duplicate rules, or any bypass actors/);
   assert.match(securityPolicy, /release workflow preflight must run before dependency install through the checked Node script with an explicit `RELEASE_PREFLIGHT_TOKEN` secret/);
@@ -611,7 +611,11 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(npmBootstrapScript, /\/\[\\p\{Cc\}\\p\{Cf\}\]\/u\.test\(descriptor\.value\)/);
   assert.match(npmBootstrapScript, /\$\{name\} must be a non-empty control-free environment value under \$\{MAX_ENV_VALUE_BYTES\} UTF-8 bytes\./);
   assert.match(npmBootstrapScript, /delete process\.env\[name\]/);
-  assert.match(npmBootstrapScript, /if \(options\.apply && \(envString\("NODE_AUTH_TOKEN"\) \|\| envString\("NPM_TOKEN"\)\)\) throw new Error\("Use only NPM_BOOTSTRAP_TOKEN for bootstrap publishing\."\)/);
+  assert.match(npmBootstrapScript, /const STATIC_NPM_TOKEN_ENV = \["NODE_AUTH_TOKEN", "NPM_TOKEN"\]/);
+  assert.match(npmBootstrapScript, /if \(options\.apply\) rejectAmbientNpmPublishEnv\(\)/);
+  assert.match(npmBootstrapScript, /function rejectAmbientNpmPublishEnv\(\)/);
+  assert.match(npmBootstrapScript, /Remove \$\{name\} before bootstrap publishing; use only NPM_BOOTSTRAP_TOKEN and the checked npm registry\./);
+  assert.match(npmBootstrapScript, /option === "registry" \|\| option === "userconfig" \|\| option\.includes\("auth"\) \|\| option\.includes\("token"\) \|\| option\.includes\("password"\) \|\| option\.includes\("certfile"\) \|\| option\.includes\("keyfile"\)/);
   assert.match(npmBootstrapScript, /await mkdtemp\(path\.join\(tmpdir\(\), "ff-npm-bootstrap-"\)\)/);
   assert.match(npmBootstrapScript, /await writeBootstrapPackage\(packageDir, workspace\)/);
   assert.match(npmBootstrapScript, /\["--config\.ignore-scripts=true", "publish", "--access", "public", "--no-git-checks", "--registry", NPM_REGISTRY\]/);
