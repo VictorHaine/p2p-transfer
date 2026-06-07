@@ -329,21 +329,21 @@ export function safeChildEnv() {
     if (descriptor && "value" in descriptor && isSafeChildEnvValue(descriptor.value)) {
       env[name] = descriptor.value;
     } else if (required) {
-      throw new Error(`${name} must be a non-empty NUL-free child environment value under ${MAX_CHILD_ENV_VALUE_BYTES} UTF-8 bytes.`);
+      throw new Error(`${name} must be a non-empty control-free child environment value under ${MAX_CHILD_ENV_VALUE_BYTES} UTF-8 bytes.`);
     }
   }
   return env;
 }
 
 function isSafeChildEnvValue(value) {
-  return typeof value === "string" && value.length > 0 && !value.includes("\0") && !utf8ByteLengthExceeds(value, MAX_CHILD_ENV_VALUE_BYTES);
+  return typeof value === "string" && value.length > 0 && !/[\p{Cc}\p{Cf}]/u.test(value) && !utf8ByteLengthExceeds(value, MAX_CHILD_ENV_VALUE_BYTES);
 }
 
 function optionalEnvString(name) {
   const descriptor = Object.getOwnPropertyDescriptor(process.env, name);
   if (!descriptor || !("value" in descriptor) || descriptor.value === undefined || descriptor.value === "") return undefined;
   if (!isSafeChildEnvValue(descriptor.value)) {
-    throw new Error(`${name} must be a non-empty NUL-free environment value under ${MAX_CHILD_ENV_VALUE_BYTES} UTF-8 bytes.`);
+    throw new Error(`${name} must be a non-empty control-free environment value under ${MAX_CHILD_ENV_VALUE_BYTES} UTF-8 bytes.`);
   }
   return descriptor.value;
 }

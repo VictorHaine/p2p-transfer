@@ -275,7 +275,7 @@ test("packed package smoke installs and executes published bins", () => {
   assert.match(packedSmokeScript, /\/healthz/);
   assert.match(packedSmokeScript, /ff transfer/);
   assert.match(securityPolicy, /packed-install smoke must use an OS-assigned loopback port/);
-  assert.match(securityPolicy, /packed-install smoke options and subprocesses must run with descriptor-read, non-empty, NUL-free, byte-capped environment values/);
+  assert.match(securityPolicy, /packed-install smoke options and subprocesses must run with descriptor-read, non-empty, control-free, byte-capped environment values/);
   assert.match(securityPolicy, /packed-install smoke must use a symlink-safe realpath entrypoint check and smoke-owned top-level failure reporting that does not print stack traces or raw path-sensitive evidence, strip terminal control and format characters from captured subprocess output and rendered command labels, reject non-string command label parts and non-Buffer child output chunks before coercion, bound that sanitized output, and force-kill timed-out subprocesses/);
   assert.match(securityPolicy, /packed-install smoke command timeouts must reject only after the timed-out subprocess exits/);
   assert.match(securityPolicy, /packed-install smoke startup waits must clean up listeners, terminate timed-out server subprocesses, and reject only after the server subprocess exits/);
@@ -379,7 +379,7 @@ test("packed package smoke installs and executes published bins", () => {
   assert.match(packedSmokeScript, /function safeChildEnv\(\)/);
   assert.match(packedSmokeScript, /const keepTemp = optionalEnvString\("KEEP_PACKED_SMOKE_TMP"\) === "true"/);
   assert.match(packedSmokeScript, /export function optionalEnvString\(name\)/);
-  assert.match(packedSmokeScript, /\$\{name\} must be a non-empty NUL-free environment value under \$\{MAX_CHILD_ENV_VALUE_BYTES\} UTF-8 bytes\./);
+  assert.match(packedSmokeScript, /\$\{name\} must be a non-empty control-free environment value under \$\{MAX_CHILD_ENV_VALUE_BYTES\} UTF-8 bytes\./);
   assert.doesNotMatch(packedSmokeScript, /process\.env\.KEEP_PACKED_SMOKE_TMP/);
   assert.match(packedSmokeScript, /function isolatedChildEnv\(privateHome\)/);
   assert.match(packedSmokeScript, /const MAX_CHILD_ENV_VALUE_BYTES = 8_192/);
@@ -389,7 +389,8 @@ test("packed package smoke installs and executes published bins", () => {
   assert.match(packedSmokeScript, /NPM_CONFIG_USERCONFIG: path\.join\(home, "\.npmrc"\)/);
   assert.match(packedSmokeScript, /PNPM_HOME: path\.join\(home, "pnpm-home"\)/);
   assert.match(packedSmokeScript, /COREPACK_HOME: path\.join\(home, "corepack-home"\)/);
-  assert.match(packedSmokeScript, /throw new Error\(`\$\{name\} must be a non-empty NUL-free child environment value under \$\{MAX_CHILD_ENV_VALUE_BYTES\} UTF-8 bytes\.`\)/);
+  assert.match(packedSmokeScript, /throw new Error\(`\$\{name\} must be a non-empty control-free child environment value under \$\{MAX_CHILD_ENV_VALUE_BYTES\} UTF-8 bytes\.`\)/);
+  assert.match(packedSmokeScript, /\/\[\\p\{Cc\}\\p\{Cf\}\]\/u\.test\(value\)/);
   assert.match(packedSmokeScript, /env: options\.env \?\? safeChildEnv\(\)/);
   assert.match(packedSmokeScript, /\.\.\.childEnv/);
   assert.doesNotMatch(packedSmokeScript, /env: process\.env/);
@@ -478,11 +479,12 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.match(dockerPolicySmokeScript, /const imageTag = imageTagFromEnv\(optionalEnvString\("DOCKER_SMOKE_TAG"\)\)/);
   assert.match(dockerPolicySmokeScript, /return optionalEnvString\(VERBOSE_ENV\) === "1"/);
   assert.match(dockerPolicySmokeScript, /function optionalEnvString\(name\)/);
-  assert.match(dockerPolicySmokeScript, /\$\{name\} must be a non-empty NUL-free environment value under \$\{MAX_CHILD_ENV_VALUE_BYTES\} UTF-8 bytes\./);
+  assert.match(dockerPolicySmokeScript, /\$\{name\} must be a non-empty control-free environment value under \$\{MAX_CHILD_ENV_VALUE_BYTES\} UTF-8 bytes\./);
   assert.doesNotMatch(dockerPolicySmokeScript, /process\.env\.DOCKER_SMOKE_TAG|process\.env\.DOCKER_SMOKE_VERBOSE/);
   assert.doesNotMatch(dockerPolicySmokeScript, /timer\.unref\?\.\(\)/);
   assert.doesNotMatch(dockerPolicySmokeScript, /env: \{ \.\.\.process\.env/);
-  assert.match(securityPolicy, /Docker policy smoke options and subprocesses must run with descriptor-read, non-empty, NUL-free, byte-capped environment values/);
+  assert.match(dockerPolicySmokeScript, /\/\[\\p\{Cc\}\\p\{Cf\}\]\/u\.test\(value\)/);
+  assert.match(securityPolicy, /Docker policy smoke options and subprocesses must run with descriptor-read, non-empty, control-free, byte-capped environment values/);
   assert.match(securityPolicy, /Docker policy smoke must run a fast daemon preflight before `docker build`/);
   assert.match(securityPolicy, /command timeouts must terminate timed-out subprocesses with `SIGTERM`, arm a bounded `SIGKILL` fallback, and reject only after the subprocess exits/);
   assert.match(securityPolicy, /Docker policy smoke must validate production-policy container startup failures with bounded exact output-line evidence/);

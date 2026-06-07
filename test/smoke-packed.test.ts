@@ -159,7 +159,13 @@ test("packed smoke child environment rejects unsafe required inherited values", 
 
     assert.throws(
       () => safeChildEnv(),
-      /PATH must be a non-empty NUL-free child environment value under 8192 UTF-8 bytes\./
+      /PATH must be a non-empty control-free child environment value under 8192 UTF-8 bytes\./
+    );
+
+    process.env.PATH = "safe\u001b[31m";
+    assert.throws(
+      () => safeChildEnv(),
+      /PATH must be a non-empty control-free child environment value under 8192 UTF-8 bytes\./
     );
   } finally {
     if (originalPath === undefined) delete process.env.PATH;
@@ -176,7 +182,13 @@ test("packed smoke optional environment inputs are descriptor-read and byte-capp
     process.env.KEEP_PACKED_SMOKE_TMP = `${"a".repeat(8192)}b`;
     assert.throws(
       () => optionalEnvString("KEEP_PACKED_SMOKE_TMP"),
-      /KEEP_PACKED_SMOKE_TMP must be a non-empty NUL-free environment value under 8192 UTF-8 bytes\./
+      /KEEP_PACKED_SMOKE_TMP must be a non-empty control-free environment value under 8192 UTF-8 bytes\./
+    );
+
+    process.env.KEEP_PACKED_SMOKE_TMP = "true\u202e";
+    assert.throws(
+      () => optionalEnvString("KEEP_PACKED_SMOKE_TMP"),
+      /KEEP_PACKED_SMOKE_TMP must be a non-empty control-free environment value under 8192 UTF-8 bytes\./
     );
   } finally {
     if (original === undefined) delete process.env.KEEP_PACKED_SMOKE_TMP;
