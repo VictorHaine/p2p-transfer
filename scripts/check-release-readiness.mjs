@@ -65,6 +65,7 @@ if (isMain()) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
+  const token = githubToken();
   const failures = [];
 
   await collectReadinessFailure(failures, async () => {
@@ -72,7 +73,6 @@ async function main() {
     await assertNpmPackageReady(packageJson);
   });
 
-  const token = await collectReadinessValue(failures, () => githubToken());
   if (token) {
     let authenticatedLogin;
     const auth = await collectReadinessValue(failures, () => githubWithHeaders(token, "GET", "/user"));
