@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { randomInt } from "node:crypto";
 import WebSocket from "ws";
-import { PROTOCOL_VERSION, RECEIVER_MAX_PREPAIR_ATTEMPTS } from "../../src/shared/constants.js";
+import { PROTOCOL_VERSION, RECEIVER_MAX_PREPAIR_ATTEMPTS, SIGNALING_MAX_BAD_MESSAGES } from "../../src/shared/constants.js";
 
 type ServerEvent = { type?: string; sid?: string; code?: string; message?: string; [key: string]: unknown };
 
@@ -263,6 +263,53 @@ test("built signaling server sanitizes paired bye reasons before forwarding", as
   assert.doesNotMatch(serverOutput.text(), /12345681|secret-token-after-accept/);
 });
 
+test("built signaling server ignores late frames after a close decision", async () => {
+  const root = process.cwd();
+  const port = 24_000 + randomInt(1_000);
+  const origin = `http://127.0.0.1:${port}`;
+  const serverUrl = `ws://127.0.0.1:${port}/v1/ws`;
+  const code = "12345682";
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-server-late-frame-"));
+  const server = spawn(process.execPath, ["dist-node/server/index.js"], {
+    cwd: root,
+    env: {
+      ...testChildEnv(tmp),
+      PORT: String(port),
+      HOST: "127.0.0.1",
+      NODE_ENV: "production",
+      ALLOWED_ORIGINS: origin,
+      SIGNALING_TOPOLOGY: "single-instance",
+      ALLOW_INSECURE_ORIGINS: "true"
+    }
+  });
+  const serverOutput = collectOutput(server);
+
+  let peer: WebSocket | undefined;
+  try {
+    await waitForOutput(server, /listening/);
+    peer = await connectWs(serverUrl, origin);
+    const messages: ServerEvent[] = [];
+    peer.on("message", (data) => {
+      messages.push(JSON.parse(data.toString()) as ServerEvent);
+    });
+
+    for (let index = 0; index < SIGNALING_MAX_BAD_MESSAGES; index += 1) {
+      sendJson(peer, { type: "register", role: "receiver", code, protocolVersion: "bad-version" });
+    }
+    sendJson(peer, { type: "register", role: "receiver", code, protocolVersion: PROTOCOL_VERSION });
+    await waitForWsClose(peer);
+
+    assert.equal(messages.filter((message) => message.type === "error" && message.code === "bad_message").length, SIGNALING_MAX_BAD_MESSAGES);
+    assert.equal(messages.some((message) => message.type === "registered"), false);
+  } finally {
+    peer?.terminate();
+    server.kill();
+    await serverOutput.done;
+  }
+
+  assert.doesNotMatch(serverOutput.text(), /12345682|bad-version/);
+});
+
 function testChildEnv(tmp: string): NodeJS.ProcessEnv {
   const pathValue = requiredEnv("PATH");
   const env: NodeJS.ProcessEnv = {
@@ -336,6 +383,34 @@ function connectWs(url: string, origin: string): Promise<WebSocket> {
       clearTimeout(timer);
       reject(error);
     });
+  });
+}
+
+function waitForWsClose(ws: WebSocket): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (ws.readyState === WebSocket.CLOSED) {
+      resolve();
+      return;
+    }
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error("Timed out waiting for WebSocket close."));
+    }, 10_000);
+    const cleanup = () => {
+      clearTimeout(timer);
+      ws.off("close", onClose);
+      ws.off("error", onError);
+    };
+    const onClose = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+    ws.once("close", onClose);
+    ws.once("error", onError);
   });
 }
 
