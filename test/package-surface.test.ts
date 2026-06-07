@@ -39,6 +39,8 @@ const dockerPolicySmokeScript = fs.readFileSync(new URL("../scripts/smoke-docker
 const nativeSmokeScript = fs.readFileSync(new URL("../scripts/smoke-native.mjs", import.meta.url), "utf8");
 const installStateScript = fs.readFileSync(new URL("../scripts/check-install-state.mjs", import.meta.url), "utf8");
 const cliCryptoDependenciesSource = fs.readFileSync(new URL("../src/cli/crypto-dependencies.ts", import.meta.url), "utf8");
+const cliNativeWebrtcSource = fs.readFileSync(new URL("../src/cli/native-webrtc.ts", import.meta.url), "utf8");
+const cliRtcSource = fs.readFileSync(new URL("../src/cli/rtc.ts", import.meta.url), "utf8");
 const releaseTagScript = fs.readFileSync(new URL("../scripts/check-release-tag.mjs", import.meta.url), "utf8");
 const releaseMainScript = fs.readFileSync(new URL("../scripts/check-release-main.mjs", import.meta.url), "utf8");
 const releaseArtifactScript = fs.readFileSync(new URL("../scripts/verify-release-artifact.mjs", import.meta.url), "utf8");
@@ -1054,6 +1056,19 @@ test("native WebRTC dependency identity and install surface stay reviewed", () =
   assert.match(nativeSmokeScript, /requiredConstructor\(wrtc\.RTCPeerConnection, "RTCPeerConnection"\)/);
   assert.match(nativeSmokeScript, /requiredConstructor\(wrtc\.RTCDataChannel, "RTCDataChannel"\)/);
   assert.match(nativeSmokeScript, /requiredConstructor\(wrtc\.RTCIceCandidate, "RTCIceCandidate"\)/);
+  assert.doesNotMatch(cliRtcSource, /import wrtc from "@roamhq\/wrtc"/);
+  assert.match(cliRtcSource, /import \{ nativeWebRtc \} from "\.\/native-webrtc\.js"/);
+  assert.match(cliNativeWebrtcSource, /const REVIEWED_NATIVE_WEBRTC_DEPENDENCIES = \{/);
+  assert.match(cliNativeWebrtcSource, /wrtc: \{ name: "@roamhq\/wrtc", version: "0\.10\.0" \}/);
+  assert.match(cliNativeWebrtcSource, /domException: \{ name: "domexception", version: "4\.0\.0" \}/);
+  assert.match(cliNativeWebrtcSource, /"darwin-arm64": \{ name: "@roamhq\/wrtc-darwin-arm64", version: "0\.10\.0" \}/);
+  assert.match(cliNativeWebrtcSource, /"linux-x64": \{ name: "@roamhq\/wrtc-linux-x64", version: "0\.10\.0" \}/);
+  assert.match(cliNativeWebrtcSource, /"win32-x64": \{ name: "@roamhq\/wrtc-win32-x64", version: "0\.10\.0" \}/);
+  assert.match(cliNativeWebrtcSource, /assertReviewedNativeWebRtcDependencies\(\)/);
+  assert.match(cliNativeWebrtcSource, /requireFromWrtc\.resolve\(prebuiltName\)/);
+  assert.match(cliNativeWebrtcSource, /requireFromWrtc\.resolve\("domexception"\)/);
+  assert.match(cliNativeWebrtcSource, /Reviewed native WebRTC dependency versions are not installed\./);
+  assert.doesNotMatch(cliNativeWebrtcSource, /console\.|process\.exit|resolvedFile\}/);
   assert.match(packedSmokeScript, /onlyBuiltDependencies:[\s\S]*- '@roamhq\/wrtc'/);
   assert.match(ciWorkflow, /ubuntu-24\.04/);
   assert.match(ciWorkflow, /macos-15/);
@@ -1075,6 +1090,8 @@ test("native WebRTC dependency identity and install surface stay reviewed", () =
   assert.match(nativeWebrtcReview, /Package script surface reviewed in installed metadata: only `patch`, `build`, `make-prebuilt`, `install-example`, `lint`, `test`, and `prepare` are present/);
   assert.match(nativeWebrtcReview, /Consumer install lifecycle hooks reviewed: `preinstall`, `install`, and `postinstall` are absent/);
   assert.match(nativeWebrtcReview, /`prepare` is present upstream but is not run during registry consumer installs/);
+  assert.match(nativeWebrtcReview, /Runtime consumer-install hardening reviewed: CLI WebRTC helpers load `@roamhq\/wrtc` lazily/);
+  assert.match(nativeWebrtcReview, /fail closed unless the resolved package graph matches `@roamhq\/wrtc@0\.10\.0`, the current platform's reviewed `@roamhq\/wrtc-\*` prebuilt, and `domexception@4\.0\.0`/);
   assert.match(nativeWebrtcReview, /Optional platform prebuilt packages reviewed: `@roamhq\/wrtc-darwin-arm64@0\.10\.0`, `@roamhq\/wrtc-darwin-x64@0\.10\.0`, `@roamhq\/wrtc-linux-arm64@0\.10\.0`, `@roamhq\/wrtc-linux-x64@0\.10\.0`, and `@roamhq\/wrtc-win32-x64@0\.10\.0`/);
   assert.match(nativeWebrtcReview, new RegExp(`Reviewed lockfile integrity for \`@roamhq/wrtc@0\\.10\\.0\`: \`${escapeRegExp(reviewedWrtcIntegrity)}\``));
   for (const name of reviewedWrtcPrebuiltPackages) {
@@ -1088,6 +1105,7 @@ test("native WebRTC dependency identity and install surface stay reviewed", () =
   assert.match(nativeWebrtcReview, /Dependabot must keep `@roamhq\/wrtc` and `@roamhq\/wrtc-\*` in the `native-webrtc-dependency` production group and excluded from the bulk production dependency group/);
   assert.match(nativeWebrtcReview, /Native WebRTC dependency updates must update this artifact in the same change as the package pin and lockfile/);
   assert.match(nativeWebrtcReview, /Release must stop if any of these are true:/);
+  assert.match(nativeWebrtcReview, /`package\.json`, `pnpm-lock\.yaml`, runtime dependency attestation, or installed package metadata no longer agree on `@roamhq\/wrtc@0\.10\.0`, platform prebuilt `@roamhq\/wrtc-\*@0\.10\.0`, and `domexception@4\.0\.0`/);
   assert.match(nativeWebrtcReview, /`@roamhq\/wrtc` adds `preinstall`, `install`, or `postinstall` hooks, removes the reviewed registry-consumer install behavior, or changes to a non-registry source/);
   assert.match(nativeWebrtcReview, /The optional platform prebuilt package set changes without explicit platform-support review/);
   assert.match(nativeWebrtcReview, /native smoke, packed-install smoke, platform smoke, browser tests, e2e tests, or release-artifact verification fails/);

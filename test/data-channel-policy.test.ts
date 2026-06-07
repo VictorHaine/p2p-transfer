@@ -131,7 +131,8 @@ test("CLI createPeer snapshots construction inputs before native PeerConnection 
     assert.match(body, /const safeRole = peerRoleInput\(role\)/);
     assert.match(body, /const safeForceRelay = forceRelayInput\(forceRelay\)/);
     assert.match(body, /let authKey = signalAuthKeyInput\(signalAuthKey\)/);
-    assert.match(body, /new wrtc\.RTCPeerConnection\(\{ iceServers: safeIceServers, iceTransportPolicy: safeForceRelay \? "relay" : "all" \}\)/);
+    assert.match(body, /const \{ RTCPeerConnection \} = nativeWebRtc\(\)/);
+    assert.match(body, /new RTCPeerConnection\(\{ iceServers: safeIceServers, iceTransportPolicy: safeForceRelay \? "relay" : "all" \}\)/);
     assert.doesNotMatch(body, /new wrtc\.RTCPeerConnection\(\{ iceServers,/);
     assert.match(body, /authKey\.fill\(0\)/);
     assert.match(body, /signalingSend\.call\(signalingTarget/);
@@ -345,11 +346,13 @@ test("local ICE candidate callbacks snapshot native candidates before auth and s
     assert.match(createPeerBody, /const candidate = localIceCandidateInit\(localCandidate\);/);
     assert.match(createPeerBody, /signalAuthTag\(authKey, safeSid, safeRole, \{ kind: "candidate", candidate \}\)/);
     assert.doesNotMatch(createPeerBody, /event\.candidate|candidate\.toJSON\(\)/);
-    assert.match(source, /const NATIVE_ICE_CANDIDATE = wrtc\.RTCIceCandidate/);
+    assert.doesNotMatch(source, /import wrtc from "@roamhq\/wrtc"|const NATIVE_ICE_CANDIDATE = wrtc\.RTCIceCandidate/);
+    assert.match(source, /import \{ nativeWebRtc \} from "\.\/native-webrtc\.js"/);
     assert.match(source, /function localIceCandidateFromEvent\(event(?:: unknown)?\)(?:: RTCIceCandidate \| undefined)? \{/);
     assert.match(source, /const candidate = ownDataValue\(event, "candidate"\);/);
-    assert.match(source, /candidate instanceof NATIVE_ICE_CANDIDATE/);
+    assert.match(source, /candidate instanceof nativeWebRtc\(\)\.RTCIceCandidate/);
     assert.match(source, /function localIceCandidateInit\(source(?:: RTCIceCandidate)?\)(?:: RTCIceCandidateInit \| undefined)? \{/);
+    assert.match(source, /source instanceof nativeWebRtc\(\)\.RTCIceCandidate/);
     assert.match(source, /const candidateText = ownDataValue\(source, "candidate"\);/);
     assert.match(source, /const candidate(?:: RTCIceCandidateInit)? = \{ candidate: candidateText \};/);
     assert.match(source, /function ownDataValue\(value(?:: unknown)?, key(?:: string)?\)(?:: unknown)? \{/);

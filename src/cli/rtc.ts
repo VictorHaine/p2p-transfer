@@ -1,8 +1,8 @@
-import wrtc from "@roamhq/wrtc";
 import { CONNECT_TIMEOUT_MS, DATA_CHANNEL_BUFFER_LOW, TRANSFER_CONTROL_TIMEOUT_MS } from "../shared/constants.js";
 import { cloneIceServers } from "../shared/ice.js";
 import { isServerMessage, type SignalPayload } from "../shared/messages.js";
 import { signalAuthTag, type PakeRole } from "../shared/security.js";
+import { nativeWebRtc } from "./native-webrtc.js";
 import type { SignalingClient } from "./signaling.js";
 import { unrefTimer } from "./timers.js";
 
@@ -12,9 +12,6 @@ export type PeerBundle = {
   close: () => void;
 };
 
-const NATIVE_PEER_CONNECTION = wrtc.RTCPeerConnection as { new (...args: never[]): RTCPeerConnection };
-const NATIVE_DATA_CHANNEL = (wrtc as unknown as { RTCDataChannel: { new (...args: never[]): RTCDataChannel } }).RTCDataChannel;
-const NATIVE_ICE_CANDIDATE = wrtc.RTCIceCandidate as { new (...args: never[]): RTCIceCandidate };
 const RTC_SESSION_ID_VALUE = /^[A-Za-z0-9_-]+$/;
 const RTC_MAX_SESSION_ID_CHARS = 256;
 const RTC_SIGNAL_AUTH_KEY_BYTES = 32;
@@ -40,7 +37,8 @@ export function createPeer(
   let closed = false;
   let pc: RTCPeerConnection;
   try {
-    pc = new wrtc.RTCPeerConnection({ iceServers: safeIceServers, iceTransportPolicy: safeForceRelay ? "relay" : "all" });
+    const { RTCPeerConnection } = nativeWebRtc();
+    pc = new RTCPeerConnection({ iceServers: safeIceServers, iceTransportPolicy: safeForceRelay ? "relay" : "all" });
   } catch (error) {
     authKey.fill(0);
     throw error;
@@ -215,7 +213,7 @@ export async function waitForBackpressure(channel: RTCDataChannel, highWater: nu
 }
 
 export function isSafeDataChannel(channel: unknown): channel is RTCDataChannel {
-  if (channel instanceof NATIVE_DATA_CHANNEL) return true;
+  if (channel instanceof nativeWebRtc().RTCDataChannel) return true;
   if (typeof channel !== "object" || channel === null) return false;
   for (const key of ["readyState", "bufferedAmount", "bufferedAmountLowThreshold", "onopen", "onclose", "onerror", "onbufferedamountlow"] as const) {
     const descriptor = Object.getOwnPropertyDescriptor(channel, key);
@@ -225,7 +223,7 @@ export function isSafeDataChannel(channel: unknown): channel is RTCDataChannel {
 }
 
 export function isSafeIncomingDataChannel(channel: unknown): channel is RTCDataChannel {
-  if (channel instanceof NATIVE_DATA_CHANNEL) return true;
+  if (channel instanceof nativeWebRtc().RTCDataChannel) return true;
   if (!isSafeDataChannel(channel)) return false;
   for (const key of ["label", "ordered", "maxPacketLifeTime", "maxRetransmits"] as const) {
     const descriptor = Object.getOwnPropertyDescriptor(channel, key);
@@ -251,7 +249,7 @@ export function closeDataChannel(channel: RTCDataChannel): void {
 }
 
 function assertNativePeerConnection(pc: RTCPeerConnection): void {
-  if (!(pc instanceof NATIVE_PEER_CONNECTION)) throw new Error("PeerConnection is invalid.");
+  if (!(pc instanceof nativeWebRtc().RTCPeerConnection)) throw new Error("PeerConnection is invalid.");
 }
 
 function assertSignalPayload(signal: SignalPayload): void {
@@ -260,11 +258,11 @@ function assertSignalPayload(signal: SignalPayload): void {
 
 function localIceCandidateFromEvent(event: unknown): RTCIceCandidate | undefined {
   const candidate = ownDataValue(event, "candidate");
-  return candidate instanceof NATIVE_ICE_CANDIDATE ? candidate : undefined;
+  return candidate instanceof nativeWebRtc().RTCIceCandidate ? candidate : undefined;
 }
 
 function localIceCandidateInit(source: RTCIceCandidate): RTCIceCandidateInit | undefined {
-  if (!(source instanceof NATIVE_ICE_CANDIDATE)) return undefined;
+  if (!(source instanceof nativeWebRtc().RTCIceCandidate)) return undefined;
   const candidateText = ownDataValue(source, "candidate");
   if (typeof candidateText !== "string" || candidateText.length === 0) return undefined;
   const sdpMid = ownDataValue(source, "sdpMid");
