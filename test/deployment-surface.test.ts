@@ -556,6 +556,10 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(githubReleaseControlsScript, /Npm environment reviewer must have write, maintain, or admin repository permission\./);
   assert.match(githubReleaseControlsScript, /function assertEnvironmentDoesNotSelfReviewDeadlock\(environment, authenticatedLogin\)/);
   assert.match(githubReleaseControlsScript, /The npm environment sole required reviewer is the authenticated release setup operator\./);
+  assert.match(githubReleaseControlsScript, /async function assertPersistedNpmEnvironmentApproverPermissions\(token, repository, environment, authenticatedLogin\)/);
+  assert.match(githubReleaseControlsScript, /GitHub npm environment must include at least one non-self user reviewer with write, maintain, or admin repository permission\./);
+  assert.match(githubReleaseControlsScript, /function npmEnvironmentUserReviewerLogins\(environment\)/);
+  assert.match(githubReleaseControlsScript, /GitHub npm environment must include at least one user reviewer with write, maintain, or admin repository permission\./);
   assert.match(githubReleaseControlsScript, /function reviewerLogin\(reviewerEntry\)/);
   assert.match(githubReleaseControlsScript, /--npm-reviewer/);
   assert.match(githubReleaseControlsScript, /--prevent-self-review/);
@@ -596,7 +600,8 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(readme, /refuses read-only or unknown reviewers/);
   assert.match(readme, /refuses to create a sole-reviewer self-approval deadlock/);
   assert.match(readme, /refuses `--allow-missing-main` outside dry-run mode/);
-  assert.match(readme, /re-reads the persisted `npm` environment, deployment tag policy, and repository ruleset details after writes/);
+  assert.match(readme, /re-reads the persisted `npm` environment, persisted reviewer permissions, deployment tag policy, and repository ruleset details after writes/);
+  assert.match(readme, /refuses to mutate deployment policies or repository rulesets if GitHub returns a persisted reviewer without write, maintain, or admin permission/);
   assert.match(readme, /refuses to mutate repository rulesets if GitHub returns malformed, duplicate, unexpected, wrong-target, or bypass-enabled rulesets, or if the persisted `npm` environment still has no required-reviewer protection, still allows admin bypass or branch deployments, lacks the exact release-tag deployment policy, still has the authenticated setup operator as its sole required reviewer, or the persisted branch\/tag rulesets do not exactly match the requested protected surface/);
   assert.match(securityPolicy, /`--allow-missing-main` must be dry-run only and must not be accepted with `--apply`/);
   assert.match(securityPolicy, /setup script must be able to create or update the `npm` environment approval gate from explicit reviewers with write, maintain, or admin repository permission, self-review prevention, admin bypass disabled, and a single `v\*\.\*\.\*` tag deployment policy/);
@@ -604,7 +609,8 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(securityPolicy, /release setup must create branch and tag rulesets with no bypass actors/);
   assert.match(securityPolicy, /release setup must reject malformed, unexpected, wrong-target, duplicate, or bypass-enabled GitHub rulesets list entries/);
   assert.match(securityPolicy, /setup script must reject unknown or read-only reviewers and sole-reviewer self-approval deadlocks/);
-  assert.match(securityPolicy, /release setup must re-read the persisted `npm` environment plus deployment tag policy and fail before mutating repository rulesets when the persisted `npm` environment is missing required-reviewer protection, allows admin bypass or branch deployments, lacks the exact release-tag deployment policy, or has the authenticated setup operator as its sole required reviewer/);
+  assert.match(securityPolicy, /release setup must re-read the persisted `npm` environment plus persisted reviewer permissions and fail before mutating deployment policies or repository rulesets when the persisted `npm` environment is missing required-reviewer protection, allows admin bypass or branch deployments, lacks a non-self user reviewer with write, maintain, or admin permission, or has the authenticated setup operator as its sole required reviewer/);
+  assert.match(securityPolicy, /release setup must re-read the persisted deployment tag policy and fail before mutating repository rulesets when the `npm` environment lacks the exact release-tag deployment policy/);
   assert.match(securityPolicy, /release setup must re-read persisted repository ruleset details after writes and fail before reporting success when GitHub drops, broadens, weakens, bypass-enables, or otherwise normalizes branch\/tag rulesets away from the exact protected surface/);
   assert.match(securityPolicy, /GitHub release setup and release preflight scripts must read token, repository, GitHub Actions mode, and release actor environment variables through own data descriptors[\s\S]*send GitHub API requests with an abort deadline/);
   assert.match(securityPolicy, /release preflight must reject malformed GitHub token, `GITHUB_ACTIONS`, or Actions-only `GITHUB_ACTOR` values before package reads, npm registry requests, or GitHub API requests/);

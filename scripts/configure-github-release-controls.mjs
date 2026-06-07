@@ -94,11 +94,12 @@ async function main() {
     throw new Error("The npm environment must restrict deployments to custom policies.");
   }
   assertEnvironmentDoesNotSelfReviewDeadlock(environment, authenticatedLogin);
-  await ensureNpmDeploymentPolicy(token, options.repository);
   environment = await github(token, "GET", `/repos/${options.repository}/environments/${encodeURIComponent(NPM_ENVIRONMENT)}`);
   const verifiedEnvironmentStatus = environmentStatus(environment);
   assertNpmEnvironmentStatus(verifiedEnvironmentStatus);
   assertEnvironmentDoesNotSelfReviewDeadlock(environment, authenticatedLogin);
+  await assertPersistedNpmEnvironmentApproverPermissions(token, options.repository, environment, authenticatedLogin);
+  await ensureNpmDeploymentPolicy(token, options.repository);
   assertNpmDeploymentPolicies(await github(token, "GET", `/repos/${options.repository}/environments/${encodeURIComponent(NPM_ENVIRONMENT)}/deployment-branch-policies?per_page=100`));
 
   for (const ruleset of desired) {
@@ -268,6 +269,32 @@ function assertEnvironmentDoesNotSelfReviewDeadlock(environment, authenticatedLo
   if (Array.isArray(reviewers) && reviewers.length === 1 && reviewerLogin(reviewers[0])?.toLowerCase() === authenticatedLogin.toLowerCase()) {
     throw new Error("The npm environment sole required reviewer is the authenticated release setup operator.");
   }
+}
+
+async function assertPersistedNpmEnvironmentApproverPermissions(token, repository, environment, authenticatedLogin) {
+  const reviewers = npmEnvironmentUserReviewerLogins(environment);
+  let eligibleNonSelfReviewers = 0;
+  for (const login of reviewers) {
+    if (login.toLowerCase() === authenticatedLogin.toLowerCase()) continue;
+    await assertNpmReviewerCanApprove(token, repository, login);
+    eligibleNonSelfReviewers += 1;
+  }
+  if (eligibleNonSelfReviewers < 1) {
+    throw new Error("GitHub npm environment must include at least one non-self user reviewer with write, maintain, or admin repository permission.");
+  }
+}
+
+function npmEnvironmentUserReviewerLogins(environment) {
+  const requiredReviewers = Array.isArray(environment?.protection_rules) ? environment.protection_rules.find((rule) => rule?.type === "required_reviewers") : undefined;
+  const reviewers = requiredReviewers?.reviewers;
+  if (!Array.isArray(reviewers) || reviewers.length < 1) throw new Error("GitHub npm environment required reviewers rule has no reviewers.");
+  const logins = [];
+  for (const reviewer of reviewers) {
+    const login = reviewerLogin(reviewer);
+    if (login) logins.push(login);
+  }
+  if (logins.length < 1) throw new Error("GitHub npm environment must include at least one user reviewer with write, maintain, or admin repository permission.");
+  return logins;
 }
 
 function reviewerLogin(reviewerEntry) {

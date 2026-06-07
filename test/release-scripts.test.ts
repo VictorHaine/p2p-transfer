@@ -1143,9 +1143,10 @@ globalThis.fetch = async (url, init = {}) => {
       "GET /repos/VictorHaine/p2p-transfer/environments/npm",
       "GET /repos/VictorHaine/p2p-transfer/rulesets?includes_parents=false",
       "PUT /repos/VictorHaine/p2p-transfer/environments/npm",
+      "GET /repos/VictorHaine/p2p-transfer/environments/npm",
+      "GET /repos/VictorHaine/p2p-transfer/collaborators/approver/permission",
       "GET /repos/VictorHaine/p2p-transfer/environments/npm/deployment-branch-policies?per_page=100",
       "POST /repos/VictorHaine/p2p-transfer/environments/npm/deployment-branch-policies",
-      "GET /repos/VictorHaine/p2p-transfer/environments/npm",
       "GET /repos/VictorHaine/p2p-transfer/environments/npm/deployment-branch-policies?per_page=100",
       "POST /repos/VictorHaine/p2p-transfer/rulesets",
       "POST /repos/VictorHaine/p2p-transfer/rulesets",
@@ -1153,9 +1154,9 @@ globalThis.fetch = async (url, init = {}) => {
       "GET /repos/VictorHaine/p2p-transfer/rulesets/101",
       "GET /repos/VictorHaine/p2p-transfer/rulesets/202"
     ]);
-    assert.equal(requests.length, 17);
+    assert.equal(requests.length, 18);
     const environmentPut = requests[7];
-    const deploymentPolicyPost = requests[9];
+    const deploymentPolicyPost = requests[11];
     assert.ok(environmentPut);
     assert.ok(deploymentPolicyPost);
     assert.deepEqual(environmentPut.body, {
@@ -1255,6 +1256,90 @@ globalThis.fetch = async (url, init = {}) => {
     assert.match(result.stderr, /GitHub release control setup failed:\n- p2p-transfer: protect main rules are not exact\./);
     assert.doesNotMatch(result.stderr, /token-that-must-not-be-printed|tag ruleset should not be read|api\.github|Error:/);
     assert.match(requests, /POST \/repos\/VictorHaine\/p2p-transfer\/rulesets\nPOST \/repos\/VictorHaine\/p2p-transfer\/rulesets\nGET \/repos\/VictorHaine\/p2p-transfer\/rulesets\?includes_parents=false\nGET \/repos\/VictorHaine\/p2p-transfer\/rulesets\/101\n$/);
+  } finally {
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
+});
+
+test("GitHub release controls verify persisted npm reviewer permissions before deployment policy or rulesets", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-controls-reviewer-drift-"));
+  const mock = path.join(tmp, "mock-github-fetch.mjs");
+  const log = path.join(tmp, "requests.log");
+  try {
+    await fs.writeFile(
+      mock,
+      `
+import { appendFileSync } from "node:fs";
+
+const log = process.env.FF_MOCK_GITHUB_LOG;
+let environmentUpdated = false;
+let permissionChecks = 0;
+
+function record(method, path) {
+  appendFileSync(log, method + " " + path + "\\n", "utf8");
+}
+
+globalThis.fetch = async (url, init = {}) => {
+  const parsed = new URL(url);
+  const method = init.method ?? "GET";
+  const path = parsed.pathname + parsed.search;
+  record(method, path);
+  const json = (status, value) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
+  if (parsed.origin !== "https://api.github.com") return json(500, {});
+  if (method === "GET" && path === "/user") return json(200, { login: "operator" });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer") return json(200, { id: 1 });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/branches/main") return json(200, { name: "main" });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/collaborators/approver/permission") {
+    permissionChecks += 1;
+    return json(200, { permission: permissionChecks === 1 ? "write" : "read", user: { login: "approver" } });
+  }
+  if (method === "GET" && path === "/users/approver") return json(200, { id: 42, login: "approver" });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/environments/npm") {
+    if (environmentUpdated) return json(200, {
+      can_admins_bypass: false,
+      protection_rules: [{ type: "required_reviewers", prevent_self_review: true, reviewers: [{ type: "User", reviewer: { login: "approver" } }] }],
+      deployment_branch_policy: { protected_branches: false, custom_branch_policies: true }
+    });
+    return json(200, {
+      can_admins_bypass: true,
+      protection_rules: [],
+      deployment_branch_policy: null
+    });
+  }
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/rulesets?includes_parents=false") return json(200, []);
+  if (method === "PUT" && path === "/repos/VictorHaine/p2p-transfer/environments/npm") {
+    environmentUpdated = true;
+    return json(200, {
+      can_admins_bypass: false,
+      protection_rules: [{ type: "required_reviewers", prevent_self_review: true, reviewers: [{ type: "User", reviewer: { login: "approver" } }] }],
+      deployment_branch_policy: { protected_branches: false, custom_branch_policies: true }
+    });
+  }
+  if (path.includes("/deployment-branch-policies")) return json(500, { message: "deployment policy must not be touched" });
+  if (method === "POST" && path === "/repos/VictorHaine/p2p-transfer/rulesets") return json(500, { message: "rulesets must not be touched" });
+  return json(500, {});
+};
+`,
+      "utf8"
+    );
+
+    const result = runScriptWithNodeArgs(
+      "scripts/configure-github-release-controls.mjs",
+      {
+        FF_MOCK_GITHUB_LOG: log,
+        GITHUB_TOKEN: "token-that-must-not-be-printed"
+      },
+      ["--apply", "--npm-reviewer", "approver"],
+      ["--import", mock]
+    );
+    const requests = await fs.readFile(log, "utf8");
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /GitHub release control setup failed:\n- Npm environment reviewer must have write, maintain, or admin repository permission\./);
+    assert.doesNotMatch(result.stderr, /token-that-must-not-be-printed|deployment policy must not be touched|rulesets must not be touched|api\.github|Error:/);
+    assert.match(requests, /PUT \/repos\/VictorHaine\/p2p-transfer\/environments\/npm\nGET \/repos\/VictorHaine\/p2p-transfer\/environments\/npm\nGET \/repos\/VictorHaine\/p2p-transfer\/collaborators\/approver\/permission\n$/);
+    assert.doesNotMatch(requests, /deployment-branch-policies|POST \/repos\/VictorHaine\/p2p-transfer\/rulesets/);
   } finally {
     await fs.rm(tmp, { recursive: true, force: true });
   }
