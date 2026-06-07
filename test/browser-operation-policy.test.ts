@@ -135,7 +135,7 @@ test("browser sender uses the validated send plan for transfer metadata", () => 
     /const safeSendPlan = browserSendPlanInput\(sendPlan\);[\s\S]*for \(const plan of safeSendPlan\) \{[\s\S]*t: "file-begin", id: plan\.id, name: plan\.name, size: plan\.size[\s\S]*readBrowserFileChunk\(plan\.file, plan\.slice, offset[\s\S]*sealBulk\(keys, plan\.id, seq, payload\)[\s\S]*encodeChunk\(plan\.id, seq, sealed\)[\s\S]*t: "file-end", id: plan\.id/
   );
   assert.match(distWebBundle, /Browser send plan entry is invalid/);
-  assert.match(distWebBundle, /changed before chunk/);
+  assert.match(distWebBundle, /Selected file changed while sending/);
   assert.doesNotMatch(distWebBundle, /o\.file\.stream\(\)\.getReader\(\)/);
 });
 
@@ -158,7 +158,7 @@ test("browser sender prehashes deterministic file slices and verifies chunk inte
   assert.match(sendPlanBody, /sendPlan\.push\(\{[\s\S]*id: sendPlan\.length,[\s\S]*slice,[\s\S]*sha256,[\s\S]*chunkSha256[\s\S]*\}\);/);
   assert.match(sendPlanBody, /return sendPlan;/);
   assert.match(webSource, /async function hashBrowserFile\(file: File\): Promise<\{ sha256: string; chunkSha256: string\[\] \}> \{/);
-  assert.match(webSource, /async function readBrowserFileChunk\(file: File, slice: File\["slice"\], offset: number, length: number, label: string\): Promise<Uint8Array>/);
+  assert.match(webSource, /async function readBrowserFileChunk\(file: File, slice: File\["slice"\], offset: number, length: number, _label: string\): Promise<Uint8Array>/);
   assert.match(webSource, /function browserFileInputs\(files: unknown\): File\[\]/);
   assert.match(webSource, /Object\.getOwnPropertyDescriptor\(files, String\(index\)\)/);
   assert.match(webSource, /function browserSendPlanInput\(sendPlan: unknown\): BrowserSendPlanFile\[\]/);
@@ -174,7 +174,7 @@ test("browser sender prehashes deterministic file slices and verifies chunk inte
   assert.match(distWebBundle, /\^\[a-f0-9\]\{64\}\$/);
   assert.match(distWebBundle, /Browser send plan chunk hashes are invalid/);
   assert.match(distWebBundle, /Browser send plan entry is invalid/);
-  assert.match(distWebBundle, /changed while sending/);
+  assert.match(distWebBundle, /Selected file changed while sending/);
   assert.match(
     webSource,
     /for \(let offset = 0; offset < file\.size; offset \+= CHUNK_SIZE\) \{[\s\S]*readBrowserFileChunk\(file, slice, offset, Math\.min\(CHUNK_SIZE, file\.size - offset\), file\.name\)[\s\S]*chunkSha256\.push\(digestHex\(chunkHash\)\);/
@@ -183,10 +183,10 @@ test("browser sender prehashes deterministic file slices and verifies chunk inte
   assert.match(webSource, /blob instanceof Blob/);
   assert.match(webSource, /bytes instanceof ArrayBuffer/);
   assert.match(webSource, /const expectedChunkSha256 = plan\.chunkSha256\[seq\];/);
-  assert.match(webSource, /if \(expectedChunkSha256 === undefined\) throw new Error\(`\$\{plan\.name\} changed while sending\.`\);/);
-  assert.match(webSource, /if \(digestHex\(chunkHash\) !== expectedChunkSha256\) throw new Error\(`\$\{plan\.name\} changed before chunk \$\{seq\} could be sent\.`\);/);
-  assert.match(webSource, /if \(seq !== plan\.chunkSha256\.length\) throw new Error\(`\$\{plan\.name\} changed while sending\.`\);/);
-  assert.match(webSource, /const actualSha256 = digestHex\(hash\);[\s\S]*if \(actualSha256 !== plan\.sha256\) throw new Error\(`\$\{plan\.name\} changed while sending\.`\);/);
+  assert.match(webSource, /if \(expectedChunkSha256 === undefined\) throw new Error\("Selected file changed while sending\."\);/);
+  assert.match(webSource, /if \(digestHex\(chunkHash\) !== expectedChunkSha256\) throw new Error\("Selected file changed while sending\."\);/);
+  assert.match(webSource, /if \(seq !== plan\.chunkSha256\.length\) throw new Error\("Selected file changed while sending\."\);/);
+  assert.match(webSource, /const actualSha256 = digestHex\(hash\);[\s\S]*if \(actualSha256 !== plan\.sha256\) throw new Error\("Selected file changed while sending\."\);/);
 });
 
 test("browser sender honors encrypted resume offsets", () => {
@@ -201,7 +201,7 @@ test("browser sender honors encrypted resume offsets", () => {
   assert.match(webSource, /function hashBrowserFilePrefix\(plan: BrowserSendPlanFile, resumeOffset: number\): Promise<string>/);
   assert.match(webSource, /value > MAX_FILE_BYTES/);
   assert.match(webSource, /const prefixSha256 = message\.prefixSha256;\n\s+if \(prefixSha256 === undefined\) throw new Error\(`Invalid ready acknowledgement for file \$\{id\}\.`\);/);
-  assert.match(webSource, /if \(ready\.offset > plan\.size \|\| \(ready\.offset < plan\.size && ready\.offset % CHUNK_SIZE !== 0\)\) throw new Error\(`Invalid resume offset for \$\{plan\.name\}\.`\);/);
+  assert.match(webSource, /if \(ready\.offset > plan\.size \|\| \(ready\.offset < plan\.size && ready\.offset % CHUNK_SIZE !== 0\)\) throw new Error\(`Invalid resume offset for file \$\{plan\.id\}\.`\);/);
   assert.match(webSource, /const prefixSha256 = await hashBrowserFilePrefix\(plan, ready\.offset\);[\s\S]*await throwIfSenderFailed\(\);[\s\S]*if \(prefixSha256 === ready\.prefixSha256\) return ready;[\s\S]*await sendControl\(control, keys, \{ t: "restart", id: plan\.id \}\);/);
   assert.match(sendBody, /const ready = await verifiedBrowserReadyState\(control, keys, acks, readyStates, plan, throwIfSenderFailed\);/);
   assert.match(sendBody, /const resumeOffset = ready\.offset;/);
@@ -210,7 +210,7 @@ test("browser sender honors encrypted resume offsets", () => {
   assert.match(sendBody, /let skippedBytes = 0;/);
   assert.match(sendBody, /if \(skippedBytes < resumeOffset\) \{[\s\S]*skippedBytes \+= payload\.byteLength;[\s\S]*\} else \{[\s\S]*sealBulk\(keys, plan\.id, seq, payload\)/);
   assert.match(sendBody, /updateProgress\(log, "sent", transferred, totalBytes, startedAt\)/);
-  assert.match(sendBody, /if \(actualSha256 !== plan\.sha256\) throw new Error\(`\$\{plan\.name\} changed while sending\.`\);/);
+  assert.match(sendBody, /if \(actualSha256 !== plan\.sha256\) throw new Error\("Selected file changed while sending\."\);/);
   assert.match(distWebBundle, /new Map/);
   assert.match(distWebBundle, /offset\?\?0/);
   assert.match(distWebBundle, /Invalid ready acknowledgement for file/);
@@ -230,8 +230,8 @@ test("browser sender uses deterministic slices and streamed receive data stays n
   assert.doesNotMatch(webSource, /value\.byteLength/);
   assert.doesNotMatch(webSource, /value\.subarray/);
   assert.doesNotMatch(webSource, /value\.fill/);
-  assert.match(distWebBundle, /changed before chunk/);
-  assert.match(distWebBundle, /changed while sending/);
+  assert.match(distWebBundle, /Selected file changed while sending/);
+  assert.match(distWebBundle, /Selected file changed while reading/);
   assert.match(distWebBundle, /Unsupported chunk data/);
   assert.match(distWebBundle, /\.fill\(0\)/);
 });

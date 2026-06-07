@@ -528,12 +528,12 @@ async function sendBrowserFiles(control: RTCDataChannel, bulk: RTCDataChannel, k
         const payload = await readBrowserFileChunk(plan.file, plan.slice, offset, Math.min(CHUNK_SIZE, plan.size - offset), plan.name);
         try {
           await throwIfSenderFailed();
-          if (fileBytes + payload.byteLength > plan.size) throw new Error(`${plan.name} changed while sending.`);
+          if (fileBytes + payload.byteLength > plan.size) throw new Error("Selected file changed while sending.");
           const expectedChunkSha256 = plan.chunkSha256[seq];
-          if (expectedChunkSha256 === undefined) throw new Error(`${plan.name} changed while sending.`);
+          if (expectedChunkSha256 === undefined) throw new Error("Selected file changed while sending.");
           const chunkHash = createSha256();
           chunkHash.update(payload);
-          if (digestHex(chunkHash) !== expectedChunkSha256) throw new Error(`${plan.name} changed before chunk ${seq} could be sent.`);
+          if (digestHex(chunkHash) !== expectedChunkSha256) throw new Error("Selected file changed while sending.");
           hash.update(payload);
           if (skippedBytes < resumeOffset) {
             skippedBytes += payload.byteLength;
@@ -556,10 +556,10 @@ async function sendBrowserFiles(control: RTCDataChannel, bulk: RTCDataChannel, k
           payload.fill(0);
         }
       }
-      if (seq !== plan.chunkSha256.length) throw new Error(`${plan.name} changed while sending.`);
-      if (fileBytes !== plan.size) throw new Error(`${plan.name} changed while sending.`);
+      if (seq !== plan.chunkSha256.length) throw new Error("Selected file changed while sending.");
+      if (fileBytes !== plan.size) throw new Error("Selected file changed while sending.");
       const actualSha256 = digestHex(hash);
-      if (actualSha256 !== plan.sha256) throw new Error(`${plan.name} changed while sending.`);
+      if (actualSha256 !== plan.sha256) throw new Error("Selected file changed while sending.");
       await throwIfSenderFailed();
       await sendControl(control, keys, { t: "file-end", id: plan.id, sha256: actualSha256 }, throwIfSenderFailed);
       await acks.wait("file-ok", plan.id);
@@ -604,7 +604,7 @@ async function verifiedBrowserReadyState(
     await throwIfSenderFailed();
     const ready = readyStates.get(plan.id) ?? { offset: 0 };
     readyStates.delete(plan.id);
-    if (ready.offset > plan.size || (ready.offset < plan.size && ready.offset % CHUNK_SIZE !== 0)) throw new Error(`Invalid resume offset for ${plan.name}.`);
+    if (ready.offset > plan.size || (ready.offset < plan.size && ready.offset % CHUNK_SIZE !== 0)) throw new Error(`Invalid resume offset for file ${plan.id}.`);
     if (ready.offset === 0) return ready;
     const prefixSha256 = await hashBrowserFilePrefix(plan, ready.offset);
     await throwIfSenderFailed();
@@ -670,7 +670,7 @@ async function hashBrowserFile(file: File): Promise<{ sha256: string; chunkSha25
     const payload = await readBrowserFileChunk(file, slice, offset, Math.min(CHUNK_SIZE, file.size - offset), file.name);
     const chunkHash = createSha256();
     try {
-      if (bytesRead + payload.byteLength > file.size) throw new Error(`${file.name} changed while preparing the transfer.`);
+      if (bytesRead + payload.byteLength > file.size) throw new Error("Selected file changed while preparing the transfer.");
       hash.update(payload);
       chunkHash.update(payload);
       chunkSha256.push(digestHex(chunkHash));
@@ -679,7 +679,7 @@ async function hashBrowserFile(file: File): Promise<{ sha256: string; chunkSha25
       payload.fill(0);
     }
   }
-  if (bytesRead !== file.size) throw new Error(`${file.name} changed while preparing the transfer.`);
+  if (bytesRead !== file.size) throw new Error("Selected file changed while preparing the transfer.");
   return { sha256: digestHex(hash), chunkSha256 };
 }
 
@@ -707,14 +707,14 @@ function browserFileSliceMethod(file: File): File["slice"] {
   return slice as File["slice"];
 }
 
-async function readBrowserFileChunk(file: File, slice: File["slice"], offset: number, length: number, label: string): Promise<Uint8Array> {
+async function readBrowserFileChunk(file: File, slice: File["slice"], offset: number, length: number, _label: string): Promise<Uint8Array> {
   const blob = slice.call(file, offset, offset + length);
-  if (!(blob instanceof Blob) || blob.size !== length) throw new Error(`${label} changed while reading.`);
+  if (!(blob instanceof Blob) || blob.size !== length) throw new Error("Selected file changed while reading.");
   const arrayBuffer = dataMethod(blob, "arrayBuffer");
-  if (typeof arrayBuffer !== "function") throw new Error(`${label} changed while reading.`);
+  if (typeof arrayBuffer !== "function") throw new Error("Selected file changed while reading.");
   const bytes = await arrayBuffer.call(blob);
   if (!(bytes instanceof ArrayBuffer) || Object.getPrototypeOf(bytes) !== ArrayBuffer.prototype || bytes.byteLength !== length) {
-    throw new Error(`${label} changed while reading.`);
+    throw new Error("Selected file changed while reading.");
   }
   return new Uint8Array(bytes);
 }
@@ -1017,12 +1017,12 @@ async function receiveBrowserFiles(
       const state = states.get(frame.fileId);
       if (!state) throw new Error(`Unknown file ${frame.fileId}`);
       if (state.done || (state.expectedSha256 && state.bytes >= state.size)) throw new Error(`chunk for completed file ${frame.fileId}`);
-      if (frame.chunkSeq !== state.expectedSeq) throw new Error(`Unexpected chunk sequence for ${state.name}`);
+      if (frame.chunkSeq !== state.expectedSeq) throw new Error(`Unexpected chunk sequence for file ${state.id}.`);
       const copy = await openBulk(keys, frame.fileId, frame.chunkSeq, frame.payload);
       try {
         throwIfReceiveStopped();
-        if (copy.byteLength === 0) throw new Error(`Empty chunk for ${state.name}`);
-        if (state.bytes + copy.byteLength > state.size) throw new Error(`Received more bytes than declared for ${state.name}`);
+        if (copy.byteLength === 0) throw new Error(`Empty chunk for file ${state.id}.`);
+        if (state.bytes + copy.byteLength > state.size) throw new Error(`Received more bytes than declared for file ${state.id}.`);
         state.expectedSeq += 1;
         if (state.writable) {
           const writeCopy = new Uint8Array(copy.byteLength) as Uint8Array<ArrayBuffer>;
@@ -1098,12 +1098,12 @@ async function maybeDownload(state: BrowserReceiveState, control: RTCDataChannel
     if (actual !== state.expectedSha256) {
       state.resume = false;
       if (state.resumeKey) forgetBrowserResumePartial(state.resumeKey);
-      throw new Error(`Hash mismatch for ${state.name}`);
+      throw new Error(`Hash mismatch for file ${state.id}.`);
     }
     if (state.writable) {
       await state.writable.close();
       throwIfReceiveStopped();
-      if (!state.fileHandle || !state.partName) throw new Error(`Missing partial file handle for ${state.name}`);
+      if (!state.fileHandle || !state.partName) throw new Error("Missing browser partial file handle.");
       await verifyWritableFile(state.fileHandle, state.partName, state.size, actual);
       throwIfReceiveStopped();
       const fileOk = await sealControl(keys, { t: "file-ok", id: state.id });
@@ -1146,7 +1146,7 @@ async function restartBrowserReceiveState(state: BrowserReceiveState): Promise<v
     } catch {
       // The browser may have already closed the stale partial writer.
     }
-    if (!state.fileHandle) throw new Error(`Missing partial file handle for ${state.name}`);
+    if (!state.fileHandle) throw new Error("Missing browser partial file handle.");
     state.writable = await state.fileHandle.createWritable({ keepExistingData: false });
   }
   state.hash = createSha256();
@@ -2297,11 +2297,11 @@ function browserResumeOffset(partialSize: number, expectedSize: number): number 
   return Math.floor(partialSize / CHUNK_SIZE) * CHUNK_SIZE;
 }
 
-async function hashBrowserPartialPrefix(file: File, bytes: number, label: string): Promise<Sha256> {
+async function hashBrowserPartialPrefix(file: File, bytes: number, _label: string): Promise<Sha256> {
   const hash = createSha256();
   if (bytes === 0) return hash;
   const prefix = file.slice(0, bytes);
-  if (prefix.size !== bytes) throw new Error(`Could not read resumed partial for ${label}.`);
+  if (prefix.size !== bytes) throw new Error("Could not read resumed browser partial.");
   const reader = prefix.stream().getReader();
   let readBytes = 0;
   try {
@@ -2311,7 +2311,7 @@ async function hashBrowserPartialPrefix(file: File, bytes: number, label: string
       const chunk = toBytes(value);
       try {
         readBytes += chunk.byteLength;
-        if (readBytes > bytes) throw new Error(`Could not read resumed partial for ${label}.`);
+        if (readBytes > bytes) throw new Error("Could not read resumed browser partial.");
         hash.update(chunk);
       } finally {
         chunk.fill(0);
@@ -2320,7 +2320,7 @@ async function hashBrowserPartialPrefix(file: File, bytes: number, label: string
   } finally {
     reader.releaseLock();
   }
-  if (readBytes !== bytes) throw new Error(`Could not read resumed partial for ${label}.`);
+  if (readBytes !== bytes) throw new Error("Could not read resumed browser partial.");
   return hash;
 }
 
@@ -2618,7 +2618,7 @@ async function preserveBrowserPartialFile(state: BrowserReceiveState): Promise<v
 }
 
 async function publishBrowserPartFile(state: BrowserReceiveState, expectedSha256: string, throwIfReceiveStopped: () => void): Promise<string> {
-  if (!state.directory || !state.fileHandle || !state.partName) throw new Error(`Missing partial file handle for ${state.name}.`);
+  if (!state.directory || !state.fileHandle || !state.partName) throw new Error("Missing browser partial file handle.");
   throwIfReceiveStopped();
   const created = await createAvailableBrowserFile(state.directory, state.name, browserFinalCandidateName);
   const finalName = created.name;
@@ -2680,9 +2680,9 @@ async function copyWritableFile(sourceHandle: FileSystemFileHandle, targetHandle
   }
 }
 
-async function verifyWritableFile(handle: FileSystemFileHandle, name: string, expectedSize: number, expectedSha256: string): Promise<void> {
+async function verifyWritableFile(handle: FileSystemFileHandle, _name: string, expectedSize: number, expectedSha256: string): Promise<void> {
   const file = await handle.getFile();
-  if (file.size !== expectedSize) throw new Error(`Written file size mismatch for ${name}.`);
+  if (file.size !== expectedSize) throw new Error("Written file size mismatch.");
   const hash = createSha256();
   const reader = file.stream().getReader();
   try {
@@ -2699,7 +2699,7 @@ async function verifyWritableFile(handle: FileSystemFileHandle, name: string, ex
   } finally {
     reader.releaseLock();
   }
-  if (digestHex(hash) !== expectedSha256) throw new Error(`Written file hash mismatch for ${name}.`);
+  if (digestHex(hash) !== expectedSha256) throw new Error("Written file hash mismatch.");
 }
 
 function updateProgress(target: HTMLElement, label: string, bytes: number, totalBytes: number, startedAt: number): void {

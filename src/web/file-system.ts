@@ -12,7 +12,7 @@ export async function availableBrowserName(directory: FileSystemDirectoryHandle,
     assertBrowserFileName(candidate);
     if (!(await browserFileExists(directory, candidate))) return candidate;
   }
-  throw new Error(`Could not reserve a browser output name for ${name} after ${MAX_OUTPUT_NAME_ATTEMPTS} attempts.`);
+  throw new Error(`Could not reserve a browser output name after ${MAX_OUTPUT_NAME_ATTEMPTS} attempts.`);
 }
 
 export async function createAvailableBrowserFile(
@@ -32,7 +32,7 @@ export async function createAvailableBrowserFile(
     const file = await handle.getFile();
     if (file.size === 0) return { name: candidate, handle };
   }
-  throw new Error(`Could not create a browser output file for ${name} after ${MAX_OUTPUT_NAME_ATTEMPTS} attempts.`);
+  throw new Error(`Could not create a browser output file after ${MAX_OUTPUT_NAME_ATTEMPTS} attempts.`);
 }
 
 export function isNotFoundError(error: unknown): boolean {

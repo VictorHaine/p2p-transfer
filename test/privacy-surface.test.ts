@@ -8,7 +8,9 @@ const distCliSource = fs.readFileSync(new URL("../dist-node/cli/index.js", impor
 const cliTransferSource = fs.readFileSync(new URL("../src/cli/transfer.ts", import.meta.url), "utf8");
 const cliFilesSource = fs.readFileSync(new URL("../src/cli/files.ts", import.meta.url), "utf8");
 const webSource = fs.readFileSync(new URL("../src/web/main.ts", import.meta.url), "utf8");
+const webFileSystemSource = fs.readFileSync(new URL("../src/web/file-system.ts", import.meta.url), "utf8");
 const sharedTransferSource = fs.readFileSync(new URL("../src/shared/transfer.ts", import.meta.url), "utf8");
+const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
 const distWebBundle = readDistWebBundle();
 
 test("server logging stays operational and does not log signaling payload fields", () => {
@@ -140,6 +142,26 @@ test("browser clears sensitive DOM transfer metadata after operations", () => {
   assert.match(webSource, /sendFromBrowser\(\)[\s\S]*\.finally\(\(\) => \{[\s\S]*clearBrowserSendCode\(\);[\s\S]*sendBusy = false;/);
   assert.match(webSource, /sendFromBrowser\(\)[\s\S]*finally \{[\s\S]*clearBrowserSendSecrets\(\);[\s\S]*\}/);
   assert.match(webSource, /receiveInBrowser\(\)[\s\S]*finally \{[\s\S]*clearBrowserReceiveSecrets\(\);[\s\S]*\}/);
+});
+
+test("browser persistent error logs do not interpolate selected or peer file names", () => {
+  assert.match(securityPolicy, /browser top-level send and receive error logs must not persist selected local filenames, peer-supplied filenames, browser output names, or browser partial names/);
+  assert.match(webSource, /throw new Error\("Selected file changed while sending\."\)/);
+  assert.match(webSource, /throw new Error\("Selected file changed while preparing the transfer\."\)/);
+  assert.match(webSource, /throw new Error\("Selected file changed while reading\."\)/);
+  assert.match(webSource, /throw new Error\(`Invalid resume offset for file \$\{plan\.id\}\.`\)/);
+  assert.match(webSource, /throw new Error\(`Hash mismatch for file \$\{state\.id\}\.`\)/);
+  assert.match(webSource, /throw new Error\("Missing browser partial file handle\."\)/);
+  assert.match(webSource, /throw new Error\("Written file size mismatch\."\)/);
+  assert.match(webSource, /throw new Error\("Written file hash mismatch\."\)/);
+  assert.match(webFileSystemSource, /Could not reserve a browser output name after \$\{MAX_OUTPUT_NAME_ATTEMPTS\} attempts/);
+  assert.match(webFileSystemSource, /Could not create a browser output file after \$\{MAX_OUTPUT_NAME_ATTEMPTS\} attempts/);
+  assert.doesNotMatch(webSource, /throw new Error\(`[^`]*\$\{(?:plan|file|state)\.name/);
+  assert.doesNotMatch(webSource, /throw new Error\(`[^`]*(?:changed|partial)[^`]*\$\{label\}/);
+  assert.doesNotMatch(webSource, /changed before chunk \$\{seq\}/);
+  assert.doesNotMatch(webSource, /Written file (?:size|hash) mismatch for \$\{name\}/);
+  assert.doesNotMatch(webSource, /Could not read resumed partial for \$\{label\}/);
+  assert.doesNotMatch(webFileSystemSource, /browser output (?:name|file) for \$\{name\}/);
 });
 
 test("CLI opaque output names avoid peer basenames in final receive paths", () => {
