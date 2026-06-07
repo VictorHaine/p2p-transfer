@@ -559,8 +559,15 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /async function collectGitHubRepositoryReadiness\(failures, token, repository, authenticatedLogin\)/);
   assert.match(releaseReadinessScript, /\/repos\/\$\{repository\}\/branches\/main/);
   assert.match(releaseReadinessScript, /Remote main branch is missing\. Push main before releasing\./);
-  assert.match(releaseReadinessScript, /assertRequiredRuleset\(rulesets, MAIN_RULESET_NAME, "branch"\)/);
-  assert.match(releaseReadinessScript, /assertRequiredRuleset\(rulesets, TAG_RULESET_NAME, "tag"\)/);
+  assert.match(releaseReadinessScript, /const rulesetsByName = collectReadinessValueSync\(failures, \(\) => requiredRulesetsByName\(rulesets\)\)/);
+  assert.match(releaseReadinessScript, /assertRequiredRuleset\(rulesetsByName, MAIN_RULESET_NAME, "branch"\)/);
+  assert.match(releaseReadinessScript, /assertRequiredRuleset\(rulesetsByName, TAG_RULESET_NAME, "tag"\)/);
+  assert.match(releaseReadinessScript, /function requiredRulesetsByName\(rulesets\)/);
+  assert.match(releaseReadinessScript, /rulesets\.length !== expectedTargets\.size/);
+  assert.match(releaseReadinessScript, /GitHub rulesets response contained unexpected or missing rulesets/);
+  assert.match(releaseReadinessScript, /GitHub rulesets response contained an unexpected ruleset/);
+  assert.match(releaseReadinessScript, /GitHub rulesets response contained duplicate names/);
+  assert.match(securityPolicy, /repository rulesets list has malformed, unexpected, or duplicate entries/);
   assert.match(releaseReadinessScript, /ruleset\.target !== target \|\| ruleset\.enforcement !== "active"/);
   assert.match(releaseReadinessScript, /rulesetDetails\(token, repository, mainRuleset\.id\)/);
   assert.match(releaseReadinessScript, /rulesetDetails\(token, repository, tagRuleset\.id\)/);

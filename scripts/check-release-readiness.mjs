@@ -104,10 +104,13 @@ async function collectGitHubRepositoryReadiness(failures, token, repository, aut
 
   const rulesets = await collectReadinessValue(failures, () => github(token, "GET", `/repos/${repository}/rulesets?includes_parents=false`));
   if (rulesets) {
-    const mainRuleset = collectReadinessValueSync(failures, () => assertRequiredRuleset(rulesets, MAIN_RULESET_NAME, "branch"));
-    const tagRuleset = collectReadinessValueSync(failures, () => assertRequiredRuleset(rulesets, TAG_RULESET_NAME, "tag"));
-    if (mainRuleset) await collectReadinessFailure(failures, async () => assertMainRuleset(await rulesetDetails(token, repository, mainRuleset.id)));
-    if (tagRuleset) await collectReadinessFailure(failures, async () => assertTagRuleset(await rulesetDetails(token, repository, tagRuleset.id)));
+    const rulesetsByName = collectReadinessValueSync(failures, () => requiredRulesetsByName(rulesets));
+    if (rulesetsByName) {
+      const mainRuleset = assertRequiredRuleset(rulesetsByName, MAIN_RULESET_NAME, "branch");
+      const tagRuleset = assertRequiredRuleset(rulesetsByName, TAG_RULESET_NAME, "tag");
+      await collectReadinessFailure(failures, async () => assertMainRuleset(await rulesetDetails(token, repository, mainRuleset.id)));
+      await collectReadinessFailure(failures, async () => assertTagRuleset(await rulesetDetails(token, repository, tagRuleset.id)));
+    }
   }
 
   await collectReadinessFailure(failures, async () => {
@@ -298,9 +301,28 @@ function reviewerLogin(reviewerEntry) {
   return typeof login === "string" ? login : undefined;
 }
 
-function assertRequiredRuleset(rulesets, name, target) {
+function requiredRulesetsByName(rulesets) {
   if (!Array.isArray(rulesets)) throw new Error("GitHub rulesets response was invalid.");
-  const ruleset = rulesets.find((candidate) => candidate?.name === name);
+  const expectedTargets = new Map([
+    [MAIN_RULESET_NAME, "branch"],
+    [TAG_RULESET_NAME, "tag"]
+  ]);
+  if (rulesets.length !== expectedTargets.size) throw new Error("GitHub rulesets response contained unexpected or missing rulesets.");
+  const byName = new Map();
+  for (const ruleset of rulesets) {
+    if (!ruleset || typeof ruleset !== "object" || typeof ruleset.name !== "string" || typeof ruleset.id !== "number") {
+      throw new Error("GitHub rulesets response was invalid.");
+    }
+    const expectedTarget = expectedTargets.get(ruleset.name);
+    if (expectedTarget === undefined) throw new Error("GitHub rulesets response contained an unexpected ruleset.");
+    if (byName.has(ruleset.name)) throw new Error("GitHub rulesets response contained duplicate names.");
+    byName.set(ruleset.name, ruleset);
+  }
+  return byName;
+}
+
+function assertRequiredRuleset(rulesetsByName, name, target) {
+  const ruleset = rulesetsByName.get(name);
   if (!ruleset) throw new Error(`GitHub ruleset is missing: ${name}.`);
   if (ruleset.target !== target || ruleset.enforcement !== "active") throw new Error(`GitHub ruleset is not active for ${target}: ${name}.`);
   if (typeof ruleset.id !== "number") throw new Error(`GitHub ruleset response is missing id: ${name}.`);
