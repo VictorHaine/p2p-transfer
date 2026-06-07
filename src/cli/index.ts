@@ -72,7 +72,9 @@ type ResolvedRecvCode = {
 const RECEIVE_CODE_GENERATION_ATTEMPTS = 10;
 const ICE_CONFIG_GRACE_MS = 1_000;
 const CLI_STDIN_MAX_BYTES = 512 * 1024;
+const CLI_OUTPUT_DIR_ENV_MAX_BYTES = 4_096;
 const ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const UNSAFE_OUTPUT_DIR_ENV_CHARS = /[\p{Cc}\p{Cf}]/u;
 const SEND_ARGV_TELEMETRY_WARNING = "Warning: receiver codes or local file paths passed as arguments can be captured by shell history, process lists, or endpoint telemetry. Use --code-stdin/--code-env and --files-stdin for private input.";
 const RECV_ARGV_TELEMETRY_WARNING = "Warning: receive codes or output directories passed as arguments can be captured by shell history, process lists, or endpoint telemetry. Use --code-stdin/--code-env and --out-env for private input.";
 
@@ -542,7 +544,14 @@ function readOutputDirEnv(name: string): string {
   }
   const value = descriptor.value;
   delete process.env[name];
-  if (typeof value !== "string" || value.length === 0) throw new Error(`Environment variable ${name} is invalid.`);
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    utf8ByteLengthExceeds(value, CLI_OUTPUT_DIR_ENV_MAX_BYTES) ||
+    UNSAFE_OUTPUT_DIR_ENV_CHARS.test(value)
+  ) {
+    throw new Error(`Environment variable ${name} is invalid.`);
+  }
   return value;
 }
 
@@ -571,6 +580,28 @@ async function readBoundedStdin(label: string): Promise<string> {
   } finally {
     for (const chunk of chunks) chunk.fill(0);
   }
+}
+
+function utf8ByteLengthExceeds(value: string, maxBytes: number): boolean {
+  let bytes = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code < 0x80) bytes += 1;
+    else if (code < 0x800) bytes += 2;
+    else if (code >= 0xd800 && code <= 0xdbff && index + 1 < value.length) {
+      const next = value.charCodeAt(index + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        bytes += 4;
+        index += 1;
+      } else {
+        bytes += 3;
+      }
+    } else {
+      bytes += 3;
+    }
+    if (bytes > maxBytes) return true;
+  }
+  return false;
 }
 
 function splitStdinLines(value: string): string[] {

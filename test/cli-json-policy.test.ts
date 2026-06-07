@@ -133,7 +133,9 @@ test("CLI send supports non-argv code and file path input", () => {
     assert.match(source, /sourceCount === 0 && options\.localPrivateMode/);
     assert.match(source, /Receive code stdin or environment input is required by --local-private-mode/);
     assert.match(source, /const CLI_STDIN_MAX_BYTES = 512 \* 1024/);
+    assert.match(source, /const CLI_OUTPUT_DIR_ENV_MAX_BYTES = 4_096/);
     assert.match(source, /const ENV_NAME_PATTERN = \/\^\[A-Za-z_\]/);
+    assert.match(source, /const UNSAFE_OUTPUT_DIR_ENV_CHARS = \/\[\\p\{Cc\}\\p\{Cf\}\]\/u/);
     assert.match(source, /function resolveSendInputs/);
     assert.match(source, /const SEND_ARGV_TELEMETRY_WARNING = "Warning: receiver codes or local file paths passed as arguments can be captured by shell history, process lists, or endpoint telemetry\. Use --code-stdin\/--code-env and --files-stdin for private input\."/);
     assert.match(source, /const RECV_ARGV_TELEMETRY_WARNING = "Warning: receive codes or output directories passed as arguments can be captured by shell history, process lists, or endpoint telemetry\. Use --code-stdin\/--code-env and --out-env for private input\."/);
@@ -150,6 +152,7 @@ test("CLI send supports non-argv code and file path input", () => {
     assert.match(source, /Output directory argv is disabled by --require-private-input/);
     assert.match(source, /function resolveRecvOutputDir/);
     assert.match(source, /function readOutputDirEnv/);
+    assert.match(source, /function utf8ByteLengthExceeds/);
     const warningBody = extractFunctionBody(source, "warnSensitiveSendArgv");
     assert.match(warningBody, /options\.json \|\| options\.quiet \|\| stderr\.isTTY !== true/);
     assert.match(warningBody, /console\.error\(sanitizeDisplayText\(SEND_ARGV_TELEMETRY_WARNING\)\)/);
@@ -173,6 +176,7 @@ test("CLI private receive-code inputs are not echoed back into local telemetry",
   assert.match(securityPolicy, /supplied receive codes must not be reprinted in registered output/);
   assert.match(securityPolicy, /environment-sourced codes and output directories must be cleared after capture/);
   assert.match(securityPolicy, /environment-sourced codes must be byte-capped before code normalization/);
+  assert.match(securityPolicy, /environment-sourced output directories must be byte-capped and reject control or format characters before path resolution or filesystem work/);
   assert.match(securityPolicy, /code-stdin paths must not fall back to echoing terminal prompts/);
   for (const source of [cliSource, distCliSource]) {
     assert.match(source, /function printRegisteredReceiver/);
@@ -183,6 +187,8 @@ test("CLI private receive-code inputs are not echoed back into local telemetry",
     assert.doesNotMatch(source, /code: parsedCode\.handle, rendezvous: registered\.code, expiresInSec: registered\.expiresInSec \}\);[\s\S]*Ready to receive\. Share this code/);
     assert.match(source, /codeInputUtf8ByteLengthExceeds/);
     assert.match(source, /const value = descriptor\.value;[\s\S]*delete process\.env\[name\];[\s\S]*codeInputUtf8ByteLengthExceeds\(value\)/);
+    assert.match(source, /const value = descriptor\.value;[\s\S]*delete process\.env\[name\];[\s\S]*utf8ByteLengthExceeds\(value, CLI_OUTPUT_DIR_ENV_MAX_BYTES\)/);
+    assert.match(source, /UNSAFE_OUTPUT_DIR_ENV_CHARS\.test\(value\)/);
     assert.match(source, /function readCodeFromStdin/);
     assert.doesNotMatch(source, /readCodeFromStdinOrPrompt|function promptCode|Receiver code:|Receive code:/);
   }
@@ -195,6 +201,7 @@ test("CLI private receive-code inputs are not echoed back into local telemetry",
   assert.match(readme, /Use `--local-private-mode` when you want the local CLI privacy preset/);
   assert.match(securityPolicy, /`--require-private-input` must reject `recv --code`, `recv --out`, `send <code>`, and send file paths supplied through argv before filesystem, signaling, or peer work/);
   assert.match(readme, /`recv --local-private-mode` requires `--code-stdin` or `--code-env`/);
+  assert.match(readme, /`--code-env` and `--out-env` delete the variable after capture/);
   assert.match(securityPolicy, /`--local-private-mode` must enable `--require-private-input` and `--redact-output` for send and receive commands, must additionally enable `recv --opaque-output-names`, and must reject `recv` without `--code-stdin` or `--code-env` before generating an unshareable redacted receive code/);
   assert.match(readme, /The warnings never include the code or paths/);
   assert.match(securityPolicy, /CLI environment-sourced codes must be documented as protection from argv and shell-history capture only/);
@@ -286,6 +293,25 @@ test("CLI code-env rejects oversized receive codes without echoing them", async 
   const event = JSON.parse(result.stderr.trim()) as { event?: unknown; message?: unknown };
   assert.equal(event.event, "error");
   assert.equal(event.message, "Environment variable FF_PRIVATE_RECEIVE_CODE is invalid.");
+});
+
+test("CLI out-env rejects unsafe output directories without echoing them", async () => {
+  for (const [label, value] of [
+    ["oversized", "é".repeat(2_049)],
+    ["control", `/tmp/ff-private-out\n${Date.now()}`]
+  ] as const) {
+    const result = spawnSync(process.execPath, [cliEntrypoint, "--json", "recv", "--out-env", "FF_PRIVATE_RECEIVE_OUT"], {
+      encoding: "utf8",
+      env: { ...process.env, FF_PRIVATE_RECEIVE_OUT: value }
+    });
+
+    assert.notEqual(result.status, 0, label);
+    assert.equal(result.stdout, "");
+    assert.doesNotMatch(result.stderr, /ééé|ff-private-out/);
+    const event = JSON.parse(result.stderr.trim()) as { event?: unknown; message?: unknown };
+    assert.equal(event.event, "error");
+    assert.equal(event.message, "Environment variable FF_PRIVATE_RECEIVE_OUT is invalid.");
+  }
 });
 
 test("CLI recv code-env errors do not echo supplied receive codes", async () => {
