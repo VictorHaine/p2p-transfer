@@ -503,9 +503,11 @@ test("reserveOutputFile rejects hardlinked CLI resume partial files", { skip: pr
 
 test("CLI resume partial hardlink policy is documented and enforced", () => {
   assert.match(securityPolicy, /resumable partial files must reject multiple hard links before hashing, truncation, or restart truncation/);
+  assert.match(securityPolicy, /resume secret file must reject multiple hard links before keying resumable partial names/);
   for (const source of [sourceFiles, distFiles]) {
     assert.match(source, /function assertSingleLink\(stat/);
     assert.match(source, /Resume partial"\)/);
+    assert.match(source, /Resume secret"\)/);
     assert.match(source, /multiple hard links/);
   }
   for (const source of [sourceTransfer, distTransfer]) {
@@ -540,6 +542,16 @@ test("reserveOutputFile rejects invalid or symlinked CLI resume secrets", { skip
   await fs.writeFile(path.join(symlinkDir, "target"), Buffer.alloc(32, 1), { mode: 0o600 });
   await fs.symlink(path.join(symlinkDir, "target"), path.join(symlinkDir, ".ff-resume-key"));
   await assert.rejects(() => reserveOutputFile(symlinkDir, "file.txt", { resume: true, size: 1 }));
+});
+
+test("reserveOutputFile rejects hardlinked CLI resume secrets", { skip: process.platform === "win32" ? "hardlink behavior differs on Windows." : false }, async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-reserve-hardlinked-secret-"));
+  const secretPath = path.join(dir, ".ff-resume-key");
+  const linkedPath = path.join(dir, "linked-resume-key");
+  await fs.writeFile(secretPath, Buffer.alloc(32, 1), { mode: 0o600 });
+  await fs.link(secretPath, linkedPath);
+
+  await assert.rejects(() => reserveOutputFile(dir, "file.txt", { resume: true, size: 1 }), /Resume secret has multiple hard links/);
 });
 
 test("reserveOutputFile treats dangling final-path symlinks as occupied", { skip: process.platform === "win32" ? "symlink behavior differs on Windows." : false }, async () => {

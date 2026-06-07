@@ -314,6 +314,7 @@ async function readResumeSecret(secretPath: string): Promise<Buffer> {
   try {
     const stat = await handle.stat();
     if (!stat.isFile() || stat.size !== RESUME_SECRET_BYTES) throw new Error("Resume secret is invalid.");
+    assertSingleLink(stat, "Resume secret");
     if (process.platform !== "win32" && (stat.mode & 0o077) !== 0) throw new Error("Resume secret is not private.");
     const secret = Buffer.alloc(RESUME_SECRET_BYTES);
     const { bytesRead } = await handle.read(secret, 0, secret.byteLength, 0);
