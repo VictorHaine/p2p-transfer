@@ -63,12 +63,12 @@ function isMain() {
 
 async function privateChildEnv(privateHome) {
   const env = isolatedChildEnv(privateHome);
-  await mkdir(privateHome, { recursive: true });
-  await mkdir(env.XDG_CONFIG_HOME, { recursive: true });
-  await mkdir(env.PNPM_HOME, { recursive: true });
-  await mkdir(env.COREPACK_HOME, { recursive: true });
-  await mkdir(env.LOCALAPPDATA, { recursive: true });
-  await mkdir(env.APPDATA, { recursive: true });
+  await mkdir(privateHome, { recursive: true, mode: 0o700 });
+  await mkdir(env.XDG_CONFIG_HOME, { recursive: true, mode: 0o700 });
+  await mkdir(env.PNPM_HOME, { recursive: true, mode: 0o700 });
+  await mkdir(env.COREPACK_HOME, { recursive: true, mode: 0o700 });
+  await mkdir(env.LOCALAPPDATA, { recursive: true, mode: 0o700 });
+  await mkdir(env.APPDATA, { recursive: true, mode: 0o700 });
   return env;
 }
 

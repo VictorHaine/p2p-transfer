@@ -727,6 +727,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseWorkflow, /id-token: write/);
   assert.match(securityPolicy, /release publishing must pass the verifier-emitted tarball path to packed smoke and `pnpm publish` instead of rediscovering the artifact with `find` or a shell glob after verification/);
   assert.match(securityPolicy, /release publishing and GitHub Release creation must run through checked Node scripts/);
+  assert.match(securityPolicy, /private 0700 package-manager homes\/userconfig paths/);
   assert.match(securityPolicy, /release publishing and GitHub Release creation subprocess timeouts must signal the child, arm a bounded `SIGKILL` fallback, and reject only after the subprocess exits/);
   assert.match(securityPolicy, /nonzero release subprocess exits must report only the exit status or signal and must not embed captured child stdout or stderr in release logs/);
   assert.match(releaseWorkflow, /publish npm package[\s\S]*verify, smoke, and publish release artifact[\s\S]*node scripts\/publish-release-artifact\.mjs/);
@@ -735,6 +736,10 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releasePublishScript, /ACTIONS_ID_TOKEN_REQUEST_TOKEN/);
   assert.match(releasePublishScript, /GITHUB_ACTIONS must be true for trusted publishing/);
   assert.match(releasePublishScript, /isolatedChildEnv\(privateHome\)/);
+  assert.match(releasePublishScript, /await mkdir\(privateHome, \{ recursive: true, mode: 0o700 \}\)/);
+  assert.match(releasePublishScript, /await mkdir\(env\.XDG_CONFIG_HOME, \{ recursive: true, mode: 0o700 \}\)/);
+  assert.match(releasePublishScript, /await mkdir\(env\.PNPM_HOME, \{ recursive: true, mode: 0o700 \}\)/);
+  assert.match(releasePublishScript, /await mkdir\(env\.COREPACK_HOME, \{ recursive: true, mode: 0o700 \}\)/);
   assert.match(releasePublishScript, /PACKED_SMOKE_TARBALL: tarball/);
   assert.match(releasePublishScript, /\["publish", tarball, "--provenance", "--access", "public", "--ignore-scripts"\]/);
   assert.match(releasePublishScript, /timeoutError = new Error\("release publish subprocess timed out\."\);\s*child\.kill\("SIGTERM"\);\s*killTimer = setTimeout\(\(\) => child\.kill\("SIGKILL"\), 5_000\);/s);
@@ -747,6 +752,10 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseWorkflow, /github-release:[\s\S]*needs:\n      - publish[\s\S]*permissions:\n      contents: write[\s\S]*node scripts\/create-github-release\.mjs/);
   assert.match(githubReleaseScript, /requiredReleaseTag\(requiredEnvString\("GITHUB_REF_NAME"\)\)/);
   assert.match(githubReleaseScript, /requiredRepository\(requiredEnvString\("GITHUB_REPOSITORY"\)\)/);
+  assert.match(githubReleaseScript, /await mkdir\(privateHome, \{ recursive: true, mode: 0o700 \}\)/);
+  assert.match(githubReleaseScript, /await mkdir\(env\.XDG_CONFIG_HOME, \{ recursive: true, mode: 0o700 \}\)/);
+  assert.match(githubReleaseScript, /await mkdir\(env\.PNPM_HOME, \{ recursive: true, mode: 0o700 \}\)/);
+  assert.match(githubReleaseScript, /await mkdir\(env\.COREPACK_HOME, \{ recursive: true, mode: 0o700 \}\)/);
   assert.match(githubReleaseScript, /\["scripts\/write-release-notes\.mjs"\]/);
   assert.match(githubReleaseScript, /assertArtifactFile\("release-artifacts\/SHA256SUMS", MAX_CHECKSUM_BYTES, "SHA256SUMS"\)/);
   assert.match(githubReleaseScript, /assertArtifactFile\("release-artifacts\/SBOM\.cdx\.json", MAX_SBOM_BYTES, "release SBOM"\)/);
