@@ -49,6 +49,7 @@ if (isMain()) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
+  if (options.apply && !options.requireMain) throw new Error("--allow-missing-main is only allowed with --dry-run.");
   const token = githubToken();
   const authenticatedLogin = requiredAuthenticatedLogin(await github(token, "GET", "/user"));
 

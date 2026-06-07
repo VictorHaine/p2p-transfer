@@ -217,6 +217,21 @@ globalThis.fetch = async (url, init = {}) => {
   }
 });
 
+test("GitHub release controls do not apply with the missing-main bypass", () => {
+  const result = runScript(
+    "scripts/configure-github-release-controls.mjs",
+    {
+      GITHUB_TOKEN: "token-that-must-not-be-printed"
+    },
+    ["--apply", "--allow-missing-main"]
+  );
+
+  assert.notEqual(result.status, 0);
+  assert.equal(result.stdout, "");
+  assert.match(result.stderr, /GitHub release control setup failed:\n- --allow-missing-main is only allowed with --dry-run\./);
+  assert.doesNotMatch(result.stderr, /token-that-must-not-be-printed|Error:|api\.github/);
+});
+
 test("GitHub release controls apply environment and rulesets after reviewer validation", async () => {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-controls-"));
   const mock = path.join(tmp, "mock-github-fetch.mjs");
@@ -243,6 +258,7 @@ globalThis.fetch = async (url, init = {}) => {
   if (parsed.origin !== "https://api.github.com") return json(500, {});
   if (method === "GET" && path === "/user") return json(200, { login: "operator" });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer") return json(200, { id: 1 });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/branches/main") return json(200, { name: "main" });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/collaborators/approver/permission") return json(200, { permission: "write", user: { login: "approver" } });
   if (method === "GET" && path === "/users/approver") return json(200, { id: 42, login: "approver" });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/environments/npm") return json(200, {
@@ -271,7 +287,7 @@ globalThis.fetch = async (url, init = {}) => {
         FF_MOCK_GITHUB_LOG: log,
         GITHUB_TOKEN: "token-that-must-not-be-printed"
       },
-      ["--apply", "--allow-missing-main", "--npm-reviewer", "approver"],
+      ["--apply", "--npm-reviewer", "approver"],
       ["--import", mock]
     );
     const requests = (await fs.readFile(log, "utf8"))
@@ -288,6 +304,7 @@ globalThis.fetch = async (url, init = {}) => {
     assert.deepEqual(requestTargets, [
       "GET /user",
       "GET /repos/VictorHaine/p2p-transfer",
+      "GET /repos/VictorHaine/p2p-transfer/branches/main",
       "GET /repos/VictorHaine/p2p-transfer/collaborators/approver/permission",
       "GET /users/approver",
       "GET /repos/VictorHaine/p2p-transfer/environments/npm",
@@ -298,9 +315,9 @@ globalThis.fetch = async (url, init = {}) => {
       "POST /repos/VictorHaine/p2p-transfer/rulesets",
       "POST /repos/VictorHaine/p2p-transfer/rulesets"
     ]);
-    assert.equal(requests.length, 11);
-    const environmentPut = requests[6];
-    const deploymentPolicyPost = requests[8];
+    assert.equal(requests.length, 12);
+    const environmentPut = requests[7];
+    const deploymentPolicyPost = requests[9];
     assert.ok(environmentPut);
     assert.ok(deploymentPolicyPost);
     assert.deepEqual(environmentPut.body, {
@@ -338,6 +355,7 @@ globalThis.fetch = async (url, init = {}) => {
   if (parsed.origin !== "https://api.github.com") return json(500, {});
   if (method === "GET" && path === "/user") return json(200, { login: "operator" });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer") return json(200, { id: 1 });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/branches/main") return json(200, { name: "main" });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/environments/npm") return json(200, {
     can_admins_bypass: false,
     protection_rules: [{ type: "required_reviewers", prevent_self_review: true, reviewers: [{ type: "User", reviewer: { login: "approver" } }] }],
@@ -359,7 +377,7 @@ globalThis.fetch = async (url, init = {}) => {
         FF_MOCK_GITHUB_LOG: log,
         GITHUB_TOKEN: "token-that-must-not-be-printed"
       },
-      ["--apply", "--allow-missing-main"],
+      ["--apply"],
       ["--import", mock]
     );
     const requests = await fs.readFile(log, "utf8");
