@@ -10,6 +10,7 @@ import { isolatedChildEnv } from "./smoke-packed.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const NPM_REGISTRY = "https://registry.npmjs.org";
 const BOOTSTRAP_VERSION = "0.0.0-bootstrap.0";
+const BOOTSTRAP_DIST_TAG = "bootstrap";
 const EXPECTED_REPOSITORY_URL = "git+https://github.com/VictorHaine/p2p-transfer.git";
 const MAX_PACKAGE_JSON_BYTES = 128 * 1024;
 const MAX_NPM_RESPONSE_BYTES = 1024 * 1024;
@@ -56,7 +57,7 @@ async function main() {
     await writeBootstrapPackage(packageDir, workspace);
     await run(
       pnpm,
-      ["--config.ignore-scripts=true", "publish", "--access", "public", "--no-git-checks", "--registry", NPM_REGISTRY],
+      ["--config.ignore-scripts=true", "publish", "--access", "public", "--no-git-checks", "--registry", NPM_REGISTRY, "--tag", BOOTSTRAP_DIST_TAG],
       { cwd: packageDir, env: childEnv, timeoutMs: CHILD_TIMEOUT_MS, label: "npm bootstrap publish" }
     );
     console.log(JSON.stringify({ package: workspace.name, version: BOOTSTRAP_VERSION, apply: true, ok: true }, null, 2));
@@ -94,7 +95,8 @@ async function writeBootstrapPackage(packageDir, workspace) {
       url: EXPECTED_REPOSITORY_URL
     },
     publishConfig: {
-      access: "public"
+      access: "public",
+      tag: BOOTSTRAP_DIST_TAG
     },
     files: ["README.md", "LICENSE"]
   };

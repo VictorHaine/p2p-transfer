@@ -634,9 +634,9 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(securityPolicy, /current `main` commit lacks a successful Scorecard or dependency-integrity workflow run/);
   assert.match(securityPolicy, /the `RELEASE_PREFLIGHT_TOKEN` repository secret is missing/);
   assert.match(securityPolicy, /GitHub `npm` environment lacks required reviewers, allows self-review, allows admin bypass, allows branch deployments, lacks the exact `v\*\.\*\.\*` tag deployment policy, or has the authenticated release operator as its sole required reviewer/);
-  assert.match(securityPolicy, /first-time npm package bootstrap must use the checked bootstrap script, publish only the minimal temporary `0\.0\.0-bootstrap\.0` package from a private temporary directory/);
+  assert.match(securityPolicy, /first-time npm package bootstrap must use the checked bootstrap script, publish only the minimal temporary `0\.0\.0-bootstrap\.0` package from a private temporary directory under the non-default `bootstrap` dist-tag/);
+  assert.match(securityPolicy, /must not mutate workspace package metadata, publish the real release artifact, publish a placeholder as `latest`, or appear in the trusted release workflow/);
   assert.match(securityPolicy, /reject and clear control-bearing or over-budget bootstrap token environment values and reject ambient npm credential, registry, and userconfig environment values before package reads, registry requests, npm config, or publish work/);
-  assert.match(securityPolicy, /must not mutate workspace package metadata, publish the real release artifact, or appear in the trusted release workflow/);
   assert.match(securityPolicy, /branch\/tag rulesets have ref exclusions, unexpected or duplicate rules, or any bypass actors/);
   assert.match(securityPolicy, /release workflow preflight must run before dependency install through the checked Node script with an explicit `RELEASE_PREFLIGHT_TOKEN` secret/);
   assert.match(securityPolicy, /must reject classic PAT, OAuth, refresh, user, or unknown-prefix token classes in GitHub Actions before package or network work/);
@@ -645,10 +645,12 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(readme, /verifies the npm package already exists and the target version has not been published/);
   assert.match(readme, /pnpm bootstrap:npm --dry-run/);
   assert.match(readme, /NPM_BOOTSTRAP_TOKEN=<one-time-npm-token> pnpm bootstrap:npm --apply/);
-  assert.match(readme, /The helper publishes only a minimal temporary `0\.0\.0-bootstrap\.0` package from a private temp directory/);
+  assert.match(readme, /The helper publishes only a minimal temporary `0\.0\.0-bootstrap\.0` package from a private temp directory under the non-default `bootstrap` dist-tag/);
+  assert.match(readme, /does not publish the placeholder as `latest`/);
   assert.match(readme, /ensure the `npm` environment has at least one reviewer with write, maintain, or admin repository permission other than the person or token owner that will push the release tag/);
   assert.doesNotMatch(releaseWorkflow, /bootstrap-npm-package|bootstrap:npm|NPM_BOOTSTRAP_TOKEN/);
   assert.match(npmBootstrapScript, /const BOOTSTRAP_VERSION = "0\.0\.0-bootstrap\.0"/);
+  assert.match(npmBootstrapScript, /const BOOTSTRAP_DIST_TAG = "bootstrap"/);
   assert.match(npmBootstrapScript, /const EXPECTED_REPOSITORY_URL = "git\+https:\/\/github\.com\/VictorHaine\/p2p-transfer\.git"/);
   assert.match(npmBootstrapScript, /if \(workspace\.version === BOOTSTRAP_VERSION\) throw new Error\("workspace package version must not be the bootstrap version\."\)/);
   assert.match(npmBootstrapScript, /if \(await npmPackageExists\(workspace\.name\)\) throw new Error\("npm package already exists; do not run bootstrap\."\)/);
@@ -664,7 +666,9 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(npmBootstrapScript, /option === "registry" \|\| option === "userconfig" \|\| option\.includes\("auth"\) \|\| option\.includes\("token"\) \|\| option\.includes\("password"\) \|\| option\.includes\("certfile"\) \|\| option\.includes\("keyfile"\)/);
   assert.match(npmBootstrapScript, /await mkdtemp\(path\.join\(tmpdir\(\), "ff-npm-bootstrap-"\)\)/);
   assert.match(npmBootstrapScript, /await writeBootstrapPackage\(packageDir, workspace\)/);
-  assert.match(npmBootstrapScript, /\["--config\.ignore-scripts=true", "publish", "--access", "public", "--no-git-checks", "--registry", NPM_REGISTRY\]/);
+  assert.match(npmBootstrapScript, /publishConfig: \{\n      access: "public",\n      tag: BOOTSTRAP_DIST_TAG\n    \}/);
+  assert.match(npmBootstrapScript, /\["--config\.ignore-scripts=true", "publish", "--access", "public", "--no-git-checks", "--registry", NPM_REGISTRY, "--tag", BOOTSTRAP_DIST_TAG\]/);
+  assert.doesNotMatch(npmBootstrapScript, /BOOTSTRAP_DIST_TAG = "latest"|"--tag", "latest"/);
   assert.doesNotMatch(npmBootstrapScript, /writeFile\(path\.join\(root, "package\.json"\)|pnpm, \["publish"\], \{ cwd: root/);
   assert.match(releaseReadinessScript, /const REQUIRED_OAUTH_SCOPES = \["repo", "workflow"\]/);
   assert.match(releaseReadinessScript, /const GITHUB_ACTIONS_REQUIRED_OAUTH_SCOPES = \["repo"\]/);
