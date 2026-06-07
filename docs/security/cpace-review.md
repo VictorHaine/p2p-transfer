@@ -33,6 +33,8 @@ This package controls the untrusted-signaling trust boundary: if CPace is compro
 - Direct runtime dependency reviewed: `@cipherman/pake-js@0.1.1`.
 - Package runtime dependency declaration reviewed: `@noble/curves` is declared as `^1.6.0` upstream.
 - Locked transitive crypto dependency reviewed: `@noble/curves@1.9.7`, with `@noble/hashes@1.8.0` in the resolved transitive set.
+- Reviewed lockfile integrity for `@cipherman/pake-js@0.1.1`: `sha512-iutxMCmRXYacl3fc19SKFisk1sRD1FNQi7+GWPlnQnFit6l3sUagYOCU2IgRPD8MF3s1HwnkSpqARFUp04+GVQ==`.
+- Reviewed lockfile integrity for CPace transitives: `@noble/curves@1.9.7` is `sha512-gbKGcRUYIjA3/zCCNaWDciTMFI0dCkvou3TL8Zmy5Nc7sJ47a0jtOeZoTaMxkuqRo9cRhjOdZJXegxYE5FN/xw==`; `@noble/hashes@1.8.0` is `sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A==`.
 - Registry source reviewed: lockfile package entries must stay registry tarballs with `sha512` integrity, not `git`, `github:`, `file:`, `link:`, `workspace:`, `http`, `https`, or custom tarball sources.
 
 ## Known Limitations

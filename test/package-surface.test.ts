@@ -57,6 +57,10 @@ const reviewedWrtcPrebuiltPackages = [
   "@roamhq/wrtc-win32-x64"
 ];
 
+const reviewedPakeIntegrity = "sha512-iutxMCmRXYacl3fc19SKFisk1sRD1FNQi7+GWPlnQnFit6l3sUagYOCU2IgRPD8MF3s1HwnkSpqARFUp04+GVQ==";
+const reviewedNobleCurvesIntegrity = "sha512-gbKGcRUYIjA3/zCCNaWDciTMFI0dCkvou3TL8Zmy5Nc7sJ47a0jtOeZoTaMxkuqRo9cRhjOdZJXegxYE5FN/xw==";
+const reviewedNobleHashesCpaceIntegrity = "sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A==";
+
 test("npm package surface is restricted to built artifacts and required docs", () => {
   assert.deepEqual(packageJson.files, [
     "conformance",
@@ -666,9 +670,18 @@ test("critical PAKE dependency identity and install surface stay reviewed", () =
   for (const lifecycle of ["preinstall", "install", "postinstall", "prepare", "prepublish", "prepublishOnly"]) {
     assert.equal(pakePackageJson.scripts?.[lifecycle], lifecycle === "prepublishOnly" ? "npm run clean && npm run typecheck && npm run lint && npm run test && npm run build" : undefined);
   }
-  assert.match(pnpmLock, /^  '@cipherman\/pake-js@0\.1\.1':\n    resolution: \{integrity: sha512-/m);
-  assert.match(pnpmLock, /^  '@noble\/curves@1\.9\.7':\n    resolution: \{integrity: sha512-/m);
-  assert.match(pnpmLock, /^  '@noble\/hashes@1\.8\.0':\n    resolution: \{integrity: sha512-/m);
+  assert.match(
+    pnpmLock,
+    new RegExp(`^  '@cipherman/pake-js@0\\.1\\.1':\\n    resolution: \\{integrity: ${escapeRegExp(reviewedPakeIntegrity)}\\}`, "m")
+  );
+  assert.match(
+    pnpmLock,
+    new RegExp(`^  '@noble/curves@1\\.9\\.7':\\n    resolution: \\{integrity: ${escapeRegExp(reviewedNobleCurvesIntegrity)}\\}`, "m")
+  );
+  assert.match(
+    pnpmLock,
+    new RegExp(`^  '@noble/hashes@1\\.8\\.0':\\n    resolution: \\{integrity: ${escapeRegExp(reviewedNobleHashesCpaceIntegrity)}\\}`, "m")
+  );
   assert.match(cpaceReview, /# CPace Dependency Review/);
   assert.match(cpaceReview, new RegExp(`Package: \`${escapeRegExp(pakePackageJson.name ?? "")}\``));
   assert.match(cpaceReview, new RegExp(`Reviewed package version: \`${escapeRegExp(pakePin ?? "")}\``));
@@ -688,6 +701,13 @@ test("critical PAKE dependency identity and install surface stay reviewed", () =
   assert.match(cpaceReview, /`strictDepBuilds: true`; `@cipherman\/pake-js` is not in `allowBuilds`/);
   assert.match(cpaceReview, /Package runtime dependency declaration reviewed: `@noble\/curves` is declared as `\^1\.6\.0` upstream/);
   assert.match(cpaceReview, /Locked transitive crypto dependency reviewed: `@noble\/curves@1\.9\.7`, with `@noble\/hashes@1\.8\.0`/);
+  assert.match(cpaceReview, new RegExp(`Reviewed lockfile integrity for \`@cipherman/pake-js@0\\.1\\.1\`: \`${escapeRegExp(reviewedPakeIntegrity)}\``));
+  assert.match(
+    cpaceReview,
+    new RegExp(
+      `Reviewed lockfile integrity for CPace transitives: \`@noble/curves@1\\.9\\.7\` is \`${escapeRegExp(reviewedNobleCurvesIntegrity)}\`; \`@noble/hashes@1\\.8\\.0\` is \`${escapeRegExp(reviewedNobleHashesCpaceIntegrity)}\``
+    )
+  );
   assert.match(cpaceReview, /This repo does not contain a formal independent audit certificate for `@cipherman\/pake-js`/);
   assert.match(cpaceReview, /Dependabot must keep `@cipherman\/pake-js` in the `critical-pake-dependency` production group and excluded from the bulk production dependency group/);
   assert.match(cpaceReview, /Release verification must run `pnpm security:audit` and `pnpm security:signatures`/);
