@@ -275,7 +275,7 @@ test("browser receive resume is explicit and limited to saved opaque folder part
   assert.match(webSource, /type BrowserReceiveAccept = \{ accepted: true; directory\?: FileSystemDirectoryHandle; resume: boolean; opaqueNames: boolean \} \| \{ accepted: false \};/);
   assert.match(webSource, /<button id="clearResumeButton" class="secondary" type="button">Clear resume records<\/button>/);
   assert.match(webSource, /const clearResumeButton = byId<HTMLButtonElement>\("clearResumeButton"\);/);
-  assert.match(webSource, /clearResumeButton\.addEventListener\("click", \(\) => \{[\s\S]*clearBrowserResumeState\(\)[\s\S]*Cleared browser resume records\. Delete old ff-\*\.part files manually from receive folders you previously selected\./);
+  assert.match(webSource, /clearResumeButton\.addEventListener\("click", \(\) => \{[\s\S]*clearBrowserResumeState\(\)[\s\S]*browserResumeClearMessage\(result\)/);
   assert.match(promptBody, /const canResumeInFolder = hasDirectoryPicker && manifest\.fileCount === 1/);
   assert.match(promptBody, /canResumeInFolder \? makeButton\("resumeButton", "Resume in folder", "secondary"\) : undefined/);
   assert.match(promptBody, /Resume in folder keeps the opaque tokenized \.part file after failures/);
@@ -325,9 +325,12 @@ test("browser receive resume is explicit and limited to saved opaque folder part
   assert.match(lookupKeyBody, /catch \{[\s\S]*clearBrowserResumeRegistry\(\);[\s\S]*return \{ key: await createBrowserResumeLookupKey\(\), persistent: false \};[\s\S]*\}/);
   assert.match(securityPolicy, /missing or invalid persisted browser resume lookup keys must clear the resume registry before a fresh persisted key is used/);
   assert.match(securityPolicy, /unavailable browser resume lookup key storage must clear the registry and disable resume persistence for that attempt instead of writing records keyed by ephemeral in-memory key material/);
-  assert.match(securityPolicy, /browser receive must expose a user-visible clear action that removes origin-stored browser resume registry records, resets the in-memory resume lookup key, and deletes the IndexedDB resume lookup key store/);
-  assert.match(readme, /Use `Clear resume records` to remove browser origin resume records and the browser-held resume lookup key/);
-  assert.match(webSource, /async function clearBrowserResumeState\(\): Promise<void> \{[\s\S]*clearBrowserResumeRegistry\(\);[\s\S]*browserResumeLookupKeyPromise = undefined;[\s\S]*await deleteBrowserResumeKeyDb\(\);[\s\S]*\}/);
+  assert.match(securityPolicy, /browser receive must expose a user-visible clear action that snapshots registry-known opaque partial names, offers to remove matching `ff-\*\.part` entries from a freshly selected folder when File System Access is available/);
+  assert.match(readme, /Use `Clear resume records` to remove browser origin resume records, the browser-held resume lookup key, and matching saved `ff-\*\.part` files from a freshly selected folder when File System Access is available/);
+  assert.match(webSource, /async function clearBrowserResumeState\(\): Promise<BrowserResumeClearResult> \{[\s\S]*const partNames = browserResumePartNames\(\);[\s\S]*removeBrowserResumePartFiles\(directory, partNames\)[\s\S]*clearBrowserResumeRegistry\(\);[\s\S]*browserResumeLookupKeyPromise = undefined;[\s\S]*await deleteBrowserResumeKeyDb\(\);[\s\S]*\}/);
+  assert.match(webSource, /function removeBrowserResumePartFiles\(directory: FileSystemDirectoryHandle, partNames: readonly string\[\]\): Promise<number>/);
+  assert.match(webSource, /assertBrowserOpaquePartFileName\(partName\);[\s\S]*await directory\.removeEntry\(partName\);/);
+  assert.match(webSource, /function browserResumeClearMessage\(result: BrowserResumeClearResult\): string \{[\s\S]*some saved partial files could not be removed/);
   assert.match(webSource, /function deleteBrowserResumeKeyDb\(\): Promise<void> \{[\s\S]*indexedDB\.deleteDatabase\(BROWSER_RESUME_KEY_DB\)/);
   assert.doesNotMatch(lookupKeyBody, /return stored;|return created;|return createBrowserResumeLookupKey\(\)/);
   assert.match(securityPolicy, /browser receive resume registry values must not persist plaintext file names, MIME types, or sizes/);

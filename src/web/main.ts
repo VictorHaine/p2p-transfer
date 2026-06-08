@@ -99,6 +99,13 @@ type BrowserResumeKey = {
   persistent: boolean;
 };
 
+type BrowserResumeClearResult = {
+  records: number;
+  removed: number;
+  folderSelected: boolean;
+  cleanupFailed: boolean;
+};
+
 type BrowserSendPlanFile = {
   id: number;
   name: string;
@@ -281,7 +288,7 @@ clearResumeButton.addEventListener("click", () => {
   receiveBusy = true;
   updateOperationControls();
   clearBrowserResumeState()
-    .then(() => setLog(recvLog, "Cleared browser resume records. Delete old ff-*.part files manually from receive folders you previously selected."))
+    .then((result) => setLog(recvLog, browserResumeClearMessage(result)))
     .catch((error) => setLog(recvLog, errorMessage(error)))
     .finally(() => {
       receiveBusy = false;
@@ -2545,10 +2552,60 @@ function clearBrowserResumeRegistry(): void {
   }
 }
 
-async function clearBrowserResumeState(): Promise<void> {
+async function clearBrowserResumeState(): Promise<BrowserResumeClearResult> {
+  const partNames = browserResumePartNames();
+  let removed = 0;
+  let folderSelected = false;
+  let cleanupFailed = false;
+  if (partNames.length > 0 && canPickBrowserDirectory()) {
+    try {
+      const directory = await window.showDirectoryPicker!();
+      folderSelected = true;
+      try {
+        removed = await removeBrowserResumePartFiles(directory, partNames);
+      } catch {
+        cleanupFailed = true;
+        // Folder cleanup is best-effort; origin state should still be cleared.
+      }
+    } catch {
+      // Clearing origin state must still work if folder selection is cancelled.
+    }
+  }
   clearBrowserResumeRegistry();
   browserResumeLookupKeyPromise = undefined;
   await deleteBrowserResumeKeyDb();
+  return { records: partNames.length, removed, folderSelected, cleanupFailed };
+}
+
+function browserResumePartNames(): string[] {
+  const names = new Set<string>();
+  for (const record of Object.values(readBrowserResumeRegistry())) {
+    const parsed = browserResumePartialRecordInput(record);
+    if (parsed) names.add(parsed.partName);
+  }
+  return [...names];
+}
+
+async function removeBrowserResumePartFiles(directory: FileSystemDirectoryHandle, partNames: readonly string[]): Promise<number> {
+  let removed = 0;
+  for (const partName of partNames) {
+    try {
+      assertBrowserOpaquePartFileName(partName);
+      await directory.removeEntry(partName);
+      removed += 1;
+    } catch (error) {
+      if (!isNotFoundError(error)) throw error;
+    }
+  }
+  return removed;
+}
+
+function browserResumeClearMessage(result: BrowserResumeClearResult): string {
+  if (result.records === 0) return "Cleared browser resume records.";
+  if (result.folderSelected && result.cleanupFailed) return `Cleared browser resume records. Removed ${result.removed} saved partial file${result.removed === 1 ? "" : "s"} from the selected folder; some saved partial files could not be removed.`;
+  if (result.folderSelected) return `Cleared browser resume records. Removed ${result.removed} saved partial file${result.removed === 1 ? "" : "s"} from the selected folder.`;
+  if (canPickBrowserDirectory()) return "Cleared browser resume records. No folder was selected, so saved ff-*.part files may remain in previous receive folders.";
+  return "Cleared browser resume records. Delete old ff-*.part files manually from receive folders you previously selected.";
 }
 
 function deleteBrowserResumeKeyDb(): Promise<void> {

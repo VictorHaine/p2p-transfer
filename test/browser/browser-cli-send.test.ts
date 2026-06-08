@@ -837,15 +837,23 @@ test("browser clear resume records removes origin resume registry and key store"
     await waitForOutput(server, /listening/);
     browser = await chromium.launch(chromiumLaunchOptions());
     const page = await browser.newPage();
+    await installFolderPickerMock(page);
     await page.goto(`http://127.0.0.1:${port}/`);
-    await seedInvalidBrowserResumeState(page);
+    const partName = `ff-${"b".repeat(32)}.part`;
+    await seedClearableBrowserResumeState(page, partName);
+    await seedFolderPartFile(page, partName, "saved partial");
     assert.notEqual(await browserResumeRegistry(page), null);
     assert.deepEqual(await browserResumeKeyStoreNames(page), ["keys"]);
 
     await page.locator("#clearResumeButton").click();
-    await expectText(page.locator("#recvLog"), "Cleared browser resume records. Delete old ff-*.part files manually from receive folders you previously selected.");
+    await expectText(page.locator("#recvLog"), "Cleared browser resume records. Removed 1 saved partial file from the selected folder.");
     assert.equal(await browserResumeRegistry(page), null);
     assert.deepEqual(await browserResumeKeyStoreNames(page), []);
+    const folder = await folderPickerSnapshot(page);
+    assert.equal(folder.pickerCalls, 1);
+    assert.equal(folder.files[partName], undefined);
+    assert.deepEqual(folder.partFiles, []);
+    assert.deepEqual(folder.removed, [partName]);
   } finally {
     await browser?.close();
     server.kill();
@@ -1080,6 +1088,11 @@ async function installFolderPickerMock(page: Page, options: { failCreateWritable
           next[0] = next[0] ^ 0xff;
           files.set(name, next);
           operations.push("corrupt:" + name);
+        },
+        setPartFile: (name, text) => {
+          if (!/^ff-[a-f0-9]{32}\\.part$/.test(name)) throw new Error("mock part name is invalid");
+          files.set(name, new TextEncoder().encode(text));
+          operations.push("seed:" + name);
         }
       }
     });
@@ -1149,6 +1162,12 @@ function corruptFolderPartFile(page: Page, name: string): Promise<void> {
   }, name);
 }
 
+function seedFolderPartFile(page: Page, partName: string, text: string): Promise<void> {
+  return page.evaluate(({ name, value }) => {
+    (window as unknown as { __ffTestFs: { setPartFile: (name: string, text: string) => void } }).__ffTestFs.setPartFile(name, value);
+  }, { name: partName, value: text });
+}
+
 function folderPickerProbe(page: Page): Promise<{ hasMock: boolean; pickerType: string; hasGetFileHandle: boolean }> {
   return page.evaluate(async () => {
     const probeWindow = window as unknown as {
@@ -1188,6 +1207,35 @@ async function seedInvalidBrowserResumeState(page: Page): Promise<void> {
       })
     );
   });
+}
+
+async function seedClearableBrowserResumeState(page: Page, partName: string): Promise<void> {
+  await page.evaluate(async ({ seededPartName }) => {
+    const key = await crypto.subtle.generateKey({ name: "HMAC", hash: "SHA-256", length: 256 }, false, ["sign"]);
+    const request = indexedDB.open("ff.browserReceiveResume.keys.v1", 1);
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onupgradeneeded = () => request.result.createObjectStore("keys");
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      const transaction = db.transaction("keys", "readwrite");
+      transaction.objectStore("keys").put(key, "lookup");
+      await new Promise<void>((resolve, reject) => {
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error);
+        transaction.onabort = () => reject(transaction.error);
+      });
+    } finally {
+      db.close();
+    }
+    localStorage.setItem(
+      "ff.browserReceiveResume.v1",
+      JSON.stringify({
+        [`ff.resume.v2:${"a".repeat(64)}`]: { partName: seededPartName, updatedAt: Date.now() }
+      })
+    );
+  }, { seededPartName: partName });
 }
 
 function browserResumeRegistry(page: Page): Promise<string | null> {
