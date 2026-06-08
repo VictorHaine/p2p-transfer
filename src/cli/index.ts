@@ -77,6 +77,7 @@ const ICE_CONFIG_GRACE_MS = 1_000;
 const CLI_STDIN_MAX_BYTES = 512 * 1024;
 const CLI_SERVER_URL_ENV_MAX_BYTES = 2_048;
 const CLI_OUTPUT_DIR_ENV_MAX_BYTES = 4_096;
+const LOCAL_PRIVATE_MODE_ENV = "FF_LOCAL_PRIVATE_MODE";
 const ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const UNSAFE_OUTPUT_DIR_ENV_CHARS = /[\p{Cc}\p{Cf}]/u;
 const SERVER_ARGV_TELEMETRY_WARNING = "Warning: signaling server URLs passed as arguments can be captured by shell history, process lists, or endpoint telemetry. Use --server-env for private input.";
@@ -168,11 +169,17 @@ try {
 }
 
 function applyLocalPrivateMode<T extends CommonOptions>(options: T): T {
-  if (!options.localPrivateMode) return options;
+  if (!options.localPrivateMode && !localPrivateModeFromEnv()) return options;
+  options.localPrivateMode = true;
   options.redactOutput = true;
   options.requirePrivateInput = true;
   (options as T & { opaqueOutputNames?: boolean }).opaqueOutputNames = true;
   return options;
+}
+
+function localPrivateModeFromEnv(): boolean {
+  const descriptor = Object.getOwnPropertyDescriptor(process.env, LOCAL_PRIVATE_MODE_ENV);
+  return Boolean(descriptor && "value" in descriptor && descriptor.value === "1");
 }
 
 function handleParseFailure(error: unknown): void {

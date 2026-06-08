@@ -157,6 +157,10 @@ test("CLI send supports non-argv code and file path input", () => {
     assert.match(source, /\.option\("--require-private-input", "reject signaling server URLs, receive codes, receive output directories, and send code\/file paths supplied through argv"\)/);
     assert.match(source, /\.option\("--local-private-mode", "enable local CLI privacy guardrails: private input, redacted output, and opaque receive names"\)/);
     assert.match(source, /function applyLocalPrivateMode/);
+    assert.match(source, /const LOCAL_PRIVATE_MODE_ENV = "FF_LOCAL_PRIVATE_MODE"/);
+    assert.match(source, /function localPrivateModeFromEnv/);
+    assert.match(source, /Object\.getOwnPropertyDescriptor\(process\.env, LOCAL_PRIVATE_MODE_ENV\)/);
+    assert.match(source, /descriptor\.value === "1"/);
     assert.match(source, /options\.redactOutput = true/);
     assert.match(source, /options\.requirePrivateInput = true/);
     assert.match(source, /opaqueOutputNames[^\n]*= true/);
@@ -268,13 +272,13 @@ test("CLI private receive-code inputs are not echoed back into local telemetry",
   assert.match(readme, /In `--json` mode they are emitted as structured `warning` events/);
   assert.match(readme, /human warning text is suppressed for `--quiet` and non-TTY stderr/);
   assert.match(readme, /Use `--require-private-input` in automation that must fail closed/);
-  assert.match(readme, /Use `--local-private-mode` when you want the local CLI privacy preset/);
+  assert.match(readme, /Use `--local-private-mode` or `FF_LOCAL_PRIVATE_MODE=1` when you want the local CLI privacy preset/);
   assert.match(securityPolicy, /`--require-private-input` must reject `--server`, `recv --code`, `recv --out`, `send <code>`, and send file paths supplied through argv before filesystem, signaling, or peer work/);
   assert.match(readme, /`recv --local-private-mode` requires `--code-stdin` or `--code-env`/);
   assert.match(readme, /receive output directories used with `--local-private-mode` are created with mode `0700` when missing and rejected when they are symlinks, not owned by the current user, have group\/other permission bits/);
   assert.match(readme, /Windows `recv --local-private-mode` fails closed until equivalent private ACL checks are implemented/);
   assert.match(readme, /`--code-env`, `--out-env`, and `--server-env` delete the variable after capture/);
-  assert.match(securityPolicy, /`--local-private-mode` must enable `--require-private-input` and `--redact-output` for send and receive commands, must additionally enable `recv --opaque-output-names`, must create missing POSIX receive output directories with mode `0700`, must reject symlinked, non-current-user-owned, group\/other-accessible, or unsafe-parent POSIX receive output directories, must fail closed for receive private-output mode on Windows until equivalent ACL checks are implemented, and must reject `recv` without `--code-stdin` or `--code-env` before generating an unshareable redacted receive code/);
+  assert.match(securityPolicy, /`--local-private-mode` and `FF_LOCAL_PRIVATE_MODE=1` must enable `--require-private-input` and `--redact-output` for send and receive commands, must additionally enable `recv --opaque-output-names`, must create missing POSIX receive output directories with mode `0700`, must reject symlinked, non-current-user-owned, group\/other-accessible, or unsafe-parent POSIX receive output directories, must fail closed for receive private-output mode on Windows until equivalent ACL checks are implemented, and must reject `recv` without `--code-stdin` or `--code-env` before generating an unshareable redacted receive code/);
   assert.match(readme, /The warnings never include the code, paths, or URL/);
   assert.match(securityPolicy, /CLI environment-sourced codes must be documented as protection from argv and shell-history capture only/);
   assert.doesNotMatch(readme, /printf '%s(?:\\n%s\\n)?' '<code>'/);
@@ -367,6 +371,27 @@ test("CLI local-private-mode enables fail-closed redacted argv handling", () => 
 
   const recvGenerated = spawnSync(process.execPath, [cliEntrypoint, "--json", "--local-private-mode", "recv"], {
     encoding: "utf8"
+  });
+  assert.notEqual(recvGenerated.status, 0);
+  assert.equal(recvGenerated.stdout, "");
+  assert.doesNotMatch(recvGenerated.stderr, /Receive code stdin|local-private-mode|apple-anchor|[0-9]{12}-[a-z]+-[a-z]+/);
+  assert.equal(JSON.parse(recvGenerated.stderr.trim()).message, "Command failed. Re-run without --redact-output for details.");
+});
+
+test("CLI FF_LOCAL_PRIVATE_MODE enables the same fail-closed redacted preset", () => {
+  const secretPath = "/tmp/ff-env-local-private-mode-secret.txt";
+  const sendArgv = spawnSync(process.execPath, [cliEntrypoint, "--json", "send", "12345678-apple-anchor", secretPath], {
+    encoding: "utf8",
+    env: { ...process.env, FF_LOCAL_PRIVATE_MODE: "1" }
+  });
+  assert.notEqual(sendArgv.status, 0);
+  assert.equal(sendArgv.stdout, "");
+  assert.doesNotMatch(sendArgv.stderr, /12345678-apple-anchor|apple-anchor|ff-env-local-private-mode-secret|Receiver code and file path argv/);
+  assert.equal(JSON.parse(sendArgv.stderr.trim()).message, "Command failed. Re-run without --redact-output for details.");
+
+  const recvGenerated = spawnSync(process.execPath, [cliEntrypoint, "--json", "recv"], {
+    encoding: "utf8",
+    env: { ...process.env, FF_LOCAL_PRIVATE_MODE: "1" }
   });
   assert.notEqual(recvGenerated.status, 0);
   assert.equal(recvGenerated.stdout, "");
