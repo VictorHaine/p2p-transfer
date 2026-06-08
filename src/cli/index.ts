@@ -101,6 +101,13 @@ process.title = "ff";
 
 const program = new Command();
 
+program.configureOutput({
+  writeErr: () => {
+    // Parse errors may contain raw argv values. Route them through printError below.
+  }
+});
+program.exitOverride();
+
 program
   .name("ff")
   .description("Peer-to-peer file transfer over WebRTC.")
@@ -151,7 +158,11 @@ program
     }, merged);
   });
 
-program.parse();
+try {
+  program.parse();
+} catch (error) {
+  handleParseFailure(error);
+}
 
 function applyLocalPrivateMode<T extends CommonOptions>(options: T): T {
   if (!options.localPrivateMode) return options;
@@ -159,6 +170,35 @@ function applyLocalPrivateMode<T extends CommonOptions>(options: T): T {
   options.requirePrivateInput = true;
   (options as T & { opaqueOutputNames?: boolean }).opaqueOutputNames = true;
   return options;
+}
+
+function handleParseFailure(error: unknown): void {
+  const exitCode = commanderExitCode(error);
+  if (exitCode === 0) {
+    process.exitCode = 0;
+    return;
+  }
+  const options = parseEarlyOutputOptions(process.argv.slice(2));
+  printError(options, new Error("Invalid command-line arguments."), exitCode ?? 1);
+  process.exitCode = exitCode ?? 1;
+}
+
+function commanderExitCode(error: unknown): number | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const descriptor = Object.getOwnPropertyDescriptor(error, "exitCode");
+  return descriptor && "value" in descriptor && Number.isSafeInteger(descriptor.value) ? descriptor.value : undefined;
+}
+
+function parseEarlyOutputOptions(argv: readonly string[]): CommonOptions {
+  const options: CommonOptions = { server: DEFAULT_SERVER_URL };
+  for (const arg of argv) {
+    if (arg === "--json") options.json = true;
+    else if (arg === "--quiet") options.quiet = true;
+    else if (arg === "--redact-output") options.redactOutput = true;
+    else if (arg === "--local-private-mode") options.localPrivateMode = true;
+    else if (arg === "--no-color") options.noColor = true;
+  }
+  return applyLocalPrivateMode(options);
 }
 
 async function reviewedCliRuntime(): Promise<ReviewedCliRuntime> {

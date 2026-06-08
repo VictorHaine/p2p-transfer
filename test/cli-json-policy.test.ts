@@ -19,10 +19,28 @@ test("CLI json mode emits structured sanitized error events instead of plain std
   assert.match(cliSource, /return runWithExit\(\(\) => recv\(merged\), merged\)/);
   assert.match(cliSource, /const inputs = await resolveSendInputs\(code, files, merged\)/);
   assert.match(cliSource, /return send\(normalizeCode\(inputs\.code\), inputs\.files, merged\)/);
+  assert.match(securityPolicy, /CLI parser errors must suppress Commander raw stderr and route parse failures through the same sanitized error renderer/);
+  assert.match(cliSource, /program\.configureOutput\(\{[\s\S]*writeErr: \(\) => \{[\s\S]*Parse errors may contain raw argv values/);
+  assert.match(cliSource, /program\.exitOverride\(\)/);
+  assert.match(cliSource, /try \{\n  program\.parse\(\);\n\} catch \(error\) \{\n  handleParseFailure\(error\);\n\}/);
   assert.match(cliSource, /function printError\(options: CommonOptions, error: unknown, code: number\): void \{/);
   assert.match(cliSource, /options\.redactOutput \? redactedErrorMessage\(code\) : redactConfiguredServerEvidence\(redactCliErrorEvidence\(safeErrorMessage\(error\)\), options\)/);
   assert.match(cliSource, /if \(options\.json\) \{[\s\S]*console\.error\(JSON\.stringify\(sanitizeStructuredOutput\(\{ event: "error", code, message \}\)\)\);/);
   assert.match(cliSource, /console\.error\(message\);/);
+});
+
+test("CLI parse errors do not echo unknown argv values", () => {
+  const secretOption = "--token=ff-parser-secret";
+  const result = spawnSync(process.execPath, [cliEntrypoint, "--json", "--local-private-mode", secretOption], {
+    encoding: "utf8"
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.equal(result.stdout, "");
+  assert.doesNotMatch(result.stderr, /ff-parser-secret|unknown option|--token/);
+  const event = errorEvent(result.stderr);
+  assert.equal(event.event, "error");
+  assert.equal(event.message, "Command failed. Re-run without --redact-output for details.");
 });
 
 test("CLI redacted output mode removes file metadata from JSON and progress events", () => {
