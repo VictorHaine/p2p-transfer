@@ -531,6 +531,9 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(githubReleaseScript, /verifiedTarballPath\(\{ \.\.\.childEnv, GITHUB_REF_NAME: tag, GITHUB_REF_TYPE: "tag", GITHUB_REF: `refs\/tags\/\$\{tag\}` \}\)/);
   assert.match(githubReleaseScript, /\/repos\/\$\{repository\}\/git\/ref\/tags\/\$\{tag\}/);
   assert.match(githubReleaseScript, /GITHUB_REPOSITORY must match the release repository/);
+  assert.match(githubReleaseScript, /if \(tagRef\.object\.type === "commit"\) throw new Error\("GitHub release tag must be an annotated tag\."\)/);
+  assert.match(githubReleaseScript, /githubTagSignatureVerified\(tagObject\.verification\)/);
+  assert.match(githubReleaseScript, /GitHub release tag signature was not verified\./);
   assert.match(githubReleaseScript, /if \(\(await githubReleaseTagCommitSha\(token, repository, tag\)\) !== expectedSha\) throw new Error\("GitHub tag ref does not match the release workflow commit\."\)/);
   assert.match(liveReleaseRefScript, /export async function assertLiveReleaseRefFromEnv\(\)/);
   assert.match(liveReleaseRefScript, /\/repos\/\$\{repository\}\/git\/ref\/tags\/\$\{tag\}/);

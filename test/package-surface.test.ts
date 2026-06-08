@@ -1202,6 +1202,9 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(githubReleaseScript, /const token = requiredEnvString\("GH_TOKEN"\);\n  requiredGitHubActionsContext\(\);\n  await assertLiveReleaseRefFromEnv\(\);\n  const tmp = await mkdtemp/);
   assert.match(githubReleaseScript, /verifiedTarballPath\(\{ \.\.\.childEnv, GITHUB_REF_NAME: tag, GITHUB_REF_TYPE: "tag", GITHUB_REF: `refs\/tags\/\$\{tag\}` \}\)/);
   assert.match(githubReleaseScript, /\/repos\/\$\{repository\}\/git\/ref\/tags\/\$\{tag\}/);
+  assert.match(githubReleaseScript, /if \(tagRef\.object\.type === "commit"\) throw new Error\("GitHub release tag must be an annotated tag\."\)/);
+  assert.match(githubReleaseScript, /githubTagSignatureVerified\(tagObject\.verification\)/);
+  assert.match(githubReleaseScript, /GitHub release tag signature was not verified\./);
   assert.match(githubReleaseScript, /if \(\(await githubReleaseTagCommitSha\(token, repository, tag\)\) !== expectedSha\) throw new Error\("GitHub tag ref does not match the release workflow commit\."\)/);
   assert.match(githubReleaseScript, /\/repos\/\$\{repository\}\/releases/);
   assert.match(githubReleaseScript, /const existing = await existingReleaseForTag\(token, repository, tag, notes\)/);

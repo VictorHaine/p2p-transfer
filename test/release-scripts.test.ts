@@ -36,11 +36,28 @@ const REQUIRED_RELEASE_CHECKS = [
   "platform smoke / windows-2025 / node 24.x"
 ];
 const RELEASE_TEST_SHA = "0123456789abcdef0123456789abcdef01234567";
+const RELEASE_TAG_OBJECT_SHA = "2222222222222222222222222222222222222222";
 const ENABLED_SECURITY_AND_ANALYSIS = {
   secret_scanning: { status: "enabled" },
   secret_scanning_push_protection: { status: "enabled" },
   dependabot_security_updates: { status: "enabled" }
 };
+
+function verifiedReleaseTagRef() {
+  return { ref: "refs/tags/v0.1.0", object: { type: "tag", sha: RELEASE_TAG_OBJECT_SHA } };
+}
+
+function verifiedReleaseTagObject(sha = RELEASE_TEST_SHA) {
+  return { object: { type: "commit", sha }, verification: { verified: true, reason: "valid" } };
+}
+
+function isVerifiedReleaseTagObjectRequest(parsed: URL, method: string): boolean {
+  return parsed.origin === "https://api.github.com" && method === "GET" && parsed.pathname === `/repos/VictorHaine/p2p-transfer/git/tags/${RELEASE_TAG_OBJECT_SHA}`;
+}
+
+function releaseTagObjectRequest(): string {
+  return `GET https://api.github.com/repos/VictorHaine/p2p-transfer/git/tags/${RELEASE_TAG_OBJECT_SHA}`;
+}
 
 test("direct workspace publish guard fails closed", () => {
   const result = runScript("scripts/guard-direct-publish.mjs", {});
@@ -386,7 +403,10 @@ test("GitHub release API verifies the tag and uploads exact release assets", asy
       requests.push({ method, url: parsed.origin + parsed.pathname + parsed.search, body });
       const json = (status: number, value: unknown) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
       if (parsed.origin === "https://api.github.com" && method === "GET" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0") {
-        return json(200, { ref: "refs/tags/v0.1.0", object: { type: "commit", sha: RELEASE_TEST_SHA } });
+        return json(200, verifiedReleaseTagRef());
+      }
+      if (isVerifiedReleaseTagObjectRequest(parsed, method)) {
+        return json(200, verifiedReleaseTagObject());
       }
       if (parsed.origin === "https://api.github.com" && method === "POST" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/releases") {
         assert.deepEqual(JSON.parse(body), { tag_name: "v0.1.0", name: "v0.1.0", body: "scoped release notes", draft: true, prerelease: false });
@@ -426,6 +446,7 @@ test("GitHub release API verifies the tag and uploads exact release assets", asy
 
     assert.deepEqual(requests.map((request) => `${request.method} ${request.url}`), [
       "GET https://api.github.com/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0",
+      releaseTagObjectRequest(),
       "POST https://api.github.com/repos/VictorHaine/p2p-transfer/releases",
       "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=p2p-transfer-0.1.0.tgz",
       "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=SHA256SUMS",
@@ -441,7 +462,7 @@ test("GitHub release API verifies the tag and uploads exact release assets", asy
       "GET https://api.github.com/repos/VictorHaine/p2p-transfer/releases/assets/2",
       "GET https://api.github.com/repos/VictorHaine/p2p-transfer/releases/assets/3"
     ]);
-    assert.deepEqual(liveChecks, ["before:1", "before:9"]);
+    assert.deepEqual(liveChecks, ["before:2", "before:10"]);
     assert.deepEqual(uploads, [
       { name: "p2p-transfer-0.1.0.tgz", body: "tarball-bytes", type: "application/gzip" },
       { name: "SHA256SUMS", body: checksumBody, type: "text/plain; charset=utf-8" },
@@ -477,6 +498,58 @@ test("GitHub release API errors do not echo remote bodies or tokens", async () =
   }
 });
 
+test("GitHub release API rejects lightweight and unverified release tags before release mutation", async () => {
+  const { createGitHubRelease } = await import(`../scripts/create-github-release.mjs?release-api-tag-signature=${Date.now()}`);
+  const originalFetch = globalThis.fetch;
+  const requests: string[] = [];
+  try {
+    const run = async (mode: "lightweight" | "unverified") => {
+      requests.length = 0;
+      globalThis.fetch = async (url, init = {}) => {
+        const parsed = new URL(String(url));
+        const method = init.method ?? "GET";
+        requests.push(`${method} ${parsed.origin}${parsed.pathname}${parsed.search}`);
+        const json = (status: number, value: unknown) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
+        if (parsed.origin === "https://api.github.com" && method === "GET" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0") {
+          return json(
+            200,
+            mode === "lightweight"
+              ? { ref: "refs/tags/v0.1.0", object: { type: "commit", sha: RELEASE_TEST_SHA } }
+              : verifiedReleaseTagRef()
+          );
+        }
+        if (isVerifiedReleaseTagObjectRequest(parsed, method)) {
+          return json(200, {
+            object: { type: "commit", sha: RELEASE_TEST_SHA },
+            verification: { verified: false, reason: "bad_email", payload: "raw signature body token-that-must-not-be-printed" }
+          });
+        }
+        return json(500, { message: "unexpected release mutation token-that-must-not-be-printed" });
+      };
+      await assert.rejects(
+        createGitHubRelease("token-that-must-not-be-printed", "VictorHaine/p2p-transfer", "v0.1.0", RELEASE_TEST_SHA, "scoped release notes", releaseAssets()),
+        (error) => {
+          assert.ok(error instanceof Error);
+          assert.equal(error.message, mode === "lightweight" ? "GitHub release tag must be an annotated tag." : "GitHub release tag signature was not verified.");
+          assert.doesNotMatch(error.message, /token-that-must-not-be-printed|raw signature body|bad_email|unexpected release mutation/);
+          return true;
+        }
+      );
+      assert.deepEqual(
+        requests,
+        mode === "lightweight"
+          ? ["GET https://api.github.com/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0"]
+          : ["GET https://api.github.com/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0", releaseTagObjectRequest()]
+      );
+    };
+
+    await run("lightweight");
+    await run("unverified");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("GitHub release API recovers an existing draft release on rerun", async () => {
   const { createGitHubRelease } = await import(`../scripts/create-github-release.mjs?release-rerun-draft=${Date.now()}`);
   const originalFetch = globalThis.fetch;
@@ -491,7 +564,10 @@ test("GitHub release API recovers an existing draft release on rerun", async () 
       requests.push(`${method} ${parsed.origin}${parsed.pathname}${parsed.search}`);
       const json = (status: number, value: unknown) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
       if (parsed.origin === "https://api.github.com" && method === "GET" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0") {
-        return json(200, { ref: "refs/tags/v0.1.0", object: { type: "commit", sha: RELEASE_TEST_SHA } });
+        return json(200, verifiedReleaseTagRef());
+      }
+      if (isVerifiedReleaseTagObjectRequest(parsed, method)) {
+        return json(200, verifiedReleaseTagObject());
       }
       if (parsed.origin === "https://api.github.com" && method === "POST" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/releases") {
         createAttempts += 1;
@@ -531,9 +607,10 @@ test("GitHub release API recovers an existing draft release on rerun", async () 
     });
 
     assert.equal(createAttempts, 2);
-    assert.deepEqual(liveChecks, ["before:1", "before:4", "before:12"]);
+    assert.deepEqual(liveChecks, ["before:2", "before:5", "before:13"]);
     assert.deepEqual(requests, [
       "GET https://api.github.com/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0",
+      releaseTagObjectRequest(),
       "POST https://api.github.com/repos/VictorHaine/p2p-transfer/releases",
       "GET https://api.github.com/repos/VictorHaine/p2p-transfer/releases/tags/v0.1.0",
       "DELETE https://api.github.com/repos/VictorHaine/p2p-transfer/releases/88",
@@ -571,7 +648,10 @@ test("GitHub release API accepts an existing published release on rerun when ass
       requests.push(`${method} ${parsed.origin}${parsed.pathname}${parsed.search}`);
       const json = (status: number, value: unknown) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
       if (parsed.origin === "https://api.github.com" && method === "GET" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0") {
-        return json(200, { ref: "refs/tags/v0.1.0", object: { type: "commit", sha: RELEASE_TEST_SHA } });
+        return json(200, verifiedReleaseTagRef());
+      }
+      if (isVerifiedReleaseTagObjectRequest(parsed, method)) {
+        return json(200, verifiedReleaseTagObject());
       }
       if (parsed.origin === "https://api.github.com" && method === "POST" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/releases") {
         return json(422, { message: "Validation Failed token-that-must-not-be-printed /tmp/private" });
@@ -607,9 +687,10 @@ test("GitHub release API accepts an existing published release on rerun when ass
       liveChecks.push(`before:${requests.length}`);
     });
 
-    assert.deepEqual(liveChecks, ["before:1"]);
+    assert.deepEqual(liveChecks, ["before:2"]);
     assert.deepEqual(requests, [
       "GET https://api.github.com/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0",
+      releaseTagObjectRequest(),
       "POST https://api.github.com/repos/VictorHaine/p2p-transfer/releases",
       "GET https://api.github.com/repos/VictorHaine/p2p-transfer/releases/tags/v0.1.0",
       "GET https://api.github.com/repos/VictorHaine/p2p-transfer/releases/88/assets?per_page=100",
@@ -636,7 +717,10 @@ test("GitHub release API rejects existing published releases whose assets do not
       requests.push(`${method} ${parsed.origin}${parsed.pathname}${parsed.search}`);
       const json = (status: number, value: unknown) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
       if (parsed.origin === "https://api.github.com" && method === "GET" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0") {
-        return json(200, { ref: "refs/tags/v0.1.0", object: { type: "commit", sha: RELEASE_TEST_SHA } });
+        return json(200, verifiedReleaseTagRef());
+      }
+      if (isVerifiedReleaseTagObjectRequest(parsed, method)) {
+        return json(200, verifiedReleaseTagObject());
       }
       if (parsed.origin === "https://api.github.com" && method === "POST" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/releases") {
         return json(422, { message: "Validation Failed token-that-must-not-be-printed /tmp/private" });
@@ -672,6 +756,7 @@ test("GitHub release API rejects existing published releases whose assets do not
     );
     assert.deepEqual(requests, [
       "GET https://api.github.com/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0",
+      releaseTagObjectRequest(),
       "POST https://api.github.com/repos/VictorHaine/p2p-transfer/releases",
       "GET https://api.github.com/repos/VictorHaine/p2p-transfer/releases/tags/v0.1.0",
       "GET https://api.github.com/repos/VictorHaine/p2p-transfer/releases/88/assets?per_page=100",
@@ -694,7 +779,10 @@ test("GitHub release API rejects existing published releases whose metadata does
       requests.push(`${method} ${parsed.origin}${parsed.pathname}${parsed.search}`);
       const json = (status: number, value: unknown) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
       if (parsed.origin === "https://api.github.com" && method === "GET" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0") {
-        return json(200, { ref: "refs/tags/v0.1.0", object: { type: "commit", sha: RELEASE_TEST_SHA } });
+        return json(200, verifiedReleaseTagRef());
+      }
+      if (isVerifiedReleaseTagObjectRequest(parsed, method)) {
+        return json(200, verifiedReleaseTagObject());
       }
       if (parsed.origin === "https://api.github.com" && method === "POST" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/releases") {
         return json(422, { message: "Validation Failed token-that-must-not-be-printed /tmp/private" });
@@ -716,6 +804,7 @@ test("GitHub release API rejects existing published releases whose metadata does
     );
     assert.deepEqual(requests, [
       "GET https://api.github.com/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0",
+      releaseTagObjectRequest(),
       "POST https://api.github.com/repos/VictorHaine/p2p-transfer/releases",
       "GET https://api.github.com/repos/VictorHaine/p2p-transfer/releases/tags/v0.1.0"
     ]);
@@ -736,7 +825,10 @@ test("GitHub release API rejects tags that no longer point at the workflow commi
       requests.push(`${method} ${parsed.origin}${parsed.pathname}${parsed.search}`);
       const json = (status: number, value: unknown) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
       if (parsed.origin === "https://api.github.com" && method === "GET" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0") {
-        return json(200, { ref: "refs/tags/v0.1.0", object: { type: "commit", sha: "fedcba9876543210fedcba9876543210fedcba98" } });
+        return json(200, verifiedReleaseTagRef());
+      }
+      if (isVerifiedReleaseTagObjectRequest(parsed, method)) {
+        return json(200, verifiedReleaseTagObject("fedcba9876543210fedcba9876543210fedcba98"));
       }
       return json(500, {});
     };
@@ -745,7 +837,7 @@ test("GitHub release API rejects tags that no longer point at the workflow commi
       createGitHubRelease("token-that-must-not-be-printed", "VictorHaine/p2p-transfer", "v0.1.0", RELEASE_TEST_SHA, "scoped release notes", releaseAssets()),
       /GitHub tag ref does not match the release workflow commit\./
     );
-    assert.deepEqual(requests, ["GET https://api.github.com/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0"]);
+    assert.deepEqual(requests, ["GET https://api.github.com/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0", releaseTagObjectRequest()]);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -810,7 +902,10 @@ test("GitHub release API deletes draft releases when asset upload fails", async 
       requests.push(`${method} ${parsed.origin}${parsed.pathname}${parsed.search}`);
       const json = (status: number, value: unknown) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
       if (parsed.origin === "https://api.github.com" && method === "GET" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0") {
-        return json(200, { ref: "refs/tags/v0.1.0", object: { type: "commit", sha: RELEASE_TEST_SHA } });
+        return json(200, verifiedReleaseTagRef());
+      }
+      if (isVerifiedReleaseTagObjectRequest(parsed, method)) {
+        return json(200, verifiedReleaseTagObject());
       }
       if (parsed.origin === "https://api.github.com" && method === "POST" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/releases") {
         return json(201, { id: 99, tag_name: "v0.1.0", draft: true, upload_url: "https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets{?name,label}" });
@@ -830,6 +925,7 @@ test("GitHub release API deletes draft releases when asset upload fails", async 
     );
     assert.deepEqual(requests, [
       "GET https://api.github.com/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0",
+      releaseTagObjectRequest(),
       "POST https://api.github.com/repos/VictorHaine/p2p-transfer/releases",
       "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=p2p-transfer-0.1.0.tgz",
       "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=SHA256SUMS",
@@ -853,7 +949,10 @@ test("GitHub release API deletes draft releases when final publish fails", async
       requests.push(`${method} ${parsed.origin}${parsed.pathname}${parsed.search}`);
       const json = (status: number, value: unknown) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
       if (parsed.origin === "https://api.github.com" && method === "GET" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0") {
-        return json(200, { ref: "refs/tags/v0.1.0", object: { type: "commit", sha: RELEASE_TEST_SHA } });
+        return json(200, verifiedReleaseTagRef());
+      }
+      if (isVerifiedReleaseTagObjectRequest(parsed, method)) {
+        return json(200, verifiedReleaseTagObject());
       }
       if (parsed.origin === "https://api.github.com" && method === "POST" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/releases") {
         return json(201, { id: 99, tag_name: "v0.1.0", draft: true, upload_url: "https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets{?name,label}" });
@@ -894,6 +993,7 @@ test("GitHub release API deletes draft releases when final publish fails", async
     );
     assert.deepEqual(requests, [
       "GET https://api.github.com/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0",
+      releaseTagObjectRequest(),
       "POST https://api.github.com/repos/VictorHaine/p2p-transfer/releases",
       "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=p2p-transfer-0.1.0.tgz",
       "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=SHA256SUMS",
@@ -924,7 +1024,10 @@ test("GitHub release API rejects successful final publish when published metadat
       requests.push(`${method} ${parsed.origin}${parsed.pathname}${parsed.search}`);
       const json = (status: number, value: unknown) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
       if (parsed.origin === "https://api.github.com" && method === "GET" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0") {
-        return json(200, { ref: "refs/tags/v0.1.0", object: { type: "commit", sha: RELEASE_TEST_SHA } });
+        return json(200, verifiedReleaseTagRef());
+      }
+      if (isVerifiedReleaseTagObjectRequest(parsed, method)) {
+        return json(200, verifiedReleaseTagObject());
       }
       if (parsed.origin === "https://api.github.com" && method === "POST" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/releases") {
         return json(201, { id: 99, tag_name: "v0.1.0", draft: true, upload_url: "https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets{?name,label}" });
@@ -962,6 +1065,7 @@ test("GitHub release API rejects successful final publish when published metadat
     );
     assert.deepEqual(requests, [
       "GET https://api.github.com/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0",
+      releaseTagObjectRequest(),
       "POST https://api.github.com/repos/VictorHaine/p2p-transfer/releases",
       "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=p2p-transfer-0.1.0.tgz",
       "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=SHA256SUMS",
@@ -993,7 +1097,10 @@ test("GitHub release API accepts an already-published draft after final publish 
       requests.push(`${method} ${parsed.origin}${parsed.pathname}${parsed.search}`);
       const json = (status: number, value: unknown) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
       if (parsed.origin === "https://api.github.com" && method === "GET" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0") {
-        return json(200, { ref: "refs/tags/v0.1.0", object: { type: "commit", sha: RELEASE_TEST_SHA } });
+        return json(200, verifiedReleaseTagRef());
+      }
+      if (isVerifiedReleaseTagObjectRequest(parsed, method)) {
+        return json(200, verifiedReleaseTagObject());
       }
       if (parsed.origin === "https://api.github.com" && method === "POST" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/releases") {
         return json(201, { id: 99, tag_name: "v0.1.0", draft: true, upload_url: "https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets{?name,label}" });
@@ -1034,6 +1141,7 @@ test("GitHub release API accepts an already-published draft after final publish 
     await createGitHubRelease("token-that-must-not-be-printed", "VictorHaine/p2p-transfer", "v0.1.0", RELEASE_TEST_SHA, "scoped release notes", assets);
     assert.deepEqual(requests, [
       "GET https://api.github.com/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0",
+      releaseTagObjectRequest(),
       "POST https://api.github.com/repos/VictorHaine/p2p-transfer/releases",
       "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=p2p-transfer-0.1.0.tgz",
       "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=SHA256SUMS",
@@ -1068,7 +1176,10 @@ test("GitHub release API rejects final publish ambiguity when published metadata
       requests.push(`${method} ${parsed.origin}${parsed.pathname}${parsed.search}`);
       const json = (status: number, value: unknown) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
       if (parsed.origin === "https://api.github.com" && method === "GET" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0") {
-        return json(200, { ref: "refs/tags/v0.1.0", object: { type: "commit", sha: RELEASE_TEST_SHA } });
+        return json(200, verifiedReleaseTagRef());
+      }
+      if (isVerifiedReleaseTagObjectRequest(parsed, method)) {
+        return json(200, verifiedReleaseTagObject());
       }
       if (parsed.origin === "https://api.github.com" && method === "POST" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/releases") {
         return json(201, { id: 99, tag_name: "v0.1.0", draft: true, upload_url: "https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets{?name,label}" });
@@ -1106,6 +1217,7 @@ test("GitHub release API rejects final publish ambiguity when published metadata
     );
     assert.deepEqual(requests, [
       "GET https://api.github.com/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0",
+      releaseTagObjectRequest(),
       "POST https://api.github.com/repos/VictorHaine/p2p-transfer/releases",
       "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=p2p-transfer-0.1.0.tgz",
       "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=SHA256SUMS",
