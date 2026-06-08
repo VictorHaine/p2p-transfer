@@ -141,12 +141,16 @@ const BROWSER_RESUME_STORAGE_KEY = "ff.browserReceiveResume.v1";
 const BROWSER_RESUME_KEY_DB = "ff.browserReceiveResume.keys.v1";
 const BROWSER_RESUME_KEY_STORE = "keys";
 const BROWSER_RESUME_LOOKUP_KEY_ID = "lookup";
+const BROWSER_RESUME_REGISTRY_DB = "ff.browserReceiveResume.registry.v1";
+const BROWSER_RESUME_REGISTRY_STORE = "registry";
+const BROWSER_RESUME_REGISTRY_ID = "records";
 const BROWSER_RESUME_KEY_PREFIX = "ff.resume.v2:";
 const BROWSER_RESUME_STORAGE_ENTRY_KEY = /^ff\.resume\.v2:[a-f0-9]{64}$/;
 const MAX_BROWSER_RESUME_RECORDS = 200;
 const BROWSER_RESUME_RECORD_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const browserResumeText = new TextEncoder();
 let browserResumeLookupKeyPromise: Promise<BrowserResumeLookupKey> | undefined;
+let browserResumeRegistryReady: Promise<void> | undefined;
 const BROWSER_WAIT_MESSAGE_TYPES = new Set<ServerMessage["type"]>([
   "registered",
   "peer-joined",
@@ -162,7 +166,7 @@ const BROWSER_WAIT_MESSAGE_TYPES = new Set<ServerMessage["type"]>([
 ]);
 const BROWSER_WAIT_SESSION_ID = /^[A-Za-z0-9_-]{1,128}$/;
 
-pruneBrowserResumeRegistry();
+browserResumeRegistryReady = pruneBrowserResumeRegistry();
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("Missing app root");
@@ -1093,7 +1097,7 @@ async function receiveBrowserFiles(
         if (state.publishedName) {
           try {
             await discardBrowserPartialFile(state);
-            if (state.resumeKey) forgetBrowserResumePartial(state.resumeKey);
+            if (state.resumeKey) await forgetBrowserResumePartial(state.resumeKey);
           } catch (error) {
             cleanupError ??= error;
             // Final publication started but the peer acknowledgement failed; remove visible output if the browser still allows it.
@@ -1108,7 +1112,7 @@ async function receiveBrowserFiles(
         } else {
           try {
             await discardBrowserPartialFile(state);
-            if (state.resumeKey) forgetBrowserResumePartial(state.resumeKey);
+            if (state.resumeKey) await forgetBrowserResumePartial(state.resumeKey);
           } catch (error) {
             cleanupError ??= error;
             // The browser may have already closed or discarded the partial file.
@@ -1127,7 +1131,7 @@ async function maybeDownload(state: BrowserReceiveState, control: RTCDataChannel
     const actual = digestHex(state.hash);
     if (actual !== state.expectedSha256) {
       state.resume = false;
-      if (state.resumeKey) forgetBrowserResumePartial(state.resumeKey);
+      if (state.resumeKey) await forgetBrowserResumePartial(state.resumeKey);
       throw new Error(`Hash mismatch for file ${state.id}.`);
     }
     if (state.writable) {
@@ -1142,7 +1146,7 @@ async function maybeDownload(state: BrowserReceiveState, control: RTCDataChannel
       state.name = publishedName;
       state.publishedName = publishedName;
       throwIfReceiveStopped();
-      if (state.resumeKey) forgetBrowserResumePartial(state.resumeKey);
+      if (state.resumeKey) await forgetBrowserResumePartial(state.resumeKey);
       control.send(fileOk);
     } else {
       const fileOk = await sealControl(keys, { t: "file-ok", id: state.id });
@@ -2283,14 +2287,14 @@ async function createBrowserReceiveFile(
     const resumed = await resumeBrowserPartialFile(directory, name, size, resumeKey, opaqueOutputNames);
     if (resumed) return resumed;
     const created = await createWritableFile(directory, name, opaqueOutputNames, resumeKey);
-    rememberBrowserResumePartial(resumeKey, { partName: created.partName, updatedAt: Date.now() });
+    await rememberBrowserResumePartial(resumeKey, { partName: created.partName, updatedAt: Date.now() });
     return { ...created, resumeKey };
   }
   return createWritableFile(directory, name, opaqueOutputNames);
 }
 
 async function resumeBrowserPartialFile(directory: FileSystemDirectoryHandle, name: string, size: number, resumeKey: string, opaqueOutputNames: boolean): Promise<BrowserWritableReceiveFile | undefined> {
-  const record = readBrowserResumePartial(resumeKey);
+  const record = await readBrowserResumePartial(resumeKey);
   if (!record) return undefined;
   assertBrowserOpaquePartFileName(record.partName);
 
@@ -2299,7 +2303,7 @@ async function resumeBrowserPartialFile(directory: FileSystemDirectoryHandle, na
     handle = await directory.getFileHandle(record.partName);
   } catch (error) {
     if (isNotFoundError(error)) {
-      forgetBrowserResumePartial(resumeKey);
+      await forgetBrowserResumePartial(resumeKey);
       return undefined;
     }
     throw error;
@@ -2410,13 +2414,15 @@ async function loadBrowserResumeLookupKey(): Promise<BrowserResumeLookupKey> {
       if (stored) return { key: stored, persistent: true };
       const created = await createBrowserResumeLookupKey();
       await storeBrowserResumeLookupKey(db, created);
-      clearBrowserResumeRegistry();
+      await browserResumeRegistryReady;
+      await clearBrowserResumeRegistry();
       return { key: created, persistent: true };
     } finally {
       db.close();
     }
   } catch {
-    clearBrowserResumeRegistry();
+    await browserResumeRegistryReady;
+    await clearBrowserResumeRegistry();
     return { key: await createBrowserResumeLookupKey(), persistent: false };
   }
 }
@@ -2448,6 +2454,56 @@ async function storeBrowserResumeLookupKey(db: IDBDatabase, key: CryptoKey): Pro
   const transaction = db.transaction(BROWSER_RESUME_KEY_STORE, "readwrite");
   await idbRequest(transaction.objectStore(BROWSER_RESUME_KEY_STORE).put(key, BROWSER_RESUME_LOOKUP_KEY_ID));
   await idbTransactionDone(transaction);
+}
+
+function openBrowserResumeRegistryDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(BROWSER_RESUME_REGISTRY_DB, 1);
+    request.onupgradeneeded = () => {
+      request.result.createObjectStore(BROWSER_RESUME_REGISTRY_STORE);
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(new Error("Browser resume registry store failed."));
+    request.onblocked = () => reject(new Error("Browser resume registry store is blocked."));
+  });
+}
+
+async function readStoredBrowserResumeRegistry(): Promise<Record<string, unknown> | undefined> {
+  const db = await openBrowserResumeRegistryDb();
+  try {
+    const transaction = db.transaction(BROWSER_RESUME_REGISTRY_STORE, "readonly");
+    const value = await idbRequest<unknown>(transaction.objectStore(BROWSER_RESUME_REGISTRY_STORE).get(BROWSER_RESUME_REGISTRY_ID));
+    await idbTransactionDone(transaction);
+    if (value === undefined) return undefined;
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Browser resume registry is invalid.");
+    return value as Record<string, unknown>;
+  } finally {
+    db.close();
+  }
+}
+
+function readLegacyBrowserResumeRegistry(): Record<string, unknown> | undefined {
+  try {
+    const raw = window.localStorage.getItem(BROWSER_RESUME_STORAGE_KEY);
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      clearLegacyBrowserResumeRegistry();
+      return undefined;
+    }
+    return parsed as Record<string, unknown>;
+  } catch {
+    clearLegacyBrowserResumeRegistry();
+    return undefined;
+  }
+}
+
+function clearLegacyBrowserResumeRegistry(): void {
+  try {
+    window.localStorage.removeItem(BROWSER_RESUME_STORAGE_KEY);
+  } catch {
+    // Resume records are opportunistic; transfer integrity does not depend on storage.
+  }
 }
 
 function idbRequest<T>(request: IDBRequest<T>): Promise<T> {
@@ -2519,14 +2575,14 @@ function canonicalBrowserResumeFile(value: unknown): { id: number; name: string;
   return { id, name, size, mime: mime ?? null };
 }
 
-function readBrowserResumePartial(key: string): BrowserResumePartialRecord | undefined {
-  const registry = readBrowserResumeRegistry();
+async function readBrowserResumePartial(key: string): Promise<BrowserResumePartialRecord | undefined> {
+  const registry = await readBrowserResumeRegistry();
   const value = ownDataValue(registry, key);
   return browserResumePartialRecordInput(value);
 }
 
-function rememberBrowserResumePartial(key: string, record: BrowserResumePartialRecord): void {
-  const registry = readBrowserResumeRegistry();
+async function rememberBrowserResumePartial(key: string, record: BrowserResumePartialRecord): Promise<void> {
+  const registry = await readBrowserResumeRegistry();
   registry[key] = record;
   const now = Date.now();
   const entries = Object.entries(registry)
@@ -2537,53 +2593,54 @@ function rememberBrowserResumePartial(key: string, record: BrowserResumePartialR
     })
     .sort((a, b) => b[1].updatedAt - a[1].updatedAt)
     .slice(0, MAX_BROWSER_RESUME_RECORDS);
-  writeBrowserResumeRegistry(Object.fromEntries(entries));
+  await writeBrowserResumeRegistry(Object.fromEntries(entries));
 }
 
-function forgetBrowserResumePartial(key: string): void {
-  const registry = readBrowserResumeRegistry();
+async function forgetBrowserResumePartial(key: string): Promise<void> {
+  const registry = await readBrowserResumeRegistry();
   delete registry[key];
-  writeBrowserResumeRegistry(registry);
+  await writeBrowserResumeRegistry(registry);
 }
 
-function readBrowserResumeRegistry(): Record<string, unknown> {
+async function readBrowserResumeRegistry(): Promise<Record<string, unknown>> {
   try {
-    const raw = window.localStorage.getItem(BROWSER_RESUME_STORAGE_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      clearBrowserResumeRegistry();
-      return {};
-    }
-    return sanitizeBrowserResumeRegistry(parsed as Record<string, unknown>);
+    await browserResumeRegistryReady;
+    const registry = await readStoredBrowserResumeRegistry();
+    const { sanitized, changed } = sanitizeBrowserResumeRegistry(registry ?? {});
+    if (changed) await replaceBrowserResumeRegistry(sanitized);
+    return sanitized;
   } catch {
-    clearBrowserResumeRegistry();
+    await clearBrowserResumeRegistry();
     return {};
   }
 }
 
-function writeBrowserResumeRegistry(registry: Record<string, unknown>): void {
+async function writeBrowserResumeRegistry(registry: Record<string, unknown>): Promise<void> {
   try {
     if (Object.keys(registry).length === 0) {
-      window.localStorage.removeItem(BROWSER_RESUME_STORAGE_KEY);
+      await clearBrowserResumeRegistry();
       return;
     }
-    window.localStorage.setItem(BROWSER_RESUME_STORAGE_KEY, JSON.stringify(registry));
+    const db = await openBrowserResumeRegistryDb();
+    try {
+      const transaction = db.transaction(BROWSER_RESUME_REGISTRY_STORE, "readwrite");
+      await idbRequest(transaction.objectStore(BROWSER_RESUME_REGISTRY_STORE).put(registry, BROWSER_RESUME_REGISTRY_ID));
+      await idbTransactionDone(transaction);
+    } finally {
+      db.close();
+    }
   } catch {
     // Resume records are opportunistic; transfer integrity does not depend on storage.
   }
 }
 
-function clearBrowserResumeRegistry(): void {
-  try {
-    window.localStorage.removeItem(BROWSER_RESUME_STORAGE_KEY);
-  } catch {
-    // Resume records are opportunistic; transfer integrity does not depend on storage.
-  }
+async function clearBrowserResumeRegistry(): Promise<void> {
+  clearLegacyBrowserResumeRegistry();
+  await deleteBrowserResumeRegistryDb().catch(() => {});
 }
 
 async function clearBrowserResumeState(): Promise<BrowserResumeClearResult> {
-  const partNames = browserResumePartNames();
+  const partNames = await browserResumePartNames();
   let removed = 0;
   let folderSelected = false;
   let cleanupFailed = false;
@@ -2601,15 +2658,15 @@ async function clearBrowserResumeState(): Promise<BrowserResumeClearResult> {
       // Clearing origin state must still work if folder selection is cancelled.
     }
   }
-  clearBrowserResumeRegistry();
+  await clearBrowserResumeRegistry();
   browserResumeLookupKeyPromise = undefined;
   await deleteBrowserResumeKeyDb();
   return { records: partNames.length, removed, folderSelected, cleanupFailed };
 }
 
-function browserResumePartNames(): string[] {
+async function browserResumePartNames(): Promise<string[]> {
   const names = new Set<string>();
-  for (const record of Object.values(readBrowserResumeRegistry())) {
+  for (const record of Object.values(await readBrowserResumeRegistry())) {
     const parsed = browserResumePartialRecordInput(record);
     if (parsed) names.add(parsed.partName);
   }
@@ -2647,11 +2704,29 @@ function deleteBrowserResumeKeyDb(): Promise<void> {
   });
 }
 
-function pruneBrowserResumeRegistry(): void {
-  readBrowserResumeRegistry();
+function deleteBrowserResumeRegistryDb(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.deleteDatabase(BROWSER_RESUME_REGISTRY_DB);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(new Error("Browser resume registry store could not be cleared."));
+    request.onblocked = () => reject(new Error("Browser resume registry store is still open in another tab."));
+  });
 }
 
-function sanitizeBrowserResumeRegistry(registry: Record<string, unknown>): Record<string, unknown> {
+async function pruneBrowserResumeRegistry(): Promise<void> {
+  try {
+    const legacy = readLegacyBrowserResumeRegistry();
+    if (legacy) clearLegacyBrowserResumeRegistry();
+    const registry = await readStoredBrowserResumeRegistry();
+    const { sanitized, changed } = sanitizeBrowserResumeRegistry(registry ?? legacy ?? {});
+    if (legacy || changed) await replaceBrowserResumeRegistry(sanitized);
+    else clearLegacyBrowserResumeRegistry();
+  } catch {
+    await clearBrowserResumeRegistry();
+  }
+}
+
+function sanitizeBrowserResumeRegistry(registry: Record<string, unknown>): { sanitized: Record<string, BrowserResumePartialRecord>; changed: boolean } {
   const sanitized: Record<string, BrowserResumePartialRecord> = {};
   let changed = false;
   for (const [entryKey, entryValue] of Object.entries(registry)) {
@@ -2671,13 +2746,12 @@ function sanitizeBrowserResumeRegistry(registry: Record<string, unknown>): Recor
     sanitized[entryKey] = record;
     if (!browserResumePartialRecordIsCanonical(entryValue, record)) changed = true;
   }
-  if (changed) replaceBrowserResumeRegistry(sanitized);
-  return sanitized;
+  return { sanitized, changed };
 }
 
-function replaceBrowserResumeRegistry(registry: Record<string, unknown>): void {
-  clearBrowserResumeRegistry();
-  writeBrowserResumeRegistry(registry);
+async function replaceBrowserResumeRegistry(registry: Record<string, unknown>): Promise<void> {
+  await clearBrowserResumeRegistry();
+  await writeBrowserResumeRegistry(registry);
 }
 
 function browserResumePartialRecordIsCanonical(value: unknown, record: BrowserResumePartialRecord): boolean {

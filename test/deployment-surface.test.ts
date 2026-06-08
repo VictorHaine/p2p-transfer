@@ -1570,7 +1570,7 @@ test("README reports implemented release capabilities without stale MVP-gap lang
   assert.match(readme, /Browser receive resume is exposed only through the explicit `Resume in folder` accept action/);
   assert.match(readme, /only for single-file manifests/);
   assert.match(readme, /preserves an opaque tokenized `\.part` file on failure/);
-  assert.match(readme, /fresh saved opaque partial record and browser-held lookup key/);
+  assert.match(readme, /fresh saved opaque partial record in IndexedDB and browser-held lookup key/);
   assert.match(readme, /scrub expired or legacy metadata-bearing resume records/);
   assert.match(readme, /Multi-file browser receives start fresh on retry/);
   assert.doesNotMatch(readme, /saved tokenized partial record/);

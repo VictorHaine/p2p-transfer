@@ -804,6 +804,7 @@ test("browser startup scrubs legacy resume registry metadata", browserTestOption
     await page.goto(`http://127.0.0.1:${port}/healthz`);
     await seedLegacyBrowserResumeRegistry(page);
     await page.goto(`http://127.0.0.1:${port}/`);
+    await waitForBrowserResumeRegistry(page);
 
     const registry = await browserResumeRegistryObject(page);
     assert.ok(registry && typeof registry === "object" && !Array.isArray(registry));
@@ -815,6 +816,7 @@ test("browser startup scrubs legacy resume registry metadata", browserTestOption
     assert.equal(JSON.stringify(registry).includes("text/plain"), false);
     assert.equal(JSON.stringify(registry).includes("size"), false);
     assert.equal(JSON.stringify(registry).includes(`ff-${"h".repeat(32)}.part`), false);
+    assert.equal(await legacyBrowserResumeRegistry(page), null);
   } finally {
     await browser?.close();
     server.kill();
@@ -1201,12 +1203,23 @@ async function seedInvalidBrowserResumeState(page: Page): Promise<void> {
     } finally {
       db.close();
     }
-    localStorage.setItem(
-      "ff.browserReceiveResume.v1",
-      JSON.stringify({
-        [`ff.resume.v2:${"a".repeat(64)}`]: { partName: `ff-${"b".repeat(32)}.part`, updatedAt: 1 }
-      })
-    );
+    const registryRequest = indexedDB.open("ff.browserReceiveResume.registry.v1", 1);
+    const registryDb = await new Promise<IDBDatabase>((resolve, reject) => {
+      registryRequest.onupgradeneeded = () => registryRequest.result.createObjectStore("registry");
+      registryRequest.onsuccess = () => resolve(registryRequest.result);
+      registryRequest.onerror = () => reject(registryRequest.error);
+    });
+    try {
+      const transaction = registryDb.transaction("registry", "readwrite");
+      transaction.objectStore("registry").put({ [`ff.resume.v2:${"a".repeat(64)}`]: { partName: `ff-${"b".repeat(32)}.part`, updatedAt: 1 } }, "records");
+      await new Promise<void>((resolve, reject) => {
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error);
+        transaction.onabort = () => reject(transaction.error);
+      });
+    } finally {
+      registryDb.close();
+    }
   });
 }
 
@@ -1230,24 +1243,123 @@ async function seedClearableBrowserResumeState(page: Page, partName: string): Pr
     } finally {
       db.close();
     }
-    localStorage.setItem(
-      "ff.browserReceiveResume.v1",
-      JSON.stringify({
-        [`ff.resume.v2:${"a".repeat(64)}`]: { partName: seededPartName, updatedAt: Date.now() }
-      })
-    );
+    const registryRequest = indexedDB.open("ff.browserReceiveResume.registry.v1", 1);
+    const registryDb = await new Promise<IDBDatabase>((resolve, reject) => {
+      registryRequest.onupgradeneeded = () => registryRequest.result.createObjectStore("registry");
+      registryRequest.onsuccess = () => resolve(registryRequest.result);
+      registryRequest.onerror = () => reject(registryRequest.error);
+    });
+    try {
+      const transaction = registryDb.transaction("registry", "readwrite");
+      transaction.objectStore("registry").put({ [`ff.resume.v2:${"a".repeat(64)}`]: { partName: seededPartName, updatedAt: Date.now() } }, "records");
+      await new Promise<void>((resolve, reject) => {
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error);
+        transaction.onabort = () => reject(transaction.error);
+      });
+    } finally {
+      registryDb.close();
+    }
   }, { seededPartName: partName });
 }
 
 function browserResumeRegistry(page: Page): Promise<string | null> {
-  return page.evaluate(() => localStorage.getItem("ff.browserReceiveResume.v1"));
+  return page.evaluate(async () => {
+    const registry = await new Promise<unknown>((resolve, reject) => {
+      const request = indexedDB.open("ff.browserReceiveResume.registry.v1", 1);
+      request.onupgradeneeded = () => request.result.createObjectStore("registry");
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const db = request.result;
+        try {
+          const transaction = db.transaction("registry", "readonly");
+          const get = transaction.objectStore("registry").get("records");
+          get.onsuccess = () => resolve(get.result ?? null);
+          get.onerror = () => reject(get.error);
+          transaction.oncomplete = () => db.close();
+          transaction.onerror = () => {
+            db.close();
+            reject(transaction.error);
+          };
+          transaction.onabort = () => {
+            db.close();
+            reject(transaction.error);
+          };
+        } catch (error) {
+          db.close();
+          reject(error);
+        }
+      };
+    });
+    return registry ? JSON.stringify(registry) : null;
+  });
 }
 
 function browserResumeRegistryObject(page: Page): Promise<unknown> {
-  return page.evaluate(() => {
-    const value = localStorage.getItem("ff.browserReceiveResume.v1");
-    return value ? JSON.parse(value) : null;
+  return page.evaluate(async () => {
+    return new Promise<unknown>((resolve, reject) => {
+      const request = indexedDB.open("ff.browserReceiveResume.registry.v1", 1);
+      request.onupgradeneeded = () => request.result.createObjectStore("registry");
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const db = request.result;
+        try {
+          const transaction = db.transaction("registry", "readonly");
+          const get = transaction.objectStore("registry").get("records");
+          get.onsuccess = () => resolve(get.result ?? null);
+          get.onerror = () => reject(get.error);
+          transaction.oncomplete = () => db.close();
+          transaction.onerror = () => {
+            db.close();
+            reject(transaction.error);
+          };
+          transaction.onabort = () => {
+            db.close();
+            reject(transaction.error);
+          };
+        } catch (error) {
+          db.close();
+          reject(error);
+        }
+      };
+    });
   });
+}
+
+function legacyBrowserResumeRegistry(page: Page): Promise<string | null> {
+  return page.evaluate(() => localStorage.getItem("ff.browserReceiveResume.v1"));
+}
+
+async function waitForBrowserResumeRegistry(page: Page): Promise<void> {
+  await page.waitForFunction(async () => {
+    const value = await new Promise<unknown>((resolve, reject) => {
+      const request = indexedDB.open("ff.browserReceiveResume.registry.v1", 1);
+      request.onupgradeneeded = () => request.result.createObjectStore("registry");
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const db = request.result;
+        try {
+          const transaction = db.transaction("registry", "readonly");
+          const get = transaction.objectStore("registry").get("records");
+          get.onsuccess = () => resolve(get.result ?? null);
+          get.onerror = () => reject(get.error);
+          transaction.oncomplete = () => db.close();
+          transaction.onerror = () => {
+            db.close();
+            reject(transaction.error);
+          };
+          transaction.onabort = () => {
+            db.close();
+            reject(transaction.error);
+          };
+        } catch (error) {
+          db.close();
+          reject(error);
+        }
+      };
+    });
+    return Boolean(value) && localStorage.getItem("ff.browserReceiveResume.v1") === null;
+  }, undefined, { timeout: 10_000 });
 }
 
 function browserResumeKeyStoreNames(page: Page): Promise<string[]> {
