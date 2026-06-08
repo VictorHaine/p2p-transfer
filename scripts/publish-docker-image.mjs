@@ -455,6 +455,6 @@ function publishErrorMessage(error) {
   if (!(error instanceof Error) || typeof error.message !== "string" || error.message.length < 1 || error.message.length > MAX_OUTPUT_BYTES) {
     return "docker image publish failed with an internal error.";
   }
-  if (/(^|[\s("'=])(?:\/|[A-Za-z]:[\\/])/.test(error.message)) return "docker image publish failed with path-sensitive evidence.";
+  if (/(^|[\s("'=])(?:file:\/\/|\/|[A-Za-z]:[\\/]|\\\\(?:\?\\)?[^\\/\s]+[\\/])/i.test(error.message)) return "docker image publish failed with path-sensitive evidence.";
   return error.message;
 }

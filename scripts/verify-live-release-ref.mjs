@@ -162,7 +162,7 @@ function liveReleaseRefErrorMessage(error) {
 }
 
 function containsAbsolutePathText(value) {
-  return /(^|[\s("'=])(?:\/|[A-Za-z]:[\\/])/.test(value);
+  return /(^|[\s("'=])(?:file:\/\/|\/|[A-Za-z]:[\\/]|\\\\(?:\?\\)?[^\\/\s]+[\\/])/i.test(value);
 }
 
 function utf8ByteLengthExceeds(value, maxBytes) {

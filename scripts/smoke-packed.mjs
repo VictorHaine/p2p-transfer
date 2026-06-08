@@ -564,7 +564,7 @@ function sanitizeLogText(value) {
 }
 
 function redactPathLikeText(value) {
-  return value.replace(/(^|[\s("'=])(?:\/[^\s"'()]+|[A-Za-z]:[\\/][^\s"'()]+)/g, "$1[path]");
+  return value.replace(/(^|[\s("'=])(?:file:\/\/[^\s"'()]+|\/[^\s"'()]+|[A-Za-z]:[\\/][^\s"'()]+|\\\\(?:\?\\)?[^\\/\s]+[\\/][^\s"'()]*)/gi, "$1[path]");
 }
 
 async function packCurrentProject(destination, env, expectedTarballName) {
@@ -824,7 +824,7 @@ async function fetchBoundedResponseText(url, maxBytes) {
 }
 
 function containsPathLikeText(value) {
-  return /(^|[\s("'=])(?:\/|[A-Za-z]:[\\/])/.test(value);
+  return /(^|[\s("'=])(?:file:\/\/|\/|[A-Za-z]:[\\/]|\\\\(?:\?\\)?[^\\/\s]+[\\/])/i.test(value);
 }
 
 function waitForExit(child, timeoutMs) {

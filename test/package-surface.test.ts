@@ -74,6 +74,24 @@ const fileStabilityCheckedScripts = [
   releaseSbomScript,
   releaseNotesScript
 ];
+const pathSensitiveErrorScripts = new Map([
+  ["check-install-state", installStateScript],
+  ["prepare-checked-pnpm", checkedPnpmScript],
+  ["check-release-tag", releaseTagScript],
+  ["check-release-main", releaseMainScript],
+  ["verify-live-release-ref", liveReleaseRefScript],
+  ["verify-release-artifact", releaseArtifactScript],
+  ["write-release-checksum", releaseChecksumScript],
+  ["write-release-sbom", releaseSbomScript],
+  ["write-release-notes", releaseNotesScript],
+  ["publish-release-artifact", releasePublishScript],
+  ["create-github-release", githubReleaseScript],
+  ["publish-docker-image", dockerPublishScript],
+  ["smoke-packed", packedSmokeScript],
+  ["smoke-release-artifact", releaseArtifactSmokeScript],
+  ["smoke-docker-policy", dockerPolicySmokeScript],
+  ["bootstrap-npm-package", bootstrapNpmScript]
+]);
 const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
 const cpaceReview = fs.readFileSync(new URL("../docs/security/cpace-review.md", import.meta.url), "utf8");
 const cpaceVectorTest = fs.readFileSync(new URL("./cpace-vectors.test.ts", import.meta.url), "utf8");
@@ -421,6 +439,14 @@ test("release file stability helpers compare mutation metadata", () => {
   for (const source of fileStabilityCheckedScripts) {
     assert.match(source, /function sameFile\(left, right\)/);
     assert.match(source, /left\.dev === right\.dev && left\.ino === right\.ino && left\.size === right\.size && left\.mtimeMs === right\.mtimeMs && left\.ctimeMs === right\.ctimeMs/);
+  }
+});
+
+test("release-owned path-sensitive error redactors cover URL and UNC evidence", () => {
+  assert.match(securityPolicy, /top-level path-sensitive error redactors must treat POSIX absolute paths, Windows drive-letter paths, `file:\/\/` URLs, and UNC or Windows extended-length paths as sensitive evidence/);
+  for (const [label, source] of pathSensitiveErrorScripts) {
+    assert.equal(source.includes("file:\\/\\/"), true, `${label} must catch file:// path evidence`);
+    assert.equal(source.includes("\\\\\\\\(?:\\?\\\\)?[^\\\\/\\s]+[\\\\/]"), true, `${label} must catch UNC path evidence`);
   }
 });
 

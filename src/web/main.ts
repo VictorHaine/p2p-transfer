@@ -2992,7 +2992,7 @@ function isBrowserNativeError(error: unknown): boolean {
 }
 
 function containsPathLikeText(value: string): boolean {
-  return /(^|[\s("'=])(?:\/|[A-Za-z]:[\\/])/.test(value);
+  return /(^|[\s("'=])(?:file:\/\/|\/|[A-Za-z]:[\\/]|\\\\(?:\?\\)?[^\\/\s]+[\\/])/i.test(value);
 }
 
 function safeErrorMessage(error: unknown): string {

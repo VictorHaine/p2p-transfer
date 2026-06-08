@@ -348,7 +348,7 @@ function safeErrorMessage(error) {
   if (!(error instanceof Error) || typeof error.message !== "string" || error.message.length < 1 || error.message.length > MAX_OUTPUT_CHARS) {
     return "checked pnpm preparation failed with an internal error.";
   }
-  if (/(^|[\s("'=])(?:\/|[A-Za-z]:[\\/])/.test(error.message)) {
+  if (/(^|[\s("'=])(?:file:\/\/|\/|[A-Za-z]:[\\/]|\\\\(?:\?\\)?[^\\/\s]+[\\/])/i.test(error.message)) {
     return "checked pnpm preparation failed with path-sensitive evidence.";
   }
   return error.message;
