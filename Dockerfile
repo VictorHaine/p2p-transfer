@@ -1,4 +1,4 @@
-FROM node:22.22.3-bookworm-slim@sha256:6ed70fbf60557fb3a2faea5657d4105bace34c93449c2571919a1589fae30153 AS build
+FROM node:26.3.0-bookworm-slim@sha256:79723b41edbedf595f62e943a9f8b0ba9af5b1e61045c5f8f59c2c02c1212a16 AS build
 WORKDIR /app
 COPY package.json ./
 COPY scripts/prepare-checked-pnpm.mjs ./scripts/prepare-checked-pnpm.mjs
@@ -23,7 +23,7 @@ RUN rm -rf \
   node_modules/.pnpm/domexception@* \
   node_modules/.pnpm/webidl-conversions@*
 
-FROM node:22.22.3-bookworm-slim@sha256:6ed70fbf60557fb3a2faea5657d4105bace34c93449c2571919a1589fae30153
+FROM node:26.3.0-bookworm-slim@sha256:79723b41edbedf595f62e943a9f8b0ba9af5b1e61045c5f8f59c2c02c1212a16
 WORKDIR /app
 ARG VERSION=0.0.0-dev
 ARG REVISION=unknown
