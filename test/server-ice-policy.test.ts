@@ -19,13 +19,14 @@ test("signaling server issues session ICE config only after receiver pair accept
   assert.doesNotMatch(connectBody, /\bsendIceConfig\(/);
   assert.match(
     relayBody,
-    /message\.type === "pair-accept"[\s\S]*!sendIceConfig\(session\.sender\) \|\| !send\(target, message as ServerMessage\)[\s\S]*relayDeliveryFailed\(session, peer, target, "peer unavailable"\)[\s\S]*!sendIceConfig\(session\.receiver\)[\s\S]*closeSessionPeers\(session, "receiver unavailable"\)[\s\S]*applyRelayPhase\(session, peer, message\)/
+    /message\.type === "pair-accept"[\s\S]*const senderIce = sendIceConfig\(session\.sender\)[\s\S]*senderIce === "rate_limited"[\s\S]*closeSessionForTurnRateLimit\(session\)[\s\S]*senderIce === "send_failed" \|\| !send\(target, message as ServerMessage\)[\s\S]*relayDeliveryFailed\(session, peer, target, "peer unavailable"\)[\s\S]*const receiverIce = sendIceConfig\(session\.receiver\)[\s\S]*receiverIce === "rate_limited"[\s\S]*closeSessionForTurnRateLimit\(session\)[\s\S]*receiverIce === "send_failed"[\s\S]*closeSessionPeers\(session, "receiver unavailable"\)[\s\S]*applyRelayPhase\(session, peer, message\)/
   );
   assert.doesNotMatch(relayBody, /message\.type === "confirm"[\s\S]*sendIceConfig\(/);
 });
 
 test("unauthenticated ICE lookups cannot consume accepted-session TURN issuance quota", () => {
   const sendIceConfigBody = extractFunctionBody(serverSource, "sendIceConfig");
+  const closeRateLimitBody = extractFunctionBody(serverSource, "closeSessionForTurnRateLimit");
   const httpRateLimitBody = extractFunctionBody(serverSource, "hitIceConfigHttpRateLimit");
 
   assert.match(serverSource, /const iceHttpRateLimits = new Map<string, number\[\]>\(\)/);
@@ -33,9 +34,14 @@ test("unauthenticated ICE lookups cannot consume accepted-session TURN issuance 
   assert.match(httpRateLimitBody, /hitIceConfigRateLimit\(iceHttpRateLimits, requestIp\(req\)\)/);
   assert.match(sendIceConfigBody, /hasTurnRestConfig\(serverConfig\)/);
   assert.match(sendIceConfigBody, /hitTurnCredentialIssueRateLimit\(turnIssueRateLimits, peer\.ip\)/);
-  assert.match(sendIceConfigBody, /iceServersForUnauthenticatedRequest\(serverConfig\)/);
-  assert.match(sendIceConfigBody, /return send\(peer, \{ type: "ice-config", iceServers \}\)/);
+  assert.match(sendIceConfigBody, /return "rate_limited"/);
+  assert.match(sendIceConfigBody, /iceServersForRequest\(serverConfig\)/);
+  assert.match(sendIceConfigBody, /return send\(peer, \{ type: "ice-config", iceServers: iceServersForRequest\(serverConfig\) \}\) \? "sent" : "send_failed"/);
+  assert.doesNotMatch(sendIceConfigBody, /iceServersForUnauthenticatedRequest\(serverConfig\)/);
   assert.doesNotMatch(sendIceConfigBody, /\biceHttpRateLimits\b/);
+  assert.match(closeRateLimitBody, /fail\(session\.sender, "rate_limited", "TURN credential issuance is rate limited\. Try again shortly\."\)/);
+  assert.match(closeRateLimitBody, /fail\(session\.receiver, "rate_limited", "TURN credential issuance is rate limited\. Try again shortly\."\)/);
+  assert.match(closeRateLimitBody, /closeSessionPeers\(session, "turn credential rate limit"\)/);
 });
 
 test("restored receiver registrations fail closed when the receiver cannot be notified", () => {

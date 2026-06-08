@@ -521,8 +521,12 @@ function relay(peer: Peer, message: Extract<ClientMessage, { sid: string }>): vo
     return relayDeliveryFailed(session, peer, target, terminalReject ? "pair rejected" : "peer unavailable", !terminalReject);
   }
   if (message.type === "pair-accept") {
-    if (!sendIceConfig(session.sender) || !send(target, message as ServerMessage)) return relayDeliveryFailed(session, peer, target, "peer unavailable");
-    if (!sendIceConfig(session.receiver)) {
+    const senderIce = sendIceConfig(session.sender);
+    if (senderIce === "rate_limited") return closeSessionForTurnRateLimit(session);
+    if (senderIce === "send_failed" || !send(target, message as ServerMessage)) return relayDeliveryFailed(session, peer, target, "peer unavailable");
+    const receiverIce = sendIceConfig(session.receiver);
+    if (receiverIce === "rate_limited") return closeSessionForTurnRateLimit(session);
+    if (receiverIce === "send_failed") {
       closeSessionPeers(session, "receiver unavailable");
       return;
     }
@@ -814,10 +818,17 @@ function fail(peer: Peer, code: ErrorCode, message: string): void {
   send(peer, { type: "error", code, message });
 }
 
-function sendIceConfig(peer: Peer): boolean {
-  const issueTurnCredentials = !hasTurnRestConfig(serverConfig) || hitTurnCredentialIssueRateLimit(turnIssueRateLimits, peer.ip);
-  const iceServers = issueTurnCredentials ? iceServersForRequest(serverConfig) : iceServersForUnauthenticatedRequest(serverConfig);
-  return send(peer, { type: "ice-config", iceServers });
+type SendIceConfigResult = "sent" | "rate_limited" | "send_failed";
+
+function sendIceConfig(peer: Peer): SendIceConfigResult {
+  if (hasTurnRestConfig(serverConfig) && !hitTurnCredentialIssueRateLimit(turnIssueRateLimits, peer.ip)) return "rate_limited";
+  return send(peer, { type: "ice-config", iceServers: iceServersForRequest(serverConfig) }) ? "sent" : "send_failed";
+}
+
+function closeSessionForTurnRateLimit(session: Session): void {
+  fail(session.sender, "rate_limited", "TURN credential issuance is rate limited. Try again shortly.");
+  fail(session.receiver, "rate_limited", "TURN credential issuance is rate limited. Try again shortly.");
+  closeSessionPeers(session, "turn credential rate limit");
 }
 
 function badMessage(peer: Peer, message: string): void {
