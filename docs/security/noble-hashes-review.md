@@ -44,6 +44,7 @@ This package controls the local cryptographic transcript and integrity boundary:
 
 - Dependabot must keep `@noble/hashes` in a dedicated production update group and exclude it from the bulk production dependency group.
 - Release verification must run `pnpm security:audit` and `pnpm security:signatures`.
+- Daily scheduled dependency integrity monitoring must run `pnpm security:audit` and `pnpm security:signatures` on unchanged `main` so new advisories or registry signature failures are surfaced before the next code change or release tag.
 - Local, CI, Docker, and release verification must run `pnpm check:install-state` so the installed direct dependency tree matches exact `package.json` pins and `node_modules/.pnpm/lock.yaml` matches `pnpm-lock.yaml`.
 - `@noble/hashes` updates must update this artifact in the same change as the package pin and lockfile, with changed package metadata, exported API, lifecycle hooks, advisories, and protocol-test impact reviewed explicitly.
 

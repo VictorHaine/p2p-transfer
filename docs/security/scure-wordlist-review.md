@@ -17,6 +17,7 @@ Runtime consumer-install hardening reviewed: CLI send and receive fail closed un
 This repo does not contain a formal independent audit certificate for `@scure/bip39@2.2.0` or `@scure/base@2.2.0`. Treat updates as security-sensitive because code generation and validation depend on the wordlist contents and package import surface.
 
 Dependabot must keep `@scure/bip39` and `@scure/base` in the `wordlist-code-dependency` production group and exclude them from the bulk production dependency group.
+Daily scheduled dependency integrity monitoring must run `pnpm security:audit` and `pnpm security:signatures` on unchanged `main` so new advisories or registry signature failures are surfaced before the next code change or release tag.
 
 Release must stop if any of these are true:
 - `@scure/bip39` or `@scure/base` package identity, metadata, dependency declarations, exports, lockfile integrity, or reviewed resolved-file SHA-256 evidence no longer agree.

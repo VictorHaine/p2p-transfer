@@ -1447,6 +1447,7 @@ test("build-time native toolchain identity and install surface stay reviewed", (
   assert.match(buildToolchainNativeReview, /This repo does not contain a formal independent audit certificate for Vite, esbuild, Rolldown, Lightning CSS, their native binaries, or their wasm bindings/);
   assert.match(securityPolicy, /Dependabot must track Vite, esbuild, esbuild platform binaries, Rolldown, Rolldown native\/wasm bindings, Lightning CSS, and Lightning CSS native packages in their own build-toolchain update group/);
   assert.match(buildToolchainNativeReview, /Dependabot must keep Vite, esbuild, esbuild platform binaries, Rolldown, Rolldown native\/wasm bindings, Lightning CSS, and Lightning CSS native packages in the dedicated `build-toolchain-dependencies` update group and excluded from the bulk development dependency group/);
+  assert.match(buildToolchainNativeReview, /Daily scheduled dependency integrity monitoring must keep running `pnpm security:audit` and `pnpm security:signatures` on unchanged `main`/);
   assert.match(
     dependabotConfig,
     /build-toolchain-dependencies:\n\s+patterns:\n\s+- "vite"\n\s+- "esbuild"\n\s+- "@esbuild\/\*"\n\s+- "rolldown"\n\s+- "@rolldown\/\*"\n\s+- "lightningcss"\n\s+- "lightningcss-\*"/
@@ -1693,6 +1694,7 @@ test("direct noble hashes dependency identity and install surface stay reviewed"
   assert.match(nobleHashesReview, /`@noble\/hashes` is not in `allowBuilds`/);
   assert.match(nobleHashesReview, /This repo does not contain a formal independent audit certificate for `@noble\/hashes@2\.2\.0`/);
   assert.match(nobleHashesReview, /Dependabot must keep `@noble\/hashes` in a dedicated production update group and exclude it from the bulk production dependency group/);
+  assert.match(nobleHashesReview, /Daily scheduled dependency integrity monitoring must run `pnpm security:audit` and `pnpm security:signatures` on unchanged `main`/);
   assert.match(nobleHashesReview, /Release must stop if any of these are true:/);
   assert.match(nobleHashesReview, /`@noble\/hashes` adds `preinstall`, `install`, `postinstall`, `prepare`, or `prepublishOnly` hooks/);
 });
@@ -1767,6 +1769,7 @@ test("scure wordlist dependency identity and install surface stay reviewed", () 
   assert.match(scureWordlistReview, /`@scure\/bip39\/wordlists\/english\.js`/);
   assert.match(scureWordlistReview, /short-code generation and validation/);
   assert.match(scureWordlistReview, /This repo does not contain a formal independent audit certificate for `@scure\/bip39@2\.2\.0` or `@scure\/base@2\.2\.0`/);
+  assert.match(scureWordlistReview, /Daily scheduled dependency integrity monitoring must run `pnpm security:audit` and `pnpm security:signatures` on unchanged `main`/);
   assert.match(scureWordlistReview, /Release must stop if any of these are true:/);
 });
 
@@ -1919,6 +1922,7 @@ test("native WebRTC dependency identity and install surface stay reviewed", () =
   assert.match(nativeWebrtcReview, /does not include Windows ARM64, Linux ARMv7, or other unsupported platforms/);
   assert.match(nativeWebrtcReview, /does not hide endpoint compromise, MDM inspection of local files before encryption or after decryption, or network-level metadata/);
   assert.match(nativeWebrtcReview, /Dependabot must keep `@roamhq\/wrtc`, `@roamhq\/wrtc-\*`, `domexception`, and `webidl-conversions` in the `native-webrtc-dependency` production group and excluded from the bulk production dependency group/);
+  assert.match(nativeWebrtcReview, /Daily scheduled dependency integrity monitoring must run `pnpm security:audit` and `pnpm security:signatures` on unchanged `main`/);
   assert.match(nativeWebrtcReview, /Native WebRTC dependency updates must update this artifact in the same change as the package pin and lockfile, with the changed package metadata, lifecycle hooks, optional prebuilt set, exact resolved-file SHA-256 evidence/);
   assert.match(nativeWebrtcReview, /Release must stop if any of these are true:/);
   assert.match(nativeWebrtcReview, /current-platform prebuilt metadata, domexception metadata, webidl-conversions metadata, or reviewed resolved-file SHA-256 evidence no longer agree/);
