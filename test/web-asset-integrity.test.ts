@@ -31,7 +31,12 @@ test("browser asset integrity is wired into build and server policy", () => {
   assert.match(securityPolicy, /verify every manifest-listed asset before startup completes/);
   assert.match(readme, /Production builds inject SRI into the browser JS\/CSS tags and emit `dist-web\/asset-manifest\.json`/);
   assert.match(readme, /Public deployment server runs refuse to serve HTML\/JS\/CSS bytes that do not match that manifest/);
-  assert.match(readUtf8("scripts/write-web-asset-manifest.mjs"), /O_CREAT \| fsConstants\.O_EXCL \| fsConstants\.O_NOFOLLOW/);
+  const assetManifestScript = readUtf8("scripts/write-web-asset-manifest.mjs");
+  assert.match(assetManifestScript, /const info = await fs\.lstat\(filePath\)/);
+  assert.match(assetManifestScript, /if \(!sameFile\(info, stat\)\) throw new Error\("Browser index changed before writing\."\)/);
+  assert.match(assetManifestScript, /await handle\.truncate\(0\)/);
+  assert.match(assetManifestScript, /O_CREAT \| fsConstants\.O_EXCL \| writeNoFollowFlag\(\)/);
+  assert.match(assetManifestScript, /function writeNoFollowFlag\(\)[\s\S]*process\.platform === "win32" \? 0 : fsConstants\.O_NOFOLLOW/);
   for (const candidate of [serverSource, distServerSource]) {
     assert.match(candidate, /loadCheckedWebAssetManifest\(webRoot, hardenedDeployment\)/);
     assert.match(candidate, /verifyWebAssetIntegrity\(webAssetManifest, root, realFilePath, staticFile\.body\)/);
