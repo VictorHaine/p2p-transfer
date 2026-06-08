@@ -307,7 +307,8 @@ async function recv(options: RecvOptions): Promise<void> {
             manifest,
             Boolean(options.resume),
             Boolean(options.redactOutput),
-            Boolean(options.opaqueOutputNames)
+            Boolean(options.opaqueOutputNames),
+            Boolean(options.localPrivateMode)
           );
           safeSend(signaling, { type: "bye", sid: joined.sid, reason: "complete" });
           completed = true;

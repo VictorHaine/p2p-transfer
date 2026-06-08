@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { BROWSER_BLOB_FALLBACK_MAX_BYTES, BROWSER_BLOB_FALLBACK_PEAK_MEMORY_BUDGET_BYTES, RECEIVE_QUEUE_MAX_BYTES } from "../src/shared/constants.js";
 
 const webSource = fs.readFileSync(new URL("../src/web/main.ts", import.meta.url), "utf8");
 const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
@@ -55,8 +56,14 @@ test("browser exposes folder-only receive to avoid Blob fallback plaintext reten
   const receiveBody = extractFunctionBody(webSource, "receiveInBrowser");
   const promptBody = extractFunctionBody(webSource, "promptForBrowserAccept");
 
+  assert.equal(BROWSER_BLOB_FALLBACK_PEAK_MEMORY_BUDGET_BYTES, 128 * 1024 * 1024);
+  assert.equal(BROWSER_BLOB_FALLBACK_MAX_BYTES, 32 * 1024 * 1024);
+  assert.equal(BROWSER_BLOB_FALLBACK_MAX_BYTES * 2 + RECEIVE_QUEUE_MAX_BYTES <= BROWSER_BLOB_FALLBACK_PEAK_MEMORY_BUDGET_BYTES, true);
   assert.match(securityPolicy, /browser receive must expose an explicit folder-only mode for sensitive receives/);
+  assert.match(securityPolicy, /browser Blob download fallback must keep its accepted payload cap below its documented peak-memory budget/);
   assert.match(readme, /enable `Folder only` before starting receive/);
+  assert.match(readme, /browser Blob download fallback is capped at 32 MiB under a 128 MiB peak-memory budget/);
+  assert.match(readme, /only receive transfers up to the 32 MiB Blob fallback payload cap/);
   assert.match(readme, /memory-backed Blob download fallback/);
   assert.match(webSource, /<input id="folderOnly" type="checkbox" \/>/);
   assert.match(webSource, /<span>Folder only<\/span>/);

@@ -741,6 +741,17 @@ test("ensureOutputDir private mode rejects existing public output directories", 
   }
 });
 
+test("reserveOutputFile private output mode rejects public output directories", { skip: process.platform === "win32" ? "POSIX mode bits do not apply on Windows." : false }, async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ff-out-private-"));
+
+  for (const reserve of [reserveOutputFile, distReserveOutputFile]) {
+    const target = path.join(root, `public-reserve-${Math.random().toString(16).slice(2)}`);
+    await fs.mkdir(target, { mode: 0o700 });
+    await fs.chmod(target, 0o755);
+    await assert.rejects(() => reserve(target, "file.txt", { privateOutputDir: true }), /Output directory is not private/);
+  }
+});
+
 test("ensureOutputDir rejects unsafe runtime values before path resolution", async () => {
   let coerced = false;
   const hostile = {
@@ -766,6 +777,7 @@ test("ensureOutputDir rejects unsafe runtime values before path resolution", asy
 test("ensureOutputDir input policy is present in source and shipped artifacts", () => {
   assert.match(securityPolicy, /CLI receiver output-directory and reservation helpers must reject non-string, empty, oversized, or control\/format-character paths before path resolution, mkdir, lstat, open, or path joining/);
   assert.match(securityPolicy, /reservations must carry the output directory identity through partial creation and final publish/);
+  assert.match(securityPolicy, /private-mode reservations must re-check the output directory's POSIX private permission bits at the same identity checkpoints/);
   for (const source of [sourceFiles, distFiles]) {
     assert.match(source, /function outputDirInput/);
     assert.match(source, /typeof dir !== "string"/);
@@ -776,12 +788,14 @@ test("ensureOutputDir input policy is present in source and shipped artifacts", 
     assert.match(source, /mode: options\?\.private \? 0o700 : undefined/);
     assert.match(source, /function assertPrivateOutputDirStat/);
     assert.match(source, /\(stat\.mode & 0o077\) !== 0/);
-    assert.match(source, /const outputDirIdentity = await directoryIdentity\(outputDir\)/);
-    assert.match(source, /await assertDirectoryIdentity\(outputDir, outputDirIdentity\)/);
+    assert.match(source, /const outputDirIdentity = await directoryIdentity\(outputDir, options\)/);
+    assert.match(source, /await assertDirectoryIdentity\(outputDir, outputDirIdentity, options\)/);
+    assert.match(source, /options\?\.privateOutputDir\)[\s\S]*assertPrivateOutputDirStat\(stat\)/);
     assert.match(source, /dirDev: outputDirIdentity\.dev/);
     assert.match(source, /dirIno: outputDirIdentity\.ino/);
     assert.doesNotMatch(source, /path\.resolve\(dir\)/);
   }
+  assert.match(sourceFiles, /privateOutputDir\?: boolean/);
   for (const source of [sourceTransfer, distTransfer]) {
     assert.match(source, /expectedDirectory/);
     assert.match(source, /await assertDirectoryIdentity\(path\.dirname\(safeFinalPath\), safeExpectedDirectory\)/);

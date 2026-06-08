@@ -45,6 +45,13 @@ type EnsureOutputDirOptions = {
   private?: boolean;
 };
 
+type ReserveOutputFileOptions = {
+  resume?: boolean;
+  size?: number;
+  opaqueName?: boolean;
+  privateOutputDir?: boolean;
+};
+
 type FileSnapshot = {
   dev: number;
   ino: number;
@@ -189,15 +196,15 @@ function utf8ByteLengthExceeds(value: string, maxBytes: number): boolean {
   return false;
 }
 
-export async function reserveOutputFile(dir: string, name: string, options?: { resume?: boolean; size?: number; opaqueName?: boolean }): Promise<ReservedOutputFile> {
+export async function reserveOutputFile(dir: string, name: string, options?: ReserveOutputFileOptions): Promise<ReservedOutputFile> {
   const outputDir = path.resolve(outputDirInput(dir));
-  const outputDirIdentity = await directoryIdentity(outputDir);
+  const outputDirIdentity = await directoryIdentity(outputDir, options);
   const resume = Boolean(options?.resume);
   if (resume) assertCliResumeSupported(process.platform);
   const resumeSize = resume ? resumeFileSize(options?.size) : undefined;
   const safeName = options?.opaqueName ? await opaqueOutputFileName(outputDir, name, resumeSize) : safeFileName(name);
   for (let i = 0; i < MAX_OUTPUT_NAME_ATTEMPTS; i += 1) {
-    await assertDirectoryIdentity(outputDir, outputDirIdentity);
+    await assertDirectoryIdentity(outputDir, outputDirIdentity, options);
     const candidateName = safeCollisionFileName(safeName, i);
     const finalPath = path.join(outputDir, candidateName);
     try {
@@ -210,12 +217,12 @@ export async function reserveOutputFile(dir: string, name: string, options?: { r
       if (resumeSize === undefined) throw new Error("Resume file size is invalid.");
       const partPath = path.join(outputDir, await resumablePartFileName(outputDir, candidateName, resumeSize));
       try {
-        return await reserveExistingResumablePart(finalPath, partPath, outputDir, outputDirIdentity, resumeSize);
+        return await reserveExistingResumablePart(finalPath, partPath, outputDir, outputDirIdentity, resumeSize, options);
       } catch (error) {
         if (!isMissingPathError(error)) throw error;
       }
       try {
-        return await createOutputPart(finalPath, partPath, outputDir, outputDirIdentity);
+        return await createOutputPart(finalPath, partPath, outputDir, outputDirIdentity, options);
       } catch (error) {
         if (isNodeErrorCode(error, "EEXIST")) continue;
         throw error;
@@ -223,7 +230,7 @@ export async function reserveOutputFile(dir: string, name: string, options?: { r
     }
     const partPath = path.join(outputDir, randomPartFileName());
     try {
-      return await createOutputPart(finalPath, partPath, outputDir, outputDirIdentity);
+      return await createOutputPart(finalPath, partPath, outputDir, outputDirIdentity, options);
     } catch (error) {
       if (isNodeErrorCode(error, "EEXIST")) continue;
       throw error;
@@ -237,13 +244,13 @@ function resumeFileSize(size: unknown): number {
   return size;
 }
 
-async function createOutputPart(finalPath: string, partPath: string, outputDir: string, outputDirIdentity: FileIdentity): Promise<ReservedOutputFile> {
-  await assertDirectoryIdentity(outputDir, outputDirIdentity);
+async function createOutputPart(finalPath: string, partPath: string, outputDir: string, outputDirIdentity: FileIdentity, options?: ReserveOutputFileOptions): Promise<ReservedOutputFile> {
+  await assertDirectoryIdentity(outputDir, outputDirIdentity, options);
   const handle = await fs.promises.open(partPath, SAFE_PART_CREATE_FLAGS, 0o600);
   let stat: fs.Stats | undefined;
   try {
     stat = await handle.stat();
-    await assertDirectoryIdentity(outputDir, outputDirIdentity);
+    await assertDirectoryIdentity(outputDir, outputDirIdentity, options);
     return { finalPath, partPath, handle, dev: stat.dev, ino: stat.ino, dirDev: outputDirIdentity.dev, dirIno: outputDirIdentity.ino };
   } catch (error) {
     await handle.close().catch(() => {});
@@ -252,15 +259,15 @@ async function createOutputPart(finalPath: string, partPath: string, outputDir: 
   }
 }
 
-async function reserveExistingResumablePart(finalPath: string, partPath: string, outputDir: string, outputDirIdentity: FileIdentity, expectedSize: number): Promise<ReservedOutputFile> {
-  await assertDirectoryIdentity(outputDir, outputDirIdentity);
+async function reserveExistingResumablePart(finalPath: string, partPath: string, outputDir: string, outputDirIdentity: FileIdentity, expectedSize: number, options?: ReserveOutputFileOptions): Promise<ReservedOutputFile> {
+  await assertDirectoryIdentity(outputDir, outputDirIdentity, options);
   const handle = await fs.promises.open(partPath, RESUME_PART_FLAGS);
   try {
     const stat = await handle.stat();
     if (!stat.isFile()) throw new Error("Resume partial path is not a file.");
     assertSingleLink(stat, "Resume partial");
     assertPrivatePartialStat(stat);
-    await assertDirectoryIdentity(outputDir, outputDirIdentity);
+    await assertDirectoryIdentity(outputDir, outputDirIdentity, options);
     let resumeBytes = Math.min(stat.size, expectedSize);
     if (resumeBytes < expectedSize) resumeBytes -= resumeBytes % CHUNK_SIZE;
     if (resumeBytes < 0) resumeBytes = 0;
@@ -285,15 +292,17 @@ export function assertCliResumeSupported(platform: NodeJS.Platform): void {
   if (platform === "win32") throw new Error("CLI resume is disabled on Windows until private ACL checks are implemented.");
 }
 
-async function directoryIdentity(dir: string): Promise<FileIdentity> {
+async function directoryIdentity(dir: string, options?: ReserveOutputFileOptions): Promise<FileIdentity> {
   const stat = await fs.promises.stat(dir);
   if (!stat.isDirectory()) throw new Error("Output path is not a directory.");
+  if (options?.privateOutputDir) assertPrivateOutputDirStat(stat);
   return { dev: stat.dev, ino: stat.ino };
 }
 
-async function assertDirectoryIdentity(dir: string, expected: FileIdentity): Promise<void> {
+async function assertDirectoryIdentity(dir: string, expected: FileIdentity, options?: ReserveOutputFileOptions): Promise<void> {
   const stat = await fs.promises.stat(dir);
   if (!stat.isDirectory() || stat.dev !== expected.dev || stat.ino !== expected.ino) throw new Error("Output directory changed during reservation.");
+  if (options?.privateOutputDir) assertPrivateOutputDirStat(stat);
 }
 
 async function removePathIfIdentity(filePath: string, expected: FileIdentity): Promise<void> {

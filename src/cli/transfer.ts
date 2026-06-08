@@ -371,7 +371,8 @@ export async function receiveFiles(
   acceptedManifest?: FileManifest,
   resume = false,
   redactOutput = false,
-  opaqueOutputNames = false
+  opaqueOutputNames = false,
+  privateOutputDir = false
 ): Promise<void> {
   const files = new Map<number, ReceiveState>();
   let manifest: TransferManifest | undefined;
@@ -517,7 +518,8 @@ export async function receiveFiles(
         const { finalPath, partPath, handle, dev, ino, dirDev, dirIno, resumeBytes = 0, resumeHash } = await reserveOutputFile(outDir, message.name, {
           resume,
           size: message.size,
-          opaqueName: opaqueOutputNames
+          opaqueName: opaqueOutputNames,
+          privateOutputDir
         });
         const state: ReceiveState = {
           id: message.id,
