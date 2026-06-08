@@ -18,6 +18,9 @@ const MAX_NPM_RESPONSE_BYTES = 1024 * 1024;
 const CHILD_TIMEOUT_MS = 240_000;
 const NPM_TIMEOUT_MS = 20_000;
 const NPM_REGISTRY = "https://registry.npmjs.org";
+const NPM_PUBLISH_VERIFY_ATTEMPTS = 8;
+const NPM_PUBLISH_VERIFY_INITIAL_DELAY_MS = 500;
+const NPM_PUBLISH_VERIFY_MAX_DELAY_MS = 5_000;
 const EXPECTED_GITHUB_REPOSITORY = "VictorHaine/p2p-transfer";
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const REQUIRED_PUBLISH_ENV = [
@@ -32,6 +35,8 @@ const REQUIRED_PUBLISH_ENV = [
   "GITHUB_SHA"
 ];
 const STATIC_NPM_TOKEN_ENV = ["NODE_AUTH_TOKEN", "NPM_TOKEN"];
+
+class NpmPublishPendingError extends Error {}
 
 if (isMain()) {
   try {
@@ -61,11 +66,17 @@ async function main() {
     });
     await assertLiveReleaseRefFromEnv();
     const tarballDigests = await localTarballDigests(tarball);
-    await run(pnpm, ["publish", tarball, "--provenance", "--access", "public", "--registry", NPM_REGISTRY, "--tag", "latest", "--ignore-scripts"], {
-      env: { ...childEnv, ...publishEnv },
-      timeoutMs: CHILD_TIMEOUT_MS
-    });
-    await assertNpmPublished(packageMetadata, tarballDigests);
+    if (await npmPublishedMatches(packageMetadata, tarballDigests)) return;
+    try {
+      await run(pnpm, ["publish", tarball, "--provenance", "--access", "public", "--registry", NPM_REGISTRY, "--tag", "latest", "--ignore-scripts"], {
+        env: { ...childEnv, ...publishEnv },
+        timeoutMs: CHILD_TIMEOUT_MS
+      });
+    } catch (error) {
+      if (await npmPublishedMatchesEventually(packageMetadata, tarballDigests)) return;
+      throw error;
+    }
+    await assertNpmPublishedEventually(packageMetadata, tarballDigests);
   } finally {
     await rm(tmp, { recursive: true, force: true }).catch(() => undefined);
   }
@@ -223,10 +234,48 @@ async function localTarballDigests(tarballPath) {
   }
 }
 
-async function assertNpmPublished(packageMetadata, tarballDigests) {
-  const metadata = await npmPackageMetadata(packageMetadata.name);
+async function npmPublishedMatches(packageMetadata, tarballDigests) {
+  try {
+    await assertNpmPublished(packageMetadata, tarballDigests);
+    return true;
+  } catch (error) {
+    if (error instanceof NpmPublishPendingError) return false;
+    throw error;
+  }
+}
+
+async function npmPublishedMatchesEventually(packageMetadata, tarballDigests) {
+  try {
+    await assertNpmPublishedEventually(packageMetadata, tarballDigests);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function assertNpmPublishedEventually(packageMetadata, tarballDigests) {
+  let delayMs = NPM_PUBLISH_VERIFY_INITIAL_DELAY_MS;
+  for (let attempt = 1; attempt <= NPM_PUBLISH_VERIFY_ATTEMPTS; attempt += 1) {
+    try {
+      await assertNpmPublished(packageMetadata, tarballDigests, { transientRegistryErrorsPending: true });
+      return;
+    } catch (error) {
+      if (!(error instanceof NpmPublishPendingError)) throw error;
+      if (attempt === NPM_PUBLISH_VERIFY_ATTEMPTS) {
+        throw new Error("npm registry did not expose the matching published release before timeout.");
+      }
+      await sleep(delayMs);
+      delayMs = Math.min(delayMs * 2, NPM_PUBLISH_VERIFY_MAX_DELAY_MS);
+    }
+  }
+}
+
+async function assertNpmPublished(packageMetadata, tarballDigests, options = {}) {
+  const metadata = await npmPackageMetadata(packageMetadata.name, options);
   const versions = plainRecord(metadata?.versions, "npm registry versions");
-  const publishedVersion = plainRecord(versions[packageMetadata.version], "npm registry published version");
+  const versionValue = versions[packageMetadata.version];
+  if (versionValue === undefined) throw new NpmPublishPendingError("npm registry does not contain the published version yet.");
+  const publishedVersion = plainRecord(versionValue, "npm registry published version");
   if (publishedVersion.name !== packageMetadata.name || publishedVersion.version !== packageMetadata.version) {
     throw new Error("npm registry published package identity does not match the release artifact.");
   }
@@ -237,11 +286,11 @@ async function assertNpmPublished(packageMetadata, tarballDigests) {
   assertRegistryTarballUrl(dist.tarball, packageMetadata);
   const distTags = plainRecord(metadata?.["dist-tags"], "npm registry dist-tags");
   if (distTags.latest !== packageMetadata.version) {
-    throw new Error("npm registry latest dist-tag does not point to the published release.");
+    throw new NpmPublishPendingError("npm registry latest dist-tag does not point to the published release yet.");
   }
 }
 
-async function npmPackageMetadata(name) {
+async function npmPackageMetadata(name, options = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), NPM_TIMEOUT_MS);
   let response;
@@ -251,19 +300,27 @@ async function npmPackageMetadata(name) {
       signal: controller.signal
     });
   } catch (error) {
-    if (isAbortError(error)) throw new Error("npm registry request timed out.");
-    throw new Error("npm registry request failed.");
+    if (isAbortError(error)) throw maybePendingRegistryError(options, "npm registry request timed out.");
+    throw maybePendingRegistryError(options, "npm registry request failed.");
   } finally {
     clearTimeout(timer);
   }
-  if (response.status === 404) throw new Error("npm registry does not contain the published package.");
-  if (!response.ok) throw new Error("npm registry returned an unexpected status.");
+  if (response.status === 404) throw new NpmPublishPendingError("npm registry does not contain the published package yet.");
+  if (!response.ok) throw new NpmPublishPendingError("npm registry returned an unexpected status.");
   const text = await boundedResponseText(response);
   try {
     return JSON.parse(text);
   } catch {
-    throw new Error("npm registry response was not valid JSON.");
+    throw new NpmPublishPendingError("npm registry response was not valid JSON.");
   }
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function maybePendingRegistryError(options, message) {
+  return options.transientRegistryErrorsPending === true ? new NpmPublishPendingError(message) : new Error(message);
 }
 
 async function boundedResponseText(response) {

@@ -1268,12 +1268,15 @@ test("release publish script verifies npm registry metadata after publish", asyn
 import { appendFileSync } from "node:fs";
 
 const log = process.env.FF_MOCK_NPM_PUBLISH_REGISTRY_LOG;
+let reads = 0;
 globalThis.fetch = async (url, init = {}) => {
   const parsed = new URL(url);
   appendFileSync(log, (init.method ?? "GET") + " " + parsed.origin + parsed.pathname + "\\n", "utf8");
   if (parsed.origin !== "https://registry.npmjs.org" || parsed.pathname !== "/%40victorhaine%2Fp2p-transfer") {
     return new Response(JSON.stringify({ message: "unexpected registry request" }), { status: 500, headers: { "content-type": "application/json" } });
   }
+  reads += 1;
+  if (reads === 1) return new Response(JSON.stringify({ message: "not found yet" }), { status: 404, headers: { "content-type": "application/json" } });
   return new Response(JSON.stringify({
     versions: {
       "0.1.0": {
@@ -1313,7 +1316,269 @@ globalThis.fetch = async (url, init = {}) => {
     assert.equal(result.stdout, "");
     assert.equal(result.stderr, "");
     assert.match(publishArgs, /publish release-artifacts\/victorhaine-p2p-transfer-0\.1\.0\.tgz --provenance --access public --registry https:\/\/registry\.npmjs\.org --tag latest --ignore-scripts/);
-    assert.equal(registryRequests, "GET https://registry.npmjs.org/%40victorhaine%2Fp2p-transfer\n");
+    assert.equal((registryRequests.match(/^GET /gm) ?? []).length, 2);
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
+test("release publish script polls stale npm registry metadata after publish", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-publish-stale-registry-"));
+  try {
+    const workspace = await fakeReleasePublishWorkspace(tmp);
+    const tarball = await fs.readFile(workspace.tarball);
+    const integrity = `sha512-${createHash("sha512").update(tarball).digest("base64")}`;
+    const shasum = createHash("sha1").update(tarball).digest("hex");
+    await fs.writeFile(
+      workspace.mock,
+      `
+import { appendFileSync } from "node:fs";
+
+const log = process.env.FF_MOCK_NPM_PUBLISH_REGISTRY_LOG;
+let reads = 0;
+globalThis.fetch = async (url, init = {}) => {
+  const parsed = new URL(url);
+  appendFileSync(log, (init.method ?? "GET") + " " + parsed.origin + parsed.pathname + "\\n", "utf8");
+  reads += 1;
+  if (reads === 1) return new Response(JSON.stringify({ message: "not found yet" }), { status: 404, headers: { "content-type": "application/json" } });
+  if (reads === 2) return new Response(JSON.stringify({ versions: {}, "dist-tags": {} }), { status: 200, headers: { "content-type": "application/json" } });
+  return new Response(JSON.stringify({
+    versions: {
+      "0.1.0": {
+        name: "@victorhaine/p2p-transfer",
+        version: "0.1.0",
+        dist: {
+          integrity: ${JSON.stringify(integrity)},
+          shasum: ${JSON.stringify(shasum)},
+          tarball: "https://registry.npmjs.org/@victorhaine/p2p-transfer/-/p2p-transfer-0.1.0.tgz"
+        }
+      }
+    },
+    "dist-tags": { latest: "0.1.0" }
+  }), { status: 200, headers: { "content-type": "application/json" } });
+};
+`,
+      "utf8"
+    );
+
+    const result = runScriptWithNodeArgs(
+      workspace.script,
+      {
+        ...releaseTagEnv("v0.1.0"),
+        ACTIONS_ID_TOKEN_REQUEST_TOKEN: "oidc-token",
+        ACTIONS_ID_TOKEN_REQUEST_URL: "https://pipelines.actions.githubusercontent.com/example",
+        FF_MOCK_NPM_PUBLISH_REGISTRY_LOG: workspace.registryLog,
+        GITHUB_REPOSITORY: "VictorHaine/p2p-transfer",
+        PATH: `${workspace.bin}${path.delimiter}${process.env.PATH ?? ""}`
+      },
+      [],
+      ["--import", workspace.mock]
+    );
+    const publishArgs = await fs.readFile(workspace.publishLog, "utf8");
+    const registryRequests = await fs.readFile(workspace.registryLog, "utf8");
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(publishArgs, /publish release-artifacts\/victorhaine-p2p-transfer-0\.1\.0\.tgz --provenance --access public --registry https:\/\/registry\.npmjs\.org --tag latest --ignore-scripts/);
+    assert.equal((registryRequests.match(/^GET /gm) ?? []).length, 3);
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
+test("release publish script retries transient npm registry failures after publish", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-publish-transient-registry-"));
+  try {
+    const workspace = await fakeReleasePublishWorkspace(tmp);
+    const tarball = await fs.readFile(workspace.tarball);
+    const integrity = `sha512-${createHash("sha512").update(tarball).digest("base64")}`;
+    const shasum = createHash("sha1").update(tarball).digest("hex");
+    await fs.writeFile(
+      workspace.mock,
+      `
+import { appendFileSync } from "node:fs";
+
+const log = process.env.FF_MOCK_NPM_PUBLISH_REGISTRY_LOG;
+let reads = 0;
+globalThis.fetch = async (url, init = {}) => {
+  const parsed = new URL(url);
+  appendFileSync(log, (init.method ?? "GET") + " " + parsed.origin + parsed.pathname + "\\n", "utf8");
+  reads += 1;
+  if (reads === 1) return new Response(JSON.stringify({ message: "not found yet" }), { status: 404, headers: { "content-type": "application/json" } });
+  if (reads === 2) throw new Error("temporary registry read failure");
+  return new Response(JSON.stringify({
+    versions: {
+      "0.1.0": {
+        name: "@victorhaine/p2p-transfer",
+        version: "0.1.0",
+        dist: {
+          integrity: ${JSON.stringify(integrity)},
+          shasum: ${JSON.stringify(shasum)},
+          tarball: "https://registry.npmjs.org/@victorhaine/p2p-transfer/-/p2p-transfer-0.1.0.tgz"
+        }
+      }
+    },
+    "dist-tags": { latest: "0.1.0" }
+  }), { status: 200, headers: { "content-type": "application/json" } });
+};
+`,
+      "utf8"
+    );
+
+    const result = runScriptWithNodeArgs(
+      workspace.script,
+      {
+        ...releaseTagEnv("v0.1.0"),
+        ACTIONS_ID_TOKEN_REQUEST_TOKEN: "oidc-token",
+        ACTIONS_ID_TOKEN_REQUEST_URL: "https://pipelines.actions.githubusercontent.com/example",
+        FF_MOCK_NPM_PUBLISH_REGISTRY_LOG: workspace.registryLog,
+        GITHUB_REPOSITORY: "VictorHaine/p2p-transfer",
+        PATH: `${workspace.bin}${path.delimiter}${process.env.PATH ?? ""}`
+      },
+      [],
+      ["--import", workspace.mock]
+    );
+    const publishArgs = await fs.readFile(workspace.publishLog, "utf8");
+    const registryRequests = await fs.readFile(workspace.registryLog, "utf8");
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(publishArgs, /publish release-artifacts\/victorhaine-p2p-transfer-0\.1\.0\.tgz --provenance --access public --registry https:\/\/registry\.npmjs\.org --tag latest --ignore-scripts/);
+    assert.equal((registryRequests.match(/^GET /gm) ?? []).length, 3);
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
+test("release publish script fails closed when npm registry cannot be checked before publish", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-publish-precheck-registry-failure-"));
+  try {
+    const workspace = await fakeReleasePublishWorkspace(tmp);
+    await fs.writeFile(
+      workspace.mock,
+      `
+import { appendFileSync } from "node:fs";
+
+const log = process.env.FF_MOCK_NPM_PUBLISH_REGISTRY_LOG;
+globalThis.fetch = async (url, init = {}) => {
+  const parsed = new URL(url);
+  appendFileSync(log, (init.method ?? "GET") + " " + parsed.origin + parsed.pathname + "\\n", "utf8");
+  throw new Error("registry unavailable");
+};
+`,
+      "utf8"
+    );
+
+    const result = runScriptWithNodeArgs(
+      workspace.script,
+      {
+        ...releaseTagEnv("v0.1.0"),
+        ACTIONS_ID_TOKEN_REQUEST_TOKEN: "oidc-token",
+        ACTIONS_ID_TOKEN_REQUEST_URL: "https://pipelines.actions.githubusercontent.com/example",
+        FF_MOCK_NPM_PUBLISH_REGISTRY_LOG: workspace.registryLog,
+        GITHUB_REPOSITORY: "VictorHaine/p2p-transfer",
+        PATH: `${workspace.bin}${path.delimiter}${process.env.PATH ?? ""}`
+      },
+      [],
+      ["--import", workspace.mock]
+    );
+
+    assert.notEqual(result.status, 0);
+    assert.equal(await fs.readFile(workspace.publishLog, "utf8"), "");
+    assert.equal(await fs.readFile(workspace.registryLog, "utf8"), "GET https://registry.npmjs.org/%40victorhaine%2Fp2p-transfer\n");
+    assert.match(result.stderr, /Release publish failed:\n- npm registry request failed\./);
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
+test("release publish script skips publish when npm registry already has the exact release", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-publish-already-"));
+  try {
+    const workspace = await fakeReleasePublishWorkspace(tmp);
+    const tarball = await fs.readFile(workspace.tarball);
+    const integrity = `sha512-${createHash("sha512").update(tarball).digest("base64")}`;
+    const shasum = createHash("sha1").update(tarball).digest("hex");
+    await fs.writeFile(workspace.mock, exactNpmRegistryMock({ integrity, shasum }), "utf8");
+
+    const result = runScriptWithNodeArgs(
+      workspace.script,
+      {
+        ...releaseTagEnv("v0.1.0"),
+        ACTIONS_ID_TOKEN_REQUEST_TOKEN: "oidc-token",
+        ACTIONS_ID_TOKEN_REQUEST_URL: "https://pipelines.actions.githubusercontent.com/example",
+        FF_MOCK_NPM_PUBLISH_REGISTRY_LOG: workspace.registryLog,
+        GITHUB_REPOSITORY: "VictorHaine/p2p-transfer",
+        PATH: `${workspace.bin}${path.delimiter}${process.env.PATH ?? ""}`
+      },
+      [],
+      ["--import", workspace.mock]
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(await fs.readFile(workspace.publishLog, "utf8"), "");
+    assert.equal(await fs.readFile(workspace.registryLog, "utf8"), "GET https://registry.npmjs.org/%40victorhaine%2Fp2p-transfer\n");
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
+test("release publish script recovers a failed publish when npm registry has the exact release", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-publish-exists-"));
+  try {
+    const workspace = await fakeReleasePublishWorkspace(tmp);
+    const tarball = await fs.readFile(workspace.tarball);
+    const integrity = `sha512-${createHash("sha512").update(tarball).digest("base64")}`;
+    const shasum = createHash("sha1").update(tarball).digest("hex");
+    await fs.writeFile(
+      workspace.mock,
+      `
+import { appendFileSync } from "node:fs";
+
+const log = process.env.FF_MOCK_NPM_PUBLISH_REGISTRY_LOG;
+let reads = 0;
+globalThis.fetch = async (url, init = {}) => {
+  const parsed = new URL(url);
+  appendFileSync(log, (init.method ?? "GET") + " " + parsed.origin + parsed.pathname + "\\n", "utf8");
+  reads += 1;
+  if (reads === 1) return new Response(JSON.stringify({ message: "not found yet" }), { status: 404, headers: { "content-type": "application/json" } });
+  return new Response(JSON.stringify({
+    versions: {
+      "0.1.0": {
+        name: "@victorhaine/p2p-transfer",
+        version: "0.1.0",
+        dist: {
+          integrity: ${JSON.stringify(integrity)},
+          shasum: ${JSON.stringify(shasum)},
+          tarball: "https://registry.npmjs.org/@victorhaine/p2p-transfer/-/p2p-transfer-0.1.0.tgz"
+        }
+      }
+    },
+    "dist-tags": { latest: "0.1.0" }
+  }), { status: 200, headers: { "content-type": "application/json" } });
+};
+`,
+      "utf8"
+    );
+
+    const result = runScriptWithNodeArgs(
+      workspace.script,
+      {
+        ...releaseTagEnv("v0.1.0"),
+        ACTIONS_ID_TOKEN_REQUEST_TOKEN: "oidc-token",
+        ACTIONS_ID_TOKEN_REQUEST_URL: "https://pipelines.actions.githubusercontent.com/example",
+        FF_MOCK_NPM_PUBLISH_EXIT: "1",
+        FF_MOCK_NPM_PUBLISH_REGISTRY_LOG: workspace.registryLog,
+        GITHUB_REPOSITORY: "VictorHaine/p2p-transfer",
+        PATH: `${workspace.bin}${path.delimiter}${process.env.PATH ?? ""}`
+      },
+      [],
+      ["--import", workspace.mock]
+    );
+    const publishArgs = await fs.readFile(workspace.publishLog, "utf8");
+    const registryRequests = await fs.readFile(workspace.registryLog, "utf8");
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(publishArgs, /publish release-artifacts\/victorhaine-p2p-transfer-0\.1\.0\.tgz --provenance --access public --registry https:\/\/registry\.npmjs\.org --tag latest --ignore-scripts/);
+    assert.equal((registryRequests.match(/^GET /gm) ?? []).length, 2);
   } finally {
     await fs.rm(tmp, { force: true, recursive: true });
   }
@@ -4287,6 +4552,7 @@ export function appendBoundedOutput(current, chunk) {
     `#!/usr/bin/env node
 import { appendFileSync } from "node:fs";
 appendFileSync(${JSON.stringify(publishLog)}, process.argv.slice(2).join(" ") + "\\n", "utf8");
+if (process.env.FF_MOCK_NPM_PUBLISH_EXIT) process.exit(Number(process.env.FF_MOCK_NPM_PUBLISH_EXIT));
 `,
     "utf8"
   );
@@ -4302,6 +4568,32 @@ appendFileSync(${JSON.stringify(publishLog)}, process.argv.slice(2).join(" ") + 
     script: path.join(scripts, "publish-release-artifact.mjs"),
     tarball
   };
+}
+
+function exactNpmRegistryMock({ integrity, shasum }: { integrity: string; shasum: string }): string {
+  return `
+import { appendFileSync } from "node:fs";
+
+const log = process.env.FF_MOCK_NPM_PUBLISH_REGISTRY_LOG;
+globalThis.fetch = async (url, init = {}) => {
+  const parsed = new URL(url);
+  appendFileSync(log, (init.method ?? "GET") + " " + parsed.origin + parsed.pathname + "\\n", "utf8");
+  return new Response(JSON.stringify({
+    versions: {
+      "0.1.0": {
+        name: "@victorhaine/p2p-transfer",
+        version: "0.1.0",
+        dist: {
+          integrity: ${JSON.stringify(integrity)},
+          shasum: ${JSON.stringify(shasum)},
+          tarball: "https://registry.npmjs.org/@victorhaine/p2p-transfer/-/p2p-transfer-0.1.0.tgz"
+        }
+      }
+    },
+    "dist-tags": { latest: "0.1.0" }
+  }), { status: 200, headers: { "content-type": "application/json" } });
+};
+`;
 }
 
 function runScriptWithNodeArgs(script: string, env: Record<string, string>, args: string[] = [], nodeArgs: string[] = [], input?: string) {

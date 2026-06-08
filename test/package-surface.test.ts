@@ -1070,7 +1070,9 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseArtifactScript, /await reader\.close\(\)/);
   assert.doesNotMatch(releaseArtifactScript, /execFileSync|child_process|maxBuffer: MAX_PACKED_PACKAGE_JSON_BYTES/);
   assert.match(securityPolicy, /release publishing must packed-install smoke the exact downloaded tarball artifact immediately before `pnpm publish`/);
-  assert.match(securityPolicy, /after publish, it must re-read bounded npm registry metadata and fail unless the published version identity, `latest` dist-tag, SHA-1 shasum, SHA-512 integrity, and tarball URL match the exact verifier-selected tarball bytes/);
+  assert.match(securityPolicy, /before publish, it must accept an already-published version only when bounded npm registry metadata exactly matches the verifier-selected tarball identity/);
+  assert.match(securityPolicy, /after publish, it must poll boundedly through stale metadata or transient registry read failures for matching npm registry metadata and fail unless the published version identity, `latest` dist-tag, SHA-1 shasum, SHA-512 integrity, and tarball URL match the exact verifier-selected tarball bytes/);
+  assert.match(securityPolicy, /if `pnpm publish` fails after npm has already accepted the immutable version, the checked publisher may recover only by re-reading registry metadata and proving that exact match/);
   assert.match(securityPolicy, /release artifact attestation must run inside the `publish` job after the `npm` environment approval gate/);
   assert.match(securityPolicy, /GHCR Docker staging\/promotion and GitHub Release creation must also run inside the protected release environment before mutating production state/);
   assert.match(securityPolicy, /attest the verified `SHA256SUMS` subjects instead of a single tarball path/);
@@ -1112,7 +1114,13 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releasePublishScript, /const NPM_REGISTRY = "https:\/\/registry\.npmjs\.org"/);
   assert.match(releasePublishScript, /\["publish", tarball, "--provenance", "--access", "public", "--registry", NPM_REGISTRY, "--tag", "latest", "--ignore-scripts"\]/);
   assert.match(releasePublishScript, /const tarballDigests = await localTarballDigests\(tarball\)/);
+  assert.match(releasePublishScript, /if \(await npmPublishedMatches\(packageMetadata, tarballDigests\)\) return/);
   assert.match(releasePublishScript, /await assertNpmPublished\(packageMetadata, tarballDigests\)/);
+  assert.match(releasePublishScript, /await assertNpmPublishedEventually\(packageMetadata, tarballDigests\)/);
+  assert.match(releasePublishScript, /if \(await npmPublishedMatchesEventually\(packageMetadata, tarballDigests\)\) return/);
+  assert.match(releasePublishScript, /assertNpmPublished\(packageMetadata, tarballDigests, \{ transientRegistryErrorsPending: true \}\)/);
+  assert.match(releasePublishScript, /options\.transientRegistryErrorsPending === true \? new NpmPublishPendingError\(message\) : new Error\(message\)/);
+  assert.match(releasePublishScript, /const NPM_PUBLISH_VERIFY_ATTEMPTS = 8/);
   assert.match(releasePublishScript, /dist\.integrity !== tarballDigests\.integrity \|\| dist\.shasum !== tarballDigests\.shasum/);
   assert.match(releasePublishScript, /distTags\.latest !== packageMetadata\.version/);
   assert.match(releasePublishScript, /headers: \{ accept: "application\/vnd\.npm\.install-v1\+json" \}/);

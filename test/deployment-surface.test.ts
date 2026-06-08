@@ -482,9 +482,17 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releasePublishScript, /if \(!\/\^\[1-9\]\\d\{0,19\}\$\/\.test\(out\.GITHUB_RUN_ID\)\) throw new Error\("GITHUB_RUN_ID must be a positive decimal GitHub Actions run id\."\)/);
   assert.match(securityPolicy, /must reject static npm token variables, malformed trusted-publishing repository or run-id context, and wrong-repository release contexts before trusted publishing, Docker publish, GitHub API, or artifact work/);
   assert.match(securityPolicy, /wrong-repository release contexts before trusted publishing, Docker publish, GitHub API, or artifact work/);
-  assert.match(securityPolicy, /after publish, it must re-read bounded npm registry metadata and fail unless the published version identity, `latest` dist-tag, SHA-1 shasum, SHA-512 integrity, and tarball URL match the exact verifier-selected tarball bytes/);
+  assert.match(securityPolicy, /before publish, it must accept an already-published version only when bounded npm registry metadata exactly matches the verifier-selected tarball identity/);
+  assert.match(securityPolicy, /after publish, it must poll boundedly through stale metadata or transient registry read failures for matching npm registry metadata and fail unless the published version identity, `latest` dist-tag, SHA-1 shasum, SHA-512 integrity, and tarball URL match the exact verifier-selected tarball bytes/);
+  assert.match(securityPolicy, /if `pnpm publish` fails after npm has already accepted the immutable version, the checked publisher may recover only by re-reading registry metadata and proving that exact match/);
   assert.match(releasePublishScript, /const tarballDigests = await localTarballDigests\(tarball\)/);
+  assert.match(releasePublishScript, /if \(await npmPublishedMatches\(packageMetadata, tarballDigests\)\) return/);
   assert.match(releasePublishScript, /await assertNpmPublished\(packageMetadata, tarballDigests\)/);
+  assert.match(releasePublishScript, /await assertNpmPublishedEventually\(packageMetadata, tarballDigests\)/);
+  assert.match(releasePublishScript, /if \(await npmPublishedMatchesEventually\(packageMetadata, tarballDigests\)\) return/);
+  assert.match(releasePublishScript, /assertNpmPublished\(packageMetadata, tarballDigests, \{ transientRegistryErrorsPending: true \}\)/);
+  assert.match(releasePublishScript, /options\.transientRegistryErrorsPending === true \? new NpmPublishPendingError\(message\) : new Error\(message\)/);
+  assert.match(releasePublishScript, /const NPM_PUBLISH_VERIFY_ATTEMPTS = 8/);
   assert.match(releasePublishScript, /dist\.integrity !== tarballDigests\.integrity \|\| dist\.shasum !== tarballDigests\.shasum/);
   assert.match(releasePublishScript, /isolatedChildEnv\(privateHome\)/);
   assert.match(releasePublishScript, /PACKED_SMOKE_TARBALL: tarball/);

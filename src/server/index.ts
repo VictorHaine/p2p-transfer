@@ -918,16 +918,21 @@ async function serveStatic(urlPath: string, res: http.ServerResponse): Promise<v
   const [root, realFilePath] = await Promise.all([realWebRoot, fs.realpath(filePath)]);
   if (!isPathInsideRoot(root, realFilePath)) throw staticHttpError(404);
   const staticFile = await readStaticFile(realFilePath);
-  const type = contentType(realFilePath);
-  const isHtml = type.startsWith("text/html;");
-  res.writeHead(200, {
-    "content-type": type,
-    "cache-control": isHtml ? "no-store" : "public, max-age=31536000, immutable",
-    ...securityHeaders(isHtml, { allowAnyWss: browserAllowAnyWss, allowLoopbackWs: browserAllowLoopbackWs })
-  });
-  res.once("finish", staticFile.release);
-  res.once("close", staticFile.release);
-  res.end(staticFile.body);
+  try {
+    const type = contentType(realFilePath);
+    const isHtml = type.startsWith("text/html;");
+    res.once("finish", staticFile.release);
+    res.once("close", staticFile.release);
+    res.writeHead(200, {
+      "content-type": type,
+      "cache-control": isHtml ? "no-store" : "public, max-age=31536000, immutable",
+      ...securityHeaders(isHtml, { allowAnyWss: browserAllowAnyWss, allowLoopbackWs: browserAllowLoopbackWs })
+    });
+    res.end(staticFile.body);
+  } catch (error) {
+    staticFile.release();
+    throw error;
+  }
 }
 
 function staticRelativePath(urlPath: string): string {

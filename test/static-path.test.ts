@@ -147,6 +147,7 @@ test("static file serving opens assets with no-follow nonblocking flags", () => 
     assert.match(securityPolicy, /static serving must distinguish attacker-shaped not-found or path-rejection responses from operational filesystem failures/);
     assert.match(securityPolicy, /static asset reads must use no-follow regular-file opens with pre-open and post-read identity and mutation-metadata checks plus bounded handle reads/);
     assert.match(securityPolicy, /static responses must reserve against a global in-flight byte budget until the HTTP response finishes or closes/);
+    assert.match(securityPolicy, /synchronous static response setup failures after reservation must release that reservation/);
     assert.match(candidate, /serveStatic\(url\.pathname, res\)\.catch\(\(error\) => staticFailure\(res, cors, error\)\)/);
     assert.match(candidate, /let staticInFlightBytes = 0/);
     assert.match(candidate, /function staticRelativePath/);
@@ -164,6 +165,7 @@ test("static file serving opens assets with no-follow nonblocking flags", () => 
     assert.match(candidate, /const afterRead = await handle\.stat\(\);[\s\S]*if \(!sameFile\(stat, afterRead\)\)[\s\S]*throw new Error\("static asset changed while being read"\)/);
     assert.match(candidate, /res\.once\("finish", staticFile\.release\)/);
     assert.match(candidate, /res\.once\("close", staticFile\.release\)/);
+    assert.match(candidate, /catch \(error\) \{[\s\S]*staticFile\.release\(\);[\s\S]*throw error;[\s\S]*\}/);
     assert.match(candidate, /function reserveStaticResponseBytes/);
     assert.match(candidate, /staticFileWithinLimit\(staticInFlightBytes \+ size, STATIC_MAX_IN_FLIGHT_BYTES\)/);
     assert.match(candidate, /staticInFlightBytes \+= size/);
