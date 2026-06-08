@@ -34,7 +34,7 @@ This project releases only from protected `main` with a matching `v*.*.*` tag. D
 
 6. Add the repository secret `RELEASE_PREFLIGHT_TOKEN` with the repository-administration, ruleset, private vulnerability reporting, dependency alert, repository security-analysis, Dependabot security-update, and Actions workflow-run visibility needed by release preflight. Use a fine-grained PAT or an externally rotated GitHub App installation token; do not store a raw one-hour installation token as a static secret unless rotation updates it before every release.
 
-7. Plan GHCR visibility before the first public Docker release. GitHub Container Registry packages can be private on first publish; after the first workflow creates `ghcr.io/victorhaine/p2p-transfer`, set the package visibility to public and verify anonymous pulls for `ghcr.io/victorhaine/p2p-transfer:X.Y.Z`.
+7. Plan GHCR visibility before the first public Docker release. GitHub Container Registry packages can be private on first publish; after the first workflow creates `ghcr.io/victorhaine/p2p-transfer`, set the package visibility to public. The release workflow verifies anonymous pulls for both `ghcr.io/victorhaine/p2p-transfer:vX.Y.Z` and `ghcr.io/victorhaine/p2p-transfer:X.Y.Z`, so a private package fails before the GitHub Release is created.
 
 ## Per-release Checklist
 
@@ -70,5 +70,5 @@ As of this runbook, local `pnpm verify:release` passes. The remaining known firs
 - remote `main` must be pushed
 - the npm package name must be bootstrapped with `pnpm bootstrap:npm --token-stdin --apply`
 - npm trusted publishing must be configured for `.github/workflows/release.yml` and environment `npm`
-- GHCR package visibility must be made public after first package creation if anonymous Docker pulls are part of the release
+- GHCR package visibility must be made public after first package creation before the anonymous Docker pull release gate can pass
 - Docker policy smoke requires a responsive local Docker daemon

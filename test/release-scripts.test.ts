@@ -1834,6 +1834,36 @@ test("Docker publish script accepts existing matching release tags on promote re
   }
 });
 
+test("Docker publish script rejects release tags that are not anonymously pullable", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-docker-publish-private-"));
+  try {
+    const workspace = await fakeDockerPublishWorkspace(tmp);
+    const digest = `sha256:${"a".repeat(64)}`;
+    const result = runScriptWithNodeArgs(workspace.script, {
+      ...releaseTagEnv("v0.1.0"),
+      DOCKER_STAGED_DIGEST: digest,
+      FF_MOCK_DOCKER_DIGEST: digest,
+      FF_MOCK_DOCKER_EXISTING_DIGEST: digest,
+      FF_MOCK_DOCKER_ANONYMOUS_FAIL: "1",
+      FF_MOCK_DOCKER_LOG: workspace.log,
+      GITHUB_ACTOR: "VictorHaine",
+      GITHUB_REPOSITORY: "VictorHaine/p2p-transfer",
+      GITHUB_TOKEN: "token-that-must-not-be-printed",
+      PATH: `${workspace.bin}${path.delimiter}${process.env.PATH ?? ""}`
+    }, ["--promote"]);
+    const log = await fs.readFile(workspace.log, "utf8");
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Docker image publish failed:\n- anonymous docker release pull failed with exit code 1\./);
+    assert.doesNotMatch(result.stderr, /token-that-must-not-be-printed|sha256:|ghcr\.io|denied|Error:/);
+    assert.match(log, /pull ghcr\.io\/victorhaine\/p2p-transfer:v0\.1\.0\n/);
+    assert.doesNotMatch(log, /^tag |^push /m);
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
 test("Docker publish script rejects existing release tags that point at another digest", async () => {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-docker-publish-drift-"));
   try {
@@ -4761,6 +4791,7 @@ export function safeChildEnv() {
     PATH: process.env.PATH ?? "",
     FF_MOCK_DOCKER_DIGEST: process.env.FF_MOCK_DOCKER_DIGEST,
     FF_MOCK_DOCKER_EXISTING_DIGEST: process.env.FF_MOCK_DOCKER_EXISTING_DIGEST,
+    FF_MOCK_DOCKER_ANONYMOUS_FAIL: process.env.FF_MOCK_DOCKER_ANONYMOUS_FAIL,
     FF_MOCK_DOCKER_LOG: process.env.FF_MOCK_DOCKER_LOG
   };
 }
@@ -4780,6 +4811,7 @@ const args = process.argv.slice(2);
 appendFileSync(log, args.join(" ") + "\\n", "utf8");
 const digest = process.env.FF_MOCK_DOCKER_DIGEST;
 const existingDigest = process.env.FF_MOCK_DOCKER_EXISTING_DIGEST;
+const isAnonymousPull = process.env.DOCKER_CONFIG?.includes("p2p-transfer-docker-anonymous-") ?? false;
 
 if (args[0] === "login") {
   process.stdin.resume();
@@ -4787,6 +4819,14 @@ if (args[0] === "login") {
 } else if (args[0] === "pull" && args[1].includes("@sha256:")) {
   console.log("Digest: " + digest);
 } else if (args[0] === "pull") {
+  if (isAnonymousPull && process.env.FF_MOCK_DOCKER_ANONYMOUS_FAIL === "1") {
+    console.error("denied");
+    process.exit(1);
+  }
+  if (isAnonymousPull) {
+    console.log("Digest: " + digest);
+    process.exit(0);
+  }
   if (existingDigest === "missing") {
     console.error("manifest unknown");
     process.exit(1);

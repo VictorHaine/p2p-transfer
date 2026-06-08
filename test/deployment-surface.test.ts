@@ -446,11 +446,11 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(dockerPublishScript, /const runId = requiredGitHubActionsContext\(\);\n  const revision = requiredCommitSha\(requiredEnvString\("GITHUB_SHA"\)\);\n  const actor = githubActor\(requiredEnvString\("GITHUB_ACTOR"\)\);\n  const token = requiredEnvString\("GITHUB_TOKEN", MAX_TOKEN_BYTES\);\n  const packageJson = await readPackageJson\(\);[\s\S]*if \(tag !== `v\$\{version\}`\) throw new Error\("release tag does not match package version\."\);\n\n  await assertLiveReleaseRefFromEnv\(\);/);
   assert.match(dockerPublishScript, /env: \{ DOCKER_SMOKE_TAG: stagedRef, DOCKER_SMOKE_VERSION: version, DOCKER_SMOKE_REVISION: revision \}/);
   assert.match(dockerPublishScript, /await run\("docker", \["push", stagedRef\]/);
-  assert.match(dockerPublishScript, /if \(mode === "promote"\) \{[\s\S]*dockerDigest\(requiredEnvString\("DOCKER_STAGED_DIGEST"\)\)[\s\S]*await publishDockerReleaseTag\(\{ image, digest, ref: versionRef, label: "docker release image", dockerEnv \}\)[\s\S]*await publishDockerReleaseTag\(\{ image, digest, ref: plainVersionRef, label: "docker release image alias", dockerEnv \}\)/);
+  assert.match(dockerPublishScript, /if \(mode === "promote"\) \{[\s\S]*dockerDigest\(requiredEnvString\("DOCKER_STAGED_DIGEST"\)\)[\s\S]*await publishDockerReleaseTag\(\{ image, digest, ref: versionRef, label: "docker release image", dockerEnv \}\)[\s\S]*await publishDockerReleaseTag\(\{ image, digest, ref: plainVersionRef, label: "docker release image alias", dockerEnv \}\)[\s\S]*await assertAnonymousDockerPull\(\{ ref: versionRef, digest \}\)[\s\S]*await assertAnonymousDockerPull\(\{ ref: plainVersionRef, digest \}\)/);
   assert.match(dockerPublishScript, /async function existingDockerTagDigest\(ref, dockerEnv\)/);
   assert.match(dockerPublishScript, /if \(existingDigest !== digest\) throw new Error\(`\$\{label\} already points to a different digest\.`\)/);
   assert.match(dockerPublishScript, /if \(dockerTagMissing\(output\)\) return undefined/);
-  assert.match(securityPolicy, /Docker promotion must inspect existing GHCR `vX\.Y\.Z` and `X\.Y\.Z` release tags before pushing them, treat already-published matching digests as idempotent success, and fail closed instead of moving either release tag when an existing tag points to a different digest/);
+  assert.match(securityPolicy, /Docker promotion must inspect existing GHCR `vX\.Y\.Z` and `X\.Y\.Z` release tags before pushing them, treat already-published matching digests as idempotent success, verify anonymous pulls for both promoted release tags resolve to the attested digest, and fail closed instead of moving either release tag when an existing tag points to a different digest or either release tag is not publicly pullable/);
   assert.match(dockerPublishScript, /writeGithubOutput\(\{ image, digest, tag: versionRef, alias: plainVersionRef \}\)/);
   assert.match(dockerPublishScript, /import \{ createIsolatedDockerConfig \} from "\.\/docker-config\.mjs"/);
   assert.match(dockerPublishScript, /createIsolatedDockerConfig\("p2p-transfer-docker-release-"\)/);
@@ -1509,7 +1509,7 @@ test("server deployment policy requires an explicit in-memory signaling topology
   assert.match(releaseRunbook, /Do not add `NPM_TOKEN`; the checked publisher rejects static npm tokens and requires OIDC trusted publishing/);
   assert.match(releaseRunbook, /fine-grained PAT or an externally rotated GitHub App installation token/);
   assert.match(releaseRunbook, /do not store a raw one-hour installation token as a static secret/);
-  assert.match(releaseRunbook, /GitHub Container Registry packages can be private on first publish[\s\S]*set the package visibility to public[\s\S]*verify anonymous pulls for `ghcr\.io\/victorhaine\/p2p-transfer:X\.Y\.Z`/);
+  assert.match(releaseRunbook, /GitHub Container Registry packages can be private on first publish[\s\S]*set the package visibility to public[\s\S]*verifies anonymous pulls for both `ghcr\.io\/victorhaine\/p2p-transfer:vX\.Y\.Z` and `ghcr\.io\/victorhaine\/p2p-transfer:X\.Y\.Z`/);
   assert.match(releaseRunbook, /publish npm, verify npm registry metadata, publish GHCR, provenance, checksums, SBOM, and the GitHub Release/);
   assert.match(readme, /Use the released package after the first npm publish:[\s\S]*pnpm add -g @victorhaine\/p2p-transfer[\s\S]*ff recv[\s\S]*ff send --code-stdin --files-stdin/);
   assert.match(readme, /Run the packaged server:[\s\S]*ff-server/);

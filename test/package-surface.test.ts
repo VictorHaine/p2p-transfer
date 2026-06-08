@@ -910,6 +910,9 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(dockerPublishScript, /if \(mode === "promote"\) \{[\s\S]*dockerDigest\(requiredEnvString\("DOCKER_STAGED_DIGEST"\)\)[\s\S]*await run\("docker", \["pull", `\$\{image\}@\$\{digest\}`\]/);
   assert.match(dockerPublishScript, /await publishDockerReleaseTag\(\{ image, digest, ref: versionRef, label: "docker release image", dockerEnv \}\)/);
   assert.match(dockerPublishScript, /await publishDockerReleaseTag\(\{ image, digest, ref: plainVersionRef, label: "docker release image alias", dockerEnv \}\)/);
+  assert.match(dockerPublishScript, /await assertAnonymousDockerPull\(\{ ref: versionRef, digest \}\)/);
+  assert.match(dockerPublishScript, /await assertAnonymousDockerPull\(\{ ref: plainVersionRef, digest \}\)/);
+  assert.match(dockerPublishScript, /createIsolatedDockerConfig\("p2p-transfer-docker-anonymous-"\)/);
   assert.match(dockerPublishScript, /async function existingDockerTagDigest\(ref, dockerEnv\)/);
   assert.match(dockerPublishScript, /if \(existingDigest !== digest\) throw new Error\(`\$\{label\} already points to a different digest\.`\)/);
   assert.match(dockerPublishScript, /if \(dockerTagMissing\(output\)\) return undefined/);
@@ -918,7 +921,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(dockerPublishScript, /createIsolatedDockerConfig\("p2p-transfer-docker-release-"\)/);
   assert.match(securityPolicy, /release Docker publishing must read package metadata through no-follow regular-file opens with exact-size handle reads and pre\/post-read identity checks/);
   assert.match(securityPolicy, /emit the staged digest through checked `GITHUB_OUTPUT` no-follow regular-file appends with size and identity checks/);
-  assert.match(securityPolicy, /Docker promotion must inspect existing GHCR `vX\.Y\.Z` and `X\.Y\.Z` release tags before pushing them, treat already-published matching digests as idempotent success, and fail closed instead of moving either release tag when an existing tag points to a different digest/);
+  assert.match(securityPolicy, /Docker promotion must inspect existing GHCR `vX\.Y\.Z` and `X\.Y\.Z` release tags before pushing them, treat already-published matching digests as idempotent success, verify anonymous pulls for both promoted release tags resolve to the attested digest, and fail closed instead of moving either release tag when an existing tag points to a different digest or either release tag is not publicly pullable/);
   assert.match(dockerPublishScript, /const MAX_GITHUB_OUTPUT_BYTES = 1024 \* 1024/);
   assert.match(dockerPublishScript, /await open\(file, constants\.O_WRONLY \| constants\.O_APPEND \| \(constants\.O_NOFOLLOW \?\? 0\)\)/);
   assert.match(dockerPublishScript, /if \(!opened\.isFile\(\) \|\| !sameFile\(info, opened\)\) throw new Error\("GitHub output path is invalid\."\)/);

@@ -63,6 +63,8 @@ async function main() {
       await run("docker", ["pull", `${image}@${digest}`], "docker attested image pull", PUSH_TIMEOUT_MS, { env: dockerEnv });
       await publishDockerReleaseTag({ image, digest, ref: versionRef, label: "docker release image", dockerEnv });
       await publishDockerReleaseTag({ image, digest, ref: plainVersionRef, label: "docker release image alias", dockerEnv });
+      await assertAnonymousDockerPull({ ref: versionRef, digest });
+      await assertAnonymousDockerPull({ ref: plainVersionRef, digest });
       await writeGithubOutput({ image, digest, tag: versionRef, alias: plainVersionRef });
       console.log(`Promoted ${image}@${digest}`);
       return;
@@ -202,6 +204,20 @@ async function publishDockerReleaseTag({ image, digest, ref, label, dockerEnv })
   const pushed = await run("docker", ["push", ref], `${label} push`, PUSH_TIMEOUT_MS, { env: dockerEnv });
   const pushedDigestValue = pushedDigest(`${pushed.stdout}\n${pushed.stderr}`);
   if (pushedDigestValue !== digest) throw new Error(`${label} resolved to a different digest.`);
+}
+
+async function assertAnonymousDockerPull({ ref, digest }) {
+  const anonymousDockerConfigDir = createIsolatedDockerConfig("p2p-transfer-docker-anonymous-");
+  try {
+    const pulled = await run("docker", ["pull", ref], "anonymous docker release pull", PUSH_TIMEOUT_MS, {
+      env: { DOCKER_CONFIG: anonymousDockerConfigDir }
+    });
+    if (pulledDigest(`${pulled.stdout}\n${pulled.stderr}`) !== digest) {
+      throw new Error("anonymous docker release pull resolved to a different digest.");
+    }
+  } finally {
+    await rm(anonymousDockerConfigDir, { recursive: true, force: true });
+  }
 }
 
 async function existingDockerTagDigest(ref, dockerEnv) {
