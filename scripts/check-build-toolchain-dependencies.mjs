@@ -192,8 +192,8 @@ const REVIEWED_LOCKFILE_INTEGRITIES = {
 if (isMain()) {
   try {
     main();
-  } catch {
-    console.error("Reviewed build toolchain dependency metadata is not installed.");
+  } catch (error) {
+    console.error(`Reviewed build toolchain dependency metadata is not installed. ${buildToolchainErrorSummary(error)}`);
     process.exitCode = 1;
   }
 }
@@ -362,6 +362,15 @@ function sameFile(left, right) {
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function buildToolchainErrorSummary(error) {
+  if (!error || typeof error !== "object") return "Verification failed.";
+  const descriptor = Object.getOwnPropertyDescriptor(error, "message");
+  const message = descriptor && "value" in descriptor ? descriptor.value : undefined;
+  if (typeof message !== "string" || message.length < 1 || message.length > 160) return "Verification failed.";
+  if (/[\p{Cc}\p{Cf}/\\]/u.test(message)) return "Verification failed.";
+  return message.endsWith(".") ? message : `${message}.`;
 }
 
 function isMain() {

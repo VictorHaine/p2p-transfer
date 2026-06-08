@@ -76,13 +76,13 @@ async function main() {
     await expectDockerFailure(
       ["run", "--rm", ...HARDENED_DOCKER_RUN_FLAGS, "-e", "SIGNALING_TOPOLOGY=single-instance", imageTag],
       "container without ALLOWED_ORIGINS",
-      "Error: ALLOWED_ORIGINS is required for public deployments.",
+      "ff signaling server startup failed: configuration ALLOWED_ORIGINS is required for public deployments.",
       dockerEnv
     );
     await expectDockerFailure(
       ["run", "--rm", ...HARDENED_DOCKER_RUN_FLAGS, "-e", `ALLOWED_ORIGINS=${PRODUCTION_ORIGIN}`, imageTag],
       "container without SIGNALING_TOPOLOGY",
-      "Error: SIGNALING_TOPOLOGY must be single-instance or sticky-sessions for public deployments.",
+      "ff signaling server startup failed: configuration SIGNALING_TOPOLOGY must be single-instance or sticky-sessions for public deployments.",
       dockerEnv
     );
 

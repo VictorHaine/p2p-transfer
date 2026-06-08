@@ -373,8 +373,14 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(dockerPolicySmokeScript, /distribution-doc-missing/);
   assert.match(dockerPolicySmokeScript, /\["run", "--rm", \.\.\.HARDENED_DOCKER_RUN_FLAGS, "-e", "SIGNALING_TOPOLOGY=single-instance", imageTag\]/);
   assert.match(dockerPolicySmokeScript, /\["run", "--rm", \.\.\.HARDENED_DOCKER_RUN_FLAGS, "-e", `ALLOWED_ORIGINS=\$\{PRODUCTION_ORIGIN\}`, imageTag\]/);
-  assert.match(dockerPolicySmokeScript, /"Error: ALLOWED_ORIGINS is required for public deployments\."/);
-  assert.match(dockerPolicySmokeScript, /"Error: SIGNALING_TOPOLOGY must be single-instance or sticky-sessions for public deployments\."/);
+  assert.match(
+    dockerPolicySmokeScript,
+    /"ff signaling server startup failed: configuration ALLOWED_ORIGINS is required for public deployments\."/,
+  );
+  assert.match(
+    dockerPolicySmokeScript,
+    /"ff signaling server startup failed: configuration SIGNALING_TOPOLOGY must be single-instance or sticky-sessions for public deployments\."/,
+  );
   assert.match(dockerPolicySmokeScript, /function hasExactOutputLine\(result, expectedLine\)/);
   assert.match(dockerPolicySmokeScript, /line\.trim\(\) === expectedLine/);
   assert.match(dockerPolicySmokeScript, /MAX_DOCKER_FAILURE_EVIDENCE_CHARS = 128 \* 1024/);
