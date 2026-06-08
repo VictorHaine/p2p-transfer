@@ -45,6 +45,10 @@ test("server logging stays operational and does not log signaling payload fields
   assert.match(readme, /from conforming clients and accepted protocol flow: two secret words, PAKE output, plaintext file names, MIME types/);
   assert.match(readme, /public WebRTC signal kinds, coarse sealed frame buckets, timing, byte volume, and traffic shape/);
   assert.match(readme, /SDP contents, ICE candidate contents/);
+  assert.match(readme, /A signaling\/TURN operator can infer some ICE endpoint choices when it also observes TURN\/STUN allocation traffic/);
+  assert.match(readme, /conforming clients do not report a local server-ICE toggle to the signaling protocol/);
+  assert.match(readme, /or an explicit local server-ICE toggle/);
+  assert.doesNotMatch(readme, /whether clients accept its ICE endpoint hints|signaling logs/);
   assert.match(readme, /traffic shape/);
   assert.match(readme, /absence of padding or cover traffic/);
   assert.match(readme, /Managed endpoint \/ MDM \/ EDR/);

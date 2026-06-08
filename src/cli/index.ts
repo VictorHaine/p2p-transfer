@@ -1058,12 +1058,12 @@ function warnSensitiveServerArgv(options: CommonOptions): void {
 }
 
 function printArgvTelemetryWarning(options: CommonOptions, warning: string, message: string): void {
-  if (options.quiet) return;
   const safeMessage = sanitizeDisplayText(message);
   if (options.json) {
     console.error(JSON.stringify(sanitizeStructuredOutput({ event: "warning", warning, message: safeMessage })));
     return;
   }
+  if (options.quiet) return;
   console.error(safeMessage);
 }
 

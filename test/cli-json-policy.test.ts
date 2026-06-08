@@ -99,7 +99,7 @@ test("CLI receive validates supplied codes before filesystem or signaling side e
   assert.match(securityPolicy, /CLI receive codes supplied with `recv --code` must be validated before output-directory creation or signaling connection setup/);
   assert.match(securityPolicy, /CLI send and receive commands must verify the reviewed runtime cryptographic dependency graph before importing CLI modules that load CPace, noble-hashes, or scure-bip39 wordlist code, parsing or generating transfer codes, opening local send files, creating receive output directories, or connecting to signaling/);
   assert.match(securityPolicy, /browser and CLI transfer entrypoints must run a one-time runtime crypto self-check before pairing or transfer work/);
-  assert.match(securityPolicy, /receive flows must emit a generic no-values warning to stderr when `recv --code` or `recv --out` accepts a supplied receive code or output directory from argv unless quiet output is selected, including when stderr is not a TTY, and JSON mode must emit the same warning as a structured no-values event/);
+  assert.match(securityPolicy, /receive flows must emit a generic no-values warning to stderr when `recv --code` or `recv --out` accepts a supplied receive code or output directory from argv unless quiet output is selected in human mode, including when stderr is not a TTY, and JSON mode must emit the same warning as a structured no-values event even when `--quiet` is set/);
   for (const source of [cliSource, distCliSource]) {
     const recvBody = extractFunctionBody(source, "recv");
     const outputDirCall = "ensureOutputDir(outputDirInput, { private: Boolean(options.localPrivateMode) })";
@@ -133,8 +133,8 @@ test("CLI receive validates supplied codes before filesystem or signaling side e
 test("CLI send supports non-argv code and file path input", () => {
   assert.match(securityPolicy, /CLI senders must support piped stdin or environment-variable receive-code input and newline-delimited stdin file lists/);
   assert.match(securityPolicy, /resolved sender file lists from argv or `--files-stdin` must reject empty, oversized, or control\/format-character paths during input resolution before code normalization, cryptographic dependency loading, signaling, path resolution, or filesystem work/);
-  assert.match(securityPolicy, /send flows must emit a generic no-values warning to stderr whenever a receive code or local file path is still accepted from argv unless quiet output is selected, including when stderr is not a TTY, and JSON mode must emit the same warning as a structured no-values event/);
-  assert.match(securityPolicy, /receive flows must emit a generic no-values warning to stderr when `recv --code` or `recv --out` accepts a supplied receive code or output directory from argv unless quiet output is selected, including when stderr is not a TTY, and JSON mode must emit the same warning as a structured no-values event/);
+  assert.match(securityPolicy, /send flows must emit a generic no-values warning to stderr whenever a receive code or local file path is still accepted from argv unless quiet output is selected in human mode, including when stderr is not a TTY, and JSON mode must emit the same warning as a structured no-values event even when `--quiet` is set/);
+  assert.match(securityPolicy, /receive flows must emit a generic no-values warning to stderr when `recv --code` or `recv --out` accepts a supplied receive code or output directory from argv unless quiet output is selected in human mode, including when stderr is not a TTY, and JSON mode must emit the same warning as a structured no-values event even when `--quiet` is set/);
   for (const source of [cliSource, distCliSource]) {
     const sendBody = extractFunctionBody(source, "send");
     assert.match(sendBody, /const runtime = await reviewedCliRuntime\(\)/);
@@ -221,8 +221,9 @@ test("CLI send supports non-argv code and file path input", () => {
     assert.match(source, /function rejectSensitiveServerArgv/);
     assert.match(source, /Signaling server URL argv is disabled by --require-private-input/);
     const telemetryWarningBody = extractFunctionBody(source, "printArgvTelemetryWarning");
-    assert.match(telemetryWarningBody, /if \(options\.quiet\)\s+return/);
     assert.match(telemetryWarningBody, /if \(options\.json\) \{[\s\S]*JSON\.stringify\(sanitizeStructuredOutput\(\{ event: "warning", warning, message: safeMessage \}\)\)/);
+    assert.match(telemetryWarningBody, /if \(options\.quiet\)\s+return/);
+    assert.equal(telemetryWarningBody.indexOf("if (options.json)") < telemetryWarningBody.indexOf("if (options.quiet)"), true);
     assert.doesNotMatch(telemetryWarningBody, /stderr\.isTTY/);
     assert.doesNotMatch(telemetryWarningBody, /\bcode\b|\bfiles\b|process\.argv|safeErrorMessage|formatBytes/);
     assert.match(source, /function readCodeEnv/);
@@ -320,6 +321,17 @@ test("CLI JSON mode emits argv telemetry warnings without echoing values", () =>
   assert.equal(serverEvents[0]?.warning, "server_argv_telemetry");
   assert.match(String(serverEvents[0]?.message ?? ""), /process lists, or endpoint telemetry/);
   assert.doesNotMatch(serverArgv.stderr, /127\.0\.0\.1:65534|12345678-apple-anchor|apple-anchor/);
+
+  const quietSendArgv = spawnSync(process.execPath, [cliEntrypoint, "--json", "--quiet", "send", "12345678-apple-anchor", secretPath], {
+    encoding: "utf8"
+  });
+  assert.notEqual(quietSendArgv.status, 0);
+  assert.equal(quietSendArgv.stdout, "");
+  const quietSendEvents = jsonEvents(quietSendArgv.stderr);
+  assert.equal(quietSendEvents[0]?.event, "warning");
+  assert.equal(quietSendEvents[0]?.warning, "send_argv_telemetry");
+  assert.match(String(quietSendEvents[0]?.message ?? ""), /process lists, or endpoint telemetry/);
+  assert.doesNotMatch(quietSendArgv.stderr, /12345678-apple-anchor|apple-anchor|ff-json-warning-secret/);
 });
 
 test("CLI human mode emits argv telemetry warnings to piped stderr without echoing values", () => {
