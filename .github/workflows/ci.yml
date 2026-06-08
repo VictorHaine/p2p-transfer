@@ -162,4 +162,4 @@ jobs:
         run: |
           node scripts/prepare-checked-pnpm.mjs
       - name: Build image
-        run: DOCKER_SMOKE_TAG=p2p-transfer:test node scripts/smoke-docker-policy.mjs
+        run: DOCKER_SMOKE_VERBOSE=1 DOCKER_SMOKE_TAG=p2p-transfer:test node scripts/smoke-docker-policy.mjs

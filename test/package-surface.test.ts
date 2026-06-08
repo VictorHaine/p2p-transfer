@@ -774,7 +774,7 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.match(ciWorkflow, /windows-2025/);
   assert.doesNotMatch(ciWorkflow, /runs-on:\s*[a-z]+-latest|-\s+[a-z]+-latest/);
   assert.equal(packageJson.scripts?.["smoke:docker-policy"], "node scripts/smoke-docker-policy.mjs");
-  assert.match(ciWorkflow, /DOCKER_SMOKE_TAG=p2p-transfer:test node scripts\/smoke-docker-policy\.mjs/);
+  assert.match(ciWorkflow, /DOCKER_SMOKE_VERBOSE=1 DOCKER_SMOKE_TAG=p2p-transfer:test node scripts\/smoke-docker-policy\.mjs/);
   assert.match(checkedPnpmScript, /const corepack = await corepackInvocation\(\)/);
   assert.match(checkedPnpmScript, /await run\(corepack\.command, \[\.\.\.corepack\.argsPrefix, "pack", `pnpm@\$\{version\}`, "-o", archive\], \{ cwd: root, env: childEnv, label: "corepack", timeoutMs: 120_000 \}\)/);
   assert.match(checkedPnpmScript, /function corepackEntrypointCandidates\(nodeExecutable\)[\s\S]*node_modules", "corepack", "dist", "corepack\.js"[\s\S]*"lib", "node_modules", "corepack", "dist", "corepack\.js"/);
@@ -808,7 +808,7 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.match(checkedPnpmScript, /spawn\(command, args, \{ cwd: options\.cwd, env: options\.env, stdio: \["ignore", "pipe", "pipe"\] \}\)/);
   assert.doesNotMatch(checkedPnpmScript, /shell:\s*true|spawn\("cmd\.exe"|spawn\("corepack"/);
   assert.doesNotMatch(checkedPnpmScript, /readFile\(path\.join\(root, "package\.json"\)|readFileSync\(path\.join\(root, "package\.json"\)/);
-  assert.match(ciWorkflow, /production docker policy[\s\S]*actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3[\s\S]*node scripts\/prepare-checked-pnpm\.mjs[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:test node scripts\/smoke-docker-policy\.mjs/);
+  assert.match(ciWorkflow, /production docker policy[\s\S]*actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3[\s\S]*node scripts\/prepare-checked-pnpm\.mjs[\s\S]*DOCKER_SMOKE_VERBOSE=1 DOCKER_SMOKE_TAG=p2p-transfer:test node scripts\/smoke-docker-policy\.mjs/);
   assert.doesNotMatch(ciWorkflow, /corepack prepare pnpm@/);
   assert.match(dockerPolicySmokeScript, /\["build", "--build-arg", `VERSION=\$\{imageVersion\}`, "--build-arg", `REVISION=\$\{imageRevision\}`, "-t", imageTag, "\."\]/);
   assert.match(dockerPolicySmokeScript, /await assertImageMetadata\(imageTag, dockerEnv, imageVersion, imageRevision\)/);
@@ -1034,7 +1034,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseWorkflow, /stage docker image[\s\S]*needs:\n      - verify\n      - platform-smoke\n      - docker-validate[\s\S]*environment: npm[\s\S]*permissions:\n      contents: read\n      packages: write\n      id-token: write\n      attestations: write[\s\S]*outputs:\n      image: \$\{\{ steps\.docker_image\.outputs\.image \}\}\n      digest: \$\{\{ steps\.docker_image\.outputs\.digest \}\}/);
   assert.match(releaseWorkflow, /verify public docker image[\s\S]*needs:\n      - docker-stage[\s\S]*permissions:\n      contents: read[\s\S]*Verify staged image is publicly pullable[\s\S]*DOCKER_STAGED_DIGEST: \$\{\{ needs\.docker-stage\.outputs\.digest \}\}[\s\S]*run: node scripts\/publish-docker-image\.mjs --assert-public/);
   assert.match(releaseWorkflow, /promote docker image[\s\S]*needs:\n      - publish\n      - docker-stage[\s\S]*environment: npm[\s\S]*permissions:\n      contents: read\n      packages: write/);
-  assert.match(releaseWorkflow, /pre-publish docker validation[\s\S]*needs:\n      - verify\n      - platform-smoke[\s\S]*permissions:\n      contents: read[\s\S]*Validate release Docker image[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:release-gate node scripts\/smoke-docker-policy\.mjs/);
+  assert.match(releaseWorkflow, /pre-publish docker validation[\s\S]*needs:\n      - verify\n      - platform-smoke[\s\S]*permissions:\n      contents: read[\s\S]*Validate release Docker image[\s\S]*DOCKER_SMOKE_VERBOSE=1 DOCKER_SMOKE_TAG=p2p-transfer:release-gate node scripts\/smoke-docker-policy\.mjs/);
   assert.match(releaseWorkflow, /stage docker image[\s\S]*actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3[\s\S]*node scripts\/prepare-checked-pnpm\.mjs[\s\S]*Build, smoke, and stage image[\s\S]*run: node scripts\/publish-docker-image\.mjs/);
   assert.match(releaseWorkflow, /stage docker image[\s\S]*Scan staged image for vulnerabilities[\s\S]*aquasecurity\/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0\.36\.0[\s\S]*image-ref: \$\{\{ steps\.docker_image\.outputs\.image \}\}@\$\{\{ steps\.docker_image\.outputs\.digest \}\}[\s\S]*exit-code: "1"[\s\S]*vuln-type: os,library[\s\S]*severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL/);
   assert.doesNotMatch(releaseWorkflow, /ignore-unfixed:\s*true/);

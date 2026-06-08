@@ -354,9 +354,9 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.doesNotMatch(releasePlatformSmokeJob, /pnpm test:unit[\s\S]*pnpm build[\s\S]*pnpm smoke:native/);
   assert.match(ciWorkflow, /pnpm smoke:packed/);
   assert.match(ciVerifyJob, /pnpm smoke:release-artifact[\s\S]*dependency audit[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures/);
-  assert.match(ciWorkflow, /DOCKER_SMOKE_TAG=p2p-transfer:test node scripts\/smoke-docker-policy\.mjs/);
+  assert.match(ciWorkflow, /DOCKER_SMOKE_VERBOSE=1 DOCKER_SMOKE_TAG=p2p-transfer:test node scripts\/smoke-docker-policy\.mjs/);
   assert.match(ciDockerJob, /actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3/);
-  assert.match(ciDockerJob, /node scripts\/prepare-checked-pnpm\.mjs[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:test node scripts\/smoke-docker-policy\.mjs/);
+  assert.match(ciDockerJob, /node scripts\/prepare-checked-pnpm\.mjs[\s\S]*DOCKER_SMOKE_VERBOSE=1 DOCKER_SMOKE_TAG=p2p-transfer:test node scripts\/smoke-docker-policy\.mjs/);
   assert.doesNotMatch(ciDockerJob, /corepack prepare pnpm@/);
   assert.match(dockerfile, /ARG VERSION=0\.0\.0-dev\nARG REVISION=unknown\nLABEL org\.opencontainers\.image\.title="p2p-transfer"/);
   assert.match(dockerfile, /org\.opencontainers\.image\.licenses="MIT"/);
@@ -452,7 +452,7 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.doesNotMatch(releaseWorkflow, /pack release artifact[\s\S]*(find release-artifacts|basename "\$tgz"|sha256sum)/);
   assert.match(releaseDockerValidateJob, /needs:\n      - verify\n      - platform-smoke/);
   assert.match(releaseDockerValidateJob, /permissions:\n      contents: read/);
-  assert.match(releaseDockerValidateJob, /node scripts\/prepare-checked-pnpm\.mjs[\s\S]*Validate release Docker image[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:release-gate node scripts\/smoke-docker-policy\.mjs/);
+  assert.match(releaseDockerValidateJob, /node scripts\/prepare-checked-pnpm\.mjs[\s\S]*Validate release Docker image[\s\S]*DOCKER_SMOKE_VERBOSE=1 DOCKER_SMOKE_TAG=p2p-transfer:release-gate node scripts\/smoke-docker-policy\.mjs/);
   assert.match(releaseDockerStageJob, /needs:\n      - verify\n      - platform-smoke\n      - docker-validate/);
   assert.match(releaseDockerStageJob, /environment: npm/);
   assert.match(releaseDockerStageJob, /permissions:\n      contents: read\n      packages: write\n      id-token: write\n      attestations: write/);
