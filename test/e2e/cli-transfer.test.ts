@@ -63,6 +63,67 @@ test("CLI transfers a file through the built signaling server with secure sessio
   }
 });
 
+test("CLI local-private-mode redacts transfer metadata during a real transfer", async () => {
+  const root = process.cwd();
+  const port = 17_000 + randomInt(1_000);
+  const origin = `http://127.0.0.1:${port}`;
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-e2e-redacted-transfer-"));
+  const out = path.join(tmp, "out");
+  const code = "12345684-apple-anchor";
+  const source = path.join(tmp, "private-tax-form.pdf");
+  await fs.mkdir(out);
+  await fs.writeFile(source, "redacted cli transfer\n");
+  const childEnv = {
+    ...testChildEnv(tmp),
+    FF_PRIVATE_RECEIVE_CODE: code,
+    FF_PRIVATE_SEND_CODE: code,
+    FF_PRIVATE_RECEIVE_OUT: out
+  };
+  const server = spawn(process.execPath, ["dist-node/server/index.js"], {
+    cwd: root,
+    env: { ...childEnv, PORT: String(port), HOST: "127.0.0.1", NODE_ENV: "production", ALLOWED_ORIGINS: origin, SIGNALING_TOPOLOGY: "single-instance", ALLOW_INSECURE_ORIGINS: "true" }
+  });
+  let receiver: ChildProcessWithoutNullStreams | undefined;
+  let sender: ChildProcessWithoutNullStreams | undefined;
+
+  try {
+    await waitForOutput(server, /listening/);
+    const serverUrl = `ws://127.0.0.1:${port}/v1/ws`;
+    receiver = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "--local-private-mode", "recv", "--code-env", "FF_PRIVATE_RECEIVE_CODE", "--out-env", "FF_PRIVATE_RECEIVE_OUT", "--yes"], {
+      cwd: root,
+      env: childEnv
+    });
+    const receiverDone = waitForExitWithOutput(receiver, "receiver", CHILD_EXIT_TIMEOUT_MS);
+    await waitForOutput(receiver, /"registered"/);
+
+    sender = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "--local-private-mode", "send", "--code-env", "FF_PRIVATE_SEND_CODE", "--files-stdin"], {
+      cwd: root,
+      env: childEnv
+    });
+    sender.stdin.end(`${source}\n`);
+    const [senderResult, receiverResult] = await Promise.all([waitForExitWithOutput(sender, "sender", CHILD_EXIT_TIMEOUT_MS), receiverDone]);
+
+    assert.equal(senderResult.code, 0, exitSummary(senderResult));
+    assert.equal(receiverResult.code, 0, exitSummary(receiverResult));
+    const combinedOutput = `${senderResult.stdout}\n${senderResult.stderr}\n${receiverResult.stdout}\n${receiverResult.stderr}`;
+    assert.match(senderResult.stdout, /"manifestRedacted":true/);
+    assert.match(receiverResult.stdout, /"manifestRedacted":true/);
+    assert.match(senderResult.stdout, /"sasRedacted":true/);
+    assert.match(receiverResult.stdout, /"sasRedacted":true/);
+    assert.doesNotMatch(combinedOutput, /12345684|apple-anchor|private-tax-form|\.pdf|"files"|"fileCount"|"totalBytes"|"bytes"|[0-9]+ file\(s\)/);
+
+    const receivedNames = await fs.readdir(out);
+    assert.equal(receivedNames.length, 1);
+    assert.match(receivedNames[0] ?? "", /^ff-[a-f0-9]+$/);
+    assert.equal(await fs.readFile(path.join(out, receivedNames[0]!), "utf8"), "redacted cli transfer\n");
+  } finally {
+    if (sender) await terminateChildAndWait(sender);
+    if (receiver) await terminateChildAndWait(receiver);
+    await terminateChildAndWait(server);
+    await removeTestTemp(tmp);
+  }
+});
+
 test("CLI supplied receive code is redacted from registered JSON output", async () => {
   const root = process.cwd();
   const port = 18_000 + randomInt(1_000);

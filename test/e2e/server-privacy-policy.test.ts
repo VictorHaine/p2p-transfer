@@ -77,6 +77,75 @@ test("built signaling server rejects unredacted pair requests without forwarding
   assert.doesNotMatch(serverOutput.text(), /taxes\.pdf|sender-share|receiver-share|12345678/);
 });
 
+test("built signaling server rejects public pair request MIME metadata without forwarding or logging it", async () => {
+  const root = process.cwd();
+  const port = 26_000 + randomInt(1_000);
+  const origin = `http://127.0.0.1:${port}`;
+  const serverUrl = `ws://127.0.0.1:${port}/v1/ws`;
+  const code = "12345683";
+  const leakedMime = "application/pdf";
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-server-public-mime-"));
+  const server = spawn(process.execPath, ["dist-node/server/index.js"], {
+    cwd: root,
+    env: {
+      ...testChildEnv(tmp),
+      PORT: String(port),
+      HOST: "127.0.0.1",
+      NODE_ENV: "production",
+      ALLOWED_ORIGINS: origin,
+      SIGNALING_TOPOLOGY: "single-instance",
+      ALLOW_INSECURE_ORIGINS: "true"
+    }
+  });
+  const serverOutput = collectOutput(server);
+
+  let receiver: WebSocket | undefined;
+  let sender: WebSocket | undefined;
+  try {
+    await waitForOutput(server, /listening/);
+    receiver = await connectWs(serverUrl, origin);
+    sendJson(receiver, { type: "register", role: "receiver", code, protocolVersion: PROTOCOL_VERSION });
+    assert.equal((await waitForServerEvent(receiver, "registered")).code, code);
+
+    sender = await connectWs(serverUrl, origin);
+    sendJson(sender, { type: "connect", role: "sender", code, protocolVersion: PROTOCOL_VERSION });
+    const receiverJoined = await waitForServerEvent(receiver, "peer-joined");
+    const senderJoined = await waitForServerEvent(sender, "peer-joined");
+    assert.equal(senderJoined.sid, receiverJoined.sid);
+    const sid = String(senderJoined.sid);
+
+    sendJson(sender, { type: "pake", sid, data: "sender-share" });
+    assert.equal((await waitForServerEvent(receiver, "pake", sid)).type, "pake");
+    sendJson(receiver, { type: "pake", sid, data: "receiver-share" });
+    assert.equal((await waitForServerEvent(sender, "pake", sid)).type, "pake");
+    sendJson(sender, { type: "confirm", sid, tag: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" });
+    assert.equal((await waitForServerEvent(receiver, "confirm", sid)).type, "confirm");
+    sendJson(receiver, { type: "confirm", sid, tag: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" });
+    assert.equal((await waitForServerEvent(sender, "confirm", sid)).type, "confirm");
+
+    sendJson(sender, {
+      type: "pair-request",
+      sid,
+      manifest: { fileCount: 1, totalBytes: 11, files: [{ id: 0, name: "encrypted-0", size: 11, mime: leakedMime }] },
+      sealedManifest: Buffer.alloc(20).toString("base64")
+    });
+
+    const senderError = await waitForServerEvent(sender, "error");
+    assert.equal(senderError.message, "Pair request manifest must be redacted.");
+    const receiverEvent = await waitForAnyServerEvent(receiver, sid);
+    assert.equal(receiverEvent.type, "peer-left");
+    assert.notEqual(receiverEvent.type, "pair-request");
+  } finally {
+    receiver?.terminate();
+    sender?.terminate();
+    server.kill();
+    await serverOutput.done;
+    await removeTestTemp(tmp);
+  }
+
+  assert.doesNotMatch(serverOutput.text(), /application\/pdf|sender-share|receiver-share|12345683/);
+});
+
 test("built signaling server exhausts receive codes after invalid pre-pair sender attempts", async () => {
   const root = process.cwd();
   const port = 21_000 + randomInt(1_000);

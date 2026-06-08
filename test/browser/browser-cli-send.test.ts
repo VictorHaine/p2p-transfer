@@ -56,6 +56,9 @@ test("browser sender interoperates with CLI receiver", browserTestOptions, async
     await page.locator("#fileInput").setInputFiles(source);
     await page.locator('button[type="submit"]').click();
     await expectText(page.locator("#sendStatus"), "Done");
+    await waitForSelectedFileCount(page, 0);
+    await page.waitForFunction(() => document.querySelector<HTMLInputElement>("#sendCode")?.value === "", undefined, { timeout: 30_000 });
+    await page.waitForFunction(() => (document.querySelector<HTMLPreElement>("#sendLog")?.textContent ?? "") === "", undefined, { timeout: 30_000 });
 
     const receiverResult = await receiverDone;
     assert.equal(receiverResult.code, 0, receiverResult.stderr);
@@ -227,6 +230,7 @@ test("CLI sender interoperates with browser receiver", browserTestOptions, async
     const download = await downloadPromise;
     await download.saveAs(received);
     await expectText(page.locator("#recvStatus"), "Done");
+    await waitForReceiveSecretCleanup(page);
 
     const senderResult = await senderDone;
     assert.equal(senderResult.code, 0, senderResult.stderr);
@@ -550,6 +554,8 @@ test("browser folder receiver does not expose resume for multi-file manifests", 
     assert.equal(await page.locator("#resumeButton").count(), 0);
 
     await page.locator("#declineButton").click();
+    await expectText(page.locator("#recvStatus"), "Declined");
+    await waitForReceiveSecretCleanup(page);
     const senderResult = await senderDone;
     assert.notEqual(senderResult.code, 0);
     assert.match(senderResult.stderr + senderResult.stdout, /Transfer rejected|pair rejected|declined/i);
@@ -1094,6 +1100,18 @@ function browserSelectedFileCount(page: Page): Promise<number> {
 
 async function waitForSelectedFileCount(page: Page, count: number): Promise<void> {
   await page.waitForFunction((expected) => document.querySelector<HTMLInputElement>("#fileInput")?.files?.length === expected, count, { timeout: 30_000 });
+}
+
+async function waitForReceiveSecretCleanup(page: Page): Promise<void> {
+  await page.waitForFunction(
+    () => {
+      const codeBox = document.querySelector<HTMLDivElement>("#codeBox");
+      const requestBox = document.querySelector<HTMLDivElement>("#requestBox");
+      return codeBox?.hidden === true && codeBox.textContent === "" && requestBox?.hidden === true && requestBox.textContent === "";
+    },
+    undefined,
+    { timeout: 30_000 }
+  );
 }
 
 async function installFolderFinalAckFailure(page: Page): Promise<void> {

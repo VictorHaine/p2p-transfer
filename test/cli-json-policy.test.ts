@@ -354,6 +354,20 @@ test("CLI code-env rejects oversized receive codes without echoing them", async 
   assert.equal(event.message, "Environment variable FF_PRIVATE_RECEIVE_CODE is invalid.");
 });
 
+test("CLI environment-sourced receive codes are cleared before later env reads", async () => {
+  const result = spawnSync(process.execPath, [cliEntrypoint, "--json", "recv", "--code-env", "FF_PRIVATE_SHARED_SECRET", "--out-env", "FF_PRIVATE_SHARED_SECRET"], {
+    encoding: "utf8",
+    env: { ...process.env, FF_PRIVATE_SHARED_SECRET: "12345678-apple-anchor" }
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.equal(result.stdout, "");
+  assert.doesNotMatch(result.stderr, /12345678-apple-anchor|apple-anchor|WebSocket|signaling|mkdir/i);
+  const event = JSON.parse(result.stderr.trim()) as { event?: unknown; message?: unknown };
+  assert.equal(event.event, "error");
+  assert.equal(event.message, "Environment variable FF_PRIVATE_SHARED_SECRET is not set.");
+});
+
 test("CLI out-env rejects unsafe output directories without echoing them", async () => {
   for (const [label, value] of [
     ["oversized", "é".repeat(2_049)],
