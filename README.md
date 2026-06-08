@@ -52,6 +52,8 @@ SIGNALING_TOPOLOGY=single-instance \
 ff-server
 ```
 
+The global `ff-server` binary is shipped by the combined CLI/server npm package, so that install still includes the reviewed CLI native WebRTC runtime dependencies even though the server does not load them. For a minimized production server-only runtime, use the Docker image; its policy smoke proves the final image omits the CLI entrypoint and CLI-only native WebRTC packages.
+
 Build from source:
 
 ```sh
@@ -124,6 +126,8 @@ ALLOWED_ORIGINS='https://files.example.com' \
 SIGNALING_TOPOLOGY=single-instance \
 ff-server
 ```
+
+The global npm install is a combined CLI/server artifact and still installs the reviewed CLI native WebRTC runtime packages. Use the Docker image for a minimized server-only production deployment; the Docker policy smoke strips and verifies absence of the CLI entrypoint and CLI-only native WebRTC packages.
 
 The same server also serves `dist-web/` when it exists, so a single process can host the web UI and `WS /v1/ws` for early deployments. Set `WEB_ROOT` to override the static asset directory.
 

@@ -82,6 +82,7 @@ const buildToolchainNativeReview = fs.readFileSync(new URL("../docs/security/bui
 const dependabotConfig = fs.readFileSync(new URL("../.github/dependabot.yml", import.meta.url), "utf8");
 const ciWorkflow = fs.readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
 const releaseWorkflow = fs.readFileSync(new URL("../.github/workflows/release.yml", import.meta.url), "utf8");
+const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
 const conformanceFiles = fs.readdirSync(new URL("../conformance", import.meta.url));
 const pakePackageJson = JSON.parse(fs.readFileSync(new URL("../node_modules/@cipherman/pake-js/package.json", import.meta.url), "utf8")) as PackageJson;
 const nobleHashesPackageJson = JSON.parse(fs.readFileSync(new URL("../node_modules/@noble/hashes/package.json", import.meta.url), "utf8")) as PackageJson;
@@ -277,6 +278,13 @@ test("published bin entrypoints are executable Node CLIs", () => {
     assert.match(built, /^#!\/usr\/bin\/env node\n/);
     assert.equal(mode & 0o111, 0o111, `${relativePath} must be executable by npm after publish`);
   }
+});
+
+test("server deployment docs distinguish npm global and minimized Docker surfaces", () => {
+  assert.match(readme, /The global `ff-server` binary is shipped by the combined CLI\/server npm package, so that install still includes the reviewed CLI native WebRTC runtime dependencies/);
+  assert.match(readme, /Use the Docker image for a minimized server-only production deployment; the Docker policy smoke strips and verifies absence of the CLI entrypoint and CLI-only native WebRTC packages/);
+  assert.match(securityPolicy, /production server deployment documentation must distinguish the combined npm package from the minimized Docker server runtime/);
+  assert.match(dockerPolicySmokeScript, /const SERVER_ONLY_FORBIDDEN_PATHS = \["dist-node\/cli", \.\.\.CLI_WEBRTC_RUNTIME_PATHS\]/);
 });
 
 test("package ships only the current protocol conformance fixture", () => {
