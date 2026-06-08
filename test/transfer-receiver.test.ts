@@ -420,11 +420,17 @@ test("CLI receiver times out stalled transfers and removes partial files", async
   const control = fakeChannel();
   const bulk = fakeChannel();
   const receive = receiveFiles(control, bulk, receiverKeys, outDir, false, true, 20);
+  const receiveResult = receive.then(
+    () => undefined,
+    (error: unknown) => error
+  );
 
   await control.emit(await seal(senderKeys, { t: "manifest", files: [{ id: 0, name: "stalled.txt", size: 1 }], totalBytes: 1 }));
   await control.emit(await seal(senderKeys, { t: "file-begin", id: 0, name: "stalled.txt", size: 1 }));
 
-  await keepEventLoopAliveUntil(assert.rejects(receive, /timed out/), "receiver idle timeout");
+  const error = await keepEventLoopAliveUntil(receiveResult, "receiver idle timeout");
+  assert.ok(error instanceof Error);
+  assert.match(error.message, /timed out/);
   assert.deepEqual(await findCliPartPaths(outDir, "stalled.txt"), []);
   assert.equal(control.closed, true);
   assert.equal(bulk.closed, true);
@@ -697,8 +703,8 @@ test("CLI receiver verifies partial and published paths with no-follow nonblocki
   }
 
   const safeReadFlags = fsSync.constants.O_RDONLY | fsSync.constants.O_NOFOLLOW | fsSync.constants.O_NONBLOCK;
-  assert.equal(observed.some((entry) => /\/ff-[a-f0-9]{32}\.part$/.test(entry.target) && entry.flags === safeReadFlags), true);
-  assert.equal(observed.some((entry) => entry.target.endsWith("x.txt") && !entry.target.endsWith(".part") && entry.flags === safeReadFlags), true);
+  assert.equal(observed.some((entry) => /^ff-[a-f0-9]{32}\.part$/.test(path.basename(entry.target)) && entry.flags === safeReadFlags), true);
+  assert.equal(observed.some((entry) => path.basename(entry.target) === "x.txt" && entry.flags === safeReadFlags), true);
 });
 
 test("CLI receiver rejects unexpected channel close before transfer completion", async () => {
