@@ -65,6 +65,7 @@ type BrowserReceiveState = {
   id: number;
   name: string;
   partName?: string;
+  publishedName?: string;
   resumeKey?: string;
   resume: boolean;
   size: number;
@@ -85,6 +86,16 @@ type BrowserReceiveAccept = { accepted: true; directory?: FileSystemDirectoryHan
 type BrowserResumePartialRecord = {
   partName: string;
   updatedAt: number;
+};
+
+type BrowserResumeLookupKey = {
+  key: CryptoKey;
+  persistent: boolean;
+};
+
+type BrowserResumeKey = {
+  key: string;
+  persistent: boolean;
 };
 
 type BrowserSendPlanFile = {
@@ -125,7 +136,7 @@ const BROWSER_RESUME_STORAGE_ENTRY_KEY = /^ff\.resume\.v2:[a-f0-9]{64}$/;
 const MAX_BROWSER_RESUME_RECORDS = 200;
 const BROWSER_RESUME_RECORD_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const browserResumeText = new TextEncoder();
-let browserResumeLookupKeyPromise: Promise<CryptoKey> | undefined;
+let browserResumeLookupKeyPromise: Promise<BrowserResumeLookupKey> | undefined;
 const BROWSER_WAIT_MESSAGE_TYPES = new Set<ServerMessage["type"]>([
   "registered",
   "peer-joined",
@@ -955,7 +966,7 @@ async function receiveBrowserFiles(
         let writableState: Partial<BrowserWritableReceiveFile> = {};
         if (directory) {
           const resumeKey = resume ? await browserResumeKey(acceptedManifest, expected) : undefined;
-          writableState = await withLocalReceiveWork(() => createBrowserReceiveFile(directory, message.name, message.size, resumeKey, resume, opaqueOutputNames));
+          writableState = await withLocalReceiveWork(() => createBrowserReceiveFile(directory, message.name, message.size, resumeKey?.key, resume, opaqueOutputNames, resumeKey?.persistent ?? false));
         }
         states.set(message.id, {
           id: message.id,
@@ -1068,7 +1079,15 @@ async function receiveBrowserFiles(
       if (!state.done) {
         wipeChunks(state.chunks);
         state.chunks = [];
-        if (state.resume) {
+        if (state.publishedName) {
+          try {
+            await discardBrowserPartialFile(state);
+            if (state.resumeKey) forgetBrowserResumePartial(state.resumeKey);
+          } catch (error) {
+            cleanupError ??= error;
+            // Final publication started but the peer acknowledgement failed; remove visible output if the browser still allows it.
+          }
+        } else if (state.resume) {
           try {
             await preserveBrowserPartialFile(state);
           } catch (error) {
@@ -1108,7 +1127,9 @@ async function maybeDownload(state: BrowserReceiveState, control: RTCDataChannel
       throwIfReceiveStopped();
       const fileOk = await sealControl(keys, { t: "file-ok", id: state.id });
       throwIfReceiveStopped();
-      state.name = await publishBrowserPartFile(state, actual, throwIfReceiveStopped);
+      const publishedName = await publishBrowserPartFile(state, actual, throwIfReceiveStopped);
+      state.name = publishedName;
+      state.publishedName = publishedName;
       throwIfReceiveStopped();
       if (state.resumeKey) forgetBrowserResumePartial(state.resumeKey);
       control.send(fileOk);
@@ -2211,10 +2232,12 @@ async function createBrowserReceiveFile(
   size: number,
   resumeKey: string | undefined,
   resume: boolean,
-  opaqueOutputNames: boolean
+  opaqueOutputNames: boolean,
+  resumeKeyPersistent = false
 ): Promise<BrowserWritableReceiveFile> {
   if (resume) {
     if (!resumeKey) throw new Error("Browser resume key is required.");
+    if (!resumeKeyPersistent) throw new Error("Browser resume key store unavailable.");
     const resumed = await resumeBrowserPartialFile(directory, name, size, resumeKey, opaqueOutputNames);
     if (resumed) return resumed;
     const created = await createWritableFile(directory, name, opaqueOutputNames, resumeKey);
@@ -2325,33 +2348,34 @@ async function hashBrowserPartialPrefix(file: File, bytes: number, _label: strin
   return hash;
 }
 
-async function browserResumeKey(manifest: FileManifest, file: TransferManifest["files"][number]): Promise<string> {
+async function browserResumeKey(manifest: FileManifest, file: TransferManifest["files"][number]): Promise<BrowserResumeKey> {
   const identity = browserResumeText.encode(canonicalBrowserResumeIdentity(manifest, file));
-  const mac = new Uint8Array(await crypto.subtle.sign("HMAC", await browserResumeLookupKey(), identity));
-  return `${BROWSER_RESUME_KEY_PREFIX}${hexBytes(mac)}`;
+  const lookup = await browserResumeLookupKey();
+  const mac = new Uint8Array(await crypto.subtle.sign("HMAC", lookup.key, identity));
+  return { key: `${BROWSER_RESUME_KEY_PREFIX}${hexBytes(mac)}`, persistent: lookup.persistent };
 }
 
-async function browserResumeLookupKey(): Promise<CryptoKey> {
+async function browserResumeLookupKey(): Promise<BrowserResumeLookupKey> {
   browserResumeLookupKeyPromise ??= loadBrowserResumeLookupKey();
   return browserResumeLookupKeyPromise;
 }
 
-async function loadBrowserResumeLookupKey(): Promise<CryptoKey> {
+async function loadBrowserResumeLookupKey(): Promise<BrowserResumeLookupKey> {
   try {
     const db = await openBrowserResumeKeyDb();
     try {
       const stored = await readStoredBrowserResumeLookupKey(db);
-      if (stored) return stored;
+      if (stored) return { key: stored, persistent: true };
       const created = await createBrowserResumeLookupKey();
       await storeBrowserResumeLookupKey(db, created);
       clearBrowserResumeRegistry();
-      return created;
+      return { key: created, persistent: true };
     } finally {
       db.close();
     }
   } catch {
     clearBrowserResumeRegistry();
-    return createBrowserResumeLookupKey();
+    return { key: await createBrowserResumeLookupKey(), persistent: false };
   }
 }
 
@@ -2601,7 +2625,10 @@ async function discardBrowserPartialFile(state: BrowserReceiveState): Promise<vo
   } catch {
     // Closed streams cannot always be aborted after a verification failure.
   }
-  if (state.directory) await state.directory.removeEntry(state.partName ?? state.name).catch(ignoreNotFoundError);
+  if (!state.directory) return;
+  if (state.publishedName) await state.directory.removeEntry(state.publishedName).catch(ignoreNotFoundError);
+  if (state.partName) await state.directory.removeEntry(state.partName).catch(ignoreNotFoundError);
+  if (!state.publishedName && !state.partName) await state.directory.removeEntry(state.name).catch(ignoreNotFoundError);
 }
 
 async function preserveBrowserPartialFile(state: BrowserReceiveState): Promise<void> {

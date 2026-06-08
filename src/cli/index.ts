@@ -545,7 +545,7 @@ function readCodeEnv(name: string): string {
     throw new Error(`Environment variable ${name} is not set.`);
   }
   const value = descriptor.value;
-  delete process.env[name];
+  clearEnvValue(name);
   if (typeof value !== "string" || value.length === 0 || codeInputUtf8ByteLengthExceeds(value)) {
     throw new Error(`Environment variable ${name} is invalid.`);
   }
@@ -559,7 +559,7 @@ function readOutputDirEnv(name: string): string {
     throw new Error(`Environment variable ${name} is not set.`);
   }
   const value = descriptor.value;
-  delete process.env[name];
+  clearEnvValue(name);
   if (
     typeof value !== "string" ||
     value.length === 0 ||
@@ -569,6 +569,12 @@ function readOutputDirEnv(name: string): string {
     throw new Error(`Environment variable ${name} is invalid.`);
   }
   return value;
+}
+
+function clearEnvValue(name: string): void {
+  const descriptor = Object.getOwnPropertyDescriptor(process.env, name);
+  if (!descriptor) return;
+  if (!Reflect.deleteProperty(process.env, name)) throw new Error(`Environment variable ${name} could not be cleared.`);
 }
 
 async function readBoundedStdin(label: string): Promise<string> {

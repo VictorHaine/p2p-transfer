@@ -333,7 +333,7 @@ function consumeEnvString(name) {
   try {
     value = envString(name);
   } finally {
-    delete process.env[name];
+    clearEnvValue(name);
   }
   if (!value) throw new Error(`Set ${name} to a one-time npm automation token before --apply.`);
   return value;
@@ -349,8 +349,14 @@ function consumeOptionalEnvString(name) {
   try {
     return envString(name);
   } finally {
-    delete process.env[name];
+    clearEnvValue(name);
   }
+}
+
+function clearEnvValue(name) {
+  const descriptor = Object.getOwnPropertyDescriptor(process.env, name);
+  if (!descriptor) return;
+  if (!Reflect.deleteProperty(process.env, name)) throw new Error(`${name} could not be cleared.`);
 }
 
 async function readStdinToken() {

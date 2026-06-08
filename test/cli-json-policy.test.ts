@@ -157,6 +157,13 @@ test("CLI send supports non-argv code and file path input", () => {
     assert.match(source, /function resolveRecvOutputDir/);
     assert.match(source, /function readOutputDirEnv/);
     assert.match(source, /function utf8ByteLengthExceeds/);
+    assert.match(securityPolicy, /CLI and release helpers that consume sensitive environment values must read them through own data descriptors and clear them through descriptor-aware `Reflect\.deleteProperty` checks/);
+    assert.match(source, /function clearEnvValue\(name(?:: string)?\)(?:: void)? \{/);
+    assert.match(source, /Object\.getOwnPropertyDescriptor\(process\.env, name\)/);
+    assert.match(source, /Reflect\.deleteProperty\(process\.env, name\)/);
+    assert.match(source, /Environment variable \$\{name\} could not be cleared\./);
+    assert.match(source, /const value = descriptor\.value;[\s\S]*clearEnvValue\(name\);/);
+    assert.doesNotMatch(source, /delete process\.env\[name\]/);
     const warningBody = extractFunctionBody(source, "warnSensitiveSendArgv");
     assert.match(warningBody, /options\.json \|\| options\.quiet \|\| stderr\.isTTY !== true/);
     assert.match(warningBody, /console\.error\(sanitizeDisplayText\(SEND_ARGV_TELEMETRY_WARNING\)\)/);
@@ -192,8 +199,8 @@ test("CLI private receive-code inputs are not echoed back into local telemetry",
     assert.doesNotMatch(source, /codeSupplied: true, rendezvous: registered\.code/);
     assert.doesNotMatch(source, /code: parsedCode\.handle, rendezvous: registered\.code, expiresInSec: registered\.expiresInSec \}\);[\s\S]*Ready to receive\. Share this code/);
     assert.match(source, /codeInputUtf8ByteLengthExceeds/);
-    assert.match(source, /const value = descriptor\.value;[\s\S]*delete process\.env\[name\];[\s\S]*codeInputUtf8ByteLengthExceeds\(value\)/);
-    assert.match(source, /const value = descriptor\.value;[\s\S]*delete process\.env\[name\];[\s\S]*utf8ByteLengthExceeds\(value, CLI_OUTPUT_DIR_ENV_MAX_BYTES\)/);
+    assert.match(source, /const value = descriptor\.value;[\s\S]*clearEnvValue\(name\);[\s\S]*codeInputUtf8ByteLengthExceeds\(value\)/);
+    assert.match(source, /const value = descriptor\.value;[\s\S]*clearEnvValue\(name\);[\s\S]*utf8ByteLengthExceeds\(value, CLI_OUTPUT_DIR_ENV_MAX_BYTES\)/);
     assert.match(source, /UNSAFE_OUTPUT_DIR_ENV_CHARS\.test\(value\)/);
     assert.match(source, /function readCodeFromStdin/);
     assert.doesNotMatch(source, /readCodeFromStdinOrPrompt|function promptCode|Receiver code:|Receive code:/);

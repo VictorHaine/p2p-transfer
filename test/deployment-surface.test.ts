@@ -802,7 +802,9 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(npmBootstrapScript, /npm bootstrap token stdin must be a non-empty control-free value under \$\{MAX_ENV_VALUE_BYTES\} UTF-8 bytes\./);
   assert.match(npmBootstrapScript, /\/\[\\p\{Cc\}\\p\{Cf\}\]\/u\.test\(descriptor\.value\)/);
   assert.match(npmBootstrapScript, /\$\{name\} must be a non-empty control-free environment value under \$\{MAX_ENV_VALUE_BYTES\} UTF-8 bytes\./);
-  assert.match(npmBootstrapScript, /delete process\.env\[name\]/);
+  assert.match(npmBootstrapScript, /function clearEnvValue\(name\) \{[\s\S]*Object\.getOwnPropertyDescriptor\(process\.env, name\)[\s\S]*Reflect\.deleteProperty\(process\.env, name\)/);
+  assert.match(npmBootstrapScript, /finally \{\n    clearEnvValue\(name\);\n  \}/);
+  assert.doesNotMatch(npmBootstrapScript, /delete process\.env\[name\]/);
   assert.match(npmBootstrapScript, /const STATIC_NPM_TOKEN_ENV = \["NODE_AUTH_TOKEN", "NPM_TOKEN"\]/);
   assert.match(npmBootstrapScript, /if \(options\.apply\) rejectAmbientNpmPublishEnv\(\)/);
   assert.match(npmBootstrapScript, /function rejectAmbientNpmPublishEnv\(\)/);

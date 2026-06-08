@@ -258,7 +258,7 @@ test("browser sender rejects too many files before hashing", () => {
 
 test("browser download fallback uses the selected final output name policy", () => {
   assert.match(webSource, /const name = browserFinalOutputName\(message\.name, opaqueOutputNames\);/);
-  assert.match(webSource, /let writableState: Partial<BrowserWritableReceiveFile> = \{\};[\s\S]*if \(directory\) \{[\s\S]*const resumeKey = resume \? await browserResumeKey\(acceptedManifest, expected\) : undefined;[\s\S]*writableState = await withLocalReceiveWork\(\(\) => createBrowserReceiveFile\(directory, message\.name, message\.size, resumeKey, resume, opaqueOutputNames\)\);[\s\S]*\}/);
+  assert.match(webSource, /let writableState: Partial<BrowserWritableReceiveFile> = \{\};[\s\S]*if \(directory\) \{[\s\S]*const resumeKey = resume \? await browserResumeKey\(acceptedManifest, expected\) : undefined;[\s\S]*writableState = await withLocalReceiveWork\(\(\) => createBrowserReceiveFile\(directory, message\.name, message\.size, resumeKey\?\.key, resume, opaqueOutputNames, resumeKey\?\.persistent \?\? false\)\);[\s\S]*\}/);
   assert.match(webSource, /anchor\.download = state\.name;/);
 });
 
@@ -282,7 +282,7 @@ test("browser receive resume is explicit and limited to saved opaque folder part
   assert.match(securityPolicy, /browser receive must not create or load browser resume HMAC key material for ordinary folder receives/);
   assert.match(browserInteropTest, /browser ordinary folder receiver does not create resume state/);
   assert.match(receiveBody, /const resumeKey = resume \? await browserResumeKey\(acceptedManifest, expected\) : undefined;/);
-  assert.match(receiveBody, /createBrowserReceiveFile\(directory, message\.name, message\.size, resumeKey, resume, opaqueOutputNames\)/);
+  assert.match(receiveBody, /createBrowserReceiveFile\(directory, message\.name, message\.size, resumeKey\?\.key, resume, opaqueOutputNames, resumeKey\?\.persistent \?\? false\)/);
   assert.match(receiveBody, /hash: writableState\.hash \?\? createSha256\(\)/);
   assert.match(receiveBody, /bytes: writableState\.bytes \?\? 0/);
   assert.match(receiveBody, /expectedSeq: writableState\.expectedSeq \?\? 0/);
@@ -293,7 +293,7 @@ test("browser receive resume is explicit and limited to saved opaque folder part
   assert.match(receiveBody, /if \(state\.resume\) \{[\s\S]*await preserveBrowserPartialFile\(state\);[\s\S]*\} else \{[\s\S]*await discardBrowserPartialFile\(state\)/);
   assert.match(webSource, /async function preserveBrowserPartialFile\(state: BrowserReceiveState\): Promise<void> \{[\s\S]*await state\.writable\.close\(\);[\s\S]*await state\.writable\.abort\(\);/);
   assert.match(webSource, /if \(actual !== state\.expectedSha256\) \{[\s\S]*state\.resume = false;[\s\S]*forgetBrowserResumePartial\(state\.resumeKey\);[\s\S]*Hash mismatch/);
-  assert.match(fileFactoryBody, /if \(resume\) \{[\s\S]*if \(!resumeKey\) throw new Error\("Browser resume key is required\."\);[\s\S]*const resumed = await resumeBrowserPartialFile\(directory, name, size, resumeKey, opaqueOutputNames\);[\s\S]*if \(resumed\) return resumed;/);
+  assert.match(fileFactoryBody, /if \(resume\) \{[\s\S]*if \(!resumeKey\) throw new Error\("Browser resume key is required\."\);[\s\S]*if \(!resumeKeyPersistent\) throw new Error\("Browser resume key store unavailable\."\);[\s\S]*const resumed = await resumeBrowserPartialFile\(directory, name, size, resumeKey, opaqueOutputNames\);[\s\S]*if \(resumed\) return resumed;/);
   assert.match(fileFactoryBody, /rememberBrowserResumePartial\(resumeKey, \{ partName: created\.partName, updatedAt: Date\.now\(\) \}\)/);
   assert.match(resumeBody, /assertBrowserOpaquePartFileName\(record\.partName\);/);
   assert.match(resumeBody, /name: browserFinalOutputName\(name, opaqueOutputNames, resumeKey\)/);
@@ -308,20 +308,26 @@ test("browser receive resume is explicit and limited to saved opaque folder part
   assert.match(webSource, /const BROWSER_RESUME_KEY_DB = "ff\.browserReceiveResume\.keys\.v1";/);
   assert.match(webSource, /const BROWSER_RESUME_KEY_PREFIX = "ff\.resume\.v2:";/);
   assert.match(webSource, /const BROWSER_RESUME_RECORD_TTL_MS = 7 \* 24 \* 60 \* 60 \* 1000;/);
-  assert.match(resumeKeyBody, /crypto\.subtle\.sign\("HMAC", await browserResumeLookupKey\(\), identity\)/);
-  assert.match(resumeKeyBody, /return `\$\{BROWSER_RESUME_KEY_PREFIX\}\$\{hexBytes\(mac\)\}`;/);
+  assert.match(resumeKeyBody, /const lookup = await browserResumeLookupKey\(\);/);
+  assert.match(resumeKeyBody, /crypto\.subtle\.sign\("HMAC", lookup\.key, identity\)/);
+  assert.match(resumeKeyBody, /return \{ key: `\$\{BROWSER_RESUME_KEY_PREFIX\}\$\{hexBytes\(mac\)\}`, persistent: lookup\.persistent \};/);
   assert.doesNotMatch(resumeKeyBody, /return JSON\.stringify/);
   assert.match(webSource, /function canonicalBrowserResumeIdentity\(manifest: FileManifest, file: TransferManifest\["files"\]\[number\]\): string/);
   assert.match(securityPolicy, /browser receive resume registry keys must be HMAC identifiers over canonical manifest identity using a non-extractable browser-held HMAC-SHA-256 lookup key with 256-bit key material/);
   assert.match(securityPolicy, /production browser deployments that use browser resume should run on a dedicated origin/);
   assert.match(readme, /Host the browser client on a dedicated origin/);
-  assert.match(securityPolicy, /missing, invalid, or unavailable browser resume lookup keys must clear the resume registry before a fresh key is used/);
+  assert.match(webSource, /type BrowserResumeLookupKey = \{[\s\S]*key: CryptoKey;[\s\S]*persistent: boolean;[\s\S]*\};/);
+  assert.match(webSource, /type BrowserResumeKey = \{[\s\S]*key: string;[\s\S]*persistent: boolean;[\s\S]*\};/);
+  assert.match(lookupKeyBody, /if \(stored\) return \{ key: stored, persistent: true \}/);
+  assert.match(lookupKeyBody, /return \{ key: created, persistent: true \}/);
+  assert.match(lookupKeyBody, /catch \{[\s\S]*clearBrowserResumeRegistry\(\);[\s\S]*return \{ key: await createBrowserResumeLookupKey\(\), persistent: false \};[\s\S]*\}/);
+  assert.match(securityPolicy, /missing or invalid persisted browser resume lookup keys must clear the resume registry before a fresh persisted key is used/);
+  assert.match(securityPolicy, /unavailable browser resume lookup key storage must clear the registry and disable resume persistence for that attempt instead of writing records keyed by ephemeral in-memory key material/);
   assert.match(securityPolicy, /browser receive must expose a user-visible clear action that removes origin-stored browser resume registry records, resets the in-memory resume lookup key, and deletes the IndexedDB resume lookup key store/);
   assert.match(readme, /Use `Clear resume records` to remove browser origin resume records and the browser-held resume lookup key/);
   assert.match(webSource, /async function clearBrowserResumeState\(\): Promise<void> \{[\s\S]*clearBrowserResumeRegistry\(\);[\s\S]*browserResumeLookupKeyPromise = undefined;[\s\S]*await deleteBrowserResumeKeyDb\(\);[\s\S]*\}/);
   assert.match(webSource, /function deleteBrowserResumeKeyDb\(\): Promise<void> \{[\s\S]*indexedDB\.deleteDatabase\(BROWSER_RESUME_KEY_DB\)/);
-  assert.match(lookupKeyBody, /const stored = await readStoredBrowserResumeLookupKey\(db\);[\s\S]*if \(stored\) return stored;[\s\S]*const created = await createBrowserResumeLookupKey\(\);[\s\S]*await storeBrowserResumeLookupKey\(db, created\);[\s\S]*clearBrowserResumeRegistry\(\);[\s\S]*return created;/);
-  assert.match(lookupKeyBody, /catch \{[\s\S]*clearBrowserResumeRegistry\(\);[\s\S]*return createBrowserResumeLookupKey\(\);[\s\S]*\}/);
+  assert.doesNotMatch(lookupKeyBody, /return stored;|return created;|return createBrowserResumeLookupKey\(\)/);
   assert.match(securityPolicy, /browser receive resume registry values must not persist plaintext file names, MIME types, or sizes/);
   assert.match(securityPolicy, /browser receive resume registry reads must scrub invalid, noncanonical, expired, or legacy metadata-bearing entries, clear stale storage before writing sanitized replacements/);
   assert.match(securityPolicy, /browser receive resume must be explicit, exposed only for single-file manifests until privacy-preserving completed-file tracking exists, and limited to same-browser saved opaque tokenized `.part` records/);
@@ -391,18 +397,21 @@ test("browser receive local filesystem work does not trip the peer idle watchdog
   const maybeDownloadBody = extractFunctionBody(webSource, "maybeDownload");
 
   assert.match(securityPolicy, /browser receive local filesystem, hash, and publish work must not trip the peer-data idle watchdog/);
-  assert.match(securityPolicy, /browser and CLI receive local filesystem, hash, decrypt, and publish work must re-check transfer failure before mutating transfer state, publishing final files, marking files done, or sending final acknowledgements/);
-  assert.match(securityPolicy, /final file acknowledgements must be sealed before final publish\/download and sent synchronously after the final stop check/);
+  assert.match(securityPolicy, /browser and CLI receive local filesystem, hash, decrypt, and publish work must re-check transfer failure before mutating transfer state, publishing final folder files, marking files done, or sending final acknowledgements/);
+  assert.match(securityPolicy, /browser folder cleanup must remove any published final file if final acknowledgement fails/);
+  assert.match(securityPolicy, /Blob fallback downloads cannot be recalled after the browser accepts the synthetic click, so sensitive browser receives must use Folder only/);
   assert.match(receiveBody, /const throwIfReceiveStopped = \(\) => \{[\s\S]*if \(failed\) throw new Error\("Transfer stopped during local browser receive work\."\);[\s\S]*if \(completed\) throw new Error\("Transfer completed during local browser receive work\."\);[\s\S]*\};/);
   assert.match(receiveBody, /let localReceiveWorkDepth = 0;/);
   assert.match(receiveBody, /if \(failed \|\| completed \|\| localReceiveWorkDepth > 0\) return;/);
   assert.match(receiveBody, /const withLocalReceiveWork = async <T>\(work: \(\) => Promise<T>\): Promise<T> => \{[\s\S]*throwIfReceiveStopped\(\);[\s\S]*localReceiveWorkDepth \+= 1;[\s\S]*clearReceiveTimeout\(\);[\s\S]*const result = await work\(\);[\s\S]*throwIfReceiveStopped\(\);[\s\S]*return result;[\s\S]*localReceiveWorkDepth -= 1;[\s\S]*resetReceiveTimeout\(\);[\s\S]*\};/);
-  assert.match(receiveBody, /withLocalReceiveWork\(\(\) => createBrowserReceiveFile\(directory, message\.name, message\.size, resumeKey, resume, opaqueOutputNames\)\)/);
+  assert.match(receiveBody, /withLocalReceiveWork\(\(\) => createBrowserReceiveFile\(directory, message\.name, message\.size, resumeKey\?\.key, resume, opaqueOutputNames, resumeKey\?\.persistent \?\? false\)\)/);
   assert.match(receiveBody, /withLocalReceiveWork\(\(\) => restartBrowserReceiveState\(state\)\)/);
   assert.match(receiveBody, /withLocalReceiveWork\(\(\) => state\.writable!\.write\(writeCopy\)\)/);
   assert.equal(receiveBody.match(/withLocalReceiveWork\(\(\) => maybeDownload\(state, control, keys, throwIfReceiveStopped\)\)/g)?.length, 2);
   assert.match(webSource, /async function maybeDownload\(state: BrowserReceiveState, control: RTCDataChannel, keys: SessionKeys, throwIfReceiveStopped: \(\) => void\): Promise<void>/);
-  assert.match(maybeDownloadBody, /await state\.writable\.close\(\);[\s\S]*throwIfReceiveStopped\(\);[\s\S]*await verifyWritableFile\(state\.fileHandle, state\.partName, state\.size, actual\);[\s\S]*throwIfReceiveStopped\(\);[\s\S]*const fileOk = await sealControl\(keys, \{ t: "file-ok", id: state\.id \}\);[\s\S]*throwIfReceiveStopped\(\);[\s\S]*state\.name = await publishBrowserPartFile\(state, actual, throwIfReceiveStopped\);[\s\S]*throwIfReceiveStopped\(\);[\s\S]*control\.send\(fileOk\);/);
+  assert.match(maybeDownloadBody, /await state\.writable\.close\(\);[\s\S]*throwIfReceiveStopped\(\);[\s\S]*await verifyWritableFile\(state\.fileHandle, state\.partName, state\.size, actual\);[\s\S]*throwIfReceiveStopped\(\);[\s\S]*const fileOk = await sealControl\(keys, \{ t: "file-ok", id: state\.id \}\);[\s\S]*throwIfReceiveStopped\(\);[\s\S]*const publishedName = await publishBrowserPartFile\(state, actual, throwIfReceiveStopped\);[\s\S]*state\.name = publishedName;[\s\S]*state\.publishedName = publishedName;[\s\S]*throwIfReceiveStopped\(\);[\s\S]*control\.send\(fileOk\);/);
+  assert.match(receiveBody, /if \(state\.publishedName\) \{[\s\S]*await discardBrowserPartialFile\(state\);[\s\S]*if \(state\.resumeKey\) forgetBrowserResumePartial\(state\.resumeKey\);[\s\S]*\} else if \(state\.resume\)/);
+  assert.match(webSource, /if \(state\.publishedName\) await state\.directory\.removeEntry\(state\.publishedName\)\.catch\(ignoreNotFoundError\);[\s\S]*if \(state\.partName\) await state\.directory\.removeEntry\(state\.partName\)\.catch\(ignoreNotFoundError\);/);
   assert.match(maybeDownloadBody, /const fileOk = await sealControl\(keys, \{ t: "file-ok", id: state\.id \}\);[\s\S]*throwIfReceiveStopped\(\);[\s\S]*anchor\.click\(\);[\s\S]*setTimeout\(\(\) => URL\.revokeObjectURL\(url\), 30_000\);[\s\S]*throwIfReceiveStopped\(\);[\s\S]*control\.send\(fileOk\);[\s\S]*state\.done = true;/);
   assert.match(webSource, /async function publishBrowserPartFile\(state: BrowserReceiveState, expectedSha256: string, throwIfReceiveStopped: \(\) => void\): Promise<string>/);
 });
