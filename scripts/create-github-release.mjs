@@ -151,7 +151,8 @@ export async function createGitHubRelease(token, repository, tag, expectedSha, n
 
   if ((await githubReleaseTagCommitSha(token, repository, tag)) !== expectedSha) throw new Error("GitHub tag ref does not match the release workflow commit.");
   await liveRefCheck();
-  const release = await createDraftRelease(token, repository, tag, notes, liveRefCheck);
+  const release = await createDraftRelease(token, repository, tag, notes, assets, liveRefCheck);
+  if (release.alreadyPublished === true) return;
   const { id, uploadUrl } = releaseDraftInfo(release, tag);
   try {
     for (const asset of assets) {
@@ -170,12 +171,17 @@ export async function createGitHubRelease(token, repository, tag, expectedSha, n
   }
 }
 
-async function createDraftRelease(token, repository, tag, notes, liveRefCheck) {
+async function createDraftRelease(token, repository, tag, notes, assets, liveRefCheck) {
   try {
     return await postDraftRelease(token, repository, tag, notes);
   } catch (error) {
     if (!(error instanceof GitHubApiError) || error.status !== 422) throw error;
-    await deleteExistingDraftReleaseForTag(token, repository, tag);
+    const existing = await existingReleaseForTag(token, repository, tag);
+    if (existing.state === "published") {
+      await assertPublishedReleaseAssetsMatch(token, repository, existing.id, assets);
+      return { alreadyPublished: true };
+    }
+    await deleteDraftRelease(token, repository, existing.id);
     await liveRefCheck();
     return await postDraftRelease(token, repository, tag, notes);
   }
@@ -191,18 +197,16 @@ async function postDraftRelease(token, repository, tag, notes) {
   });
 }
 
-async function deleteExistingDraftReleaseForTag(token, repository, tag) {
+async function existingReleaseForTag(token, repository, tag) {
   const release = await github(token, "GET", `/repos/${repository}/releases/tags/${tag}`);
-  const { id } = existingDraftReleaseInfo(release, tag);
-  await deleteDraftRelease(token, repository, id);
+  return existingReleaseInfo(release, tag);
 }
 
-function existingDraftReleaseInfo(release, tag) {
+function existingReleaseInfo(release, tag) {
   if (!release || release.tag_name !== tag || !Number.isSafeInteger(release.id) || release.id < 1 || typeof release.draft !== "boolean") {
     throw new Error("GitHub release response was invalid.");
   }
-  if (release.draft !== true) throw new Error("GitHub release already exists for this tag and is not a draft.");
-  return { id: release.id };
+  return { id: release.id, state: release.draft ? "draft" : "published" };
 }
 
 function assertReleaseAssetChecksums(assets) {
@@ -279,6 +283,64 @@ async function publishDraftRelease(token, repository, id) {
   await github(token, "PATCH", `/repos/${repository}/releases/${id}`, { draft: false });
 }
 
+async function assertPublishedReleaseAssetsMatch(token, repository, releaseId, assets) {
+  const remoteAssets = await github(token, "GET", `/repos/${repository}/releases/${releaseId}/assets?per_page=100`);
+  const byName = releaseAssetMetadataByName(remoteAssets, repository, assets);
+  try {
+    for (const asset of assets) {
+      const remote = byName.get(asset.name);
+      if (!remote || remote.size !== asset.bytes.length) throw new Error("mismatch");
+      const remoteBytes = await githubFetchBytes(remote.url, {
+        method: "GET",
+        headers: {
+          accept: "application/octet-stream",
+          authorization: `Bearer ${token}`,
+          "x-github-api-version": "2022-11-28"
+        },
+        expectedStatus: 200,
+        maxBytes: asset.bytes.length
+      });
+      if (!remoteBytes.equals(asset.bytes)) throw new Error("mismatch");
+    }
+  } catch (error) {
+    if (error instanceof GitHubApiError) throw error;
+    if (error instanceof Error && /^GitHub API /.test(error.message)) throw error;
+    throw new Error("existing published GitHub release assets do not match verified release artifacts.");
+  }
+}
+
+function releaseAssetMetadataByName(remoteAssets, repository, expectedAssets) {
+  if (!Array.isArray(remoteAssets) || remoteAssets.length !== expectedAssets.length) {
+    throw new Error("existing published GitHub release assets do not match verified release artifacts.");
+  }
+  const expectedNames = new Set(expectedAssets.map((asset) => asset.name));
+  const byName = new Map();
+  for (const asset of remoteAssets) {
+    if (
+      !asset ||
+      typeof asset.name !== "string" ||
+      !expectedNames.has(asset.name) ||
+      !Number.isSafeInteger(asset.size) ||
+      asset.size < 1 ||
+      typeof asset.url !== "string"
+    ) {
+      throw new Error("existing published GitHub release assets do not match verified release artifacts.");
+    }
+    let parsed;
+    try {
+      parsed = new URL(asset.url);
+    } catch {
+      throw new Error("existing published GitHub release assets do not match verified release artifacts.");
+    }
+    if (parsed.origin !== API || parsed.pathname !== `/repos/${repository}/releases/assets/${asset.id}` || parsed.search !== "" || parsed.hash !== "" || !Number.isSafeInteger(asset.id) || asset.id < 1) {
+      throw new Error("existing published GitHub release assets do not match verified release artifacts.");
+    }
+    if (byName.has(asset.name)) throw new Error("existing published GitHub release assets do not match verified release artifacts.");
+    byName.set(asset.name, { size: asset.size, url: asset.url });
+  }
+  return byName;
+}
+
 async function reconcileDraftPublishFailure(token, repository, id, tag) {
   const release = await github(token, "GET", `/repos/${repository}/releases/${id}`);
   const state = releaseState(release, id, tag);
@@ -315,10 +377,10 @@ async function githubFetchJson(url, options) {
   const timer = setTimeout(() => controller.abort(), GITHUB_API_TIMEOUT_MS);
   try {
     const response = await fetch(url, { method: options.method, headers: options.headers, body: options.body, signal: controller.signal });
-    const body = await readResponseBody(response);
+    const body = await readResponseBytes(response, MAX_GITHUB_API_RESPONSE_BYTES);
     if (response.status !== options.expectedStatus) throw new GitHubApiError(response.status);
     if (!options.parseJson) return undefined;
-    return parseJsonBody(body);
+    return parseJsonBody(UTF8.decode(body));
   } catch (error) {
     if (error instanceof GitHubApiError) throw error;
     if (error instanceof Error && error.name === "AbortError") throw new Error("GitHub API request timed out.");
@@ -329,9 +391,27 @@ async function githubFetchJson(url, options) {
   }
 }
 
-async function readResponseBody(response) {
+async function githubFetchBytes(url, options) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), GITHUB_API_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, { method: options.method, headers: options.headers, signal: controller.signal });
+    const body = await readResponseBytes(response, options.maxBytes);
+    if (response.status !== options.expectedStatus) throw new GitHubApiError(response.status);
+    return body;
+  } catch (error) {
+    if (error instanceof GitHubApiError) throw error;
+    if (error instanceof Error && error.name === "AbortError") throw new Error("GitHub API request timed out.");
+    if (error instanceof Error && /^GitHub API response /.test(error.message)) throw error;
+    throw new Error("GitHub API request failed.");
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function readResponseBytes(response, maxBytes) {
   const reader = response.body?.getReader();
-  if (!reader) return "";
+  if (!reader) return Buffer.alloc(0);
   const chunks = [];
   let total = 0;
   try {
@@ -340,13 +420,13 @@ async function readResponseBody(response) {
       if (done) break;
       if (!(value instanceof Uint8Array)) throw new Error("GitHub API response body was invalid.");
       total += value.byteLength;
-      if (total > MAX_GITHUB_API_RESPONSE_BYTES) throw new Error("GitHub API response exceeded the byte limit.");
+      if (total > maxBytes) throw new Error("GitHub API response exceeded the byte limit.");
       chunks.push(value);
     }
   } finally {
     reader.releaseLock();
   }
-  return UTF8.decode(Buffer.concat(chunks, total));
+  return Buffer.concat(chunks, total);
 }
 
 function parseJsonBody(body) {
