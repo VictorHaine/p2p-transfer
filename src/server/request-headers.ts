@@ -70,7 +70,7 @@ function requestForwardedClientAddress(req: http.IncomingMessage, trustedProxyHo
   const hops = forwardedFor.split(",").map((part) => part.trim());
   if (hops.length < trustedProxyHops) return undefined;
   const client = hops[hops.length - trustedProxyHops];
-  return typeof client === "string" && isValidForwardedIp(client) ? client : undefined;
+  return typeof client === "string" ? forwardedIp(client) : undefined;
 }
 
 function trustedProxyHopsInput(value: unknown): number {
@@ -128,7 +128,13 @@ function isValidForwardedForHeader(value: string): boolean {
 }
 
 function isValidForwardedIp(value: string): boolean {
-  return value.length > 0 && value.length <= 45 && isIP(value) !== 0;
+  return forwardedIp(value) !== undefined;
+}
+
+function forwardedIp(value: string): string | undefined {
+  if (value.length === 0 || value.length > 45) return undefined;
+  const normalized = normalizeIpLiteral(value);
+  return isIP(normalized) === 0 ? undefined : normalized;
 }
 
 function isValidHostHeader(host: string): boolean {

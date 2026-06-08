@@ -170,6 +170,8 @@ test("trusted proxy client IP parsing is explicit, bounded, and fail-closed", ()
   assert.equal(requestRemoteAddress(chain, 2, ["10.0.0.10"]), "198.51.100.9");
 
   assert.equal(requestRemoteAddress(req({ host: "files.example", "x-forwarded-for": "2001:db8::1" }, "/", undefined, "GET", "10.0.0.10"), 1, ["10.0.0.10"]), "2001:db8::1");
+  assert.equal(requestRemoteAddress(req({ host: "files.example", "x-forwarded-for": "::ffff:198.51.100.9" }, "/", undefined, "GET", "10.0.0.10"), 1, ["10.0.0.10"]), "198.51.100.9");
+  assert.equal(distRequestRemoteAddress(req({ host: "files.example", "x-forwarded-for": "::ffff:198.51.100.10" }, "/", undefined, "GET", "10.0.0.10"), 1, ["10.0.0.10"]), "198.51.100.10");
   assert.equal(requestRemoteAddress(req({ host: "files.example", "x-forwarded-for": "198.51.100.9, bad-host" }, "/", undefined, "GET", "10.0.0.10"), 1, ["10.0.0.10"]), "10.0.0.10");
   assert.equal(requestRemoteAddress(req({ host: "files.example", "x-forwarded-for": "" }, "/", undefined, "GET", "10.0.0.10"), 1, ["10.0.0.10"]), "10.0.0.10");
   assert.equal(requestRemoteAddress(req({ host: "files.example", "x-forwarded-for": "198.51.100.9" }, "/", ["X-Forwarded-For", "198.51.100.9", "X-Forwarded-For", "203.0.113.7"], "GET", "10.0.0.10"), 1, ["10.0.0.10"]), "10.0.0.10");
@@ -339,7 +341,8 @@ test("request parser source keeps raw header and request target type guards", ()
     assert.match(source, /rawHeaderValue\(req, "x-forwarded-for"\)/);
     assert.match(source, /function trustedProxyHopsInput/);
     assert.match(source, /function isValidForwardedForHeader/);
-    assert.match(source, /isIP\(value\) !== 0/);
+    assert.match(source, /function forwardedIp/);
+    assert.match(source, /return isIP\(normalized\) === 0 \? undefined : normalized/);
     assert.doesNotMatch(source, /ownDataValue\(headers, "host"\)/);
     assert.doesNotMatch(source, /ownDataValue\(headers, "origin"\)/);
     assert.match(source, /typeof rawName !== "string" \|\| typeof rawValue !== "string"/);

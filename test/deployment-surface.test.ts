@@ -1501,11 +1501,13 @@ test("trusted reverse-proxy client IP handling is explicit and documented", () =
   assert.match(configSource, /TRUSTED_PROXY_IPS is required when TRUSTED_PROXY_HOPS is enabled/);
   assert.match(requestHeaderSource, /rawHeaderValue\(req, "x-forwarded-for"\)/);
   assert.match(requestHeaderSource, /trustedProxyMatches\(socketAddress, trustedProxyIps\)/);
-  assert.match(requestHeaderSource, /isIP\(value\) !== 0/);
+  assert.match(requestHeaderSource, /function forwardedIp/);
+  assert.match(requestHeaderSource, /return isIP\(normalized\) === 0 \? undefined : normalized/);
   assert.match(serverSource, /const \{ port, host, webRoot, allowedOrigins, browserAllowAnyWss, browserAllowLoopbackWs, trustedProxyHops, trustedProxyIps \} = serverConfig/);
   assert.match(serverSource, /requestRemoteAddress\(req, trustedProxyHops, trustedProxyIps\)/);
   assert.match(readme, /Set `TRUSTED_PROXY_HOPS=1` and `TRUSTED_PROXY_IPS='<proxy-ip-or-cidr>'`/);
   assert.match(securityPolicy, /server-side abuse buckets must derive keys from normalized IP literals only/);
+  assert.match(securityPolicy, /accepted trusted-proxy `X-Forwarded-For` client hops must canonicalize IPv4-mapped IPv6 literals to the same IPv4 identity/);
   assert.match(securityPolicy, /`X-Forwarded-For` must not be trusted unless `TRUSTED_PROXY_HOPS` is explicitly set and the socket peer matches `TRUSTED_PROXY_IPS`/);
 });
 
