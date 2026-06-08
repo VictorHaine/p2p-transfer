@@ -33,6 +33,17 @@ after(async () => {
   await removeCreatedTempDirs(["ff-publish-", "ff-reserve-", "ff-out-realpath-", "ff-out-private-", "ff-collision-long-", "ff-symlink-send-"]);
 });
 
+async function withMockedGetuid<T>(uid: number, action: () => Promise<T>): Promise<T> {
+  const descriptor = Object.getOwnPropertyDescriptor(process, "getuid");
+  Object.defineProperty(process, "getuid", { configurable: true, enumerable: true, value: () => uid, writable: true });
+  try {
+    return await action();
+  } finally {
+    if (descriptor) Object.defineProperty(process, "getuid", descriptor);
+    else Reflect.deleteProperty(process, "getuid");
+  }
+}
+
 test("publishPartFile atomically refuses to overwrite an existing file", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-publish-existing-"));
   const partPath = path.join(dir, "file.txt.part");
@@ -795,6 +806,39 @@ test("ensureOutputDir private mode accepts trusted sticky output parents", { ski
   }
 });
 
+test("private output and resume ownership checks do not exempt root", { skip: process.platform === "win32" ? "POSIX ownership checks do not apply on Windows." : (typeof process.getuid === "function" && process.getuid() === 0 ? "requires a non-root-owned fixture directory." : false) }, async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ff-out-private-root-"));
+
+  await withMockedGetuid(0, async () => {
+    for (const outputDir of [ensureOutputDir, distEnsureOutputDir]) {
+      const target = path.join(root, `owned-by-user-${Math.random().toString(16).slice(2)}`);
+      await fs.mkdir(target, { mode: 0o700 });
+      await assert.rejects(() => outputDir(target, { private: true }), /Output directory is not owned by the current user/);
+    }
+
+    for (const reserve of [reserveOutputFile, distReserveOutputFile]) {
+      const dir = path.join(root, `resume-owned-by-user-${Math.random().toString(16).slice(2)}`);
+      await fs.mkdir(dir, { mode: 0o700 });
+      await fs.writeFile(path.join(dir, ".ff-resume-key"), Buffer.alloc(32, 1), { mode: 0o600 });
+      await assert.rejects(() => reserve(dir, "file.txt", { resume: true, size: 1 }), /Resume secret is not owned by the current user/);
+    }
+
+    for (const publish of [publishPartFile, distPublishPartFile]) {
+      const dir = path.join(root, `publish-owned-by-user-${Math.random().toString(16).slice(2)}`);
+      await fs.mkdir(dir, { mode: 0o700 });
+      const partPath = path.join(dir, "file.txt.part");
+      const finalPath = path.join(dir, "file.txt");
+      await fs.writeFile(partPath, "secret", { mode: 0o600 });
+      const partStat = await fs.stat(partPath);
+      const dirStat = await fs.stat(dir);
+      await assert.rejects(
+        () => publish(partPath, finalPath, { dev: partStat.dev, ino: partStat.ino }, "secret".length, { dev: dirStat.dev, ino: dirStat.ino }, { privateOutputDir: true }),
+        /Output directory is not owned by the current user/
+      );
+    }
+  });
+});
+
 test("reserveOutputFile private output mode rejects public output directories", { skip: process.platform === "win32" ? "POSIX mode bits do not apply on Windows." : false }, async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ff-out-private-"));
 
@@ -873,6 +917,8 @@ test("ensureOutputDir input policy is present in source and shipped artifacts", 
     assert.match(source, /else\s*assertOwnedByCurrentUser\(stat, "Output directory parent"\)/);
     assert.match(source, /stat\.uid !== uid/);
     assert.match(source, /stat\.uid !== uid && stat\.uid !== 0/);
+    assert.doesNotMatch(source, /uid !== 0 && stat\.uid !== uid/);
+    assert.doesNotMatch(source, /uid !== 0 && stat\.uid !== uid && stat\.uid !== 0/);
     assert.match(source, /\(stat\.mode & 0o077\) !== 0/);
     assert.match(source, /const outputDirIdentity = await directoryIdentity\(outputDir, options\)/);
     assert.match(source, /await assertDirectoryIdentity\(outputDir, outputDirIdentity, options\)/);

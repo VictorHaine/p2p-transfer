@@ -1028,9 +1028,11 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /for \(const workflow of REQUIRED_SUCCESSFUL_MAIN_WORKFLOWS\)/);
   assert.match(releaseReadinessScript, /assertSuccessfulMainWorkflowRun\(token, repository, workflow, mainSha\)/);
   assert.match(releaseReadinessScript, /function requiredBranchSha\(branch, branchName\)/);
-  assert.match(releaseReadinessScript, /\/repos\/\$\{repository\}\/actions\/workflows\/\$\{encodeURIComponent\(workflow\.file\)\}\/runs\?branch=main&per_page=1/);
+  assert.match(releaseReadinessScript, /REQUIRED_SUCCESSFUL_MAIN_WORKFLOW_RUN_LOOKBACK = 20/);
+  assert.match(releaseReadinessScript, /\/repos\/\$\{repository\}\/actions\/workflows\/\$\{encodeURIComponent\(workflow\.file\)\}\/runs\?branch=main&per_page=\$\{REQUIRED_SUCCESSFUL_MAIN_WORKFLOW_RUN_LOOKBACK\}/);
+  assert.match(releaseReadinessScript, /runs\.workflow_runs\.some/);
   assert.doesNotMatch(releaseReadinessScript, /runs\?branch=main&status=success&per_page=1/);
-  assert.match(releaseReadinessScript, /GitHub \$\{workflow\.name\} workflow latest main run is not a successful current-main run/);
+  assert.match(releaseReadinessScript, /GitHub \$\{workflow\.name\} workflow has no successful current-main run in the recent run history/);
   assert.match(releaseReadinessScript, /\/repos\/\$\{repository\}\/actions\/secrets\/\$\{RELEASE_PREFLIGHT_SECRET\}/);
   assert.match(releaseReadinessScript, /GitHub Actions secret RELEASE_PREFLIGHT_TOKEN is missing\./);
   assert.match(releaseReadinessScript, /const rulesetsByName = collectReadinessValueSync\(failures, \(\) => requiredRulesetsByName\(rulesets\)\)/);

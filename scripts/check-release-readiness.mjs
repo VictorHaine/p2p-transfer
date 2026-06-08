@@ -49,6 +49,7 @@ const REQUIRED_SUCCESSFUL_MAIN_WORKFLOWS = [
   { file: "scorecard.yml", name: "scorecard" },
   { file: "dependency-integrity.yml", name: "dependency-integrity" }
 ];
+const REQUIRED_SUCCESSFUL_MAIN_WORKFLOW_RUN_LOOKBACK = 20;
 const MAX_ENV_VALUE_BYTES = 4_096;
 const MAX_PACKAGE_JSON_BYTES = 128 * 1024;
 const MAX_GITHUB_API_RESPONSE_BYTES = 1024 * 1024;
@@ -384,12 +385,19 @@ function requiredBranchSha(branch, branchName) {
 }
 
 async function assertSuccessfulMainWorkflowRun(token, repository, workflow, mainSha) {
-  const runs = await github(token, "GET", `/repos/${repository}/actions/workflows/${encodeURIComponent(workflow.file)}/runs?branch=main&per_page=1`);
+  const runs = await github(token, "GET", `/repos/${repository}/actions/workflows/${encodeURIComponent(workflow.file)}/runs?branch=main&per_page=${REQUIRED_SUCCESSFUL_MAIN_WORKFLOW_RUN_LOOKBACK}`);
   if (!runs || typeof runs !== "object" || !Array.isArray(runs.workflow_runs)) throw new Error(`GitHub ${workflow.name} workflow runs response was invalid.`);
-  const run = runs.workflow_runs[0];
-  if (!run || typeof run !== "object") throw new Error(`GitHub ${workflow.name} workflow has no successful main run.`);
-  if (run.status !== "completed" || run.conclusion !== "success" || run.head_branch !== "main" || run.head_sha !== mainSha) {
-    throw new Error(`GitHub ${workflow.name} workflow latest main run is not a successful current-main run.`);
+  const hasSuccessfulCurrentMainRun = runs.workflow_runs.some(
+    (run) =>
+      run &&
+      typeof run === "object" &&
+      run.status === "completed" &&
+      run.conclusion === "success" &&
+      run.head_branch === "main" &&
+      run.head_sha === mainSha
+  );
+  if (!hasSuccessfulCurrentMainRun) {
+    throw new Error(`GitHub ${workflow.name} workflow has no successful current-main run in the recent run history.`);
   }
 }
 

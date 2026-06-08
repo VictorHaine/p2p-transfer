@@ -981,13 +981,13 @@ async function assertPrivateOutputParent(dir: string): Promise<void> {
 function assertOwnedByCurrentUser(stat: fs.Stats, label: string): void {
   if (process.platform === "win32" || typeof process.getuid !== "function") return;
   const uid = process.getuid();
-  if (uid !== 0 && stat.uid !== uid) throw new Error(`${label} is not owned by the current user.`);
+  if (stat.uid !== uid) throw new Error(`${label} is not owned by the current user.`);
 }
 
 function assertOwnedByCurrentUserOrRoot(stat: fs.Stats, label: string): void {
   if (process.platform === "win32" || typeof process.getuid !== "function") return;
   const uid = process.getuid();
-  if (uid !== 0 && stat.uid !== uid && stat.uid !== 0) throw new Error(`${label} is not owned by a trusted user.`);
+  if (stat.uid !== uid && stat.uid !== 0) throw new Error(`${label} is not owned by a trusted user.`);
 }
 
 async function openPartFileNoFollow(partPath: string): Promise<fs.promises.FileHandle> {
