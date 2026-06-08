@@ -1,10 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { assertNoNativeFallbackSurfaces, assertReviewedNativeDependencyEvidence, assertReviewedNativeWebRtcDependencies, nativeWebRtc, type ReviewedNativeDependency } from "../src/cli/native-webrtc.js";
+import { assertNoNativeFallbackSurfaces, assertReviewedNativeDependencyEvidence, assertReviewedNativeDependencyFileEvidence, assertReviewedNativeWebRtcDependencies, nativeWebRtc, type ReviewedNativeDependency } from "../src/cli/native-webrtc.js";
+import { sha256FileEvidenceFromResolvedFile } from "../src/cli/dependency-metadata.js";
 
 const nativeWebrtcSource = fs.readFileSync(new URL("../src/cli/native-webrtc.ts", import.meta.url), "utf8");
 
@@ -55,6 +57,26 @@ test("native WebRTC attestation rejects changed reviewed metadata", () => {
   assert.throws(() => assertReviewedNativeDependencyEvidence(nativeEvidence({ ...packageJson, dependencies: { "left-pad": "1.3.0" } }), reviewed), /evidence/);
 });
 
+test("native WebRTC file attestation hashes reviewed runtime files before load", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ff-wrtc-file-evidence-"));
+  try {
+    const packageRoot = path.join(root, "node_modules", "@scope", "native");
+    const reviewedFile = path.join(packageRoot, "dist", "index.js");
+    const content = "module.exports = { reviewed: true };\n";
+    await mkdir(path.dirname(reviewedFile), { recursive: true });
+    await writeFile(reviewedFile, content);
+    const evidence = nativeEvidence({ name: "@scope/native", version: "1.2.3" }, packageRoot);
+    const digest = createHash("sha256").update(content).digest("hex");
+
+    assert.doesNotThrow(() => assertReviewedNativeDependencyFileEvidence(evidence, { name: "@scope/native", version: "1.2.3", resolvedFiles: { "dist/index.js": digest } }));
+    assert.throws(() => assertReviewedNativeDependencyFileEvidence(evidence, { name: "@scope/native", version: "1.2.3", resolvedFiles: { "dist/index.js": "0".repeat(64) } }), /file evidence/);
+    assert.throws(() => assertReviewedNativeDependencyFileEvidence(evidence, { name: "@scope/native", version: "1.2.3", resolvedFiles: { "../index.js": digest } }), /file evidence/);
+    assert.throws(() => sha256FileEvidenceFromResolvedFile(reviewedFile, content.length - 1), /Dependency package file is invalid\./);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("native WebRTC attestation rejects local build output precedence", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "ff-wrtc-build-output-"));
   try {
@@ -81,12 +103,13 @@ test("native WebRTC attestation rejects nested prebuilt fallback precedence", as
 
   assert.match(nativeWebrtcSource, /requireFromWrtc\.resolve\(`\$\{prebuiltName\}\/wrtc\.node`\)/);
   assert.match(nativeWebrtcSource, /assertResolvedFileWithinPackageRoot\(prebuiltBinary, prebuilt\.root, "Reviewed native WebRTC prebuilt binary"\)/);
+  assert.match(nativeWebrtcSource, /assertReviewedNativeDependencyFileEvidence\(prebuilt, REVIEWED_NATIVE_WEBRTC_DEPENDENCIES\.prebuilts\[reviewedPlatformTriple\(\)\]\)/);
   assert.match(nativeWebrtcSource, /assertLoadReviewedNativePrebuilt\(prebuiltBinary\)/);
 });
 
-function nativeEvidence(metadata: Record<string, unknown>) {
+function nativeEvidence(metadata: Record<string, unknown>, root = "/tmp/reviewed-native-package") {
   return {
-    root: "/tmp/reviewed-native-package",
+    root,
     name: metadata.name as string,
     version: metadata.version as string,
     metadata

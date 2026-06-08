@@ -9,7 +9,7 @@ export type DependencyEvidence = {
 };
 
 const MAX_PACKAGE_JSON_BYTES = 128 * 1024;
-const MAX_DEPENDENCY_FILE_BYTES = 2 * 1024 * 1024;
+const DEFAULT_MAX_DEPENDENCY_FILE_BYTES = 2 * 1024 * 1024;
 
 export function packageEvidenceFromResolvedFile(resolvedFile: string): DependencyEvidence & { root: string } {
   const root = packageRootFromResolvedFile(resolvedFile);
@@ -20,10 +20,11 @@ export function packageEvidenceFromResolvedFile(resolvedFile: string): Dependenc
   return { root, name: evidence.name, version: evidence.version, metadata: evidence };
 }
 
-export function sha256FileEvidenceFromResolvedFile(resolvedFile: string): string {
+export function sha256FileEvidenceFromResolvedFile(resolvedFile: string, maxBytes = DEFAULT_MAX_DEPENDENCY_FILE_BYTES): string {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) throw new Error("Dependency package file is invalid.");
   const info = lstatSync(resolvedFile);
   if (!info.isFile()) throw new Error("Dependency package file is invalid.");
-  if (info.size < 1 || info.size > MAX_DEPENDENCY_FILE_BYTES) throw new Error("Dependency package file is invalid.");
+  if (info.size < 1 || info.size > maxBytes) throw new Error("Dependency package file is invalid.");
 
   const fd = openSync(resolvedFile, constants.O_RDONLY | noFollowFlag());
   try {
