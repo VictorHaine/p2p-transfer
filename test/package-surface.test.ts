@@ -280,7 +280,7 @@ test("published bin entrypoints are executable Node CLIs", () => {
 });
 
 test("package ships only the current protocol conformance fixture", () => {
-  assert.deepEqual(conformanceFiles, ["protocol-v6.json"]);
+  assert.deepEqual(conformanceFiles, ["protocol-v7.json"]);
 });
 
 test("package publishing config keeps provenance and reproducible dependency pins", () => {
@@ -436,7 +436,7 @@ test("packed package smoke installs and executes published bins", () => {
   assert.doesNotMatch(packedSmokeScript, /readFile\(file, "utf8"\)|import\("node:fs\/promises"\)\.then/);
   assert.match(packedSmokeScript, /pnpm.*add/s);
   assert.match(packedSmokeScript, /pnpm.*exec", "ff", "--version"/);
-  assert.match(packedSmokeScript, /const protocolVersion = requiredProtocolVersion\(parseJsonEvidence\(await readText\(path\.join\(root, "conformance", "protocol-v6\.json"\), MAX_CONFORMANCE_JSON_BYTES\), "conformance\/protocol-v6\.json"\)\.protocolVersion\)/);
+  assert.match(packedSmokeScript, /const protocolVersion = requiredProtocolVersion\(parseJsonEvidence\(await readText\(path\.join\(root, "conformance", "protocol-v7\.json"\), MAX_CONFORMANCE_JSON_BYTES\), "conformance\/protocol-v7\.json"\)\.protocolVersion\)/);
   assert.match(packedSmokeScript, /const packageName = requiredPackageName\(packageJson\.name\)/);
   assert.match(packedSmokeScript, /const packageVersion = requiredPackageVersion\(packageJson\.version\)/);
   assert.match(packedSmokeScript, /const expectedTarballName = expectedPackedTarballName\(packageName, packageVersion\)/);

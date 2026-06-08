@@ -123,7 +123,7 @@ test("browser sender revalidates transfer manifests at the send boundary", () =>
   assert.match(webSource, /assertTransferManifestWithinLimits\(manifest\);/);
   assert.match(
     webSource,
-    /const sendPlan = await buildBrowserSendPlan\(files\);[\s\S]*const manifest = browserSendPlanManifest\(sendPlan\);[\s\S]*keys = await establishBrowserKeys\(signaling, joined\.sid, "sender", parsedCode\.handle\);[\s\S]*setLog\(sendLog, `SAS \$\{keys\.sas\}`\);[\s\S]*const sealedManifest = await sealManifest\(keys, manifest\);[\s\S]*signaling\.send\(\{ type: "pair-request", sid: joined\.sid, manifest: redactManifest\(manifest\), sealedManifest \}\)/
+    /const sendPlan = await buildBrowserSendPlan\(files\);[\s\S]*const manifest = browserSendPlanManifest\(sendPlan\);[\s\S]*keys = await establishBrowserKeys\(signaling, joined\.sid, "sender", parsedCode\.handle\);[\s\S]*setLog\(sendLog, `SAS \$\{keys\.sas\}`\);[\s\S]*const sealedManifest = await sealManifest\(keys, manifest\);[\s\S]*signaling\.send\(\{ type: "pair-request", sid: joined\.sid, manifest: redactManifestForSignaling\(manifest\), sealedManifest \}\)/
   );
   assert.match(webSource, /function clearBrowserSendSecrets\(\): void \{[\s\S]*clearBrowserSendInputs\(\);\n\s+sendLog\.textContent = "";/);
   assert.match(webSource, /function clearBrowserSendInputs\(\): void \{[\s\S]*clearBrowserSendCode\(\);\n\s+fileInput\.value = "";/);

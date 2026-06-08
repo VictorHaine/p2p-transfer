@@ -17,9 +17,11 @@ import {
   type RelayPolicySession
 } from "../src/server/policy.js";
 import type { ClientMessage, FileManifest } from "../src/shared/messages.js";
+import { redactManifestForSignaling } from "../src/shared/public-manifest.js";
 
 const serverSource = fs.readFileSync(new URL("../src/server/index.ts", import.meta.url), "utf8");
 const policySource = fs.readFileSync(new URL("../src/server/policy.ts", import.meta.url), "utf8");
+const publicManifestSource = fs.readFileSync(new URL("../src/shared/public-manifest.ts", import.meta.url), "utf8");
 const distPolicySource = fs.readFileSync(new URL("../dist-node/server/policy.js", import.meta.url), "utf8");
 const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
 const AUTH_TAG = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
@@ -136,14 +138,15 @@ test("relay phase policy caps authenticated ICE candidates per peer", () => {
 
 test("server-visible pair request manifests must be redacted", () => {
   assert.match(securityPolicy, /server-visible redacted pair-request manifests must reject unknown manifest and file-entry fields/);
-  assert.match(policySource, /function hasOnlyOwnDataKeys/);
-  assert.match(policySource, /Object\.getOwnPropertySymbols\(value\)\.length !== 0/);
+  assert.match(policySource, /sharedPublicPairRequestManifestIsRedacted\(manifest\)/);
+  assert.match(publicManifestSource, /function hasOnlyOwnDataKeys/);
+  assert.match(publicManifestSource, /Object\.getOwnPropertySymbols\(value\)\.length !== 0/);
   assert.equal(
     publicPairRequestManifestIsRedacted({
       fileCount: 2,
-      totalBytes: 3,
+      totalBytes: 4,
       files: [
-        { id: 0, name: "encrypted-0", size: 3 },
+        { id: 0, name: "encrypted-0", size: 4 },
         { id: 1, name: "encrypted-1", size: 0 }
       ]
     }),
@@ -154,8 +157,19 @@ test("server-visible pair request manifests must be redacted", () => {
       fileCount: 2,
       totalBytes: 3,
       files: [
+        { id: 0, name: "encrypted-0", size: 3 },
+        { id: 1, name: "encrypted-1", size: 0 }
+      ]
+    }),
+    false
+  );
+  assert.equal(
+    publicPairRequestManifestIsRedacted({
+      fileCount: 2,
+      totalBytes: 4,
+      files: [
         { id: 0, name: "encrypted-0", size: 1 },
-        { id: 1, name: "encrypted-1", size: 2 }
+        { id: 1, name: "encrypted-1", size: 3 }
       ]
     }),
     false
@@ -188,6 +202,31 @@ test("server-visible pair request manifests must be redacted", () => {
   };
   Object.defineProperty(manifestWithSymbolField, Symbol("leaked"), { value: "taxes.pdf" });
   assert.equal(publicPairRequestManifestIsRedacted(manifestWithSymbolField as never), false);
+});
+
+test("public pair request manifests expose only bucketed count and byte upper bounds", () => {
+  const publicManifest = redactManifestForSignaling({
+    fileCount: 3,
+    totalBytes: 184_321,
+    files: [
+      { id: 0, name: "taxes.pdf", size: 100_000, mime: "application/pdf" },
+      { id: 1, name: "payroll.csv", size: 84_321 },
+      { id: 2, name: "empty-note.txt", size: 0 }
+    ]
+  });
+
+  assert.deepEqual(publicManifest, {
+    fileCount: 4,
+    totalBytes: 262_144,
+    files: [
+      { id: 0, name: "encrypted-0", size: 262_144 },
+      { id: 1, name: "encrypted-1", size: 0 },
+      { id: 2, name: "encrypted-2", size: 0 },
+      { id: 3, name: "encrypted-3", size: 0 }
+    ]
+  });
+  assert.equal(publicPairRequestManifestIsRedacted(publicManifest), true);
+  assert.equal(publicPairRequestManifestIsRedacted({ fileCount: 3, totalBytes: 184_321, files: publicManifest.files.slice(0, 3) }), false);
 });
 
 test("relay policy helpers reject accessor-backed records without invoking getters", () => {
@@ -306,7 +345,8 @@ test("relay policy source keeps descriptor-only trust boundaries", () => {
   assert.match(securityPolicy, /relay policy helpers must read session, peer, message, and redacted-manifest fields through own data descriptors/);
   assert.match(policySource, /Object\.getOwnPropertyDescriptor\(value, key\)/);
   assert.match(distPolicySource, /Object\.getOwnPropertyDescriptor\(value, key\)/);
-  assert.match(policySource, /Object\.getOwnPropertyDescriptor\(files, String\(index\)\)/);
+  assert.match(publicManifestSource, /Object\.getOwnPropertyDescriptor\(files, String\(index\)\)/);
+  assert.match(policySource, /sharedPublicPairRequestManifestIsRedacted\(manifest\)/);
   assert.doesNotMatch(policySource, /manifest\.files\.every/);
   assert.doesNotMatch(policySource, /session\.sender\.id === peer\.id/);
   assert.doesNotMatch(policySource, /session\.receiver\.id === peer\.id/);

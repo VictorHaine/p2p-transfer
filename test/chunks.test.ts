@@ -14,7 +14,7 @@ import { abortControlMessage, assertControlMessage, assertSenderControlMessage, 
 import { assertControlMessage as distAssertControlMessage, assertSenderControlMessage as distAssertSenderControlMessage, assertTransferManifestMatchesAccepted as distAssertTransferManifestMatchesAccepted } from "../dist-node/shared/transfer.js";
 import { generateCode, isValidCode, isValidRendezvous, MAX_CODE_INPUT_BYTES, normalizeCode, parseCode, RENDEZVOUS_DIGITS } from "../src/shared/wordlist.js";
 
-const vectors = JSON.parse(fs.readFileSync(new URL("../conformance/protocol-v6.json", import.meta.url), "utf8")) as {
+const vectors = JSON.parse(fs.readFileSync(new URL("../conformance/protocol-v7.json", import.meta.url), "utf8")) as {
   protocolVersion: number;
   chunkFrames: { fileId: number; chunkSeq: number; payloadHex: string; frameHex: string }[];
   controlMessages: { name: string; message: unknown; senderControl?: boolean }[];
@@ -99,11 +99,11 @@ test("pair-request conformance vector exposes only redacted public manifest meta
   assert.equal(pairRequest?.type, "pair-request");
   assert.deepEqual(pairRequest.manifest, {
     files: [
-      { id: 0, name: "encrypted-0", size: 184320 },
+      { id: 0, name: "encrypted-0", size: 262144 },
       { id: 1, name: "encrypted-1", size: 0 }
     ],
     fileCount: 2,
-    totalBytes: 184320
+    totalBytes: 262144
   });
   assert.doesNotMatch(JSON.stringify(pairRequest.manifest), /photo\.jpg|image\/jpeg/);
 });

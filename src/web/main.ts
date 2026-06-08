@@ -27,6 +27,7 @@ import { assertFileWithinLimits, assertManifestWithinLimits, assertTransferManif
 import type { ErrorCode, FileManifest, ServerMessage, SignalPayload } from "../shared/messages.js";
 import { isServerMessage, parseBrowserJsonMessage, serializeMessage, signalingErrorDisplayMessage } from "../shared/messages.js";
 import { sanitizeDisplayText } from "../shared/output-safety.js";
+import { redactManifestForSignaling } from "../shared/public-manifest.js";
 import { normalizeSignalingServerUrl } from "../shared/server-url.js";
 import { signalingBackpressureExceeded } from "../shared/signaling-backpressure.js";
 import { WebRtcSignalReplayGuard } from "../shared/signal-replay.js";
@@ -313,7 +314,7 @@ async function sendFromBrowser(): Promise<void> {
     keys = await establishBrowserKeys(signaling, joined.sid, "sender", parsedCode.handle);
     setLog(sendLog, `SAS ${keys.sas}`);
     const sealedManifest = await sealManifest(keys, manifest);
-    signaling.send({ type: "pair-request", sid: joined.sid, manifest: redactManifest(manifest), sealedManifest });
+    signaling.send({ type: "pair-request", sid: joined.sid, manifest: redactManifestForSignaling(manifest), sealedManifest });
     setStatus(sendStatus, "Waiting");
     await waitForAuthenticatedPairAccept(signaling, joined.sid, keys, sealedManifest);
     const iceServers = await getIceServers(signaling, shouldUseBrowserServerIce());
@@ -2854,41 +2855,6 @@ function requireSdp(sdp: string | undefined): string {
 
 function pairRejectMessage(_reason: string | undefined): string {
   return "Transfer rejected.";
-}
-
-function redactManifest(manifest: FileManifest): FileManifest {
-  const files = ownDataValue(manifest, "files");
-  const fileCount = ownDataValue(manifest, "fileCount");
-  const totalBytes = ownDataValue(manifest, "totalBytes");
-  if (
-    !Array.isArray(files) ||
-    typeof fileCount !== "number" ||
-    !Number.isSafeInteger(fileCount) ||
-    fileCount < 1 ||
-    files.length !== fileCount ||
-    typeof totalBytes !== "number" ||
-    !Number.isSafeInteger(totalBytes) ||
-    totalBytes < 0
-  ) {
-    throw new Error("Manifest is invalid.");
-  }
-  const redactedFiles: FileManifest["files"] = [];
-  let remainingBytes = totalBytes;
-  for (let index = 0; index < files.length; index += 1) {
-    const descriptor = Object.getOwnPropertyDescriptor(files, String(index));
-    if (!descriptor || !("value" in descriptor)) throw new Error("Manifest file entry is invalid.");
-    const size = ownDataValue(descriptor.value, "size");
-    if (typeof size !== "number" || !Number.isSafeInteger(size) || size < 0) throw new Error("Manifest file size is invalid.");
-    const redactedSize = Math.min(remainingBytes, MAX_FILE_BYTES);
-    remainingBytes -= redactedSize;
-    redactedFiles.push({ id: index, name: `encrypted-${index}`, size: redactedSize });
-  }
-  if (remainingBytes !== 0) throw new Error("Manifest is invalid.");
-  return {
-    fileCount,
-    totalBytes,
-    files: redactedFiles
-  };
 }
 
 function defaultBrowserServerUrl(): string {

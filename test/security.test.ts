@@ -52,7 +52,7 @@ import {
 } from "../dist-node/shared/messages.js";
 import type { PakeRole, SessionKeys } from "../src/shared/security.js";
 
-const vectors = JSON.parse(fs.readFileSync(new URL("../conformance/protocol-v6.json", import.meta.url), "utf8")) as {
+const vectors = JSON.parse(fs.readFileSync(new URL("../conformance/protocol-v7.json", import.meta.url), "utf8")) as {
   pairDecisionAuth: {
     keyHex: string;
     sid: string;

@@ -6,7 +6,6 @@ import {
   CONNECT_TIMEOUT_MS,
   DEFAULT_ICE_SERVERS,
   DEFAULT_SERVER_URL,
-  MAX_FILE_BYTES,
   MAX_QUEUED_ICE_CANDIDATES,
   PAIR_TIMEOUT_MS,
   PROTOCOL_VERSION,
@@ -17,6 +16,7 @@ import { assertTransferManifestWithinLimits, safeFileName } from "../shared/limi
 import { isServerMessage, type FileManifest, type ServerMessage, type SignalPayload } from "../shared/messages.js";
 import { sanitizeDisplayText, sanitizeStructuredOutput } from "../shared/output-safety.js";
 import { PACKAGE_VERSION } from "../shared/package-info.js";
+import { redactManifestForSignaling } from "../shared/public-manifest.js";
 import { WebRtcSignalReplayGuard } from "../shared/signal-replay.js";
 import { codeInputUtf8ByteLengthExceeds, generateCode, normalizeCode, parseCode } from "../shared/wordlist.js";
 import type { SessionKeys } from "../shared/security.js";
@@ -412,7 +412,7 @@ async function send(code: string, paths: string[], options: CommonOptions): Prom
           const joined = await waitForMessage(signaling, "peer-joined", CONNECT_TIMEOUT_MS);
           sid = joined.sid;
           keys = await runtime.secure.establishKeys(signaling, joined.sid, "sender", parsedCode.handle);
-          const publicManifest = redactManifest(manifest);
+          const publicManifest = redactManifestForSignaling(manifest);
           const sealedManifest = await runtime.security.sealManifest(keys, manifest);
           signaling.send({ type: "pair-request", sid: joined.sid, manifest: publicManifest, sealedManifest });
           print(options, options.redactOutput ? { event: "pair_requested", manifestRedacted: true } : { event: "pair_requested", sid: joined.sid, files: manifest.fileCount, totalBytes: manifest.totalBytes });
@@ -914,41 +914,6 @@ function ownDataValue(value: unknown, key: string): unknown {
   if (!value || typeof value !== "object") return undefined;
   const descriptor = Object.getOwnPropertyDescriptor(value, key);
   return descriptor && "value" in descriptor ? descriptor.value : undefined;
-}
-
-function redactManifest(manifest: FileManifest): FileManifest {
-  const files = ownDataValue(manifest, "files");
-  const fileCount = ownDataValue(manifest, "fileCount");
-  const totalBytes = ownDataValue(manifest, "totalBytes");
-  if (
-    !Array.isArray(files) ||
-    typeof fileCount !== "number" ||
-    !Number.isSafeInteger(fileCount) ||
-    fileCount < 1 ||
-    files.length !== fileCount ||
-    typeof totalBytes !== "number" ||
-    !Number.isSafeInteger(totalBytes) ||
-    totalBytes < 0
-  ) {
-    throw new Error("Manifest is invalid.");
-  }
-  const redactedFiles: FileManifest["files"] = [];
-  let remainingBytes = totalBytes;
-  for (let index = 0; index < files.length; index += 1) {
-    const descriptor = Object.getOwnPropertyDescriptor(files, String(index));
-    if (!descriptor || !("value" in descriptor)) throw new Error("Manifest file entry is invalid.");
-    const size = ownDataValue(descriptor.value, "size");
-    if (typeof size !== "number" || !Number.isSafeInteger(size) || size < 0) throw new Error("Manifest file size is invalid.");
-    const redactedSize = Math.min(remainingBytes, MAX_FILE_BYTES);
-    remainingBytes -= redactedSize;
-    redactedFiles.push({ id: index, name: `encrypted-${index}`, size: redactedSize });
-  }
-  if (remainingBytes !== 0) throw new Error("Manifest is invalid.");
-  return {
-    fileCount,
-    totalBytes,
-    files: redactedFiles
-  };
 }
 
 function requireSdp(sdp: string | undefined): string {

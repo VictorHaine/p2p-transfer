@@ -9,6 +9,8 @@ const cliTransferSource = fs.readFileSync(new URL("../src/cli/transfer.ts", impo
 const cliFilesSource = fs.readFileSync(new URL("../src/cli/files.ts", import.meta.url), "utf8");
 const webSource = fs.readFileSync(new URL("../src/web/main.ts", import.meta.url), "utf8");
 const webFileSystemSource = fs.readFileSync(new URL("../src/web/file-system.ts", import.meta.url), "utf8");
+const publicManifestSource = fs.readFileSync(new URL("../src/shared/public-manifest.ts", import.meta.url), "utf8");
+const distPublicManifestSource = fs.readFileSync(new URL("../dist-node/shared/public-manifest.js", import.meta.url), "utf8");
 const sharedTransferSource = fs.readFileSync(new URL("../src/shared/transfer.ts", import.meta.url), "utf8");
 const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
 const distWebBundle = readDistWebBundle();
@@ -91,27 +93,27 @@ test("server does not relay arbitrary client bye reasons to peers", () => {
   assert.doesNotMatch(reasonBody, /return reason/);
 });
 
-test("clients derive public redacted manifest ids from descriptor-walked position only", () => {
+test("clients derive bucketed public redacted manifests from descriptor-walked position only", () => {
   const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
   assert.match(securityPolicy, /client public manifest redaction must walk manifest fields and file entries through own data descriptors/);
-  assert.match(securityPolicy, /client public manifest redaction must use synthetic per-file sizes/);
-  for (const source of [cliSource, webSource]) {
-    const redaction = extractFunctionBody(source, "redactManifest");
+  assert.match(securityPolicy, /client public manifest redaction must use bucketed file counts, bucketed total bytes, and synthetic per-file sizes/);
+  assert.match(cliSource, /redactManifestForSignaling\(manifest\)/);
+  assert.match(webSource, /redactManifestForSignaling\(manifest\)/);
+  for (const source of [publicManifestSource, distPublicManifestSource]) {
+    const redaction = extractFunctionBody(source, "redactManifestForSignaling");
     assert.match(redaction, /const files = ownDataValue\(manifest, "files"\)/);
     assert.match(redaction, /Object\.getOwnPropertyDescriptor\(files, String\(index\)\)/);
-    assert.match(redaction, /const redactedSize = Math\.min\(remainingBytes, MAX_FILE_BYTES\)/);
-    assert.match(redaction, /redactedFiles\.push\(\{ id: index, name: `encrypted-\$\{index\}`, size: redactedSize \}\)/);
+    assert.match(redaction, /const publicFileCount = publicFileCountBucket\(fileCount\)/);
+    assert.match(redaction, /const publicTotalBytes = publicTotalBytesBucket\(totalBytes, publicFileCount\)/);
+    assert.match(source, /files\.push\(\{ id: index, name: `encrypted-\$\{index\}`, size \}\)/);
     assert.doesNotMatch(redaction, /manifest\.files|manifest\.fileCount|manifest\.totalBytes|\.map\(/);
     assert.doesNotMatch(redaction, /id: file\.id|file\.name|file\.mime/);
     assert.doesNotMatch(redaction, /size: size|size \}/);
-    assert.match(redaction, /name: `encrypted-\$\{index\}`/);
     assert.doesNotMatch(redaction, /mime/);
+    assert.match(source, /function publicFileCountBucket/);
+    assert.match(source, /function publicTotalBytesBucket/);
+    assert.match(source, /Math\.log2\(totalBytes\)/);
   }
-  const distRedaction = extractFunctionBody(distCliSource, "redactManifest");
-  assert.match(distRedaction, /const files = ownDataValue\(manifest, "files"\)/);
-  assert.match(distRedaction, /Object\.getOwnPropertyDescriptor\(files, String\(index\)\)/);
-  assert.doesNotMatch(distRedaction, /manifest\.files|manifest\.fileCount|manifest\.totalBytes|\.map\(/);
-  assert.doesNotMatch(distRedaction, /size: size|size \}/);
   assert.match(distWebBundle, /encrypted-\$\{\w+\}/);
   assert.match(distWebBundle, /Object\.getOwnPropertyDescriptor\(\w+,String\(\w+\)\)/);
   assert.doesNotMatch(distWebBundle, /e\.files\.map\(\(e,t\)=>\(\{id:t,name:`encrypted-\$\{t\}`,size:e\.size\}\)\)/);

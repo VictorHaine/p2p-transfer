@@ -1,6 +1,6 @@
 import type { IceServerSnapshot } from "./ice.js";
 
-export const PROTOCOL_VERSION = 6;
+export const PROTOCOL_VERSION = 7;
 
 export const DEFAULT_SERVER_URL = "ws://127.0.0.1:8787/v1/ws";
 

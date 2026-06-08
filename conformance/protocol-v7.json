@@ -1,5 +1,5 @@
 {
-  "protocolVersion": 6,
+  "protocolVersion": 7,
   "chunkFrames": [
     {
       "name": "basic bulk chunk frame",
@@ -112,9 +112,9 @@
         "type": "register",
         "role": "receiver",
         "code": "12345678",
-        "protocolVersion": 6
+        "protocolVersion": 7
       },
-      "json": "{\"type\":\"register\",\"role\":\"receiver\",\"code\":\"12345678\",\"protocolVersion\":6}"
+      "json": "{\"type\":\"register\",\"role\":\"receiver\",\"code\":\"12345678\",\"protocolVersion\":7}"
     },
     {
       "name": "sender pair request",
@@ -127,7 +127,7 @@
             {
               "id": 0,
               "name": "encrypted-0",
-              "size": 184320
+              "size": 262144
             },
             {
               "id": 1,
@@ -136,11 +136,11 @@
             }
           ],
           "fileCount": 2,
-          "totalBytes": 184320
+          "totalBytes": 262144
         },
         "sealedManifest": "AAAAAAAAAAAAAAAAAAAA"
       },
-      "json": "{\"type\":\"pair-request\",\"sid\":\"sid-fixture\",\"manifest\":{\"files\":[{\"id\":0,\"name\":\"encrypted-0\",\"size\":184320},{\"id\":1,\"name\":\"encrypted-1\",\"size\":0}],\"fileCount\":2,\"totalBytes\":184320},\"sealedManifest\":\"AAAAAAAAAAAAAAAAAAAA\"}"
+      "json": "{\"type\":\"pair-request\",\"sid\":\"sid-fixture\",\"manifest\":{\"files\":[{\"id\":0,\"name\":\"encrypted-0\",\"size\":262144},{\"id\":1,\"name\":\"encrypted-1\",\"size\":0}],\"fileCount\":2,\"totalBytes\":262144},\"sealedManifest\":\"AAAAAAAAAAAAAAAAAAAA\"}"
     },
     {
       "name": "server ice config",
@@ -310,14 +310,14 @@
       "keyHex": "1111111111111111111111111111111111111111111111111111111111111111",
       "sid": "sid-fixture",
       "fromRole": "sender",
-      "tagBase64": "HMyIHpf02Dds6Od2e/LVYpKquIgVuyEAZRomSZ1V5F4="
+      "tagBase64": "rMzixP84dtHDU34GlmlhincLMYMdu4zWhMJ4IwZX/iM="
     },
     {
       "name": "receiver session confirmation",
       "keyHex": "1111111111111111111111111111111111111111111111111111111111111111",
       "sid": "sid-fixture",
       "fromRole": "receiver",
-      "tagBase64": "Ufxz2OAPyKBqjh3Qu7kLaOFYwY9Yhc8P5lTYOTvanpA="
+      "tagBase64": "Cgdz08fhdOvEfKciE0NSUYexJUBbPR3453Taps5I4L0="
     }
   ]
 }

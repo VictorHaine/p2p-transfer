@@ -1,5 +1,6 @@
 import type { ClientMessage, FileManifest } from "../shared/messages.js";
-import { MAX_FILE_BYTES, SIGNALING_MAX_ICE_CANDIDATES_PER_PEER } from "../shared/constants.js";
+import { SIGNALING_MAX_ICE_CANDIDATES_PER_PEER } from "../shared/constants.js";
+import { publicPairRequestManifestIsRedacted as sharedPublicPairRequestManifestIsRedacted } from "../shared/public-manifest.js";
 
 export type RelayPolicyPeer = {
   id: string;
@@ -135,46 +136,7 @@ export function senderDisconnectCanRestoreReceiver(session: Pick<RelayPolicySess
 }
 
 export function publicPairRequestManifestIsRedacted(manifest: FileManifest): boolean {
-  if (!hasOnlyOwnDataKeys(manifest, ["files", "fileCount", "totalBytes"])) return false;
-  const files = ownDataValue(manifest, "files");
-  const fileCount = ownDataValue(manifest, "fileCount");
-  const totalBytes = ownDataValue(manifest, "totalBytes");
-  if (
-    typeof fileCount !== "number" ||
-    !Array.isArray(files) ||
-    !Number.isSafeInteger(fileCount) ||
-    fileCount < 1 ||
-    files.length !== fileCount ||
-    typeof totalBytes !== "number" ||
-    !Number.isSafeInteger(totalBytes) ||
-    totalBytes < 0
-  ) {
-    return false;
-  }
-  let remainingBytes = totalBytes;
-  for (let index = 0; index < files.length; index += 1) {
-    const descriptor = Object.getOwnPropertyDescriptor(files, String(index));
-    if (!descriptor || !("value" in descriptor)) return false;
-    const file = descriptor.value;
-    if (!hasOnlyOwnDataKeys(file, ["id", "name", "size"])) return false;
-    const expectedSize = Math.min(remainingBytes, MAX_FILE_BYTES);
-    if (ownDataValue(file, "id") !== index || ownDataValue(file, "name") !== `encrypted-${index}` || ownDataValue(file, "size") !== expectedSize || ownDataValue(file, "mime") !== undefined) return false;
-    remainingBytes -= expectedSize;
-  }
-  return remainingBytes === 0;
-}
-
-function hasOnlyOwnDataKeys(value: unknown, expectedKeys: readonly string[]): boolean {
-  if (!value || typeof value !== "object") return false;
-  if (Object.getOwnPropertySymbols(value).length !== 0) return false;
-  const keys = Object.getOwnPropertyNames(value);
-  if (keys.length !== expectedKeys.length) return false;
-  for (const key of keys) {
-    if (!expectedKeys.includes(key)) return false;
-    const descriptor = Object.getOwnPropertyDescriptor(value, key);
-    if (!descriptor || !("value" in descriptor)) return false;
-  }
-  return true;
+  return sharedPublicPairRequestManifestIsRedacted(manifest);
 }
 
 function messageType(message: unknown): unknown {
