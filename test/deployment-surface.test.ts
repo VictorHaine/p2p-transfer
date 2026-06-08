@@ -1066,14 +1066,14 @@ test("security-sensitive surfaces require code owner review", () => {
 
 test("CodeQL code scanning is pinned and least-privilege", () => {
   assert.match(securityPolicy, /CodeQL code scanning must run from a pinned workflow on pull requests, pushes to `main`, and a weekly schedule/);
-  assert.match(securityPolicy, /CodeQL code scanning must[\s\S]*with only `contents: read` and `security-events: write` permissions and an explicit job timeout/);
+  assert.match(securityPolicy, /CodeQL code scanning must[\s\S]*with only `contents: read` and `security-events: write` permissions, an explicit job timeout, and release-evidence concurrency that does not cancel in-progress runs/);
   assert.match(securityPolicy, /release preflight must require a successful CodeQL run for the current `main` commit before tagging/);
-  assert.match(readme, /\.github\/workflows\/codeql\.yml` runs pinned CodeQL analysis/);
+  assert.match(readme, /\.github\/workflows\/codeql\.yml` runs pinned CodeQL analysis[\s\S]*without cancelling in-progress release-evidence runs/);
   assert.match(readme, /release preflight requires a successful CodeQL run for the exact current `main` commit before tagging/);
   assert.match(codeqlWorkflow, /^name: codeql$/m);
   assert.match(codeqlWorkflow, /^on:\n  pull_request:\n  push:\n    branches:\n      - main\n  schedule:\n    - cron: "17 3 \* \* 2"$/m);
   assert.match(codeqlWorkflow, /^permissions:\n  contents: read\n  security-events: write$/m);
-  assert.match(codeqlWorkflow, /^concurrency:\n  group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}\n  cancel-in-progress: true$/m);
+  assert.match(codeqlWorkflow, /^concurrency:\n  group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}\n  cancel-in-progress: false$/m);
   assert.match(workflowJob(codeqlWorkflow, "analyze"), /name: codeql analyze[\s\S]*timeout-minutes: 20/);
   assert.match(codeqlWorkflow, /uses: actions\/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4\.2\.2[\s\S]*persist-credentials: false/);
   assert.match(codeqlWorkflow, /uses: github\/codeql-action\/init@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4\.36\.2[\s\S]*languages: javascript-typescript/);
@@ -1083,13 +1083,13 @@ test("CodeQL code scanning is pinned and least-privilege", () => {
 
 test("OpenSSF Scorecard scanning is pinned and uploads SARIF", () => {
   assert.match(securityPolicy, /OpenSSF Scorecard must run from a pinned workflow on pushes to `main`, manual dispatch, and a weekly schedule/);
-  assert.match(securityPolicy, /OpenSSF Scorecard must[\s\S]*have a successful run for the current `main` commit before release preflight passes/);
-  assert.match(readme, /\.github\/workflows\/scorecard\.yml` runs the pinned Scorecard action/);
+  assert.match(securityPolicy, /OpenSSF Scorecard must[\s\S]*use release-evidence concurrency that does not cancel in-progress runs[\s\S]*have a successful run for the current `main` commit before release preflight passes/);
+  assert.match(readme, /\.github\/workflows\/scorecard\.yml` runs the pinned Scorecard action[\s\S]*without cancelling in-progress release-evidence runs/);
   assert.match(readme, /release preflight requires a successful Scorecard run for the exact current `main` commit before tagging/);
   assert.match(scorecardWorkflow, /^name: scorecard$/m);
   assert.match(scorecardWorkflow, /^on:\n  push:\n    branches:\n      - main\n  schedule:\n    - cron: "29 4 \* \* 3"\n  workflow_dispatch:$/m);
   assert.match(scorecardWorkflow, /^permissions:\n  contents: read\n  security-events: write\n  id-token: write$/m);
-  assert.match(scorecardWorkflow, /^concurrency:\n  group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}\n  cancel-in-progress: true$/m);
+  assert.match(scorecardWorkflow, /^concurrency:\n  group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}\n  cancel-in-progress: false$/m);
   assert.match(workflowJob(scorecardWorkflow, "analyze"), /timeout-minutes: 15/);
   assert.match(scorecardWorkflow, /uses: actions\/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4\.2\.2[\s\S]*persist-credentials: false/);
   assert.match(scorecardWorkflow, /uses: ossf\/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a # v2\.4\.3[\s\S]*results_file: scorecard-results\.sarif[\s\S]*results_format: sarif[\s\S]*publish_results: true/);
@@ -1112,17 +1112,17 @@ test("dependency review blocks vulnerable dependency introductions", () => {
 
 test("dependency integrity monitor catches new registry risk and gates releases", () => {
   assert.match(securityPolicy, /dependency integrity monitoring must run from a pinned workflow on pushes to `main`, manual dispatch, and a weekly schedule on unchanged `main` with read-only permissions/);
-  assert.match(securityPolicy, /checked pnpm bootstrap, frozen install, installed-state verification, `pnpm security:dependencies`, `pnpm security:audit`, and `pnpm security:signatures`/);
+  assert.match(securityPolicy, /release-evidence concurrency that does not cancel in-progress runs, checked pnpm bootstrap, frozen install, installed-state verification, `pnpm security:dependencies`, `pnpm security:audit`, and `pnpm security:signatures`/);
   assert.match(securityPolicy, /CPace\/native dependency drift, new advisories, or registry signature failures/);
   assert.match(securityPolicy, /release preflight must require a successful dependency-integrity run for the current `main` commit/);
-  assert.match(readme, /\.github\/workflows\/dependency-integrity\.yml` runs on pushes to `main`, manual dispatch, and weekly with read-only permissions/);
+  assert.match(readme, /\.github\/workflows\/dependency-integrity\.yml` runs on pushes to `main`, manual dispatch, and weekly with read-only permissions without cancelling in-progress release-evidence runs/);
   assert.match(readme, /re-checks the frozen install, installed dependency tree, reviewed CPace\/native dependency attestations, npm advisory audit, and registry package signatures even when `main` has not changed/);
   assert.match(readme, /release preflight requires a successful dependency-integrity run for the exact current `main` commit before tagging/);
   assert.equal(packageJson.scripts?.["security:dependencies"], "node --import tsx --test test/crypto-dependencies.test.ts test/cpace-vectors.test.ts test/native-webrtc-dependencies.test.ts");
   assert.match(dependencyIntegrityWorkflow, /^name: dependency-integrity$/m);
   assert.match(dependencyIntegrityWorkflow, /^on:\n  push:\n    branches:\n      - main\n  schedule:\n    - cron: "41 5 \* \* 4"\n  workflow_dispatch:$/m);
   assert.match(dependencyIntegrityWorkflow, /^permissions:\n  contents: read$/m);
-  assert.match(dependencyIntegrityWorkflow, /^concurrency:\n  group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}\n  cancel-in-progress: true$/m);
+  assert.match(dependencyIntegrityWorkflow, /^concurrency:\n  group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}\n  cancel-in-progress: false$/m);
   assert.match(workflowJob(dependencyIntegrityWorkflow, "dependency-integrity"), /name: dependency integrity[\s\S]*runs-on: ubuntu-24\.04[\s\S]*timeout-minutes: 15/);
   assert.match(dependencyIntegrityWorkflow, /uses: actions\/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4\.2\.2[\s\S]*persist-credentials: false/);
   assert.match(dependencyIntegrityWorkflow, /uses: actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3/);
