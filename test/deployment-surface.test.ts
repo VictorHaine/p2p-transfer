@@ -902,6 +902,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(readme, /For normal releases, update local `main` to the exact current `origin\/main` commit after the protected pull request has merged, then run release preflight from that checked-out commit/);
   assert.match(readme, /git config --local gpg\.ssh\.allowedSignersFile \.github\/allowed_signers/);
   assert.match(releaseRunbook, /git config --local gpg\.ssh\.allowedSignersFile \.github\/allowed_signers\n   git fetch origin main/);
+  assert.match(releaseRunbook, /After these controls are active, future changes to `main` must go through a pull request so the required checks can attach to the merge candidate/);
   assert.match(allowedSigners, /^git@victorhaine\.me namespaces="git" ssh-rsa /);
   assert.match(readme, /Local preflight refuses unsigned `HEAD` and dirty worktrees before package or network work, and it refuses to pass if that local `HEAD` differs from GitHub's current `main` branch response/);
   assert.match(readme, /The checked tag creator revalidates signed `HEAD`, clean worktree state, package-version matching, freshly fetched `origin\/main` equality, local and remote tag absence, tag target, and tag signature while suppressing signer subprocess output/);
