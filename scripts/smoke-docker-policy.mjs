@@ -38,6 +38,7 @@ const CLI_WEBRTC_RUNTIME_PATHS = [
   "node_modules/.pnpm/domexception@4.0.0",
   "node_modules/.pnpm/webidl-conversions@7.0.0"
 ];
+const SERVER_ONLY_FORBIDDEN_PATHS = ["dist-node/cli", ...CLI_WEBRTC_RUNTIME_PATHS];
 
 if (isMain()) {
   try {
@@ -58,7 +59,7 @@ async function main() {
   try {
     await run("docker", ["info", "--format", "{{json .ServerVersion}}"], "docker daemon preflight", DOCKER_PREFLIGHT_TIMEOUT_MS, { env: dockerEnv });
     await run("docker", ["build", "-t", imageTag, "."], "docker image build", BUILD_TIMEOUT_MS, { env: dockerEnv });
-    await assertNoCliWebrtcRuntime(imageTag, dockerEnv);
+    await assertServerOnlyRuntime(imageTag, dockerEnv);
     await expectDockerFailure(
       ["run", "--rm", ...HARDENED_DOCKER_RUN_FLAGS, "-e", "SIGNALING_TOPOLOGY=single-instance", imageTag],
       "container without ALLOWED_ORIGINS",
@@ -126,8 +127,8 @@ async function expectDockerFailure(args, label, requiredEvidence, env) {
   if (!hasExactOutputLine(result, requiredEvidence)) throw new Error(`${label} did not fail with the expected production policy evidence.`);
 }
 
-async function assertNoCliWebrtcRuntime(imageTag, env) {
-  const script = `const fs = require("node:fs"); const paths = ${JSON.stringify(CLI_WEBRTC_RUNTIME_PATHS)}; for (const path of paths) { if (fs.existsSync(path)) { console.error("cli-webrtc-runtime-present"); process.exit(1); } }`;
+async function assertServerOnlyRuntime(imageTag, env) {
+  const script = `const fs = require("node:fs"); const paths = ${JSON.stringify(SERVER_ONLY_FORBIDDEN_PATHS)}; for (const path of paths) { if (fs.existsSync(path)) { console.error("cli-runtime-present"); process.exit(1); } }`;
   await run("docker", ["run", "--rm", ...HARDENED_DOCKER_RUN_FLAGS, "--entrypoint", "node", imageTag, "-e", script], "server-only Docker runtime check", COMMAND_TIMEOUT_MS, { env });
 }
 

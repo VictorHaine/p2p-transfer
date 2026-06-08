@@ -101,7 +101,9 @@ test("Docker runtime image keeps a minimal non-root production surface", () => {
   assert.match(dockerfile, /^RUN pnpm build\nRUN pnpm prune --prod\nRUN rm -rf \\\n  node_modules\/@roamhq \\\n  node_modules\/domexception \\\n  node_modules\/webidl-conversions \\/m);
   assert.match(dockerfile, /node_modules\/\.pnpm\/@roamhq\+wrtc@\* \\\n  node_modules\/\.pnpm\/@roamhq\+wrtc-\*@\* \\\n  node_modules\/\.pnpm\/domexception@\* \\\n  node_modules\/\.pnpm\/webidl-conversions@\*\n\nFROM /m);
   assert.match(dockerfile, /^COPY --chown=node:node --from=build \/app\/node_modules \.\/node_modules$/m);
-  assert.match(dockerfile, /^COPY --chown=node:node --from=build \/app\/dist-node \.\/dist-node$/m);
+  assert.doesNotMatch(dockerfile, /^COPY --chown=node:node --from=build \/app\/dist-node \.\/dist-node$/m);
+  assert.match(dockerfile, /^COPY --chown=node:node --from=build \/app\/dist-node\/server \.\/dist-node\/server$/m);
+  assert.match(dockerfile, /^COPY --chown=node:node --from=build \/app\/dist-node\/shared \.\/dist-node\/shared$/m);
   assert.match(dockerfile, /^COPY --chown=node:node --from=build \/app\/dist-web \.\/dist-web$/m);
   assert.match(dockerfile, /^COPY --chown=node:node --from=build \/app\/scripts\/probe-http\.mjs \.\/scripts\/probe-http\.mjs$/m);
   assert.match(dockerfile, /^USER node$/m);
@@ -1194,12 +1196,14 @@ test("documented release gates require a hardened Docker runtime smoke, not just
     assert.match(document, /--memory 512m/);
     assert.match(document, /--cpus 1/);
     assert.match(document, /refuses to start without `ALLOWED_ORIGINS` and without `SIGNALING_TOPOLOGY`/);
-    assert.match(document, /server runtime image does not contain CLI-only native WebRTC packages/);
+    assert.match(document, /server runtime image does not contain CLI artifacts or CLI-only native WebRTC packages/);
   }
   assert.match(dockerPolicySmokeScript, /const HARDENED_DOCKER_RUN_FLAGS = \["--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "--pids-limit", "128", "--memory", "512m", "--cpus", "1"\]/);
   assert.match(dockerPolicySmokeScript, /const CLI_WEBRTC_RUNTIME_PATHS = \[[\s\S]*"node_modules\/@roamhq"[\s\S]*"node_modules\/\.pnpm\/@roamhq\+wrtc-linux-x64@0\.10\.0"[\s\S]*"node_modules\/\.pnpm\/webidl-conversions@7\.0\.0"/);
-  assert.match(dockerPolicySmokeScript, /await assertNoCliWebrtcRuntime\(imageTag, dockerEnv\)/);
-  assert.match(dockerPolicySmokeScript, /function assertNoCliWebrtcRuntime\(imageTag, env\)/);
+  assert.match(dockerPolicySmokeScript, /const SERVER_ONLY_FORBIDDEN_PATHS = \["dist-node\/cli", \.\.\.CLI_WEBRTC_RUNTIME_PATHS\]/);
+  assert.match(dockerPolicySmokeScript, /await assertServerOnlyRuntime\(imageTag, dockerEnv\)/);
+  assert.match(dockerPolicySmokeScript, /function assertServerOnlyRuntime\(imageTag, env\)/);
+  assert.match(dockerPolicySmokeScript, /cli-runtime-present/);
   assert.match(dockerPolicySmokeScript, /"--entrypoint", "node", imageTag, "-e", script/);
   assert.match(dockerPolicySmokeScript, /\["run", "--rm", \.\.\.HARDENED_DOCKER_RUN_FLAGS, "-e", "SIGNALING_TOPOLOGY=single-instance", imageTag\]/);
   assert.match(dockerPolicySmokeScript, /\["run", "--rm", \.\.\.HARDENED_DOCKER_RUN_FLAGS, "-e", `ALLOWED_ORIGINS=\$\{PRODUCTION_ORIGIN\}`, imageTag\]/);

@@ -1211,8 +1211,9 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(dockerPolicySmokeScript, /"--cap-drop=ALL"/);
   assert.match(dockerPolicySmokeScript, /"no-new-privileges"/);
   assert.match(dockerPolicySmokeScript, /const CLI_WEBRTC_RUNTIME_PATHS = \[[\s\S]*"node_modules\/@roamhq"[\s\S]*"node_modules\/\.pnpm\/@roamhq\+wrtc-linux-x64@0\.10\.0"[\s\S]*"node_modules\/\.pnpm\/webidl-conversions@7\.0\.0"/);
-  assert.match(dockerPolicySmokeScript, /await assertNoCliWebrtcRuntime\(imageTag, dockerEnv\)/);
-  assert.match(securityPolicy, /Docker policy smoke must prove the final server runtime image does not contain CLI-only native WebRTC packages/);
+  assert.match(dockerPolicySmokeScript, /const SERVER_ONLY_FORBIDDEN_PATHS = \["dist-node\/cli", \.\.\.CLI_WEBRTC_RUNTIME_PATHS\]/);
+  assert.match(dockerPolicySmokeScript, /await assertServerOnlyRuntime\(imageTag, dockerEnv\)/);
+  assert.match(securityPolicy, /Docker policy smoke must prove the final server runtime image does not contain CLI artifacts or CLI-only native WebRTC packages/);
   assert.match(releaseWorkflow, /ubuntu-24\.04/);
   assert.match(releaseWorkflow, /ubuntu-24\.04-arm/);
   assert.match(releaseWorkflow, /macos-15/);

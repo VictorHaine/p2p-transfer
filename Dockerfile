@@ -25,7 +25,8 @@ ENV HOST=0.0.0.0
 ENV PORT=8787
 COPY --chown=node:node --from=build /app/package.json /app/pnpm-lock.yaml ./
 COPY --chown=node:node --from=build /app/node_modules ./node_modules
-COPY --chown=node:node --from=build /app/dist-node ./dist-node
+COPY --chown=node:node --from=build /app/dist-node/server ./dist-node/server
+COPY --chown=node:node --from=build /app/dist-node/shared ./dist-node/shared
 COPY --chown=node:node --from=build /app/dist-web ./dist-web
 COPY --chown=node:node --from=build /app/scripts/probe-http.mjs ./scripts/probe-http.mjs
 USER node
