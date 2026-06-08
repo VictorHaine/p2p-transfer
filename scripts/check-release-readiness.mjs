@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { spawn } from "node:child_process";
 import { constants, realpathSync } from "node:fs";
 import { lstat, open } from "node:fs/promises";
 import path from "node:path";
@@ -56,6 +57,9 @@ const MAX_GITHUB_API_RESPONSE_BYTES = 1024 * 1024;
 const MAX_NPM_REGISTRY_RESPONSE_BYTES = 1024 * 1024;
 const GITHUB_API_TIMEOUT_MS = 30_000;
 const NPM_REGISTRY_TIMEOUT_MS = 20_000;
+const GIT_TIMEOUT_MS = 30_000;
+const CHILD_KILL_GRACE_MS = 5_000;
+const MAX_CHILD_ENV_VALUE_BYTES = 8_192;
 const GITHUB_ACTIONS_REQUIRED_OAUTH_SCOPES = ["repo"];
 const REPOSITORY_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const PACKAGE_NAME_RE = /^(?:@[a-z0-9][a-z0-9._-]{0,213}\/)?[a-z0-9][a-z0-9._-]{0,213}$/;
@@ -92,6 +96,10 @@ async function main() {
   const tokenKind = assertReleaseWorkflowTokenClass(token, runningInGitHubActions);
   const releaseActorLogin = runningInGitHubActions ? githubActor() : undefined;
   const failures = [];
+
+  if (!runningInGitHubActions) {
+    await assertLocalReleaseCommitSigned();
+  }
 
   await collectReadinessFailure(failures, async () => {
     const packageJson = await readPackageMetadata();
@@ -220,6 +228,66 @@ function collectReadinessValueSync(failures, fn) {
     failures.push(error);
     return undefined;
   }
+}
+
+async function assertLocalReleaseCommitSigned() {
+  const result = await runGit(["verify-commit", "HEAD"], "release commit signature verification failed.", { allowFailure: true });
+  if (result.status === 0) return;
+  throw new Error("Release target commit must have a valid Git commit signature before tagging.");
+}
+
+function runGit(args, failureMessage, options = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn("git", args, {
+      cwd: projectRoot(),
+      env: safeChildEnv(),
+      stdio: "ignore"
+    });
+    let settled = false;
+    let killTimer;
+    let timeoutError;
+    const timer = setTimeout(() => {
+      timeoutError = new Error(`${failureMessage} Git subprocess timed out.`);
+      child.kill("SIGTERM");
+      killTimer = setTimeout(() => child.kill("SIGKILL"), CHILD_KILL_GRACE_MS);
+    }, GIT_TIMEOUT_MS);
+
+    child.on("error", () => {
+      rejectOnce(new Error(failureMessage));
+    });
+    child.on("exit", (code) => {
+      if (killTimer) clearTimeout(killTimer);
+      if (timeoutError) {
+        rejectOnce(timeoutError);
+        return;
+      }
+      const status = typeof code === "number" ? code : null;
+      if (!options.allowFailure && status !== 0) {
+        rejectOnce(new Error(failureMessage));
+        return;
+      }
+      resolveOnce({ status });
+    });
+
+    function resolveOnce(result) {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(result);
+    }
+
+    function rejectOnce(error) {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    }
+
+    function cleanup() {
+      clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
+    }
+  });
 }
 
 async function readPackageMetadata() {
@@ -872,6 +940,37 @@ function clearEnvValue(name) {
   const descriptor = Object.getOwnPropertyDescriptor(process.env, name);
   if (!descriptor) return;
   if (!Reflect.deleteProperty(process.env, name)) throw new Error(`${name} could not be cleared.`);
+}
+
+function safeChildEnv() {
+  const allowed = [
+    ["PATH", true],
+    ["HOME", false],
+    ["TMPDIR", false],
+    ["TMP", false],
+    ["TEMP", false],
+    ["SystemRoot", false],
+    ["SYSTEMROOT", false],
+    ["COMSPEC", false],
+    ["PATHEXT", false]
+  ];
+  const env = {};
+  for (const [name, required] of allowed) {
+    const descriptor = Object.getOwnPropertyDescriptor(process.env, name);
+    if (descriptor && "value" in descriptor && isSafeChildEnvValue(descriptor.value)) {
+      env[name] = descriptor.value;
+    } else if (required) {
+      throw new Error(`${name} must be a non-empty control-free child environment value under ${MAX_CHILD_ENV_VALUE_BYTES} UTF-8 bytes.`);
+    }
+  }
+  return {
+    ...env,
+    GIT_TERMINAL_PROMPT: "0"
+  };
+}
+
+function isSafeChildEnvValue(value) {
+  return typeof value === "string" && value.length > 0 && !/[\p{Cc}\p{Cf}]/u.test(value) && !utf8ByteLengthExceeds(value, MAX_CHILD_ENV_VALUE_BYTES);
 }
 
 function hasUnsafeEnvText(value) {

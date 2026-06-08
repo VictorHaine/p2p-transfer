@@ -3598,6 +3598,7 @@ test("release preflight aggregates remote failures without leaking API bodies", 
   const mock = path.join(tmp, "mock-release-preflight-fetch.mjs");
   const log = path.join(tmp, "requests.log");
   try {
+    const git = await fakeReleaseGit(tmp);
     await fs.writeFile(
       mock,
       `
@@ -3642,6 +3643,7 @@ globalThis.fetch = async (url, init = {}) => {
     const result = runScriptWithNodeArgs(
       "scripts/check-release-readiness.mjs",
       {
+        ...git.env,
         FF_MOCK_PREFLIGHT_LOG: log,
         GITHUB_TOKEN: "token-that-must-not-be-printed"
       },
@@ -3668,6 +3670,55 @@ globalThis.fetch = async (url, init = {}) => {
     assert.match(requests, /^GET https:\/\/registry\.npmjs\.org\/%40victorhaine%2Fp2p-transfer\nGET https:\/\/api\.github\.com\/user\n/);
     assert.match(requests, /GET https:\/\/api\.github\.com\/repos\/VictorHaine\/p2p-transfer\/actions\/secrets\/RELEASE_PREFLIGHT_TOKEN\n/);
     assert.match(requests, /GET https:\/\/api\.github\.com\/repos\/VictorHaine\/p2p-transfer\/environments\/npm\/deployment-branch-policies\?per_page=100\n/);
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
+test("release preflight rejects unsigned local release targets before package or network work", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-preflight-signature-"));
+  const mock = path.join(tmp, "mock-release-preflight-signature-fetch.mjs");
+  const log = path.join(tmp, "requests.log");
+  try {
+    const git = await fakeReleaseGit(tmp, 1);
+    await fs.writeFile(
+      mock,
+      `
+import { appendFileSync } from "node:fs";
+
+const log = process.env.FF_MOCK_PREFLIGHT_SIGNATURE_LOG;
+
+globalThis.fetch = async (url, init = {}) => {
+  const parsed = new URL(url);
+  appendFileSync(log, (init.method ?? "GET") + " " + parsed.origin + parsed.pathname + "\\n", "utf8");
+  return new Response(JSON.stringify({ message: "unexpected network" }), { status: 500, headers: { "content-type": "application/json" } });
+};
+`,
+      "utf8"
+    );
+
+    const result = runScriptWithNodeArgs(
+      "scripts/check-release-readiness.mjs",
+      {
+        ...git.env,
+        FF_MOCK_PREFLIGHT_SIGNATURE_LOG: log,
+        GITHUB_TOKEN: "token-that-must-not-be-printed"
+      },
+      [],
+      ["--import", mock]
+    );
+    const requests = await fs.readFile(log, "utf8").catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return "";
+      throw error;
+    });
+    const gitRequests = await fs.readFile(git.log, "utf8");
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Release readiness check failed:\n- Release target commit must have a valid Git commit signature before tagging\./);
+    assert.doesNotMatch(result.stderr, /token-that-must-not-be-printed|unexpected network|verify-commit|HEAD|api\.github|registry\.npmjs|Error:/);
+    assert.equal(requests, "");
+    assert.equal(gitRequests, "verify-commit HEAD\n");
   } finally {
     await fs.rm(tmp, { force: true, recursive: true });
   }
@@ -4935,6 +4986,33 @@ function runScriptWithNodeArgs(script: string, env: Record<string, string>, args
 
 function releaseTagEnv(tag: string): Record<string, string> {
   return { GITHUB_REF_NAME: tag, GITHUB_REF_TYPE: "tag", GITHUB_REF: `refs/tags/${tag}`, GITHUB_SHA: RELEASE_TEST_SHA, GITHUB_ACTIONS: "true", GITHUB_RUN_ID: "12345" };
+}
+
+async function fakeReleaseGit(tmp: string, status = 0) {
+  const bin = path.join(tmp, "git-bin");
+  const log = path.join(tmp, "git.log");
+  await fs.mkdir(bin);
+  const gitScript = path.join(bin, "git-node.mjs");
+  await fs.writeFile(
+    gitScript,
+    `
+import { appendFileSync } from "node:fs";
+
+const args = process.argv.slice(2);
+appendFileSync(${JSON.stringify(log)}, args.join(" ") + "\\n", "utf8");
+if (args.length !== 2 || args[0] !== "verify-commit" || args[1] !== "HEAD") process.exit(2);
+process.exit(${Number(status)});
+`,
+    "utf8"
+  );
+  const git = path.join(bin, process.platform === "win32" ? "git.cmd" : "git");
+  if (process.platform === "win32") {
+    await fs.writeFile(git, `@echo off\r\n"${process.execPath}" "${gitScript}" %*\r\n`, "utf8");
+  } else {
+    await fs.writeFile(git, `#!/usr/bin/env sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(gitScript)} "$@"\n`, "utf8");
+  }
+  await fs.chmod(git, 0o755);
+  return { env: { PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}` }, log };
 }
 
 function releaseAssets() {
