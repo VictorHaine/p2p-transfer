@@ -20,7 +20,7 @@ This project releases only from protected `main` with a matching `v*.*.*` tag. D
 
    ```sh
    read -rs NPM_BOOTSTRAP_TOKEN
-   printf '%s' "$NPM_BOOTSTRAP_TOKEN" | pnpm bootstrap:npm -- --token-stdin --apply
+   printf '%s' "$NPM_BOOTSTRAP_TOKEN" | pnpm bootstrap:npm --token-stdin --apply
    unset NPM_BOOTSTRAP_TOKEN
    ```
 
@@ -64,5 +64,5 @@ As of this runbook, local `pnpm verify:release` passes. The remaining known firs
 
 - the installed GitHub token needs `workflow` scope
 - remote `main` must be pushed
-- the npm package name must be bootstrapped with `pnpm bootstrap:npm -- --token-stdin --apply`
+- the npm package name must be bootstrapped with `pnpm bootstrap:npm --token-stdin --apply`
 - Docker policy smoke requires a responsive local Docker daemon

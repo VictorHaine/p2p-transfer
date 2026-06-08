@@ -37,6 +37,7 @@ const dockerPublishScript = fs.readFileSync(new URL("../scripts/publish-docker-i
 const dockerConfigScript = fs.readFileSync(new URL("../scripts/docker-config.mjs", import.meta.url), "utf8");
 const dependabotConfig = fs.readFileSync(new URL("../.github/dependabot.yml", import.meta.url), "utf8");
 const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
+const releaseRunbook = fs.readFileSync(new URL("../RELEASE.md", import.meta.url), "utf8");
 const contributing = fs.readFileSync(new URL("../CONTRIBUTING.md", import.meta.url), "utf8");
 const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
 const tsconfigNode = JSON.parse(fs.readFileSync(new URL("../tsconfig.node.json", import.meta.url), "utf8")) as {
@@ -781,6 +782,8 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(readme, /verifies the npm package already exists, verifies any bootstrap placeholder is not tagged as `latest`, verifies the target version has not been published, verifies private vulnerability reporting is enabled, verifies dependency vulnerability alerts are enabled, verifies repository secret scanning and secret scanning push protection are enabled, verifies Dependabot security updates are enabled and unpaused/);
   assert.match(readme, /pnpm bootstrap:npm --dry-run/);
   assert.match(readme, /read -rs NPM_BOOTSTRAP_TOKEN\nprintf %s "\$NPM_BOOTSTRAP_TOKEN" \| pnpm bootstrap:npm --apply --token-stdin\nunset NPM_BOOTSTRAP_TOKEN/);
+  assert.match(releaseRunbook, /printf '%s' "\$NPM_BOOTSTRAP_TOKEN" \| pnpm bootstrap:npm --token-stdin --apply/);
+  assert.doesNotMatch(releaseRunbook, /pnpm bootstrap:npm -- --token-stdin --apply/);
   assert.match(readme, /The helper publishes only a minimal temporary `0\.0\.0-bootstrap\.0` package from a private temp directory under the non-default `bootstrap` dist-tag/);
   assert.match(readme, /then re-reads npm registry metadata and fails unless that version exists, the `bootstrap` dist-tag points to it, and `latest` does not/);
   assert.match(readme, /accepts the one-time token through bounded piped stdin with `--token-stdin`/);
