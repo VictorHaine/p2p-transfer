@@ -3221,7 +3221,7 @@ globalThis.fetch = async (url, init = {}) => {
   const json = (status, body, headers = {}) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
   if (parsed.origin === "https://registry.npmjs.org" && method === "GET" && path === "/%40victorhaine%2Fp2p-transfer") return json(200, { versions: { "0.0.0-bootstrap.0": {} }, "dist-tags": { bootstrap: "0.0.0-bootstrap.0" } });
   if (parsed.origin !== "https://api.github.com") return json(500, {});
-  if (method === "GET" && path === "/user") return json(200, { login: "operator" }, { "x-oauth-scopes": "repo" });
+  if (method === "GET" && path === "/user") return json(500, { message: "unexpected user endpoint" });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer") return json(200, { id: 1, security_and_analysis: ${JSON.stringify(ENABLED_SECURITY_AND_ANALYSIS)} });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/automated-security-fixes") return json(200, { enabled: true, paused: false });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/vulnerability-alerts") return new Response(null, { status: 204 });
@@ -3349,7 +3349,7 @@ globalThis.fetch = async (url, init = {}) => {
   const json = (status, body, headers = {}) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
   if (parsed.origin === "https://registry.npmjs.org" && method === "GET" && path === "/%40victorhaine%2Fp2p-transfer") return json(200, { versions: { "0.0.0-bootstrap.0": {} }, "dist-tags": { bootstrap: "0.0.0-bootstrap.0" } });
   if (parsed.origin !== "https://api.github.com") return json(500, {});
-  if (method === "GET" && path === "/user") return json(200, { login: "operator" }, { "x-oauth-scopes": "repo" });
+  if (method === "GET" && path === "/user") return json(500, { message: "unexpected user endpoint" });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer") return json(200, { id: 1, security_and_analysis: ${JSON.stringify(ENABLED_SECURITY_AND_ANALYSIS)} });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/automated-security-fixes") return json(200, { enabled: true, paused: false });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/vulnerability-alerts") return new Response(null, { status: 204 });
@@ -3407,7 +3407,7 @@ globalThis.fetch = async (url, init = {}) => {
   }
 });
 
-test("release workflow preflight verifies the full remote gate with a repo-scoped token", async () => {
+test("release workflow preflight verifies the full remote gate with an installation token", async () => {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-preflight-"));
   const mock = path.join(tmp, "mock-release-preflight-fetch.mjs");
   const log = path.join(tmp, "requests.log");
@@ -3496,7 +3496,7 @@ globalThis.fetch = async (url, init = {}) => {
     });
   }
   if (parsed.origin !== "https://api.github.com") return json(500, {});
-  if (method === "GET" && path === "/user") return json(200, { login: "operator" }, { "x-oauth-scopes": "repo" });
+  if (method === "GET" && path === "/user") return json(500, { message: "unexpected user endpoint" });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer") return json(200, { id: 1, security_and_analysis: securityAndAnalysis() });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/automated-security-fixes") return json(200, { enabled: true, paused: false });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/vulnerability-alerts") return new Response(null, { status: 204 });
@@ -3548,7 +3548,8 @@ globalThis.fetch = async (url, init = {}) => {
     assert.equal(result.stderr, "");
     assert.deepEqual(JSON.parse(result.stdout), { repository: "VictorHaine/p2p-transfer", ok: true });
     assert.doesNotMatch(result.stdout, /token-that-must-not-be-printed|approver|RELEASE_PREFLIGHT_TOKEN|0\.0\.0-bootstrap/);
-    assert.match(requests, /^GET https:\/\/registry\.npmjs\.org\/%40victorhaine%2Fp2p-transfer\nGET https:\/\/api\.github\.com\/user\n/);
+    assert.match(requests, /^GET https:\/\/registry\.npmjs\.org\/%40victorhaine%2Fp2p-transfer\nGET https:\/\/api\.github\.com\/repos\/VictorHaine\/p2p-transfer\n/);
+    assert.doesNotMatch(requests, /GET https:\/\/api\.github\.com\/user\n/);
     assert.match(requests, /GET https:\/\/api\.github\.com\/repos\/VictorHaine\/p2p-transfer\/private-vulnerability-reporting\n/);
     assert.match(requests, /GET https:\/\/api\.github\.com\/repos\/VictorHaine\/p2p-transfer\/actions\/workflows\/codeql\.yml\/runs\?branch=main&per_page=1\n/);
     assert.match(requests, /GET https:\/\/api\.github\.com\/repos\/VictorHaine\/p2p-transfer\/actions\/workflows\/scorecard\.yml\/runs\?branch=main&per_page=1\n/);

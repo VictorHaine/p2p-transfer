@@ -78,7 +78,7 @@ async function main() {
   const options = parseArgs(process.argv.slice(2));
   const token = await githubToken(options);
   const runningInGitHubActions = envString("GITHUB_ACTIONS") === "true";
-  assertReleaseWorkflowTokenClass(token, runningInGitHubActions);
+  const tokenKind = assertReleaseWorkflowTokenClass(token, runningInGitHubActions);
   const releaseActorLogin = runningInGitHubActions ? githubActor() : undefined;
   const failures = [];
 
@@ -88,16 +88,18 @@ async function main() {
   });
 
   let authenticatedLogin;
-  const auth = await collectReadinessValue(failures, () => githubWithHeaders(token, "GET", "/user"));
-  if (auth) {
-    collectReadinessFailureSync(failures, () => {
-      authenticatedLogin = requiredAuthenticatedLogin(auth.data);
-    });
-    collectReadinessFailureSync(failures, () => {
-      assertTokenScopes(auth.headers, runningInGitHubActions);
-    });
+  if (tokenKind !== "installation") {
+    const auth = await collectReadinessValue(failures, () => githubWithHeaders(token, "GET", "/user"));
+    if (auth) {
+      collectReadinessFailureSync(failures, () => {
+        authenticatedLogin = requiredAuthenticatedLogin(auth.data);
+      });
+      collectReadinessFailureSync(failures, () => {
+        assertTokenScopes(auth.headers, runningInGitHubActions);
+      });
+    }
   }
-  if (authenticatedLogin) {
+  if (tokenKind === "installation" || authenticatedLogin) {
     await collectGitHubRepositoryReadiness(failures, token, options.repository, authenticatedLogin, releaseActorLogin);
   }
 
@@ -314,8 +316,9 @@ function assertTokenScopes(headers, runningInGitHubActions = false) {
 }
 
 function assertReleaseWorkflowTokenClass(token, runningInGitHubActions = false) {
-  if (!runningInGitHubActions) return;
-  if (token.startsWith("github_pat_") || token.startsWith("ghs_")) return;
+  if (!runningInGitHubActions) return "user";
+  if (token.startsWith("github_pat_")) return "user";
+  if (token.startsWith("ghs_")) return "installation";
   if (/^gh[opur]_/.test(token)) {
     throw new Error("RELEASE_PREFLIGHT_TOKEN must be a GitHub App installation token or fine-grained PAT; classic, OAuth, refresh, and user tokens are not allowed in the release workflow.");
   }
@@ -431,7 +434,7 @@ function collectNpmEnvironmentReadiness(failures, environment, authenticatedLogi
 function isSelfReviewDeadlockReviewer(reviewer, authenticatedLogin, releaseActorLogin) {
   if (!reviewer) return false;
   const normalized = reviewer.toLowerCase();
-  return normalized === authenticatedLogin.toLowerCase() || (typeof releaseActorLogin === "string" && normalized === releaseActorLogin.toLowerCase());
+  return (typeof authenticatedLogin === "string" && normalized === authenticatedLogin.toLowerCase()) || (typeof releaseActorLogin === "string" && normalized === releaseActorLogin.toLowerCase());
 }
 
 async function assertNpmEnvironmentApproverPermissions(token, repository, environment, authenticatedLogin, releaseActorLogin) {

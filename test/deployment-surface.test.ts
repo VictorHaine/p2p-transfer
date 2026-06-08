@@ -835,7 +835,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /const RELEASE_PREFLIGHT_SECRET = "RELEASE_PREFLIGHT_TOKEN"/);
   assert.match(releaseReadinessScript, /const REQUIRED_SUCCESSFUL_MAIN_WORKFLOWS = \[[\s\S]*\{ file: "codeql\.yml", name: "codeql" \}[\s\S]*\{ file: "scorecard\.yml", name: "scorecard" \}[\s\S]*\{ file: "dependency-integrity\.yml", name: "dependency-integrity" \}[\s\S]*\]/);
   assert.match(releaseReadinessScript, /class ReleaseReadinessFailure extends Error/);
-  assert.match(releaseReadinessScript, /const token = await githubToken\(options\);[\s\S]*const runningInGitHubActions = envString\("GITHUB_ACTIONS"\) === "true";[\s\S]*assertReleaseWorkflowTokenClass\(token, runningInGitHubActions\);[\s\S]*const releaseActorLogin = runningInGitHubActions \? githubActor\(\) : undefined;[\s\S]*const failures = \[\]/);
+  assert.match(releaseReadinessScript, /const token = await githubToken\(options\);[\s\S]*const runningInGitHubActions = envString\("GITHUB_ACTIONS"\) === "true";[\s\S]*const tokenKind = assertReleaseWorkflowTokenClass\(token, runningInGitHubActions\);[\s\S]*const releaseActorLogin = runningInGitHubActions \? githubActor\(\) : undefined;[\s\S]*const failures = \[\]/);
   assert.match(releaseReadinessScript, /function githubActor\(\)/);
   assert.match(releaseReadinessScript, /GITHUB_ACTOR must be a GitHub username in the release workflow\./);
   assert.match(releaseReadinessScript, /await collectReadinessFailure\(failures, async \(\) => \{/);
@@ -845,9 +845,9 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /if \(failures\.length > 0\) throw new ReleaseReadinessFailure\(failures\)/);
   assert.match(releaseReadinessScript, /function readinessErrorMessages\(error\)/);
   assert.match(releaseReadinessScript, /return error\.failures\.map\(\(failure\) => readinessErrorMessage\(failure\)\)/);
-  assert.match(releaseReadinessScript, /const auth = await collectReadinessValue\(failures, \(\) => githubWithHeaders\(token, "GET", "\/user"\)\)/);
+  assert.match(releaseReadinessScript, /if \(tokenKind !== "installation"\) \{[\s\S]*const auth = await collectReadinessValue\(failures, \(\) => githubWithHeaders\(token, "GET", "\/user"\)\)/);
   assert.match(releaseReadinessScript, /collectReadinessFailureSync\(failures, \(\) => \{[\s\S]*assertTokenScopes\(auth\.headers, runningInGitHubActions\)/);
-  assert.match(releaseReadinessScript, /await collectGitHubRepositoryReadiness\(failures, token, options\.repository, authenticatedLogin, releaseActorLogin\)/);
+  assert.match(releaseReadinessScript, /if \(tokenKind === "installation" \|\| authenticatedLogin\) \{[\s\S]*await collectGitHubRepositoryReadiness\(failures, token, options\.repository, authenticatedLogin, releaseActorLogin\)/);
   assert.match(releaseReadinessScript, /const NPM_REGISTRY = "https:\/\/registry\.npmjs\.org"/);
   assert.match(releaseReadinessScript, /const BOOTSTRAP_VERSION = "0\.0\.0-bootstrap\.0"/);
   assert.match(releaseReadinessScript, /const BOOTSTRAP_DIST_TAG = "bootstrap"/);
@@ -898,7 +898,8 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /headers\.get\("x-oauth-scopes"\)/);
   assert.match(releaseReadinessScript, /assertReleaseWorkflowTokenClass\(token, runningInGitHubActions\)/);
   assert.match(releaseReadinessScript, /function assertReleaseWorkflowTokenClass\(token, runningInGitHubActions = false\)/);
-  assert.match(releaseReadinessScript, /token\.startsWith\("github_pat_"\) \|\| token\.startsWith\("ghs_"\)/);
+  assert.match(releaseReadinessScript, /if \(token\.startsWith\("github_pat_"\)\) return "user"/);
+  assert.match(releaseReadinessScript, /if \(token\.startsWith\("ghs_"\)\) return "installation"/);
   assert.match(releaseReadinessScript, /RELEASE_PREFLIGHT_TOKEN must be a GitHub App installation token or fine-grained PAT/);
   assert.match(releaseReadinessScript, /assertTokenScopes\(auth\.headers, runningInGitHubActions\)/);
   assert.match(releaseReadinessScript, /if \(rawScopes === "" && runningInGitHubActions\) return;/);
@@ -989,6 +990,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /GitHub npm environment required reviewers rule has no reviewers\./);
   assert.match(releaseReadinessScript, /GitHub npm environment sole required reviewer is the authenticated release operator or tag pusher/);
   assert.match(releaseReadinessScript, /function isSelfReviewDeadlockReviewer\(reviewer, authenticatedLogin, releaseActorLogin\)/);
+  assert.match(releaseReadinessScript, /typeof authenticatedLogin === "string" && normalized === authenticatedLogin\.toLowerCase\(\)/);
   assert.match(releaseReadinessScript, /function reviewerLogin\(reviewerEntry\)/);
   assert.match(releaseReadinessScript, /realpathSync\(process\.argv\[1\]\) === realpathSync\(fileURLToPath\(import\.meta\.url\)\)/);
   assert.doesNotMatch(releaseReadinessScript, /NPM_TOKEN|NODE_AUTH_TOKEN|npm publish|git tag/);
