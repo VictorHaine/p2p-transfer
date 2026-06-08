@@ -142,6 +142,7 @@ test("CLI send supports non-argv code and file path input", () => {
     assert.match(source, /\.option\("--server-env <name>", "read the signaling server WebSocket URL from an environment variable"\)/);
     assert.match(source, /\.option\("--out <dir>", "output directory"\)/);
     assert.match(source, /\.option\("--out-env <name>", "read the output directory from an environment variable"\)/);
+    assert.match(source, /\.option\("--resume", "resume from chunk-aligned CLI partial files left in the output directory \(macOS\/Linux; disabled on Windows until ACL privacy checks exist\)"\)/);
     assert.match(source, /out: options\.out \?\? process\.cwd\(\)/);
     assert.match(source, /outFromArgv: options\.out !== undefined/);
     assert.doesNotMatch(source, /\.option\("--out <dir>", "output directory", process\.cwd\(\)\)/);

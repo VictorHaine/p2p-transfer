@@ -130,7 +130,7 @@ program
   .option("--out <dir>", "output directory")
   .option("--out-env <name>", "read the output directory from an environment variable")
   .option("-y, --yes", "auto-accept incoming transfers")
-  .option("--resume", "resume from chunk-aligned CLI partial files left in the output directory")
+  .option("--resume", "resume from chunk-aligned CLI partial files left in the output directory (macOS/Linux; disabled on Windows until ACL privacy checks exist)")
   .option("--opaque-output-names", "write received files to opaque ff-<token> names instead of peer-supplied basenames")
   .option("--code <code>", "use a supplied code like 12345678-two-words")
   .option("--code-stdin", "read a supplied receive code from piped stdin")
