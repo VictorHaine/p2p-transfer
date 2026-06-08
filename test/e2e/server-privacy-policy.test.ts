@@ -114,6 +114,39 @@ test("built signaling server rejects no-origin websocket upgrades when origins a
   }
 });
 
+test("built signaling server rate-limits rejected websocket upgrades before origin policy", async () => {
+  const root = process.cwd();
+  const port = 28_700 + randomInt(300);
+  const origin = `http://127.0.0.1:${port}`;
+  const serverUrl = `ws://127.0.0.1:${port}/v1/ws`;
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-server-ws-bad-origin-rate-"));
+  const server = spawn(process.execPath, ["dist-node/server/index.js"], {
+    cwd: root,
+    env: {
+      ...testChildEnv(tmp),
+      PORT: String(port),
+      HOST: "127.0.0.1",
+      NODE_ENV: "production",
+      ALLOWED_ORIGINS: origin,
+      SIGNALING_TOPOLOGY: "single-instance",
+      ALLOW_INSECURE_ORIGINS: "true"
+    }
+  });
+  const serverOutput = collectOutput(server);
+
+  try {
+    await waitForOutput(server, /listening/);
+    for (let index = 0; index < SIGNALING_MAX_CONNECTION_ATTEMPTS_PER_MINUTE; index += 1) {
+      await assert.rejects(() => connectWs(serverUrl, "https://evil.example"), /Unexpected server response|Server sent no subprotocol|Timed out connecting WebSocket/);
+    }
+    await assert.rejects(() => connectWs(serverUrl, origin), /Unexpected server response|Server sent no subprotocol|Timed out connecting WebSocket/);
+  } finally {
+    server.kill();
+    await serverOutput.done;
+    await removeTestTemp(tmp);
+  }
+});
+
 test("built signaling server rate-limits unauthenticated static requests before disk work", async () => {
   const root = process.cwd();
   const port = 29_000 + randomInt(1_000);

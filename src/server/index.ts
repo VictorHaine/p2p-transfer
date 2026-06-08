@@ -150,10 +150,11 @@ const server = http.createServer((req, res) => {
 applyHttpServerHardening(server);
 
 const verifyOrigin: VerifyClientCallbackSync = ({ req }) => {
+  if (!hitWebSocketConnectionRateLimit(req)) return false;
   const authority = requestHostAuthority(req);
   if (authority === null || requestBaseUrl(req) === null) return false;
   const origin = requestOriginHeader(req);
-  return origin !== undefined && origin !== null && originAllowedForRequest(origin, allowedOrigins, authority) && hitWebSocketConnectionRateLimit(req);
+  return origin !== undefined && origin !== null && originAllowedForRequest(origin, allowedOrigins, authority);
 };
 
 const wss = new WebSocketServer({

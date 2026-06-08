@@ -141,13 +141,14 @@ test("websocket peers are heartbeat-terminated to release stale capacity", () =>
 test("unauthenticated server surfaces rate-limit connection churn and static HTTP work", () => {
   assert.equal(SIGNALING_MAX_CONNECTION_ATTEMPTS_PER_MINUTE, 120);
   assert.equal(STATIC_MAX_REQUESTS_PER_MINUTE, 300);
-  assert.match(securityPolicy, /WebSocket upgrade attempts must hit a per-IP fixed-window limiter before connection state is accepted/);
+  assert.match(securityPolicy, /WebSocket upgrade attempts, including malformed or disallowed `Host`\/`Origin` attempts, must hit a per-IP fixed-window limiter before origin policy checks or connection state acceptance/);
   assert.match(securityPolicy, /unauthenticated static and JSON control-plane HTTP requests, including `\/healthz` and `\/v1\/version`, must hit a per-IP fixed-window limiter before static path resolution, file reads, or control response generation/);
   assert.match(serverSource, /const staticHttpRateLimits = new Map<string, number\[\]>\(\)/);
   assert.match(serverSource, /const websocketConnectionRateLimits = new Map<string, number\[\]>\(\)/);
   assert.match(serverSource, /if \(\(url\.pathname === "\/healthz" \|\| url\.pathname === "\/v1\/version"\) && !hitStaticHttpRateLimit\(req\)\) \{[\s\S]*return json\(res, 429, \{ error: "rate_limited" \}, cors\);[\s\S]*\}/);
   assert.match(serverSource, /if \(!hitStaticHttpRateLimit\(req\)\) return json\(res, 429, \{ error: "rate_limited" \}, cors\);[\s\S]*serveStatic\(url\.pathname, res\)/);
-  assert.match(serverSource, /origin !== undefined && origin !== null && originAllowedForRequest\(origin, allowedOrigins, authority\) && hitWebSocketConnectionRateLimit\(req\)/);
+  assert.match(serverSource, /const verifyOrigin: VerifyClientCallbackSync = \(\{ req \}\) => \{[\s\S]*if \(!hitWebSocketConnectionRateLimit\(req\)\) return false;[\s\S]*const authority = requestHostAuthority\(req\)/);
+  assert.doesNotMatch(serverSource, /originAllowedForRequest\(origin, allowedOrigins, authority\) && hitWebSocketConnectionRateLimit\(req\)/);
   assert.match(serverSource, /hitFixedWindowRateLimit\(staticHttpRateLimits, requestIp\(req\), Date\.now\(\), 60_000, STATIC_MAX_REQUESTS_PER_MINUTE\)/);
   assert.match(serverSource, /hitFixedWindowRateLimit\(websocketConnectionRateLimits, requestIp\(req\), Date\.now\(\), 60_000, SIGNALING_MAX_CONNECTION_ATTEMPTS_PER_MINUTE\)/);
   assert.match(serverSource, /pruneFixedWindowRateLimits\(staticHttpRateLimits, now, 60_000\)/);
