@@ -14,7 +14,7 @@ test("receivers restore the code on invalid encrypted pair requests before accep
 });
 
 test("receivers treat malformed PAKE payloads as pre-pair retry attempts", () => {
-  assert.match(securityPolicy, /malformed PAKE payloads before pair acceptance must restore or expire the receiver code/);
+  assert.match(securityPolicy, /malformed PAKE payload or invalid sender flow before pair acceptance must expire the receiver code instead of allowing another online guess/);
   for (const source of [cliSource, webSource]) {
     assert.match(source, /function isPrePairRetryable[\s\S]*invalid PAKE/);
   }

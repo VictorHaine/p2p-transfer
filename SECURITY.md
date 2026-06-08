@@ -55,7 +55,7 @@ The project is expected to preserve these invariants:
 - signaling frame serialization must reject non-finite numbers instead of silently rewriting them to `null`, because malformed protocol state should fail closed before it reaches the WebSocket
 - exported signaling JSON parsers must reject non-string direct inputs before length, byte-length, JSON parsing, or string-like coercion
 - signaling text-frame parsing must reject non-canonical binary frames before byte-length reads or UTF-8 decode so exported parsers cannot execute typed-array-subclass accessors
-- sender claims of a receiver rendezvous must consume the pre-pair attempt budget before the receiver is moved into a paired session; malformed PAKE payloads before pair acceptance must restore or expire the receiver code, not strand the receive flow
+- sender claims of a receiver rendezvous must consume the strict one-shot pre-pair attempt budget before the receiver is moved into a paired session; any malformed PAKE payload or invalid sender flow before pair acceptance must expire the receiver code instead of allowing another online guess, and must not strand the receive flow
 - pre-pair attempt helpers must reject malformed, unsafe, and over-budget runtime counters before decrementing or deciding receiver restoration
 - invalid sender signaling before pair acceptance must restore or expire the receiver code immediately instead of stranding the receiver until session timeout
 - raw PAKE/HKDF output buffers and WebCrypto input copies of keys, nonces, AAD, plaintext, or ciphertext must be wiped after deriving imported keys or running AEAD operations; retained session keys must be explicit copies

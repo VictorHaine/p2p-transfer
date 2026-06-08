@@ -15,6 +15,9 @@ const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url
 test("pre-pair attempt budget is consumed before receiver restoration", () => {
   let remaining = initialPrePairAttempts();
   assert.equal(remaining, RECEIVER_MAX_PREPAIR_ATTEMPTS);
+  assert.equal(RECEIVER_MAX_PREPAIR_ATTEMPTS, 1);
+  assert.match(securityPolicy, /strict one-shot pre-pair attempt budget/);
+  assert.match(securityPolicy, /must expire the receiver code instead of allowing another online guess/);
 
   for (let attempt = 1; attempt <= RECEIVER_MAX_PREPAIR_ATTEMPTS; attempt += 1) {
     assert.equal(canRestorePrePairCode(remaining), true);

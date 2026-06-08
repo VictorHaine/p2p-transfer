@@ -621,6 +621,7 @@ function restoreWaitingReceiver(session: Session, reason: string, notifyReceiver
 
 function expireReceiverAfterPrePairAttempts(session: Session, existing?: WaitingCode): void {
   if (existing) codes.delete(existing.code);
+  notifyPeerLeft(session, session.sender, "too many invalid pairing attempts");
   clearPeerSessionState(session.sender);
   clearPeerSessionState(session.receiver);
   fail(session.receiver, "expired", "Receive code expired after too many invalid pairing attempts.");
