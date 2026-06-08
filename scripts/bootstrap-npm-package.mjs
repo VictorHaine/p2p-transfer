@@ -406,7 +406,7 @@ function isAbortError(error) {
   return error instanceof Error && error.name === "AbortError";
 }
 
-function bootstrapErrorMessage(error) {
+export function bootstrapErrorMessage(error) {
   if (!(error instanceof Error) || typeof error.message !== "string" || error.message.length < 1 || error.message.length > 4096 || /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u.test(error.message)) {
     return "npm bootstrap failed with an internal error.";
   }
@@ -414,8 +414,9 @@ function bootstrapErrorMessage(error) {
   return error.message;
 }
 
-function containsPathLikeText(value) {
-  return /(^|[\s("'=])(?:\/|[A-Za-z]:[\\/])/.test(value);
+export function containsPathLikeText(value) {
+  if (typeof value !== "string") return true;
+  return /(^|[\s("'=])(?:file:\/\/|\/|[A-Za-z]:[\\/]|\\\\(?:\?\\)?[^\\/\s]+[\\/])/i.test(value);
 }
 
 function utf8ByteLengthExceeds(value, maxBytes) {

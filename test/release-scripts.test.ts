@@ -2367,6 +2367,30 @@ globalThis.fetch = async (url, init = {}) => {
   }
 });
 
+test("npm bootstrap top-level redactor catches URL and UNC path evidence", async () => {
+  const { bootstrapErrorMessage, containsPathLikeText } = await import(`../scripts/bootstrap-npm-package.mjs?bootstrap-redactor=${Date.now()}`);
+  for (const message of [
+    "failed at /Users/victor/.npmrc",
+    "failed at C:\\Users\\victor\\.npmrc",
+    "failed at file:///Users/victor/.npmrc",
+    "failed at \\\\server\\share\\secret\\.npmrc",
+    "failed at \\\\?\\C:\\Users\\victor\\.npmrc"
+  ]) {
+    assert.equal(bootstrapErrorMessage(new Error(message)), "npm bootstrap failed with path-sensitive evidence.");
+  }
+  let coerced = false;
+  assert.equal(
+    containsPathLikeText({
+      toString() {
+        coerced = true;
+        return "/Users/victor/.npmrc";
+      }
+    }),
+    true
+  );
+  assert.equal(coerced, false);
+});
+
 test("npm bootstrap script verifies the persisted bootstrap version and dist-tag after publish", async () => {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-npm-bootstrap-verify-"));
   const mock = path.join(tmp, "mock-npm-bootstrap-verify-fetch.mjs");
