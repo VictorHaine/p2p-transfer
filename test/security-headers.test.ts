@@ -61,7 +61,7 @@ test("static HTML detection applies CSP to every html response", () => {
 });
 
 test("security headers include transport and cross-origin isolation guardrails", () => {
-  assert.match(securityPolicy, /browser security headers must keep no-referrer, HSTS, frame denial, MIME sniffing denial, COOP, COEP, CORP, Origin-Agent-Cluster, and a locked-down Permissions-Policy/);
+  assert.match(securityPolicy, /browser security headers must keep no-referrer, HSTS, frame denial, MIME sniffing denial, download-open denial, cross-domain policy denial, COOP, COEP, CORP, Origin-Agent-Cluster, and a deny-by-default Permissions-Policy/);
   const headers = securityHeaders(true);
   assert.equal(headers["strict-transport-security"], "max-age=63072000; includeSubDomains; preload");
   assert.equal(headers["cross-origin-opener-policy"], "same-origin");
@@ -69,9 +69,43 @@ test("security headers include transport and cross-origin isolation guardrails",
   assert.equal(headers["cross-origin-resource-policy"], "same-origin");
   assert.equal(headers["origin-agent-cluster"], "?1");
   assert.equal(headers["x-content-type-options"], "nosniff");
+  assert.equal(headers["x-download-options"], "noopen");
+  assert.equal(headers["x-permitted-cross-domain-policies"], "none");
   assert.equal(headers["referrer-policy"], "no-referrer");
   assert.equal(headers["x-frame-options"], "DENY");
-  assert.equal(headers["permissions-policy"], "camera=(), microphone=(), geolocation=(), payment=(), usb=()");
+  const permissions = new Set((headers["permissions-policy"] ?? "").split(",").map((entry) => entry.trim()));
+  assert.deepEqual(permissions, new Set([
+    "accelerometer=()",
+    "ambient-light-sensor=()",
+    "autoplay=()",
+    "bluetooth=()",
+    "browsing-topics=()",
+    "camera=()",
+    "display-capture=()",
+    "encrypted-media=()",
+    "fullscreen=()",
+    "gamepad=()",
+    "geolocation=()",
+    "gyroscope=()",
+    "hid=()",
+    "identity-credentials-get=()",
+    "idle-detection=()",
+    "local-fonts=()",
+    "magnetometer=()",
+    "microphone=()",
+    "midi=()",
+    "otp-credentials=()",
+    "payment=()",
+    "picture-in-picture=()",
+    "publickey-credentials-create=()",
+    "publickey-credentials-get=()",
+    "screen-wake-lock=()",
+    "serial=()",
+    "speaker-selection=()",
+    "usb=()",
+    "web-share=()",
+    "xr-spatial-tracking=()"
+  ]));
   assert.deepEqual(distSecurityHeaders(true), headers);
 });
 

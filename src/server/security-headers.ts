@@ -4,12 +4,46 @@ export type SecurityHeaderOptions = {
 };
 
 const LOOPBACK_WS_SOURCES = ["ws://localhost:*", "ws://127.0.0.1:*", "ws://[::1]:*"];
+const PERMISSIONS_POLICY = [
+  "accelerometer=()",
+  "ambient-light-sensor=()",
+  "autoplay=()",
+  "bluetooth=()",
+  "browsing-topics=()",
+  "camera=()",
+  "display-capture=()",
+  "encrypted-media=()",
+  "fullscreen=()",
+  "gamepad=()",
+  "geolocation=()",
+  "gyroscope=()",
+  "hid=()",
+  "identity-credentials-get=()",
+  "idle-detection=()",
+  "local-fonts=()",
+  "magnetometer=()",
+  "microphone=()",
+  "midi=()",
+  "otp-credentials=()",
+  "payment=()",
+  "picture-in-picture=()",
+  "publickey-credentials-create=()",
+  "publickey-credentials-get=()",
+  "screen-wake-lock=()",
+  "serial=()",
+  "speaker-selection=()",
+  "usb=()",
+  "web-share=()",
+  "xr-spatial-tracking=()"
+].join(", ");
 
 export function securityHeaders(html: boolean, options: SecurityHeaderOptions = {}): Record<string, string> {
   const safeOptions = securityHeaderOptions(options);
   const connectSrc = ["'self'", ...(safeOptions.allowAnyWss ? ["wss:"] : []), ...(safeOptions.allowLoopbackWs ? LOOPBACK_WS_SOURCES : [])].join(" ");
   return {
     "x-content-type-options": "nosniff",
+    "x-download-options": "noopen",
+    "x-permitted-cross-domain-policies": "none",
     "referrer-policy": "no-referrer",
     "x-frame-options": "DENY",
     "strict-transport-security": "max-age=63072000; includeSubDomains; preload",
@@ -17,7 +51,7 @@ export function securityHeaders(html: boolean, options: SecurityHeaderOptions = 
     "cross-origin-embedder-policy": "require-corp",
     "cross-origin-resource-policy": "same-origin",
     "origin-agent-cluster": "?1",
-    "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+    "permissions-policy": PERMISSIONS_POLICY,
     ...(html === true
       ? {
           "content-security-policy":
