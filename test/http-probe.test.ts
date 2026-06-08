@@ -1,11 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { optionalOrigin, probeErrorMessage, readBoundedResponseText, requiredUrl } from "../scripts/probe-http.mjs";
 
 const execFileAsync = promisify(execFile);
-const probeScript = new URL("../scripts/probe-http.mjs", import.meta.url);
+const probeScript = fileURLToPath(new URL("../scripts/probe-http.mjs", import.meta.url));
 
 test("HTTP probe reports invalid URLs with probe-owned errors", async () => {
   const result = await runProbe({
@@ -95,7 +96,7 @@ test("HTTP probe accepts bounded successful responses", async () => {
 
 async function runProbe(env: Record<string, string>): Promise<{ code: number; stdout: string; stderr: string }> {
   try {
-    const result = await execFileAsync(process.execPath, [probeScript.pathname], {
+    const result = await execFileAsync(process.execPath, [probeScript], {
       env: { ...process.env, ...env },
       timeout: 10_000,
       encoding: "utf8",
