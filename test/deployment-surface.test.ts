@@ -843,12 +843,13 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(readme, /gh auth refresh -h github\.com -s workflow/);
   assert.doesNotMatch(readme, /DOCKER_SMOKE_TAG=p2p-transfer:test pnpm verify:release:docker\nnode scripts\/write-release-notes\.mjs --check/);
   assert.match(readme, /First remote bootstrap:[\s\S]*gh auth refresh -h github\.com -s workflow\ngit push -u origin main/);
-  assert.match(readme, /git fetch origin main\ngit checkout main\ngit pull --ff-only origin main\ngh auth token \| pnpm release:preflight --token-stdin\ngit tag v0\.1\.0 HEAD/);
+  assert.match(readme, /git fetch origin main\ngit checkout main\ngit pull --ff-only origin main\ngh auth token \| pnpm release:preflight --token-stdin\ngit tag -s -m v0\.1\.0 v0\.1\.0 HEAD/);
   assert.match(readme, /`main` must exist remotely before `pnpm release:preflight` can pass/);
   assert.match(readme, /The first push needs a GitHub token with `workflow` scope because this repository ships GitHub Actions workflow files/);
   assert.match(readme, /Once those controls are active, do not direct-push release changes to `main`/);
   assert.match(readme, /For normal releases, update local `main` to the exact current `origin\/main` commit after the protected pull request has merged, then run release preflight from that checked-out commit/);
   assert.match(readme, /Local preflight refuses unsigned `HEAD` and dirty worktrees before package or network work, and it refuses to pass if that local `HEAD` differs from GitHub's current `main` branch response/);
+  assert.match(readme, /configure `user\.signingkey` to the public key file or literal public key, not the private key path/);
   assert.doesNotMatch(readme, /git push -u origin main\nGITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
   assert.match(readme, /the exact repository rulesets that release preflight requires for `main` and `v\*\.\*\.\*` release tags/);
   assert.match(readme, /checked release-control setup enables it with the GitHub `private-vulnerability-reporting` endpoint/);
@@ -1532,6 +1533,7 @@ test("server deployment policy requires an explicit in-memory signaling topology
   assert.match(releaseRunbook, /git fetch origin main\n   git checkout main\n   git pull --ff-only origin main\n   gh auth token \| pnpm release:preflight --token-stdin/);
   assert.match(releaseRunbook, /Local preflight refuses unsigned `HEAD` and dirty worktrees before package or network work, then compares that local `HEAD` with GitHub's current `main` branch response/);
   assert.match(releaseRunbook, /git tag -s -m v0\.1\.0 v0\.1\.0 HEAD/);
+  assert.match(releaseRunbook, /configure `user\.signingkey` to the public key file or literal public key, not the private key path/);
   assert.match(releaseRunbook, /publish npm, verify npm registry metadata, publish GHCR, provenance, checksums, SBOM, and the GitHub Release/);
   assert.match(readme, /Use the released package after the first npm publish:[\s\S]*pnpm add -g @victorhaine\/p2p-transfer[\s\S]*ff recv[\s\S]*ff send --code-stdin --files-stdin/);
   assert.match(readme, /Run the packaged server:[\s\S]*ff-server/);

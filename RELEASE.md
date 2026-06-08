@@ -65,6 +65,8 @@ This project releases only from protected `main` with a matching `v*.*.*` tag. D
    git push origin v0.1.0
    ```
 
+   When using SSH commit or tag signing, configure `user.signingkey` to the public key file or literal public key, not the private key path; some signing helpers echo invalid key material in errors.
+
 4. Let the GitHub release workflow publish npm, verify npm registry metadata, publish GHCR, provenance, checksums, SBOM, and the GitHub Release. Do not run `pnpm publish` manually; `prepublishOnly` blocks direct publishes by design.
 
 ## Current External Blockers
