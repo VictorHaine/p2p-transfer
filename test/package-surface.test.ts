@@ -618,11 +618,14 @@ test("packed package smoke installs and executes published bins", () => {
 
 test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.match(securityPolicy, /CI platform smoke must also install the packed tarball into a fresh consumer project/);
+  assert.match(securityPolicy, /CI must also run platform smoke on floating `22\.x` and `24\.x` latest-patch selectors/);
   assert.match(ciWorkflow, /pull_request:/);
   assert.match(ciWorkflow, /branches:\n\s+- main/);
   assert.match(ciWorkflow, /node-version: \$\{\{ matrix\.node \}\}/);
   assert.match(ciWorkflow, /- 22\.22\.3/);
+  assert.match(ciWorkflow, /- 22\.x/);
   assert.match(ciWorkflow, /- 24\.13\.1/);
+  assert.match(ciWorkflow, /- 24\.x/);
   assert.match(ciWorkflow, /pnpm install --frozen-lockfile/);
   assert.match(ciWorkflow, /pnpm check:install-state/);
   assert.match(ciWorkflow, /pnpm security:dependencies/);

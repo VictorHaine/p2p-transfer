@@ -58,7 +58,7 @@ const tsconfig = JSON.parse(fs.readFileSync(new URL("../tsconfig.json", import.m
 };
 const packageJson = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")) as PackageJson;
 const PINNED_NODE_VERSION = "22.22.3";
-const PLATFORM_SMOKE_NODE_VERSIONS = ["22.22.3", "24.13.1"];
+const PLATFORM_SMOKE_NODE_VERSIONS = ["22.22.3", "22.x", "24.13.1", "24.x"];
 const PINNED_NODE_IMAGE = `${PINNED_NODE_VERSION}-bookworm-slim`;
 const PINNED_NODE_IMAGE_DIGEST = "6ed70fbf60557fb3a2faea5657d4105bace34c93449c2571919a1589fae30153";
 const PINNED_NODE_IMAGE_REF = `node:${PINNED_NODE_IMAGE}@sha256:${PINNED_NODE_IMAGE_DIGEST}`;
@@ -194,7 +194,7 @@ test("package runtime range is bounded to tested Node majors", () => {
   assert.match(readme, /Node\.js 23 is intentionally unsupported/);
   assert.doesNotMatch(readme, /Node\.js 22\.22\.3 or newer, before Node\.js 25/);
   const platformSmokeJob = ciWorkflow.slice(ciWorkflow.indexOf("  platform-smoke:"));
-  assert.match(platformSmokeJob, /node:\n\s+- 22\.22\.3\n\s+- 24\.13\.1/);
+  assert.match(platformSmokeJob, /node:\n\s+- 22\.22\.3\n\s+- 22\.x\n\s+- 24\.13\.1\n\s+- 24\.x/);
   assert.match(platformSmokeJob, /node-version: \$\{\{ matrix\.node \}\}/);
   for (const version of PLATFORM_SMOKE_NODE_VERSIONS) {
     assert.match(platformSmokeJob, new RegExp(`- ${escapeRegExp(version)}`));
@@ -629,15 +629,25 @@ test("checked GitHub release controls setup matches the protected release surfac
     "dependency review",
     "production docker policy",
     "platform smoke / ubuntu-24.04 / node 22.22.3",
+    "platform smoke / ubuntu-24.04 / node 22.x",
     "platform smoke / ubuntu-24.04 / node 24.13.1",
+    "platform smoke / ubuntu-24.04 / node 24.x",
     "platform smoke / ubuntu-24.04-arm / node 22.22.3",
+    "platform smoke / ubuntu-24.04-arm / node 22.x",
     "platform smoke / ubuntu-24.04-arm / node 24.13.1",
+    "platform smoke / ubuntu-24.04-arm / node 24.x",
     "platform smoke / macos-15 / node 22.22.3",
+    "platform smoke / macos-15 / node 22.x",
     "platform smoke / macos-15 / node 24.13.1",
+    "platform smoke / macos-15 / node 24.x",
     "platform smoke / macos-15-intel / node 22.22.3",
+    "platform smoke / macos-15-intel / node 22.x",
     "platform smoke / macos-15-intel / node 24.13.1",
+    "platform smoke / macos-15-intel / node 24.x",
     "platform smoke / windows-2025 / node 22.22.3",
-    "platform smoke / windows-2025 / node 24.13.1"
+    "platform smoke / windows-2025 / node 22.x",
+    "platform smoke / windows-2025 / node 24.13.1",
+    "platform smoke / windows-2025 / node 24.x"
   ]) {
     assert.match(githubReleaseControlsScript, new RegExp(escapeRegExp(`"${check}"`)));
   }
