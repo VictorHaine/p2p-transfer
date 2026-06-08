@@ -56,7 +56,7 @@ This project releases only from protected `main` with a matching `v*.*.*` tag. D
    gh auth token | pnpm release:preflight --token-stdin
    ```
 
-   Local preflight refuses unsigned `HEAD` before package or network work, then compares that local `HEAD` with GitHub's current `main` branch response. Do not tag from a different checkout than the one that passed preflight.
+   Local preflight refuses unsigned `HEAD` and dirty worktrees before package or network work, then compares that local `HEAD` with GitHub's current `main` branch response. Do not tag from a different checkout than the one that passed preflight.
 
 3. Create and push the matching release tag from that preflighted `HEAD` only after preflight is clean:
 

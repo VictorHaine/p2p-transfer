@@ -3724,6 +3724,55 @@ globalThis.fetch = async (url, init = {}) => {
   }
 });
 
+test("release preflight rejects dirty local worktrees before package or network work", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-preflight-dirty-"));
+  const mock = path.join(tmp, "mock-release-preflight-dirty-fetch.mjs");
+  const log = path.join(tmp, "requests.log");
+  try {
+    const git = await fakeReleaseGit(tmp, 0, RELEASE_TEST_SHA, " M package.json\\n?? local-secret.txt\\n");
+    await fs.writeFile(
+      mock,
+      `
+import { appendFileSync } from "node:fs";
+
+const log = process.env.FF_MOCK_PREFLIGHT_DIRTY_LOG;
+
+globalThis.fetch = async (url, init = {}) => {
+  const parsed = new URL(url);
+  appendFileSync(log, (init.method ?? "GET") + " " + parsed.origin + parsed.pathname + "\\n", "utf8");
+  return new Response(JSON.stringify({ message: "unexpected network" }), { status: 500, headers: { "content-type": "application/json" } });
+};
+`,
+      "utf8"
+    );
+
+    const result = runScriptWithNodeArgs(
+      "scripts/check-release-readiness.mjs",
+      {
+        ...git.env,
+        FF_MOCK_PREFLIGHT_DIRTY_LOG: log,
+        GITHUB_TOKEN: "token-that-must-not-be-printed"
+      },
+      [],
+      ["--import", mock]
+    );
+    const requests = await fs.readFile(log, "utf8").catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return "";
+      throw error;
+    });
+    const gitRequests = await fs.readFile(git.log, "utf8");
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Release readiness check failed:\n- Local release preflight must run from a clean worktree before tagging\./);
+    assert.doesNotMatch(result.stderr, /token-that-must-not-be-printed|package\.json|local-secret|unexpected network|api\.github|registry\.npmjs|Error:/);
+    assert.equal(requests, "");
+    assert.equal(gitRequests, `rev-parse --verify HEAD^{commit}\nverify-commit ${RELEASE_TEST_SHA}\nstatus --porcelain=v1 --untracked-files=normal\n`);
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
 test("release preflight rejects local release targets that differ from remote main", async () => {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-preflight-main-drift-"));
   const mock = path.join(tmp, "mock-release-preflight-main-drift-fetch.mjs");
@@ -5045,7 +5094,7 @@ function releaseTagEnv(tag: string): Record<string, string> {
   return { GITHUB_REF_NAME: tag, GITHUB_REF_TYPE: "tag", GITHUB_REF: `refs/tags/${tag}`, GITHUB_SHA: RELEASE_TEST_SHA, GITHUB_ACTIONS: "true", GITHUB_RUN_ID: "12345" };
 }
 
-async function fakeReleaseGit(tmp: string, status = 0, headSha = RELEASE_TEST_SHA) {
+async function fakeReleaseGit(tmp: string, status = 0, headSha = RELEASE_TEST_SHA, statusOutput = "") {
   const bin = path.join(tmp, "git-bin");
   const log = path.join(tmp, "git.log");
   await fs.mkdir(bin);
@@ -5059,6 +5108,10 @@ const args = process.argv.slice(2);
 appendFileSync(${JSON.stringify(log)}, args.join(" ") + "\\n", "utf8");
 if (args.length === 3 && args[0] === "rev-parse" && args[1] === "--verify" && args[2] === "HEAD^{commit}") {
   console.log(${JSON.stringify(headSha)});
+  process.exit(0);
+}
+if (args.length === 3 && args[0] === "status" && args[1] === "--porcelain=v1" && args[2] === "--untracked-files=normal") {
+  process.stdout.write(${JSON.stringify(statusOutput)});
   process.exit(0);
 }
 if (args.length !== 2 || args[0] !== "verify-commit" || args[1] !== ${JSON.stringify(headSha)}) process.exit(2);

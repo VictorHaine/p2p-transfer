@@ -97,6 +97,7 @@ async function main() {
   const tokenKind = assertReleaseWorkflowTokenClass(token, runningInGitHubActions);
   const releaseActorLogin = runningInGitHubActions ? githubActor() : undefined;
   const localHeadSha = runningInGitHubActions ? undefined : await assertLocalReleaseCommitSigned();
+  if (!runningInGitHubActions) await assertLocalReleaseWorktreeClean();
   const failures = [];
 
   await collectReadinessFailure(failures, async () => {
@@ -243,6 +244,11 @@ async function localHeadSha() {
   const value = output.trim();
   if (!/^[0-9a-f]{40}$/.test(value)) throw new Error("release target commit could not be resolved.");
   return value;
+}
+
+async function assertLocalReleaseWorktreeClean() {
+  const output = await runGitOutput(["status", "--porcelain=v1", "--untracked-files=normal"], "release worktree status could not be checked.");
+  if (output.trim().length > 0) throw new Error("Local release preflight must run from a clean worktree before tagging.");
 }
 
 function runGit(args, failureMessage, options = {}) {
