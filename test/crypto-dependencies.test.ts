@@ -46,9 +46,9 @@ test("CLI dependency file attestation hashes bounded no-follow package files", a
     const evidence = packageEvidenceFromResolvedFile(resolvedFile);
     const digest = createHash("sha256").update(content).digest("hex");
     assert.equal(sha256FileEvidenceFromResolvedFile(resolvedFile), digest);
-    assert.doesNotThrow(() => assertReviewedDependencyFileEvidence(resolvedFile, evidence, { name: "@scope/pkg", version: "1.2.3", resolvedFile: "dist/index.js", resolvedFileSha256: digest }));
-    assert.throws(() => assertReviewedDependencyFileEvidence(resolvedFile, evidence, { name: "@scope/pkg", version: "1.2.3", resolvedFile: "dist/index.js", resolvedFileSha256: "0".repeat(64) }), /file changed/);
-    assert.throws(() => assertReviewedDependencyFileEvidence(resolvedFile, evidence, { name: "@scope/pkg", version: "1.2.3", resolvedFile: "dist/other.js", resolvedFileSha256: digest }), /file changed/);
+    assert.doesNotThrow(() => assertReviewedDependencyFileEvidence(evidence, { name: "@scope/pkg", version: "1.2.3", resolvedFiles: { "dist/index.js": digest } }));
+    assert.throws(() => assertReviewedDependencyFileEvidence(evidence, { name: "@scope/pkg", version: "1.2.3", resolvedFiles: { "dist/index.js": "0".repeat(64) } }), /file changed/);
+    assert.throws(() => assertReviewedDependencyFileEvidence(evidence, { name: "@scope/pkg", version: "1.2.3", resolvedFiles: { "../index.js": digest } }), /file changed/);
 
     await writeFile(resolvedFile, "");
     assert.throws(() => sha256FileEvidenceFromResolvedFile(resolvedFile), /Dependency package file is invalid\./);
