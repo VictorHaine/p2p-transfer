@@ -42,6 +42,16 @@ test("direct workspace publish guard fails closed", () => {
   assert.doesNotMatch(result.stderr, /Error:|at file:|\/scripts\/guard-direct-publish\.mjs/);
 });
 
+test("direct workspace publish guard rejects unsupported arguments without echoing them", () => {
+  const result = runScript("scripts/guard-direct-publish.mjs", {}, ["--publish-anyway", "secret-code"]);
+
+  assert.notEqual(result.status, 0);
+  assert.equal(result.stdout, "");
+  assert.match(result.stderr, /Direct workspace publishing is disabled\./);
+  assert.match(result.stderr, /Usage: node scripts\/guard-direct-publish\.mjs/);
+  assert.doesNotMatch(result.stderr, /publish-anyway|secret-code|Error:|at file:/);
+});
+
 test("release artifact smoke owns invalid temporary filesystem failures", async () => {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-artifact-smoke-path-"));
   const missingTempRoot = path.join(tmp, "missing-root");
@@ -869,6 +879,7 @@ test("release helper imports have no privileged side effects", () => {
       [
         `await import(${JSON.stringify(pathToFileURL(path.join(root, "scripts", "publish-docker-image.mjs")).href)});`,
         `await import(${JSON.stringify(pathToFileURL(path.join(root, "scripts", "prepare-checked-pnpm.mjs")).href)});`,
+        `await import(${JSON.stringify(pathToFileURL(path.join(root, "scripts", "guard-direct-publish.mjs")).href)});`,
         `await import(${JSON.stringify(pathToFileURL(path.join(root, "scripts", "write-release-sbom.mjs")).href)});`,
         `await import(${JSON.stringify(pathToFileURL(path.join(root, "scripts", "write-release-checksum.mjs")).href)});`,
         `await import(${JSON.stringify(pathToFileURL(path.join(root, "scripts", "write-release-notes.mjs")).href)});`

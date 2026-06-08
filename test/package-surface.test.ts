@@ -264,6 +264,9 @@ test("package publishing config keeps provenance and reproducible dependency pin
   assert.match(securityPolicy, /direct workspace `pnpm publish`\/`npm publish` must fail closed through `prepublishOnly`/);
   assert.match(directPublishGuardScript, /Direct workspace publishing is disabled\./);
   assert.match(directPublishGuardScript, /Use the tag-only GitHub release workflow/);
+  assert.match(directPublishGuardScript, /realpathSync\(process\.argv\[1\]\) === realpathSync\(fileURLToPath\(import\.meta\.url\)\)/);
+  assert.match(directPublishGuardScript, /function assertNoArgs\(args\)/);
+  assert.doesNotMatch(directPublishGuardScript, /process\.exit\(/);
   assert.match(securityPolicy, /installed direct dependency tree does not match the exact `package\.json` pins or when `node_modules\/\.pnpm\/lock\.yaml` diverges from `pnpm-lock\.yaml`/);
   assert.match(securityPolicy, /installed-state verification must validate direct dependency names and package pins before installed package reads, check both installed direct package identity and installed direct package version against `package\.json` pins before accepting the local dependency tree, and mismatch output must not echo raw workspace paths, raw filesystem errors, stack traces, or installed package metadata/);
   assert.match(securityPolicy, /installed-state verification must resolve the project root from the checked script location, use a symlink-safe realpath entrypoint check, avoid filesystem verification side effects when imported, and use verifier-owned top-level failure reporting/);
