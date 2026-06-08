@@ -1,5 +1,5 @@
 {
-  "protocolVersion": 9,
+  "protocolVersion": 10,
   "chunkFrames": [
     {
       "name": "basic bulk chunk frame",
@@ -112,9 +112,9 @@
         "type": "register",
         "role": "receiver",
         "code": "12345678",
-        "protocolVersion": 9
+        "protocolVersion": 10
       },
-      "json": "{\"type\":\"register\",\"role\":\"receiver\",\"code\":\"12345678\",\"protocolVersion\":9}"
+      "json": "{\"type\":\"register\",\"role\":\"receiver\",\"code\":\"12345678\",\"protocolVersion\":10}"
     },
     {
       "name": "receiver register 12-digit",
@@ -123,9 +123,9 @@
         "type": "register",
         "role": "receiver",
         "code": "123456789012",
-        "protocolVersion": 9
+        "protocolVersion": 10
       },
-      "json": "{\"type\":\"register\",\"role\":\"receiver\",\"code\":\"123456789012\",\"protocolVersion\":9}"
+      "json": "{\"type\":\"register\",\"role\":\"receiver\",\"code\":\"123456789012\",\"protocolVersion\":10}"
     },
     {
       "name": "sender connect 12-digit",
@@ -134,9 +134,9 @@
         "type": "connect",
         "role": "sender",
         "code": "123456789012",
-        "protocolVersion": 9
+        "protocolVersion": 10
       },
-      "json": "{\"type\":\"connect\",\"role\":\"sender\",\"code\":\"123456789012\",\"protocolVersion\":9}"
+      "json": "{\"type\":\"connect\",\"role\":\"sender\",\"code\":\"123456789012\",\"protocolVersion\":10}"
     },
     {
       "name": "sender pair request",
@@ -814,14 +814,14 @@
       "keyHex": "1111111111111111111111111111111111111111111111111111111111111111",
       "sid": "sid-fixture",
       "fromRole": "sender",
-      "tagBase64": "yknNN3T0i66alYPyjtYdDnupR/iy1SVoTIOLRuBw2p4="
+      "tagBase64": "zxXihRaX2HRENLbrbHfFmveKIYgQK+WzW5zgnL44/6Q="
     },
     {
       "name": "receiver session confirmation",
       "keyHex": "1111111111111111111111111111111111111111111111111111111111111111",
       "sid": "sid-fixture",
       "fromRole": "receiver",
-      "tagBase64": "GMHKdA42I+yELf9EEVbAH1OHzVlq2cGb3NQWsFGXh5I="
+      "tagBase64": "Je0zYpCm1pG7VreitentuDo+5/QWiyvY82qIf6tL2tI="
     }
   ]
 }

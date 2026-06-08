@@ -14,7 +14,7 @@ import { abortControlMessage, assertControlMessage, assertSenderControlMessage, 
 import { assertControlMessage as distAssertControlMessage, assertSenderControlMessage as distAssertSenderControlMessage, assertTransferManifestMatchesAccepted as distAssertTransferManifestMatchesAccepted } from "../dist-node/shared/transfer.js";
 import { generateCode, GENERATED_RENDEZVOUS_DIGITS, isValidCode, isValidRendezvous, MAX_CODE_INPUT_BYTES, normalizeCode, parseCode, RENDEZVOUS_DIGITS } from "../src/shared/wordlist.js";
 
-const vectors = JSON.parse(fs.readFileSync(new URL("../conformance/protocol-v9.json", import.meta.url), "utf8")) as {
+const vectors = JSON.parse(fs.readFileSync(new URL("../conformance/protocol-v10.json", import.meta.url), "utf8")) as {
   protocolVersion: number;
   chunkFrames: { fileId: number; chunkSeq: number; payloadHex: string; frameHex: string }[];
   controlMessages: { name: string; message: unknown; senderControl?: boolean }[];

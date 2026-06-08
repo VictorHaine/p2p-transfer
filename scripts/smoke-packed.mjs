@@ -42,7 +42,7 @@ async function main() {
   const packageVersion = requiredPackageVersion(packageJson.version);
   const expectedTarballName = expectedPackedTarballName(packageName, packageVersion);
   const packageManager = requiredPackageManager(packageJson.packageManager);
-  const protocolVersion = requiredProtocolVersion(parseJsonEvidence(await readText(path.join(root, "conformance", "protocol-v9.json"), MAX_CONFORMANCE_JSON_BYTES), "conformance/protocol-v9.json").protocolVersion);
+  const protocolVersion = requiredProtocolVersion(parseJsonEvidence(await readText(path.join(root, "conformance", "protocol-v10.json"), MAX_CONFORMANCE_JSON_BYTES), "conformance/protocol-v10.json").protocolVersion);
   const providedTarball = optionalProvidedTarball();
   const keepTemp = optionalEnvString("KEEP_PACKED_SMOKE_TMP") === "true";
   await assertTemporaryDiskSpace(MIN_PACKED_SMOKE_TMP_FREE_BYTES, "Packed smoke requires at least 1 GiB of free temporary disk space.");

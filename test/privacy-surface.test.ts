@@ -43,7 +43,7 @@ test("server logging stays operational and does not log signaling payload fields
   assert.match(readme, /A modified client can still transmit a malformed public pair-request containing plaintext metadata before rejection/);
   assert.match(readme, /server rejects unredacted public manifests and does not forward or log them/);
   assert.match(readme, /from conforming clients and accepted protocol flow: two secret words, PAKE output, plaintext file names, MIME types/);
-  assert.match(readme, /public WebRTC signal kinds, sealed frame sizes, timing, byte volume, and traffic shape/);
+  assert.match(readme, /public WebRTC signal kinds, coarse sealed frame buckets, timing, byte volume, and traffic shape/);
   assert.match(readme, /SDP contents, ICE candidate contents/);
   assert.match(readme, /traffic shape/);
   assert.match(readme, /absence of padding or cover traffic/);

@@ -71,6 +71,7 @@ const AES_GCM_TAG_BYTES = 16;
 const MAX_BULK_SEALED_BYTES = CHUNK_SIZE + AES_GCM_TAG_BYTES;
 const MAX_ENCRYPTED_JSON_PLAINTEXT_BYTES = Math.floor(ENCRYPTED_JSON_MAX_CHARS / 4) * 3 - 12 - AES_GCM_TAG_BYTES;
 const MANIFEST_PADDING_BUCKET_BYTES = 4096;
+const SIGNAL_PADDING_BUCKET_BYTES = 4096;
 const MAX_ENCRYPTED_JSON_DEPTH = 32;
 const MAX_ENCRYPTED_JSON_NODES = 10_000;
 const UNSAFE_TEXT_CHARS = /[\p{Cc}\p{Cf}]/u;
@@ -247,14 +248,41 @@ export function verifySignalAuthTag(key: Uint8Array, sid: string, fromRole: Pake
 export async function sealSignal(key: Uint8Array, sid: string, fromRole: PakeRole, signal: SignalPayload): Promise<string> {
   assertSignalPayloadForVerify(signal);
   const sealKey = await signalSealKey(key, sid, fromRole, ["encrypt"]);
-  return sealJson(sealKey, signal, signalAad(sid, fromRole));
+  return sealJson(sealKey, paddedSignalWrapper(signal), signalAad(sid, fromRole));
 }
 
 export async function openSignal(key: Uint8Array, sid: string, fromRole: PakeRole, sealed: unknown): Promise<SignalPayload> {
   const sealKey = await signalSealKey(key, sid, fromRole, ["decrypt"]);
-  const signal = await openJson<unknown>(sealKey, sealed, signalAad(sid, fromRole));
+  const opened = await openJson<unknown>(sealKey, sealed, signalAad(sid, fromRole));
+  const type = ownDataValue(opened, "t");
+  const signal = ownDataValue(opened, "signal");
+  const pad = ownDataValue(opened, "pad");
+  if (
+    !isPlainObject(opened) ||
+    !hasOnlyKeys(opened, ["t", "signal", "pad"]) ||
+    type !== "webrtc-signal" ||
+    !hasOwnKey(opened, "signal") ||
+    (hasOwnKey(opened, "pad") && typeof pad !== "string")
+  ) {
+    throw new Error("Encrypted WebRTC signal wrapper is invalid.");
+  }
   assertSignalPayloadForVerify(signal as SignalPayload);
   return signal as SignalPayload;
+}
+
+function paddedSignalWrapper(signal: SignalPayload): Record<string, unknown> {
+  const wrapper: Record<string, unknown> = { t: "webrtc-signal", signal, pad: "" };
+  const base = stringifyJsonValue(wrapper);
+  const baseLength = text.encode(base).byteLength;
+  const targetLength = signalPaddingTargetBytes(baseLength);
+  wrapper.pad = "A".repeat(targetLength - baseLength);
+  return wrapper;
+}
+
+function signalPaddingTargetBytes(byteLength: number): number {
+  if (!Number.isSafeInteger(byteLength) || byteLength < 0 || byteLength > MAX_ENCRYPTED_JSON_PLAINTEXT_BYTES) throw new Error("Encrypted payload is too large.");
+  const bucketed = Math.ceil(byteLength / SIGNAL_PADDING_BUCKET_BYTES) * SIGNAL_PADDING_BUCKET_BYTES;
+  return Math.min(Math.max(bucketed, SIGNAL_PADDING_BUCKET_BYTES), MAX_ENCRYPTED_JSON_PLAINTEXT_BYTES);
 }
 
 async function signalSealKey(key: Uint8Array, sid: string, fromRole: PakeRole, usages: KeyUsage[]): Promise<CryptoKey> {

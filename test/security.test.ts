@@ -8,6 +8,7 @@ import {
   openBulk,
   openControl,
   openManifest,
+  openSignal,
   ownPakeShareB64,
   pairDecisionAuthTag,
   parsePakeShareMessage,
@@ -15,6 +16,7 @@ import {
   sealBulk,
   sealControl,
   sealManifest,
+  sealSignal,
   sessionConfirmTag,
   signalAuthTag,
   startPake,
@@ -30,10 +32,12 @@ import {
   openBulk as distOpenBulk,
   openControl as distOpenControl,
   openManifest as distOpenManifest,
+  openSignal as distOpenSignal,
   parsePakeShareMessage as distParsePakeShareMessage,
   pairDecisionAuthTag as distPairDecisionAuthTag,
   sealBulk as distSealBulk,
   sealControl as distSealControl,
+  sealSignal as distSealSignal,
   sessionConfirmTag as distSessionConfirmTag,
   signalAuthTag as distSignalAuthTag,
   verifySessionConfirmTag as distVerifySessionConfirmTag,
@@ -52,7 +56,7 @@ import {
 } from "../dist-node/shared/messages.js";
 import type { PakeRole, SessionKeys } from "../src/shared/security.js";
 
-const vectors = JSON.parse(fs.readFileSync(new URL("../conformance/protocol-v9.json", import.meta.url), "utf8")) as {
+const vectors = JSON.parse(fs.readFileSync(new URL("../conformance/protocol-v10.json", import.meta.url), "utf8")) as {
   pairDecisionAuth: {
     keyHex: string;
     sid: string;
@@ -791,6 +795,45 @@ test("SDP authentication binds offer/answer bytes to the PAKE key", async () => 
   assert.equal(verifySdpAuthTag(receiverKeys.signalAuthKey, sid, "sender", "offer", `${sdp}a=tampered\r\n`, tag), false);
   assert.equal(verifySdpAuthTag(receiverKeys.signalAuthKey, sid, "sender", "answer", sdp, tag), false);
   assert.equal(verifySdpAuthTag(receiverKeys.signalAuthKey, sid, "sender", "offer", sdp, "not-base64"), false);
+});
+
+test("sealed WebRTC signals are bucket padded before signaling", async () => {
+  assert.match(securityPolicy, /encrypted WebRTC signal wrappers must be padded before AEAD sealing/);
+  for (const source of [securitySource, distSecuritySource]) {
+    assert.match(source, /const SIGNAL_PADDING_BUCKET_BYTES = 4096/);
+    assert.match(source, /function paddedSignalWrapper/);
+    assert.match(source, /function signalPaddingTargetBytes/);
+    assert.match(source, /paddedSignalWrapper\(signal\)/);
+    assert.match(source, /type !== "webrtc-signal"/);
+  }
+
+  const sid = "signal-padding-session";
+  const sender = startPake("sender", "123456-apple-anchor", sid);
+  const receiver = startPake("receiver", "123456-apple-anchor", sid);
+  const senderShare = ownPakeShareB64(sender);
+  const receiverShare = ownPakeShareB64(receiver);
+  const senderKeys = await finishPake(sender, receiverShare);
+  const receiverKeys = await finishPake(receiver, senderShare);
+  const shortForAuth = {
+    kind: "candidate" as const,
+    candidate: { candidate: "candidate:0 1 UDP 1 127.0.0.1 9 typ host", sdpMid: "0", sdpMLineIndex: 0 }
+  };
+  const shortSignal = { ...shortForAuth, auth: signalAuthTag(senderKeys.signalAuthKey, sid, "sender", shortForAuth) };
+  const longForAuth = {
+    kind: "candidate" as const,
+    candidate: { candidate: `candidate:0 1 UDP 1 127.0.0.1 9 typ host ${"x".repeat(1800)}`, sdpMid: "0", sdpMLineIndex: 0, usernameFragment: "ufrag-123" }
+  };
+  const longSignal = { ...longForAuth, auth: signalAuthTag(senderKeys.signalAuthKey, sid, "sender", longForAuth) };
+
+  const shortSealed = await sealSignal(senderKeys.signalAuthKey, sid, "sender", shortSignal);
+  const longSealed = await sealSignal(senderKeys.signalAuthKey, sid, "sender", longSignal);
+  assert.equal(shortSealed.length, longSealed.length);
+  assert.deepEqual(await openSignal(receiverKeys.signalAuthKey, sid, "sender", shortSealed), shortSignal);
+  assert.deepEqual(await openSignal(receiverKeys.signalAuthKey, sid, "sender", longSealed), longSignal);
+
+  const distSealed = await distSealSignal(senderKeys.signalAuthKey, sid, "sender", shortSignal);
+  assert.equal(distSealed.length, shortSealed.length);
+  assert.deepEqual(await distOpenSignal(receiverKeys.signalAuthKey, sid, "sender", distSealed), shortSignal);
 });
 
 test("PAKE confirmation proves both peers derived the same session key", async () => {

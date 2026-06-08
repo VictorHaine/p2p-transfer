@@ -852,7 +852,7 @@ function fixturePackedPackageJson(packageName: string, version: string) {
 
 function fixtureWorkspaceFiles(): Record<string, Buffer> {
   return {
-    "conformance/protocol-v9.json": Buffer.from('{"protocolVersion":9}\n', "utf8"),
+    "conformance/protocol-v10.json": Buffer.from('{"protocolVersion":10}\n', "utf8"),
     "dist-node/cli/index.js": Buffer.from("#!/usr/bin/env node\nconsole.log('fixture cli')\n", "utf8"),
     "dist-node/server/index.js": Buffer.from("#!/usr/bin/env node\nconsole.log('fixture server')\n", "utf8"),
     "dist-node/shared/constants.js": Buffer.from("export const fixture = true;\n", "utf8"),
