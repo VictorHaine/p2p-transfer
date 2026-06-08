@@ -470,7 +470,8 @@ test("packed package smoke installs and executes published bins", () => {
   assert.doesNotMatch(packedSmokeScript, /version\.stdout\.includes/);
   assert.match(packedSmokeScript, /pnpm.*exec", "ff-server"/);
   assert.match(packedSmokeScript, /async function smokeInstalledTransfer\(consumerDir, childEnv, port, tmp\)/);
-  assert.match(packedSmokeScript, /"exec", "ff", "--server-env", "FF_SIGNALING_SERVER", "--json", "--local-private-mode", "recv", "--code-stdin", "--yes", "--out-env", "FF_RECEIVE_OUT"/);
+  assert.match(packedSmokeScript, /process\.platform === "win32"[\s\S]*"--redact-output", "--require-private-input", "recv", "--opaque-output-names", "--code-stdin", "--yes", "--out-env", "FF_RECEIVE_OUT"/);
+  assert.match(packedSmokeScript, /: \["exec", "ff", "--server-env", "FF_SIGNALING_SERVER", "--json", "--local-private-mode", "recv", "--code-stdin", "--yes", "--out-env", "FF_RECEIVE_OUT"\]/);
   assert.match(packedSmokeScript, /env: \{ \.\.\.childEnv, FF_RECEIVE_OUT: out, FF_SIGNALING_SERVER: serverUrl \}/);
   assert.match(packedSmokeScript, /await mkdir\(out, \{ mode: 0o700 \}\)/);
   assert.match(packedSmokeScript, /endCheckedChildStdin\(receiver, `\$\{code\}\\n`, "packed ff recv"/);
@@ -496,7 +497,7 @@ test("packed package smoke installs and executes published bins", () => {
   assert.match(securityPolicy, /packed-install smoke HTTP probes must use an abort deadline that covers both headers and response body reads/);
   assert.match(securityPolicy, /packed-install smoke must fatal-UTF-8-decode project metadata and HTTP probe responses, parse project metadata and health response JSON with smoke-owned deterministic errors, and reject invalid health bodies without echoing response content/);
   assert.match(securityPolicy, /packed-install smoke must require exact `ff --version` stdout and empty stderr/);
-  assert.match(securityPolicy, /packed-install smoke must run an actual installed `ff recv` and `ff send` transfer through the installed `ff-server` using `--local-private-mode` plus private stdin receive-code input, private-mode-compatible environment-sourced receive-output input backed by a `0700` output directory on POSIX, and stdin file-list input, handle child stdin pipe errors with generic non-input-reporting failures, verify the receive path is opaque, then compare received bytes/);
+  assert.match(securityPolicy, /packed-install smoke must run an actual installed `ff recv` and `ff send` transfer through the installed `ff-server` using POSIX `recv --local-private-mode`, Windows explicit `--redact-output` plus `--require-private-input` plus `recv --opaque-output-names`, private stdin receive-code input, environment-sourced receive-output input backed by a `0700` output directory on POSIX, and stdin file-list input, handle child stdin pipe errors with generic non-input-reporting failures, verify the receive path is opaque, then compare received bytes/);
   assert.match(securityPolicy, /packed-install smoke must validate the project package name and `version`, derive the exact expected npm tarball name from that metadata before installing a self-packed workspace, and reject any pack output that is not exactly that single tarball/);
   assert.match(securityPolicy, /packed-install smoke must validate the project `packageManager` is an exact hash-pinned `pnpm@\d+\.\d+\.\d+\+sha512\.[a-f0-9]+` pin/);
   assert.match(securityPolicy, /provided tarball paths must reject terminal control\/format characters and staging\/open failures must not echo raw tarball paths/);

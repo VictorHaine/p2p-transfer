@@ -205,7 +205,8 @@ test("packed smoke child environment drops unsafe optional inherited values", ()
 });
 
 test("packed smoke exercises private receive output input", () => {
-  assert.match(packedSmokeSource, /"--local-private-mode", "recv", "--code-stdin", "--yes", "--out-env", "FF_RECEIVE_OUT"/);
+  assert.match(packedSmokeSource, /process\.platform === "win32"[\s\S]*"--redact-output", "--require-private-input", "recv", "--opaque-output-names", "--code-stdin", "--yes", "--out-env", "FF_RECEIVE_OUT"/);
+  assert.match(packedSmokeSource, /: \["exec", "ff", "--server-env", "FF_SIGNALING_SERVER", "--json", "--local-private-mode", "recv", "--code-stdin", "--yes", "--out-env", "FF_RECEIVE_OUT"\]/);
   assert.match(packedSmokeSource, /env: \{ \.\.\.childEnv, FF_RECEIVE_OUT: out, FF_SIGNALING_SERVER: serverUrl \}/);
   assert.doesNotMatch(packedSmokeSource, /"--local-private-mode", "recv", "--code-stdin", "--yes", "--out", out/);
 });

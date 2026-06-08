@@ -4,8 +4,15 @@ import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { assertCliResumeSupported, buildManifest, closeSendFiles, ensureOutputDir, isMissingPathError, reserveOutputFile } from "../src/cli/files.js";
-import { assertCliResumeSupported as distAssertCliResumeSupported, buildManifest as distBuildManifest, closeSendFiles as distCloseSendFiles, ensureOutputDir as distEnsureOutputDir, reserveOutputFile as distReserveOutputFile } from "../dist-node/cli/files.js";
+import { assertCliResumeSupported, assertPrivateOutputDirSupported, buildManifest, closeSendFiles, ensureOutputDir, isMissingPathError, reserveOutputFile } from "../src/cli/files.js";
+import {
+  assertCliResumeSupported as distAssertCliResumeSupported,
+  assertPrivateOutputDirSupported as distAssertPrivateOutputDirSupported,
+  buildManifest as distBuildManifest,
+  closeSendFiles as distCloseSendFiles,
+  ensureOutputDir as distEnsureOutputDir,
+  reserveOutputFile as distReserveOutputFile
+} from "../dist-node/cli/files.js";
 import { publishPartFile, shouldFallbackToExclusiveCopy } from "../src/cli/transfer.js";
 import { publishPartFile as distPublishPartFile } from "../dist-node/cli/transfer.js";
 import { MAX_OUTPUT_NAME_ATTEMPTS } from "../src/shared/constants.js";
@@ -19,6 +26,7 @@ const distTransfer = fsSync.readFileSync(new URL("../dist-node/cli/transfer.js",
 const sourceFiles = fsSync.readFileSync(new URL("../src/cli/files.ts", import.meta.url), "utf8");
 const distFiles = fsSync.readFileSync(new URL("../dist-node/cli/files.js", import.meta.url), "utf8");
 const securityPolicy = fsSync.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
+const readme = fsSync.readFileSync(new URL("../README.md", import.meta.url), "utf8");
 const testStartedAt = Date.now();
 
 after(async () => {
@@ -848,6 +856,8 @@ test("ensureOutputDir input policy is present in source and shipped artifacts", 
     assert.match(source, /const outputDirIdentity = await directoryIdentity\(outputDir, options\)/);
     assert.match(source, /await assertDirectoryIdentity\(outputDir, outputDirIdentity, options\)/);
     assert.match(source, /options\?\.privateOutputDir\)[\s\S]*assertPrivateOutputDirStat\(stat\)/);
+    assert.match(source, /options\?\.private\)[\s\S]*assertPrivateOutputDirSupported\(process\.platform\)/);
+    assert.match(source, /options\?\.privateOutputDir\)[\s\S]*assertPrivateOutputDirSupported\(process\.platform\)/);
     assert.match(source, /dirDev: outputDirIdentity\.dev/);
     assert.match(source, /dirIno: outputDirIdentity\.ino/);
     assert.doesNotMatch(source, /path\.resolve\(dir\)/);
@@ -859,6 +869,16 @@ test("ensureOutputDir input policy is present in source and shipped artifacts", 
     assert.match(source, /privateOutputDir/);
     assert.match(source, /assertPrivateOutputParent/);
     assert.match(source, /Output directory changed before publish/);
+  }
+});
+
+test("private receive output directories fail closed on Windows until ACL checks exist", () => {
+  assert.match(securityPolicy, /must fail closed for receive private-output mode on Windows until equivalent ACL checks are implemented/);
+  assert.match(readme, /Windows `recv --local-private-mode` fails closed until equivalent private ACL checks are implemented/);
+  for (const guard of [assertPrivateOutputDirSupported, distAssertPrivateOutputDirSupported]) {
+    assert.throws(() => guard("win32"), /Private receive output directories are disabled on Windows until private ACL checks are implemented/);
+    assert.doesNotThrow(() => guard("linux"));
+    assert.doesNotThrow(() => guard("darwin"));
   }
 });
 

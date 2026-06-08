@@ -154,6 +154,7 @@ function sendFileCloseOperation(file: unknown): Promise<unknown> | undefined {
 }
 
 export async function ensureOutputDir(dir: string, options?: EnsureOutputDirOptions): Promise<string> {
+  if (options?.private) assertPrivateOutputDirSupported(process.platform);
   const resolved = path.resolve(outputDirInput(dir));
   await fs.promises.mkdir(resolved, { recursive: true, mode: options?.private ? 0o700 : undefined });
   const stat = await outputDirectoryStat(resolved, options?.private ? { privateOutputDir: true } : undefined);
@@ -295,6 +296,10 @@ export function assertCliResumeSupported(platform: NodeJS.Platform): void {
   if (platform === "win32") throw new Error("CLI resume is disabled on Windows until private ACL checks are implemented.");
 }
 
+export function assertPrivateOutputDirSupported(platform: NodeJS.Platform): void {
+  if (platform === "win32") throw new Error("Private receive output directories are disabled on Windows until private ACL checks are implemented.");
+}
+
 async function directoryIdentity(dir: string, options?: ReserveOutputFileOptions): Promise<FileIdentity> {
   const stat = await outputDirectoryStat(dir, options);
   if (!stat.isDirectory()) throw new Error("Output path is not a directory.");
@@ -413,6 +418,7 @@ function assertResumeSecretStat(stat: fs.Stats): void {
 }
 
 async function outputDirectoryStat(dir: string, options?: ReserveOutputFileOptions): Promise<fs.Stats> {
+  if (options?.privateOutputDir) assertPrivateOutputDirSupported(process.platform);
   if (options?.privateOutputDir) {
     const linkStat = await fs.promises.lstat(dir);
     if (linkStat.isSymbolicLink()) throw new Error("Output directory must not be a symbolic link in private mode.");
