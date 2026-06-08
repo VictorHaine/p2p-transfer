@@ -103,6 +103,8 @@ test("server config rejects malformed production values instead of silently fall
   assert.throws(() => loadServerConfig({ TRUSTED_PROXY_HOPS: "1", TRUSTED_PROXY_IPS: "proxy.example" }), /TRUSTED_PROXY_IPS entries must be IP addresses or CIDR ranges/);
   assert.throws(() => loadServerConfig({ TRUSTED_PROXY_HOPS: "1", TRUSTED_PROXY_IPS: "10.0.0.0/33" }), /TRUSTED_PROXY_IPS CIDR prefixes/);
   assert.throws(() => loadServerConfig({ TRUSTED_PROXY_HOPS: "1", TRUSTED_PROXY_IPS: "2001:db8::/129" }), /TRUSTED_PROXY_IPS CIDR prefixes/);
+  assert.throws(() => loadServerConfig({ TRUSTED_PROXY_HOPS: "1", TRUSTED_PROXY_IPS: "0.0.0.0/0" }), /must not trust every address/);
+  assert.throws(() => loadServerConfig({ TRUSTED_PROXY_HOPS: "1", TRUSTED_PROXY_IPS: "::/0" }), /must not trust every address/);
   assert.throws(() => loadServerConfig({ TRUSTED_PROXY_HOPS: "1", TRUSTED_PROXY_IPS: "10.0.0.10,,10.0.0.11" }), /TRUSTED_PROXY_IPS entries must not be empty/);
   assert.throws(() => loadServerConfig({ TRUSTED_PROXY_HOPS: "1", TRUSTED_PROXY_IPS: " 10.0.0.10" }), /TRUSTED_PROXY_IPS entries must not contain whitespace/);
   assert.throws(() => loadServerConfig({ TRUSTED_PROXY_HOPS: "1", TRUSTED_PROXY_IPS: "10.0.0.10\u200b" }), /TRUSTED_PROXY_IPS entries must not contain whitespace/);

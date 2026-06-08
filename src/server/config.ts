@@ -174,6 +174,7 @@ function parseTrustedProxySource(source: string): string {
   const prefix = Number(prefixText);
   const maxPrefix = family === 4 ? 32 : 128;
   if (!Number.isInteger(prefix) || prefix < 0 || prefix > maxPrefix) throw new Error("TRUSTED_PROXY_IPS CIDR prefixes are invalid.");
+  if (prefix === 0) throw new Error("TRUSTED_PROXY_IPS CIDR ranges must not trust every address.");
   return `${address}/${prefix}`;
 }
 

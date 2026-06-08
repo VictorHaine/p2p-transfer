@@ -178,6 +178,8 @@ test("trusted proxy client IP parsing is explicit, bounded, and fail-closed", ()
   assert.equal(requestRemoteAddress(req({ host: "files.example", "x-forwarded-for": "198.51.100.9\n203.0.113.7" }, "/", undefined, "GET", "10.0.0.10"), 1, ["10.0.0.10"]), "10.0.0.10");
   assert.equal(requestRemoteAddress(req({ host: "files.example", "x-forwarded-for": "198.51.100.9" }, "/", undefined, "GET", "10.0.0.10"), 4, ["10.0.0.10"]), "10.0.0.10");
   assert.equal(requestRemoteAddress(req({ host: "files.example", "x-forwarded-for": "198.51.100.9" }, "/", undefined, "GET", "files.example"), 1, ["files.example"]), "unknown");
+  assert.equal(requestRemoteAddress(req({ host: "files.example", "x-forwarded-for": "198.51.100.9" }, "/", undefined, "GET", "203.0.113.55"), 1, ["0.0.0.0/0"]), "203.0.113.55");
+  assert.equal(requestRemoteAddress(req({ host: "files.example", "x-forwarded-for": "2001:db8::99" }, "/", undefined, "GET", "2001:db8:abcd::1"), 1, ["::/0"]), "2001:db8:abcd::1");
 
   const ipv6Proxy = req({ host: "files.example", "x-forwarded-for": "2001:db8::99" }, "/", undefined, "GET", "2001:db8:abcd::1");
   assert.equal(requestRemoteAddress(ipv6Proxy, 1, ["2001:db8:abcd::/48"]), "2001:db8::99");
@@ -340,6 +342,7 @@ test("request parser source keeps raw header and request target type guards", ()
     assert.match(source, /normalizeRemoteAddress\(remoteAddress\) \?\? "unknown"/);
     assert.match(source, /rawHeaderValue\(req, "x-forwarded-for"\)/);
     assert.match(source, /function trustedProxyHopsInput/);
+    assert.match(source, /prefix <= 0/);
     assert.match(source, /function isValidForwardedForHeader/);
     assert.match(source, /function forwardedIp/);
     assert.match(source, /return isIP\(normalized\) === 0 \? undefined : normalized/);

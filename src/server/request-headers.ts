@@ -104,7 +104,7 @@ function addTrustedProxySource(blockList: BlockList, source: string): boolean {
   const prefix = Number(source.slice(slash + 1));
   const family = isIP(address);
   const maxPrefix = family === 4 ? 32 : 128;
-  if (family === 0 || !Number.isInteger(prefix) || prefix < 0 || prefix > maxPrefix) return false;
+  if (family === 0 || !Number.isInteger(prefix) || prefix <= 0 || prefix > maxPrefix) return false;
   blockList.addSubnet(address, prefix, family === 4 ? "ipv4" : "ipv6");
   return true;
 }
