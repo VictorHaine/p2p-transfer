@@ -20,12 +20,13 @@ import { DEFAULT_ICE_SERVERS } from "../src/shared/constants.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const strongTurnSecret = "0123456789abcdef0123456789abcdef";
 const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
 const configSource = fs.readFileSync(new URL("../src/server/config.ts", import.meta.url), "utf8");
 const distConfigSource = fs.readFileSync(new URL("../dist-node/server/config.js", import.meta.url), "utf8");
-const projectWebRoot = path.resolve(new URL("../dist-web", import.meta.url).pathname);
+const projectWebRoot = path.resolve(fileURLToPath(new URL("../dist-web", import.meta.url)));
 
 test("server config rejects malformed production values instead of silently falling back", () => {
   assert.throws(() => loadServerConfig({ NODE_ENV: "production " }), /NODE_ENV/);

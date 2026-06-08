@@ -802,6 +802,9 @@ type FileIdentity = {
 
 type PathIdentity = FileIdentity & {
   mode: number;
+  size: number;
+  mtimeMs: number;
+  birthtimeMs: number;
 };
 
 type PublishOptions = {
@@ -815,7 +818,7 @@ export async function publishPartFile(partPath: string, finalPath: string, expec
   const safeExpectedSize = expectedSize === undefined ? undefined : publishExpectedSizeInput(expectedSize);
   const safeExpectedDirectory = expectedDirectory === undefined ? undefined : fileIdentityInput(expectedDirectory);
   const partIdentity = safeExpectedPart ?? (await fileIdentity(safePartPath));
-  let finalIdentity: FileIdentity | undefined;
+  let finalIdentity: PathIdentity | undefined;
   try {
     if (safeExpectedDirectory) await assertDirectoryIdentity(path.dirname(safeFinalPath), safeExpectedDirectory, options);
     await assertPartFileIdentity(safePartPath, partIdentity, safeExpectedSize);
@@ -832,7 +835,7 @@ export async function publishPartFile(partPath: string, finalPath: string, expec
   } catch (error) {
     if (finalIdentity) {
       try {
-        await removePathIfIdentity(safeFinalPath, finalIdentity);
+        await removePathIfPathIdentity(safeFinalPath, finalIdentity);
       } catch {
         // Preserve the original publish failure.
       }
@@ -892,7 +895,7 @@ function ownDataValue(value: unknown, key: string): unknown {
   return descriptor && "value" in descriptor ? descriptor.value : undefined;
 }
 
-async function linkPartFileExclusive(partPath: string, finalPath: string, expected: FileIdentity, expectedSize?: number): Promise<FileIdentity> {
+async function linkPartFileExclusive(partPath: string, finalPath: string, expected: FileIdentity, expectedSize?: number): Promise<PathIdentity> {
   await fs.promises.link(partPath, finalPath);
   const finalStat = await fs.promises.lstat(finalPath);
   const finalPathIdentity = pathIdentity(finalStat);
@@ -904,7 +907,7 @@ async function linkPartFileExclusive(partPath: string, finalPath: string, expect
     }
     throw new Error("Partial file changed before publish.");
   }
-  return { dev: finalStat.dev, ino: finalStat.ino };
+  return finalPathIdentity;
 }
 
 const NOFOLLOW_READ_FLAGS = fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK;
@@ -913,10 +916,10 @@ const MAX_PUBLISH_PATH_BYTES = 4096;
 const MAX_CLEANUP_QUARANTINE_ATTEMPTS = 16;
 const UNSAFE_PUBLISH_PATH_CHARS = /[\p{Cc}\p{Cf}]/u;
 
-async function copyPartFileExclusive(partPath: string, finalPath: string, expected: FileIdentity, expectedSize?: number): Promise<FileIdentity> {
+async function copyPartFileExclusive(partPath: string, finalPath: string, expected: FileIdentity, expectedSize?: number): Promise<PathIdentity> {
   const source = await openPartFileNoFollow(partPath);
   let target: fs.promises.FileHandle | undefined;
-  let targetIdentity: FileIdentity | undefined;
+  let targetIdentity: PathIdentity | undefined;
   let targetClosed = false;
   try {
     const sourceStat = await source.stat();
@@ -924,7 +927,7 @@ async function copyPartFileExclusive(partPath: string, finalPath: string, expect
     if (expectedSize !== undefined && sourceStat.size !== expectedSize) throw new Error("Partial file changed before publish.");
     target = await fs.promises.open(finalPath, "wx", 0o600);
     const targetStat = await target.stat();
-    targetIdentity = { dev: targetStat.dev, ino: targetStat.ino };
+    targetIdentity = pathIdentity(targetStat);
     await copyOpenFile(source, target, expectedSize);
     const afterCopySourceStat = await source.stat();
     if (!sameFileIdentity(afterCopySourceStat, expected)) throw new Error("Partial file changed before publish.");
@@ -945,7 +948,7 @@ async function copyPartFileExclusive(partPath: string, finalPath: string, expect
     }
     if (targetIdentity) {
       try {
-        await removePathIfIdentity(finalPath, targetIdentity);
+        await removePathIfPathIdentity(finalPath, targetIdentity);
       } catch {
         // Preserve the original copy failure.
       }
@@ -1072,7 +1075,7 @@ async function fileIdentity(filePath: string): Promise<FileIdentity> {
 }
 
 function pathIdentity(stat: fs.Stats): PathIdentity {
-  return { dev: stat.dev, ino: stat.ino, mode: stat.mode };
+  return { dev: stat.dev, ino: stat.ino, mode: stat.mode, size: stat.size, mtimeMs: stat.mtimeMs, birthtimeMs: stat.birthtimeMs };
 }
 
 async function removePathIfIdentity(filePath: string, expected: FileIdentity): Promise<void> {
@@ -1117,7 +1120,7 @@ function sameIdentity(left: FileIdentity, right: FileIdentity): boolean {
 }
 
 function samePathIdentity(stat: fs.Stats, expected: PathIdentity): boolean {
-  return stat.dev === expected.dev && stat.ino === expected.ino && stat.mode === expected.mode;
+  return stat.dev === expected.dev && stat.ino === expected.ino && stat.mode === expected.mode && stat.size === expected.size && stat.mtimeMs === expected.mtimeMs && stat.birthtimeMs === expected.birthtimeMs;
 }
 
 export function shouldFallbackToExclusiveCopy(error: unknown): boolean {

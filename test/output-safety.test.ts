@@ -2,10 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { sanitizeDisplayText, sanitizeStructuredOutput } from "../src/shared/output-safety.js";
 import { sanitizeStructuredOutput as distSanitizeStructuredOutput } from "../dist-node/shared/output-safety.js";
 
-const root = path.resolve(new URL("..", import.meta.url).pathname);
+const root = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const outputSafetySource = fs.readFileSync(path.join(root, "src/shared/output-safety.ts"), "utf8");
 const distOutputSafetySource = fs.readFileSync(path.join(root, "dist-node/shared/output-safety.js"), "utf8");
 const distWebBundle = readDistWebBundle();

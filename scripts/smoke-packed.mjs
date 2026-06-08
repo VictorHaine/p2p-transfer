@@ -92,19 +92,21 @@ async function main() {
     await smokeNpmGlobalInstall(installTarball, childEnv, tmp, expectedVersion);
 
     const port = await reserveLoopbackPort();
-    const server = spawn(pnpm, ["exec", "ff-server"], {
-      cwd: consumerDir,
-      env: {
-        ...childEnv,
-        PORT: String(port),
-        HOST: "127.0.0.1",
-        NODE_ENV: "production",
-        ALLOWED_ORIGINS: `http://127.0.0.1:${port}`,
-        SIGNALING_TOPOLOGY: "single-instance",
-        ALLOW_INSECURE_ORIGINS: "true"
+    const server = spawn(pnpm, ["exec", "ff-server"], childProcessOptions(
+      {
+        cwd: consumerDir,
+        env: {
+          ...childEnv,
+          PORT: String(port),
+          HOST: "127.0.0.1",
+          NODE_ENV: "production",
+          ALLOWED_ORIGINS: `http://127.0.0.1:${port}`,
+          SIGNALING_TOPOLOGY: "single-instance",
+          ALLOW_INSECURE_ORIGINS: "true"
+        }
       },
-      stdio: ["ignore", "pipe", "pipe"]
-    });
+      ["ignore", "pipe", "pipe"]
+    ));
     try {
       await waitForOutput(server, /listening/, 20_000);
       const { response, text } = await fetchBoundedResponseText(`http://127.0.0.1:${port}/healthz`, MAX_HEALTH_RESPONSE_BYTES);
@@ -195,7 +197,7 @@ async function readText(file, maxBytes) {
 
 function run(command, args, options) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd: options.cwd, env: options.env ?? safeChildEnv(), stdio: [options.stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"] });
+    const child = spawn(command, args, childProcessOptions({ cwd: options.cwd, env: options.env ?? safeChildEnv() }, [options.stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"]));
     const commandLabel = renderCommandForLog(command, args);
     let stdout = "";
     let stderr = "";
@@ -257,6 +259,11 @@ function run(command, args, options) {
   });
 }
 
+function childProcessOptions(options, stdio) {
+  const base = { cwd: options.cwd, env: options.env ?? safeChildEnv(), stdio, windowsHide: true };
+  return base;
+}
+
 async function smokeInstalledTransfer(consumerDir, childEnv, port, tmp) {
   const source = path.join(tmp, "transfer-source.txt");
   const out = path.join(tmp, "received");
@@ -269,11 +276,11 @@ async function smokeInstalledTransfer(consumerDir, childEnv, port, tmp) {
     process.platform === "win32"
       ? ["exec", "ff", "--server-env", "FF_SIGNALING_SERVER", "--json", "--redact-output", "--require-private-input", "recv", "--opaque-output-names", "--code-stdin", "--yes", "--out-env", "FF_RECEIVE_OUT"]
       : ["exec", "ff", "--server-env", "FF_SIGNALING_SERVER", "--json", "--local-private-mode", "recv", "--code-stdin", "--yes", "--out-env", "FF_RECEIVE_OUT"];
-  const receiver = spawn(pnpm, receiverArgs, {
-    cwd: consumerDir,
-    env: { ...childEnv, FF_RECEIVE_OUT: out, FF_SIGNALING_SERVER: serverUrl },
-    stdio: ["pipe", "pipe", "pipe"]
-  });
+  const receiver = spawn(
+    pnpm,
+    receiverArgs,
+    childProcessOptions({ cwd: consumerDir, env: { ...childEnv, FF_RECEIVE_OUT: out, FF_SIGNALING_SERVER: serverUrl } }, ["pipe", "pipe", "pipe"])
+  );
   const receiverOutput = captureChildOutput(receiver);
   let receiverStdinError;
   try {
@@ -397,21 +404,32 @@ export function isolatedChildEnv(privateHome) {
   }
   const home = path.resolve(privateHome);
   const env = safeChildEnv();
+  const packageManagerEnv = packageManagerConfigEnv(home);
   return {
     ...env,
     HOME: home,
     USERPROFILE: home,
     XDG_CONFIG_HOME: path.join(home, "xdg-config"),
-    NPM_CONFIG_USERCONFIG: path.join(home, ".npmrc"),
-    npm_config_userconfig: path.join(home, ".npmrc"),
-    NPM_CONFIG_PREFIX: path.join(home, "npm-prefix"),
-    npm_config_prefix: path.join(home, "npm-prefix"),
-    NPM_CONFIG_CACHE: path.join(home, "npm-cache"),
-    npm_config_cache: path.join(home, "npm-cache"),
+    ...packageManagerEnv,
     PNPM_HOME: path.join(home, "pnpm-home"),
     COREPACK_HOME: path.join(home, "corepack-home"),
     LOCALAPPDATA: path.join(home, "local-app-data"),
     APPDATA: path.join(home, "app-data")
+  };
+}
+
+function packageManagerConfigEnv(home) {
+  const upper = {
+    NPM_CONFIG_USERCONFIG: path.join(home, ".npmrc"),
+    NPM_CONFIG_PREFIX: path.join(home, "npm-prefix"),
+    NPM_CONFIG_CACHE: path.join(home, "npm-cache")
+  };
+  if (process.platform === "win32") return upper;
+  return {
+    ...upper,
+    npm_config_userconfig: upper.NPM_CONFIG_USERCONFIG,
+    npm_config_prefix: upper.NPM_CONFIG_PREFIX,
+    npm_config_cache: upper.NPM_CONFIG_CACHE
   };
 }
 

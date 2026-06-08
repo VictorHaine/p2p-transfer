@@ -226,7 +226,7 @@ jobs:
         run: |
           node scripts/prepare-checked-pnpm.mjs
       - name: Validate release Docker image
-        run: DOCKER_SMOKE_TAG=p2p-transfer:release-gate node scripts/smoke-docker-policy.mjs
+        run: DOCKER_SMOKE_VERBOSE=1 DOCKER_SMOKE_TAG=p2p-transfer:release-gate node scripts/smoke-docker-policy.mjs
 
   platform-smoke:
     name: platform smoke / ${{ matrix.os }} / node ${{ matrix.node }}
@@ -272,8 +272,8 @@ jobs:
         run: pnpm build
       - name: Typecheck
         run: pnpm check
-      - name: Unit tests
-        run: pnpm test:unit
+      - name: Platform tests
+        run: pnpm test:platform
       - name: Native smoke
         run: pnpm smoke:native
       - name: Packed install smoke

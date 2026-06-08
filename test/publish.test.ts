@@ -63,6 +63,7 @@ test("CLI cleanup quarantines verified paths before removal", () => {
     assert.match(source, /MAX_CLEANUP_QUARANTINE_ATTEMPTS/);
     assert.match(source, /cleanupQuarantinePath/);
     assert.match(source, /rename\(\w+, \w+\)/);
+    assert.match(source, /samePathIdentity\(stat[\s\S]*stat\.size === expected\.size && stat\.mtimeMs === expected\.mtimeMs && stat\.birthtimeMs === expected\.birthtimeMs/);
     assert.match(source, /lstat\(\w+\)[\s\S]*if \(!\w+\(\w+\)\)[\s\S]*Cleanup target changed before removal/);
     assert.doesNotMatch(source, /if \(sameFileIdentity\([^)]*\)\) await fs\.promises\.rm\(filePath/);
     assert.doesNotMatch(source, /if \(samePathIdentity\([^)]*\)\) await fs\.promises\.rm\(filePath/);
@@ -652,8 +653,9 @@ test("CLI resume partial privacy policy is documented and enforced", () => {
     assert.match(source, /fs\.promises\.open\(partPath, SAFE_PART_CREATE_FLAGS, 0o600\)/);
     assert.match(source, /fs\.promises\.open\(secretPath, SAFE_SECRET_CREATE_FLAGS, 0o600\)/);
     assert.match(source, /function assertResumeSecretStat\(stat/);
-    assert.match(source, /createdSecretIdentity = \{ dev: createdStat\.dev, ino: createdStat\.ino \}/);
-    assert.match(source, /removePathIfIdentity\(secretPath, createdSecretIdentity\)/);
+    assert.match(source, /createdSecretIdentity = pathIdentity\(createdStat\)/);
+    assert.match(source, /createdSecretIdentity = pathIdentity\(verifiedStat\)/);
+    assert.match(source, /removePathIfPathIdentity\(secretPath, createdSecretIdentity\)/);
     assert.match(source, /Resume secret cleanup failed/);
     assert.match(source, /assertResumeSecretStat\(verifiedStat\)/);
     assert.match(source, /Resume secret changed while reading/);
@@ -1192,7 +1194,7 @@ test("publishPartFile refuses to publish a replaced partial path", async () => {
   await fs.rm(reserved.partPath);
   await fs.writeFile(reserved.partPath, "attacker");
 
-  await assert.rejects(() => publishPartFile(reserved.partPath, reserved.finalPath, reserved), /Partial file changed/);
+  await assert.rejects(() => publishPartFile(reserved.partPath, reserved.finalPath, reserved, "trusted".length), /Partial file changed/);
   await assert.rejects(() => fs.stat(reserved.finalPath), { code: "ENOENT" });
   assert.equal(await fs.readFile(reserved.partPath, "utf8"), "attacker");
 });

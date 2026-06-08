@@ -14,8 +14,10 @@ const MAX_PACKAGE_JSON_BYTES = 128 * 1024;
 const MAX_COREPACK_ARCHIVE_BYTES = 50 * 1024 * 1024;
 const MAX_COREPACK_TAR_BYTES = 200 * 1024 * 1024;
 const MAX_COREPACK_METADATA_BYTES = 16 * 1024;
+const MAX_COREPACK_ENTRYPOINT_BYTES = 10 * 1024 * 1024;
 const MAX_CHILD_ENV_VALUE_BYTES = 8_192;
 const MAX_PRIVATE_HOME_BYTES = 4_096;
+const MAX_NODE_EXECUTABLE_PATH_BYTES = 4_096;
 const CHILD_KILL_GRACE_MS = 5_000;
 const TAR_BLOCK_BYTES = 512;
 
@@ -35,16 +37,52 @@ async function main() {
   const tmp = await mkdtemp(path.join(tmpdir(), "ff-checked-pnpm-"));
   const archive = path.join(tmp, "corepack-pnpm.tgz");
   const childEnv = await privateChildEnv(path.join(tmp, "home"));
+  const corepack = await corepackInvocation();
   try {
-    await run("corepack", ["pack", `pnpm@${version}`, "-o", archive], { cwd: root, env: childEnv, timeoutMs: 120_000 });
+    await run(corepack.command, [...corepack.argsPrefix, "pack", `pnpm@${version}`, "-o", archive], { cwd: root, env: childEnv, label: "corepack", timeoutMs: 120_000 });
     assertCorepackMetadata(await corepackMetadataFromArchive(archive, `pnpm/${version}/.corepack`), version);
-    await run("corepack", ["enable"], { cwd: root, env: childEnv, timeoutMs: 30_000 });
-    await run("corepack", ["install", "-g", "--cache-only", archive], { cwd: root, env: childEnv, timeoutMs: 60_000 });
-    const prepared = await run("corepack", ["pnpm", "--version"], { cwd: root, env: childEnv, timeoutMs: 30_000 });
+    await run(corepack.command, [...corepack.argsPrefix, "enable"], { cwd: root, env: childEnv, label: "corepack", timeoutMs: 30_000 });
+    await run(corepack.command, [...corepack.argsPrefix, "install", "-g", "--cache-only", archive], { cwd: root, env: childEnv, label: "corepack", timeoutMs: 60_000 });
+    const prepared = await run(corepack.command, [...corepack.argsPrefix, "pnpm", "--version"], { cwd: root, env: childEnv, label: "corepack", timeoutMs: 30_000 });
     if (prepared.stdout.trim() !== version) throw new Error("Prepared pnpm version did not match the checked package manager pin.");
   } finally {
     await rm(tmp, { recursive: true, force: true });
   }
+}
+
+async function corepackInvocation() {
+  const nodeExecutable = checkedNodeExecutablePath(process.execPath);
+  for (const candidate of corepackEntrypointCandidates(nodeExecutable)) {
+    try {
+      const info = await lstat(candidate);
+      if (!info.isFile() || info.size < 1 || info.size > MAX_COREPACK_ENTRYPOINT_BYTES) continue;
+      return { command: nodeExecutable, argsPrefix: [candidate] };
+    } catch (error) {
+      if (errorCode(error) === "ENOENT") continue;
+      throw new Error("Corepack executable could not be verified.");
+    }
+  }
+  throw new Error("Corepack executable was not found in this Node.js installation.");
+}
+
+function corepackEntrypointCandidates(nodeExecutable) {
+  const binDir = path.dirname(nodeExecutable);
+  return uniqueStrings([
+    path.join(binDir, "node_modules", "corepack", "dist", "corepack.js"),
+    path.join(binDir, "..", "lib", "node_modules", "corepack", "dist", "corepack.js"),
+    path.join(binDir, "..", "node_modules", "corepack", "dist", "corepack.js")
+  ]);
+}
+
+function uniqueStrings(values) {
+  return [...new Set(values)];
+}
+
+function checkedNodeExecutablePath(value) {
+  if (typeof value !== "string" || value.length < 1 || /[\p{Cc}\p{Cf}]/u.test(value) || utf8ByteLengthExceeds(value, MAX_NODE_EXECUTABLE_PATH_BYTES)) {
+    throw new Error(`Node executable path must be a non-empty control-free path under ${MAX_NODE_EXECUTABLE_PATH_BYTES} UTF-8 bytes.`);
+  }
+  return value;
 }
 
 async function corepackMetadataFromArchive(archive, entryName) {
@@ -236,6 +274,11 @@ function childEnvValue(name, required) {
   return value;
 }
 
+function errorCode(error) {
+  const descriptor = Object(error) === error ? Object.getOwnPropertyDescriptor(error, "code") : undefined;
+  return descriptor && "value" in descriptor && typeof descriptor.value === "string" ? descriptor.value : undefined;
+}
+
 function checkedPnpmVersion(value) {
   if (typeof value !== "string") throw new Error("packageManager must be an exact hash-pinned pnpm version.");
   const match = /^pnpm@(\d+\.\d+\.\d+)\+(sha512\.[a-f0-9]+)$/.exec(value);
@@ -268,8 +311,9 @@ function run(command, args, options) {
     let settled = false;
     let killTimer;
     let timeoutError;
+    const label = options.label ?? command;
     const timer = setTimeout(() => {
-      timeoutError = new Error(`${command} timed out.`);
+      timeoutError = new Error(`${label} timed out.`);
       child.kill("SIGTERM");
       killTimer = setTimeout(() => child.kill("SIGKILL"), CHILD_KILL_GRACE_MS);
     }, options.timeoutMs);
@@ -287,7 +331,7 @@ function run(command, args, options) {
       } else if (code === 0) {
         resolveOnce({ stdout, stderr });
       } else {
-        rejectOnce(new Error(`${command} failed with exit code ${code}.`));
+        rejectOnce(new Error(`${label} failed with exit code ${code}.`));
       }
     });
     function resolveOnce(value) {

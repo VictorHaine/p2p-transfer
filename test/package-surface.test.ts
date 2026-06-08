@@ -42,6 +42,7 @@ const allScriptSources = new Map(
 const allRuntimeSources = new Map(readSourceFiles(new URL("../src/", import.meta.url)));
 const pnpmWorkspace = fs.readFileSync(new URL("../pnpm-workspace.yaml", import.meta.url), "utf8");
 const pnpmLock = fs.readFileSync(new URL("../pnpm-lock.yaml", import.meta.url), "utf8");
+const gitAttributes = fs.readFileSync(new URL("../.gitattributes", import.meta.url), "utf8");
 const packedSmokeScript = fs.readFileSync(new URL("../scripts/smoke-packed.mjs", import.meta.url), "utf8");
 const releaseArtifactSmokeScript = fs.readFileSync(new URL("../scripts/smoke-release-artifact.mjs", import.meta.url), "utf8");
 const dockerPolicySmokeScript = fs.readFileSync(new URL("../scripts/smoke-docker-policy.mjs", import.meta.url), "utf8");
@@ -70,7 +71,6 @@ const releaseNotesScript = fs.readFileSync(new URL("../scripts/write-release-not
 const liveReleaseRefScript = fs.readFileSync(new URL("../scripts/verify-live-release-ref.mjs", import.meta.url), "utf8");
 const fileStabilityCheckedScripts = [
   installStateScript,
-  buildToolchainDependencyCheckScript,
   bootstrapNpmScript,
   releaseReadinessScript,
   packedSmokeScript,
@@ -372,6 +372,10 @@ test("package ships only the current protocol conformance fixture", () => {
   assert.deepEqual(conformanceFiles, ["protocol-v10.json"]);
 });
 
+test("repository text checkouts stay newline-stable across CI platforms", () => {
+  assert.match(gitAttributes, /^\* text=auto eol=lf$/m);
+});
+
 test("package publishing config keeps provenance and reproducible dependency pins", () => {
   assert.equal(packageJson.name, "@victorhaine/p2p-transfer");
   assert.match(packageJson.version ?? "", /^\d+\.\d+\.\d+$/);
@@ -398,6 +402,8 @@ test("package publishing config keeps provenance and reproducible dependency pin
   assert.equal(packageJson.scripts?.["smoke:native"], "node scripts/smoke-native.mjs");
   assert.equal(packageJson.scripts?.["smoke:packed"], "node scripts/smoke-packed.mjs");
   assert.equal(packageJson.scripts?.["smoke:release-artifact"], "node scripts/smoke-release-artifact.mjs");
+  assert.match(packageJson.scripts?.["test:platform"] ?? "", /^node --import tsx --test test\/authority\.test\.ts/);
+  assert.doesNotMatch(packageJson.scripts?.["test:platform"] ?? "", /test\/(?:package-surface|deployment-surface|release-|release-scripts)\.test\.ts/);
   assert.equal(packageJson.scripts?.["bootstrap:npm"], "node scripts/bootstrap-npm-package.mjs");
   assert.equal(packageJson.scripts?.["check:install-state"], "node scripts/check-install-state.mjs");
   assert.match(securityPolicy, /typecheck gates must explicitly run the shipping Node project config and the test project config/);
@@ -439,6 +445,8 @@ test("package publishing config keeps provenance and reproducible dependency pin
   assert.match(buildToolchainDependencyCheckScript, /esbuild: \{[\s\S]*version: "0\.28\.0"/);
   assert.match(buildToolchainDependencyCheckScript, /rolldown: \{[\s\S]*version: "1\.0\.2"/);
   assert.match(buildToolchainDependencyCheckScript, /lightningcss: \{[\s\S]*version: "1\.32\.0"/);
+  assert.match(buildToolchainDependencyCheckScript, /left\.dev === right\.dev && left\.ino === right\.ino && left\.size === right\.size && left\.mtimeMs === right\.mtimeMs/);
+  assert.doesNotMatch(buildToolchainDependencyCheckScript, /left\.ctimeMs === right\.ctimeMs/);
   assert.match(cliDependencyMetadataSource, /const MAX_PACKAGE_JSON_BYTES = 128 \* 1024/);
   assert.match(cliDependencyMetadataSource, /lstatSync\(file\)/);
   assert.match(cliDependencyMetadataSource, /openSync\(file, constants\.O_RDONLY \| noFollowFlag\(\)\)/);
@@ -727,7 +735,11 @@ test("packed package smoke installs and executes published bins", () => {
   assert.match(packedSmokeScript, /\["PATH", true\]/);
   assert.match(packedSmokeScript, /HOME: home/);
   assert.match(packedSmokeScript, /USERPROFILE: home/);
+  assert.match(packedSmokeScript, /const packageManagerEnv = packageManagerConfigEnv\(home\)/);
+  assert.match(packedSmokeScript, /function packageManagerConfigEnv\(home\)/);
   assert.match(packedSmokeScript, /NPM_CONFIG_USERCONFIG: path\.join\(home, "\.npmrc"\)/);
+  assert.match(packedSmokeScript, /if \(process\.platform === "win32"\) return upper/);
+  assert.match(packedSmokeScript, /npm_config_userconfig: upper\.NPM_CONFIG_USERCONFIG/);
   assert.match(packedSmokeScript, /PNPM_HOME: path\.join\(home, "pnpm-home"\)/);
   assert.match(packedSmokeScript, /COREPACK_HOME: path\.join\(home, "corepack-home"\)/);
   assert.match(packedSmokeScript, /throw new Error\(`\$\{name\} must be a non-empty control-free child environment value under \$\{MAX_CHILD_ENV_VALUE_BYTES\} UTF-8 bytes\.`\)/);
@@ -761,6 +773,7 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.match(ciWorkflow, /pnpm check/);
   assert.match(ciWorkflow, /pnpm build/);
   assert.match(ciWorkflow, /pnpm test:unit/);
+  assert.match(ciWorkflow, /pnpm test:platform/);
   assert.match(ciWorkflow, /pnpm smoke:native/);
   assert.match(ciWorkflow, /pnpm smoke:native[\s\S]*pnpm smoke:release-artifact[\s\S]*pnpm security:audit/);
   assert.match(ciWorkflow, /pnpm smoke:packed/);
@@ -774,8 +787,13 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.match(ciWorkflow, /windows-2025/);
   assert.doesNotMatch(ciWorkflow, /runs-on:\s*[a-z]+-latest|-\s+[a-z]+-latest/);
   assert.equal(packageJson.scripts?.["smoke:docker-policy"], "node scripts/smoke-docker-policy.mjs");
-  assert.match(ciWorkflow, /DOCKER_SMOKE_TAG=p2p-transfer:test node scripts\/smoke-docker-policy\.mjs/);
-  assert.match(checkedPnpmScript, /corepack", \["pack", `pnpm@\$\{version\}`, "-o", archive\]/);
+  assert.match(ciWorkflow, /DOCKER_SMOKE_VERBOSE=1 DOCKER_SMOKE_TAG=p2p-transfer:test node scripts\/smoke-docker-policy\.mjs/);
+  assert.match(checkedPnpmScript, /const corepack = await corepackInvocation\(\)/);
+  assert.match(checkedPnpmScript, /await run\(corepack\.command, \[\.\.\.corepack\.argsPrefix, "pack", `pnpm@\$\{version\}`, "-o", archive\], \{ cwd: root, env: childEnv, label: "corepack", timeoutMs: 120_000 \}\)/);
+  assert.match(checkedPnpmScript, /function corepackEntrypointCandidates\(nodeExecutable\)[\s\S]*node_modules", "corepack", "dist", "corepack\.js"[\s\S]*"lib", "node_modules", "corepack", "dist", "corepack\.js"/);
+  assert.match(checkedPnpmScript, /checkedNodeExecutablePath\(process\.execPath\)/);
+  assert.match(checkedPnpmScript, /MAX_COREPACK_ENTRYPOINT_BYTES = 10 \* 1024 \* 1024/);
+  assert.match(checkedPnpmScript, /MAX_NODE_EXECUTABLE_PATH_BYTES = 4_096/);
   assert.match(checkedPnpmScript, /import \{ gunzipSync \} from "node:zlib"/);
   assert.match(checkedPnpmScript, /const MAX_COREPACK_ARCHIVE_BYTES = 50 \* 1024 \* 1024/);
   assert.match(checkedPnpmScript, /const MAX_COREPACK_TAR_BYTES = 200 \* 1024 \* 1024/);
@@ -799,9 +817,11 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.match(checkedPnpmScript, /HOME: home[\s\S]*PNPM_HOME: path\.join\(home, "pnpm-home"\)[\s\S]*COREPACK_HOME: path\.join\(home, "corepack-home"\)/);
   assert.match(checkedPnpmScript, /\["PATH", true\]/);
   assert.match(checkedPnpmScript, /const descriptor = Object\.getOwnPropertyDescriptor\(process\.env, name\)/);
+  assert.match(checkedPnpmScript, /const label = options\.label \?\? command/);
   assert.match(checkedPnpmScript, /spawn\(command, args, \{ cwd: options\.cwd, env: options\.env, stdio: \["ignore", "pipe", "pipe"\] \}\)/);
+  assert.doesNotMatch(checkedPnpmScript, /shell:\s*true|spawn\("cmd\.exe"|spawn\("corepack"/);
   assert.doesNotMatch(checkedPnpmScript, /readFile\(path\.join\(root, "package\.json"\)|readFileSync\(path\.join\(root, "package\.json"\)/);
-  assert.match(ciWorkflow, /production docker policy[\s\S]*actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3[\s\S]*node scripts\/prepare-checked-pnpm\.mjs[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:test node scripts\/smoke-docker-policy\.mjs/);
+  assert.match(ciWorkflow, /production docker policy[\s\S]*actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3[\s\S]*node scripts\/prepare-checked-pnpm\.mjs[\s\S]*DOCKER_SMOKE_VERBOSE=1 DOCKER_SMOKE_TAG=p2p-transfer:test node scripts\/smoke-docker-policy\.mjs/);
   assert.doesNotMatch(ciWorkflow, /corepack prepare pnpm@/);
   assert.match(dockerPolicySmokeScript, /\["build", "--build-arg", `VERSION=\$\{imageVersion\}`, "--build-arg", `REVISION=\$\{imageRevision\}`, "-t", imageTag, "\."\]/);
   assert.match(dockerPolicySmokeScript, /await assertImageMetadata\(imageTag, dockerEnv, imageVersion, imageRevision\)/);
@@ -814,8 +834,14 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.match(dockerPolicySmokeScript, /const HARDENED_DOCKER_RUN_FLAGS = \["--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "--pids-limit", "128", "--memory", "512m", "--cpus", "1"\]/);
   assert.match(dockerPolicySmokeScript, /\["run", "--rm", \.\.\.HARDENED_DOCKER_RUN_FLAGS, "-e", "SIGNALING_TOPOLOGY=single-instance", imageTag\]/);
   assert.match(dockerPolicySmokeScript, /\["run", "--rm", \.\.\.HARDENED_DOCKER_RUN_FLAGS, "-e", `ALLOWED_ORIGINS=\$\{PRODUCTION_ORIGIN\}`, imageTag\]/);
-  assert.match(dockerPolicySmokeScript, /"Error: ALLOWED_ORIGINS is required for public deployments\."/);
-  assert.match(dockerPolicySmokeScript, /"Error: SIGNALING_TOPOLOGY must be single-instance or sticky-sessions for public deployments\."/);
+  assert.match(
+    dockerPolicySmokeScript,
+    /"ff signaling server startup failed: configuration ALLOWED_ORIGINS is required for public deployments\."/,
+  );
+  assert.match(
+    dockerPolicySmokeScript,
+    /"ff signaling server startup failed: configuration SIGNALING_TOPOLOGY must be single-instance or sticky-sessions for public deployments\."/,
+  );
   assert.match(dockerPolicySmokeScript, /function hasExactOutputLine\(result, expectedLine\)/);
   assert.match(dockerPolicySmokeScript, /line\.trim\(\) === expectedLine/);
   assert.match(dockerPolicySmokeScript, /MAX_COMMAND_OUTPUT_BYTES = 1024 \* 1024/);
@@ -1027,7 +1053,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseWorkflow, /stage docker image[\s\S]*needs:\n      - verify\n      - platform-smoke\n      - docker-validate[\s\S]*environment: npm[\s\S]*permissions:\n      contents: read\n      packages: write\n      id-token: write\n      attestations: write[\s\S]*outputs:\n      image: \$\{\{ steps\.docker_image\.outputs\.image \}\}\n      digest: \$\{\{ steps\.docker_image\.outputs\.digest \}\}/);
   assert.match(releaseWorkflow, /verify public docker image[\s\S]*needs:\n      - docker-stage[\s\S]*permissions:\n      contents: read[\s\S]*Verify staged image is publicly pullable[\s\S]*DOCKER_STAGED_DIGEST: \$\{\{ needs\.docker-stage\.outputs\.digest \}\}[\s\S]*run: node scripts\/publish-docker-image\.mjs --assert-public/);
   assert.match(releaseWorkflow, /promote docker image[\s\S]*needs:\n      - publish\n      - docker-stage[\s\S]*environment: npm[\s\S]*permissions:\n      contents: read\n      packages: write/);
-  assert.match(releaseWorkflow, /pre-publish docker validation[\s\S]*needs:\n      - verify\n      - platform-smoke[\s\S]*permissions:\n      contents: read[\s\S]*Validate release Docker image[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:release-gate node scripts\/smoke-docker-policy\.mjs/);
+  assert.match(releaseWorkflow, /pre-publish docker validation[\s\S]*needs:\n      - verify\n      - platform-smoke[\s\S]*permissions:\n      contents: read[\s\S]*Validate release Docker image[\s\S]*DOCKER_SMOKE_VERBOSE=1 DOCKER_SMOKE_TAG=p2p-transfer:release-gate node scripts\/smoke-docker-policy\.mjs/);
   assert.match(releaseWorkflow, /stage docker image[\s\S]*actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3[\s\S]*node scripts\/prepare-checked-pnpm\.mjs[\s\S]*Build, smoke, and stage image[\s\S]*run: node scripts\/publish-docker-image\.mjs/);
   assert.match(releaseWorkflow, /stage docker image[\s\S]*Scan staged image for vulnerabilities[\s\S]*aquasecurity\/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0\.36\.0[\s\S]*image-ref: \$\{\{ steps\.docker_image\.outputs\.image \}\}@\$\{\{ steps\.docker_image\.outputs\.digest \}\}[\s\S]*exit-code: "1"[\s\S]*vuln-type: os,library[\s\S]*severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL/);
   assert.doesNotMatch(releaseWorkflow, /ignore-unfixed:\s*true/);
@@ -1446,8 +1472,8 @@ test("Node ambient types stay on the supported runtime major", () => {
   assert.doesNotMatch(nodeTypes ?? "", /^2[345]\./);
   assert.match(pnpmLock, /^  '@types\/node@22\.\d+\.\d+':$/m);
   assert.doesNotMatch(pnpmLock, /@types\/node@2[345]\./);
-  assert.match(pnpmWorkspace, /overrides:\n\s+"@types\/node": 22\.13\.14\n\s+undici-types: 6\.19\.1/);
-  assert.match(pnpmLock, /overrides:\n\s+'@types\/node': 22\.13\.14\n\s+undici-types: 6\.19\.1/);
+  assert.match(pnpmWorkspace, /overrides:\r?\n\s+"@types\/node": 22\.13\.14\r?\n\s+undici-types: 6\.19\.1/);
+  assert.match(pnpmLock, /overrides:\r?\n\s+'@types\/node': 22\.13\.14\r?\n\s+undici-types: 6\.19\.1/);
   assert.match(pnpmLock, /^  undici-types@6\.19\.1:$/m);
   assert.doesNotMatch(pnpmLock, /undici-types@6\.2[01]\./);
   assert.doesNotMatch(pnpmLock, /undici-types@7\./);
@@ -1712,15 +1738,15 @@ test("critical PAKE dependency identity and install surface stay reviewed", () =
   }
   assert.match(
     pnpmLock,
-    new RegExp(`^  '@cipherman/pake-js@0\\.1\\.1':\\n    resolution: \\{integrity: ${escapeRegExp(reviewedPakeIntegrity)}\\}`, "m")
+    new RegExp(`^  '@cipherman/pake-js@0\\.1\\.1':\\r?\\n    resolution: \\{integrity: ${escapeRegExp(reviewedPakeIntegrity)}\\}`, "m")
   );
   assert.match(
     pnpmLock,
-    new RegExp(`^  '@noble/curves@1\\.9\\.7':\\n    resolution: \\{integrity: ${escapeRegExp(reviewedNobleCurvesIntegrity)}\\}`, "m")
+    new RegExp(`^  '@noble/curves@1\\.9\\.7':\\r?\\n    resolution: \\{integrity: ${escapeRegExp(reviewedNobleCurvesIntegrity)}\\}`, "m")
   );
   assert.match(
     pnpmLock,
-    new RegExp(`^  '@noble/hashes@1\\.8\\.0':\\n    resolution: \\{integrity: ${escapeRegExp(reviewedNobleHashesCpaceIntegrity)}\\}`, "m")
+    new RegExp(`^  '@noble/hashes@1\\.8\\.0':\\r?\\n    resolution: \\{integrity: ${escapeRegExp(reviewedNobleHashesCpaceIntegrity)}\\}`, "m")
   );
   assert.match(cpaceReview, /# CPace Dependency Review/);
   assert.match(cpaceReview, new RegExp(`Package: \`${escapeRegExp(pakePackageJson.name ?? "")}\``));
@@ -1860,7 +1886,7 @@ test("direct noble hashes dependency identity and install surface stay reviewed"
   }
   assert.match(
     pnpmLock,
-    new RegExp(`^  '@noble/hashes@2\\.2\\.0':\\n    resolution: \\{integrity: ${escapeRegExp(reviewedNobleHashesIntegrity)}\\}`, "m")
+    new RegExp(`^  '@noble/hashes@2\\.2\\.0':\\r?\\n    resolution: \\{integrity: ${escapeRegExp(reviewedNobleHashesIntegrity)}\\}`, "m")
   );
   assert.match(nobleHashesReview, /# Noble Hashes Dependency Review/);
   assert.match(nobleHashesReview, new RegExp(`Package: \`${escapeRegExp(nobleHashesPackageJson.name ?? "")}\``));
@@ -1933,8 +1959,8 @@ test("scure wordlist dependency identity and install surface stay reviewed", () 
     type: "git",
     url: "git+https://github.com/paulmillr/scure-base.git"
   });
-  assert.match(pnpmLock, new RegExp(`^  '@scure/bip39@2\\.2\\.0':\\n    resolution: \\{integrity: ${escapeRegExp(reviewedScureBip39Integrity)}\\}`, "m"));
-  assert.match(pnpmLock, new RegExp(`^  '@scure/base@2\\.2\\.0':\\n    resolution: \\{integrity: ${escapeRegExp(reviewedScureBaseIntegrity)}\\}`, "m"));
+  assert.match(pnpmLock, new RegExp(`^  '@scure/bip39@2\\.2\\.0':\\r?\\n    resolution: \\{integrity: ${escapeRegExp(reviewedScureBip39Integrity)}\\}`, "m"));
+  assert.match(pnpmLock, new RegExp(`^  '@scure/base@2\\.2\\.0':\\r?\\n    resolution: \\{integrity: ${escapeRegExp(reviewedScureBaseIntegrity)}\\}`, "m"));
   assert.match(cliCryptoDependenciesSource, /name: "@scure\/bip39",\n    version: "2\.2\.0"/);
   assert.match(cliCryptoDependenciesSource, /name: "@scure\/base",\n    version: "2\.2\.0"/);
   assert.match(cliCryptoDependenciesSource, /requireFromCli\.resolve\("@scure\/bip39\/wordlists\/english\.js"\)/);
@@ -2005,18 +2031,18 @@ test("native WebRTC dependency identity and install surface stay reviewed", () =
   assert.equal(wrtcPackageJson.optionalDependencies?.domexception, "^4.0.0");
   assert.match(
     pnpmLock,
-    new RegExp(`^  '@roamhq/wrtc@0\\.10\\.0':\\n    resolution: \\{integrity: ${escapeRegExp(reviewedWrtcIntegrity)}\\}`, "m")
+    new RegExp(`^  '@roamhq/wrtc@0\\.10\\.0':\\r?\\n    resolution: \\{integrity: ${escapeRegExp(reviewedWrtcIntegrity)}\\}`, "m")
   );
   for (const name of reviewedWrtcPrebuiltPackages) {
     assert.match(
       pnpmLock,
-      new RegExp(`^  '${escapeRegExp(name)}@0\\.10\\.0':\\n    resolution: \\{integrity: ${escapeRegExp(reviewedWrtcPrebuiltIntegrities[name] ?? "")}\\}`, "m")
+      new RegExp(`^  '${escapeRegExp(name)}@0\\.10\\.0':\\r?\\n    resolution: \\{integrity: ${escapeRegExp(reviewedWrtcPrebuiltIntegrities[name] ?? "")}\\}`, "m")
     );
   }
-  assert.match(pnpmLock, new RegExp(`^  domexception@4\\.0\\.0:\\n    resolution: \\{integrity: ${escapeRegExp(reviewedDomexceptionIntegrity)}\\}`, "m"));
-  assert.match(pnpmLock, /^      domexception:\n        specifier: 4\.0\.0\n        version: 4\.0\.0/m);
-  assert.match(pnpmLock, /^      webidl-conversions:\n        specifier: 7\.0\.0\n        version: 7\.0\.0/m);
-  assert.match(pnpmLock, new RegExp(`^  webidl-conversions@7\\.0\\.0:\\n    resolution: \\{integrity: ${escapeRegExp(reviewedWebidlConversionsIntegrity)}\\}`, "m"));
+  assert.match(pnpmLock, new RegExp(`^  domexception@4\\.0\\.0:\\r?\\n    resolution: \\{integrity: ${escapeRegExp(reviewedDomexceptionIntegrity)}\\}`, "m"));
+  assert.match(pnpmLock, /^      domexception:\r?\n        specifier: 4\.0\.0\r?\n        version: 4\.0\.0/m);
+  assert.match(pnpmLock, /^      webidl-conversions:\r?\n        specifier: 7\.0\.0\r?\n        version: 7\.0\.0/m);
+  assert.match(pnpmLock, new RegExp(`^  webidl-conversions@7\\.0\\.0:\\r?\\n    resolution: \\{integrity: ${escapeRegExp(reviewedWebidlConversionsIntegrity)}\\}`, "m"));
   assert.match(nativeSmokeScript, /const mod = await import\("\.\.\/dist-node\/cli\/native-webrtc\.js"\)/);
   assert.match(nativeSmokeScript, /requiredConstructor\(wrtc\.RTCPeerConnection, "RTCPeerConnection"\)/);
   assert.match(nativeSmokeScript, /requiredConstructor\(wrtc\.RTCDataChannel, "RTCDataChannel"\)/);
@@ -2311,7 +2337,7 @@ function splitPackageNameAndVersion(packageAndVersion: string): [string, string]
 
 function lockfilePackageIntegrityPattern(name: string, version: string, integrity: string): RegExp {
   const key = name.startsWith("@") ? `'${escapeRegExp(name)}@${escapeRegExp(version)}'` : `${escapeRegExp(name)}@${escapeRegExp(version)}`;
-  return new RegExp(`^  ${key}:\\n    resolution: \\{integrity: ${escapeRegExp(integrity)}\\}`, "m");
+  return new RegExp(`^  ${key}:\\r?\\n    resolution: \\{integrity: ${escapeRegExp(integrity)}\\}`, "m");
 }
 
 function sourcePathForBuiltBin(relativePath: string): URL {

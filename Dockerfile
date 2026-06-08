@@ -4,6 +4,7 @@ COPY package.json ./
 COPY scripts/prepare-checked-pnpm.mjs ./scripts/prepare-checked-pnpm.mjs
 RUN node scripts/prepare-checked-pnpm.mjs
 COPY pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY test/crypto-dependencies.test.ts test/cpace-vectors.test.ts test/native-webrtc-dependencies.test.ts ./test/
 RUN pnpm install --frozen-lockfile --ignore-scripts
 COPY . .
 RUN pnpm check:install-state

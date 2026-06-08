@@ -511,8 +511,12 @@ test("CLI sender send-time stream chunks reject non-canonical runtime values bef
   }
   for (const source of [sourceFiles, distFiles]) {
     assert.match(source, /function hashFileHandle[\s\S]*const payload = fileStreamChunkBytes\(chunk\)/);
+    assert.match(source, /function hashFileHandle[\s\S]*assertHandleSampleUnchanged\(handle, firstSample, 0\)/);
+    assert.match(source, /function hashFileHandle[\s\S]*assertHandleSampleUnchanged\(handle, lastSample, lastSamplePosition\)/);
     assert.match(source, /function hashFileHandle[\s\S]*sameFileMutationSnapshot\(await fileMutationSnapshot\(handle\), expectedMutation\)/);
     assert.doesNotMatch(source, /function hashFileHandle[\s\S]*Buffer\.from\(chunk\)/);
+    assert.match(source, /function copyBytes/);
+    assert.match(source, /function sameBytes/);
     assert.match(source, /function fileStreamChunkBytes/);
     assert.match(source, /function isCanonicalFileStreamBytes/);
   }

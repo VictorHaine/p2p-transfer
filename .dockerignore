@@ -42,3 +42,7 @@ release-artifacts
 .vite
 .DS_Store
 test
+!test/
+!test/crypto-dependencies.test.ts
+!test/cpace-vectors.test.ts
+!test/native-webrtc-dependencies.test.ts

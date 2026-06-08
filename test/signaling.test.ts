@@ -87,15 +87,21 @@ test("waitForMessage rejects already closed signaling clients before listeners",
 
 test("waitForMessage exposes typed timeout errors for classification without message access", async () => {
   const client = new EventEmitter();
-  await assert.rejects(
-    waitForMessage(client as never, "ice-config", 1),
-    (error) => error instanceof SignalingWaitTimeoutError && error.type === "ice-config" && error.message === "Timed out waiting for ice-config"
+  await keepEventLoopAliveUntil(
+    assert.rejects(
+      waitForMessage(client as never, "ice-config", 1),
+      (error) => error instanceof SignalingWaitTimeoutError && error.type === "ice-config" && error.message === "Timed out waiting for ice-config"
+    ),
+    "source signaling timeout"
   );
 
   const distClient = new EventEmitter();
-  await assert.rejects(
-    distWaitForMessage(distClient as never, "ice-config", 1),
-    (error) => error instanceof DistSignalingWaitTimeoutError && error.type === "ice-config" && error.message === "Timed out waiting for ice-config"
+  await keepEventLoopAliveUntil(
+    assert.rejects(
+      distWaitForMessage(distClient as never, "ice-config", 1),
+      (error) => error instanceof DistSignalingWaitTimeoutError && error.type === "ice-config" && error.message === "Timed out waiting for ice-config"
+    ),
+    "dist signaling timeout"
   );
 });
 
@@ -579,6 +585,18 @@ function readDistWebBundle(): string {
   const jsFiles = fs.readdirSync(assetsDir).filter((file) => file.endsWith(".js"));
   assert.equal(jsFiles.length, 1);
   return fs.readFileSync(new URL(jsFiles[0]!, assetsDir), "utf8");
+}
+
+async function keepEventLoopAliveUntil<T>(promise: Promise<T>, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const guard = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} did not settle while the test kept the event loop alive.`)), 250);
+  });
+  try {
+    return await Promise.race([promise, guard]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 function distCliIndexSource(): string {

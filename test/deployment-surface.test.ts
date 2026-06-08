@@ -343,20 +343,20 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(ciBrowserInteropJob, /timeout-minutes: 45/);
   assert.match(ciPlatformSmokeJob, /timeout-minutes: 25/);
   assert.match(ciDockerJob, /timeout-minutes: 30/);
-  assert.match(securityPolicy, /CI must enforce the same local typecheck, build, unit, native smoke, release-artifact smoke, packed-install, browser interop, and hardened Docker policy gates/);
+  assert.match(securityPolicy, /CI must enforce the same local typecheck, build, full Linux unit, platform runtime\/security, native smoke, release-artifact smoke, packed-install, browser interop, and hardened Docker policy gates/);
   assert.match(securityPolicy, /every CI and release workflow job must set an explicit `timeout-minutes` bound/);
   assert.doesNotMatch(ciVerifyJob, /pnpm test:unit[\s\S]*pnpm build[\s\S]*pnpm smoke:native/);
-  assert.match(ciPlatformSmokeJob, /pnpm install --frozen-lockfile --ignore-scripts[\s\S]*pnpm check:install-state[\s\S]*pnpm security:build-toolchain[\s\S]*pnpm security:dependencies[\s\S]*pnpm rebuild @roamhq\/wrtc esbuild[\s\S]*pnpm security:build-toolchain[\s\S]*pnpm security:dependencies[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed/);
+  assert.match(ciPlatformSmokeJob, /pnpm install --frozen-lockfile --ignore-scripts[\s\S]*pnpm check:install-state[\s\S]*pnpm security:build-toolchain[\s\S]*pnpm security:dependencies[\s\S]*pnpm rebuild @roamhq\/wrtc esbuild[\s\S]*pnpm security:build-toolchain[\s\S]*pnpm security:dependencies[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:platform[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed/);
   assert.doesNotMatch(ciPlatformSmokeJob, /pnpm test:unit[\s\S]*pnpm build[\s\S]*pnpm smoke:native/);
   assert.match(releasePlatformSmokeJob, /node:\n\s+- 22\.22\.3\n\s+- 24\.13\.1/);
   assert.match(releasePlatformSmokeJob, /os:\n\s+- ubuntu-24\.04\n\s+- ubuntu-24\.04-arm\n\s+- macos-15\n\s+- macos-15-intel\n\s+- windows-2025/);
-  assert.match(releasePlatformSmokeJob, /pnpm install --frozen-lockfile --ignore-scripts[\s\S]*pnpm check:install-state[\s\S]*pnpm security:build-toolchain[\s\S]*pnpm security:dependencies[\s\S]*pnpm rebuild @roamhq\/wrtc esbuild[\s\S]*pnpm security:build-toolchain[\s\S]*pnpm security:dependencies[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed/);
+  assert.match(releasePlatformSmokeJob, /pnpm install --frozen-lockfile --ignore-scripts[\s\S]*pnpm check:install-state[\s\S]*pnpm security:build-toolchain[\s\S]*pnpm security:dependencies[\s\S]*pnpm rebuild @roamhq\/wrtc esbuild[\s\S]*pnpm security:build-toolchain[\s\S]*pnpm security:dependencies[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:platform[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed/);
   assert.doesNotMatch(releasePlatformSmokeJob, /pnpm test:unit[\s\S]*pnpm build[\s\S]*pnpm smoke:native/);
   assert.match(ciWorkflow, /pnpm smoke:packed/);
   assert.match(ciVerifyJob, /pnpm smoke:release-artifact[\s\S]*dependency audit[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures/);
-  assert.match(ciWorkflow, /DOCKER_SMOKE_TAG=p2p-transfer:test node scripts\/smoke-docker-policy\.mjs/);
+  assert.match(ciWorkflow, /DOCKER_SMOKE_VERBOSE=1 DOCKER_SMOKE_TAG=p2p-transfer:test node scripts\/smoke-docker-policy\.mjs/);
   assert.match(ciDockerJob, /actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3/);
-  assert.match(ciDockerJob, /node scripts\/prepare-checked-pnpm\.mjs[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:test node scripts\/smoke-docker-policy\.mjs/);
+  assert.match(ciDockerJob, /node scripts\/prepare-checked-pnpm\.mjs[\s\S]*DOCKER_SMOKE_VERBOSE=1 DOCKER_SMOKE_TAG=p2p-transfer:test node scripts\/smoke-docker-policy\.mjs/);
   assert.doesNotMatch(ciDockerJob, /corepack prepare pnpm@/);
   assert.match(dockerfile, /ARG VERSION=0\.0\.0-dev\nARG REVISION=unknown\nLABEL org\.opencontainers\.image\.title="p2p-transfer"/);
   assert.match(dockerfile, /org\.opencontainers\.image\.licenses="MIT"/);
@@ -373,8 +373,14 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(dockerPolicySmokeScript, /distribution-doc-missing/);
   assert.match(dockerPolicySmokeScript, /\["run", "--rm", \.\.\.HARDENED_DOCKER_RUN_FLAGS, "-e", "SIGNALING_TOPOLOGY=single-instance", imageTag\]/);
   assert.match(dockerPolicySmokeScript, /\["run", "--rm", \.\.\.HARDENED_DOCKER_RUN_FLAGS, "-e", `ALLOWED_ORIGINS=\$\{PRODUCTION_ORIGIN\}`, imageTag\]/);
-  assert.match(dockerPolicySmokeScript, /"Error: ALLOWED_ORIGINS is required for public deployments\."/);
-  assert.match(dockerPolicySmokeScript, /"Error: SIGNALING_TOPOLOGY must be single-instance or sticky-sessions for public deployments\."/);
+  assert.match(
+    dockerPolicySmokeScript,
+    /"ff signaling server startup failed: configuration ALLOWED_ORIGINS is required for public deployments\."/,
+  );
+  assert.match(
+    dockerPolicySmokeScript,
+    /"ff signaling server startup failed: configuration SIGNALING_TOPOLOGY must be single-instance or sticky-sessions for public deployments\."/,
+  );
   assert.match(dockerPolicySmokeScript, /function hasExactOutputLine\(result, expectedLine\)/);
   assert.match(dockerPolicySmokeScript, /line\.trim\(\) === expectedLine/);
   assert.match(dockerPolicySmokeScript, /MAX_DOCKER_FAILURE_EVIDENCE_CHARS = 128 \* 1024/);
@@ -452,7 +458,7 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.doesNotMatch(releaseWorkflow, /pack release artifact[\s\S]*(find release-artifacts|basename "\$tgz"|sha256sum)/);
   assert.match(releaseDockerValidateJob, /needs:\n      - verify\n      - platform-smoke/);
   assert.match(releaseDockerValidateJob, /permissions:\n      contents: read/);
-  assert.match(releaseDockerValidateJob, /node scripts\/prepare-checked-pnpm\.mjs[\s\S]*Validate release Docker image[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:release-gate node scripts\/smoke-docker-policy\.mjs/);
+  assert.match(releaseDockerValidateJob, /node scripts\/prepare-checked-pnpm\.mjs[\s\S]*Validate release Docker image[\s\S]*DOCKER_SMOKE_VERBOSE=1 DOCKER_SMOKE_TAG=p2p-transfer:release-gate node scripts\/smoke-docker-policy\.mjs/);
   assert.match(releaseDockerStageJob, /needs:\n      - verify\n      - platform-smoke\n      - docker-validate/);
   assert.match(releaseDockerStageJob, /environment: npm/);
   assert.match(releaseDockerStageJob, /permissions:\n      contents: read\n      packages: write\n      id-token: write\n      attestations: write/);
@@ -902,6 +908,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(readme, /For normal releases, update local `main` to the exact current `origin\/main` commit after the protected pull request has merged, then run release preflight from that checked-out commit/);
   assert.match(readme, /git config --local gpg\.ssh\.allowedSignersFile \.github\/allowed_signers/);
   assert.match(releaseRunbook, /git config --local gpg\.ssh\.allowedSignersFile \.github\/allowed_signers\n   git fetch origin main/);
+  assert.match(releaseRunbook, /After these controls are active, future changes to `main` must go through a pull request so the required checks can attach to the merge candidate/);
   assert.match(allowedSigners, /^git@victorhaine\.me namespaces="git" ssh-rsa /);
   assert.match(readme, /Local preflight refuses unsigned `HEAD` and dirty worktrees before package or network work, and it refuses to pass if that local `HEAD` differs from GitHub's current `main` branch response/);
   assert.match(readme, /The checked tag creator revalidates signed `HEAD`, clean worktree state, package-version matching, freshly fetched `origin\/main` equality, local and remote tag absence, tag target, and tag signature while suppressing signer subprocess output/);
@@ -1693,7 +1700,7 @@ test("README documents the auto-accept consent tradeoff", () => {
 });
 
 test("pull request template keeps production-sensitive verification explicit", () => {
-  assert.match(securityPolicy, /CI must enforce the same local typecheck, build, unit, native smoke, release-artifact smoke, packed-install, browser interop, and hardened Docker policy gates that release depends on/);
+  assert.match(securityPolicy, /CI must enforce the same local typecheck, build, full Linux unit, platform runtime\/security, native smoke, release-artifact smoke, packed-install, browser interop, and hardened Docker policy gates that release depends on/);
   assert.match(pullRequestTemplate, /`pnpm verify:local`/);
   assert.match(pullRequestTemplate, /`pnpm verify:release` for protocol, crypto, browser, dependency, release, or file-write changes/);
   assert.match(pullRequestTemplate, /`DOCKER_SMOKE_TAG=p2p-transfer:test pnpm verify:release:docker` for Docker, deployment, release, or server changes/);

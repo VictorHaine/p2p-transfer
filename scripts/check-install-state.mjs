@@ -258,7 +258,7 @@ function relativeEvidencePath(file) {
   if (relative.length < 1 || relative.startsWith("..") || path.isAbsolute(relative) || /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u.test(relative)) {
     throw new Error("invalid install-state evidence path");
   }
-  return relative;
+  return relative.split(path.sep).join("/");
 }
 
 function installStateErrorMessage(error) {

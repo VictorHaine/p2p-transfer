@@ -101,10 +101,14 @@ async function readBoundedNoFollow(filePath) {
 }
 
 async function writeNoFollow(filePath, body) {
-  const handle = await fs.open(filePath, fsConstants.O_WRONLY | fsConstants.O_TRUNC | fsConstants.O_NOFOLLOW);
+  const info = await fs.lstat(filePath);
+  if (!info.isFile()) throw new Error("Browser index is not a regular file.");
+  const handle = await fs.open(filePath, fsConstants.O_WRONLY | writeNoFollowFlag());
   try {
     const stat = await handle.stat();
     if (!stat.isFile()) throw new Error("Browser index is not a regular file.");
+    if (!sameFile(info, stat)) throw new Error("Browser index changed before writing.");
+    await handle.truncate(0);
     await handle.writeFile(body, "utf8");
   } finally {
     await handle.close();
@@ -112,7 +116,7 @@ async function writeNoFollow(filePath, body) {
 }
 
 async function writeNewNoFollow(filePath, body) {
-  const handle = await fs.open(filePath, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW, 0o644);
+  const handle = await fs.open(filePath, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | writeNoFollowFlag(), 0o644);
   try {
     const stat = await handle.stat();
     if (!stat.isFile()) throw new Error("Browser manifest is not a regular file.");
@@ -120,6 +124,10 @@ async function writeNewNoFollow(filePath, body) {
   } finally {
     await handle.close();
   }
+}
+
+function writeNoFollowFlag() {
+  return process.platform === "win32" ? 0 : fsConstants.O_NOFOLLOW;
 }
 
 function decodeUtf8(body) {

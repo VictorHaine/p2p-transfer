@@ -192,8 +192,8 @@ const REVIEWED_LOCKFILE_INTEGRITIES = {
 if (isMain()) {
   try {
     main();
-  } catch {
-    console.error("Reviewed build toolchain dependency metadata is not installed.");
+  } catch (error) {
+    console.error(`Reviewed build toolchain dependency metadata is not installed. ${buildToolchainErrorSummary(error)}`);
     process.exitCode = 1;
   }
 }
@@ -287,8 +287,8 @@ function assertReviewedLockfileIntegrities() {
     const escapedName = escapeRegExp(name);
     const escapedVersion = escapeRegExp(version);
     const escapedIntegrity = escapeRegExp(integrity);
-    const pattern = new RegExp(`^  '${escapedName}@${escapedVersion}':\\n    resolution: \\{integrity: ${escapedIntegrity}\\}`, "m");
-    const unquotedPattern = new RegExp(`^  ${escapedName}@${escapedVersion}:\\n    resolution: \\{integrity: ${escapedIntegrity}\\}`, "m");
+    const pattern = new RegExp(`^  '${escapedName}@${escapedVersion}':\\r?\\n    resolution: \\{integrity: ${escapedIntegrity}\\}`, "m");
+    const unquotedPattern = new RegExp(`^  ${escapedName}@${escapedVersion}:\\r?\\n    resolution: \\{integrity: ${escapedIntegrity}\\}`, "m");
     if (!pattern.test(lockfile) && !unquotedPattern.test(lockfile)) throw new Error("reviewed build toolchain lockfile integrity changed.");
   }
 }
@@ -357,11 +357,20 @@ function ownValue(record, key) {
 }
 
 function sameFile(left, right) {
-  return left.dev === right.dev && left.ino === right.ino && left.size === right.size && left.mtimeMs === right.mtimeMs && left.ctimeMs === right.ctimeMs;
+  return left.dev === right.dev && left.ino === right.ino && left.size === right.size && left.mtimeMs === right.mtimeMs;
 }
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function buildToolchainErrorSummary(error) {
+  if (!error || typeof error !== "object") return "Verification failed.";
+  const descriptor = Object.getOwnPropertyDescriptor(error, "message");
+  const message = descriptor && "value" in descriptor ? descriptor.value : undefined;
+  if (typeof message !== "string" || message.length < 1 || message.length > 160) return "Verification failed.";
+  if (/[\p{Cc}\p{Cf}/\\]/u.test(message)) return "Verification failed.";
+  return message.endsWith(".") ? message : `${message}.`;
 }
 
 function isMain() {

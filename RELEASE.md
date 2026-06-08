@@ -30,6 +30,8 @@ This project releases only from protected `main` with a matching `v*.*.*` tag. D
    gh auth token | node scripts/configure-github-release-controls.mjs --token-stdin --apply --npm-reviewer <github-user>
    ```
 
+   After these controls are active, future changes to `main` must go through a pull request so the required checks can attach to the merge candidate. Do not direct-push a follow-up commit just to create status-check history; the branch ruleset intentionally rejects that path.
+
 5. Configure npm trusted publishing for `@victorhaine/p2p-transfer`. Set the trusted publisher to GitHub repository `VictorHaine/p2p-transfer`, workflow `.github/workflows/release.yml`, environment `npm`, and the GitHub Actions publish action. Do not add `NPM_TOKEN`; the checked publisher rejects static npm tokens and requires OIDC trusted publishing.
 
 6. Add the repository secret `RELEASE_PREFLIGHT_TOKEN` with the repository-administration, ruleset, private vulnerability reporting, dependency alert, repository security-analysis, Dependabot security-update, and Actions workflow-run visibility needed by release preflight. Use a fine-grained PAT or an externally rotated GitHub App installation token; do not store a raw one-hour installation token as a static secret unless rotation updates it before every release.

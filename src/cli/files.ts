@@ -63,6 +63,13 @@ type FileIdentity = {
   ino: number;
 };
 
+type PathIdentity = FileIdentity & {
+  mode: number;
+  size: number;
+  mtimeMs: number;
+  birthtimeMs: number;
+};
+
 type FileMutationSnapshot = {
   dev: bigint;
   ino: bigint;
@@ -266,7 +273,7 @@ async function createOutputPart(finalPath: string, partPath: string, outputDir: 
     return { finalPath, partPath, handle, dev: stat.dev, ino: stat.ino, dirDev: outputDirIdentity.dev, dirIno: outputDirIdentity.ino };
   } catch (error) {
     await handle.close().catch(() => {});
-    if (stat) await removePathIfIdentity(partPath, stat).catch(() => {});
+    if (stat) await removePathIfPathIdentity(partPath, pathIdentity(stat)).catch(() => {});
     throw error;
   }
 }
@@ -324,10 +331,6 @@ async function assertDirectoryIdentity(dir: string, expected: FileIdentity, opti
   if (!stat.isDirectory() || stat.dev !== expected.dev || stat.ino !== expected.ino) throw new Error("Output directory changed during reservation.");
 }
 
-async function removePathIfIdentity(filePath: string, expected: FileIdentity): Promise<void> {
-  await quarantineRemovePathIfIdentity(filePath, (stat) => sameFileIdentity(stat, expected));
-}
-
 async function quarantineRemovePathIfIdentity(filePath: string, matchesExpected: (stat: fs.Stats) => boolean): Promise<void> {
   for (let attempt = 0; attempt < MAX_CLEANUP_QUARANTINE_ATTEMPTS; attempt += 1) {
     const quarantinePath = cleanupQuarantinePath(filePath);
@@ -354,6 +357,18 @@ function cleanupQuarantinePath(filePath: string): string {
 
 function sameFileIdentity(stat: fs.Stats, expected: FileIdentity): boolean {
   return stat.isFile() && stat.dev === expected.dev && stat.ino === expected.ino;
+}
+
+function pathIdentity(stat: fs.Stats): PathIdentity {
+  return { dev: stat.dev, ino: stat.ino, mode: stat.mode, size: stat.size, mtimeMs: stat.mtimeMs, birthtimeMs: stat.birthtimeMs };
+}
+
+async function removePathIfPathIdentity(filePath: string, expected: PathIdentity): Promise<void> {
+  await quarantineRemovePathIfIdentity(filePath, (stat) => samePathIdentity(stat, expected));
+}
+
+function samePathIdentity(stat: fs.Stats, expected: PathIdentity): boolean {
+  return stat.dev === expected.dev && stat.ino === expected.ino && stat.mode === expected.mode && stat.size === expected.size && stat.mtimeMs === expected.mtimeMs && stat.birthtimeMs === expected.birthtimeMs;
 }
 
 function randomPartFileName(): string {
@@ -392,14 +407,15 @@ async function readOrCreateResumeSecret(outputDir: string): Promise<Buffer> {
 
   const secret = randomBytes(RESUME_SECRET_BYTES);
   let handle: fs.promises.FileHandle | undefined;
-  let createdSecretIdentity: FileIdentity | undefined;
+  let createdSecretIdentity: PathIdentity | undefined;
   try {
     handle = await fs.promises.open(secretPath, SAFE_SECRET_CREATE_FLAGS, 0o600);
     const createdStat = await handle.stat();
-    createdSecretIdentity = { dev: createdStat.dev, ino: createdStat.ino };
+    createdSecretIdentity = pathIdentity(createdStat);
     await handle.writeFile(secret);
     const verifiedStat = await handle.stat();
     if (!sameFileIdentity(verifiedStat, createdSecretIdentity)) throw new Error("Resume secret changed while creating.");
+    createdSecretIdentity = pathIdentity(verifiedStat);
     assertResumeSecretStat(verifiedStat);
     createdSecretIdentity = undefined;
     return Buffer.from(secret);
@@ -409,7 +425,7 @@ async function readOrCreateResumeSecret(outputDir: string): Promise<Buffer> {
       await handle?.close().catch(() => {});
       handle = undefined;
       try {
-        await removePathIfIdentity(secretPath, createdSecretIdentity);
+        await removePathIfPathIdentity(secretPath, createdSecretIdentity);
       } catch {
         throw new Error("Resume secret cleanup failed.");
       }
@@ -507,24 +523,38 @@ async function hashFileHandle(handle: fs.promises.FileHandle, expected: FileSnap
   const hash = createSha256();
   const chunkSha256: string[] = [];
   let bytesRead = 0;
-  for await (const chunk of handle.createReadStream({ start: 0, highWaterMark: CHUNK_SIZE, autoClose: false })) {
-    const payload = fileStreamChunkBytes(chunk);
-    const chunkHash = createSha256();
-    try {
-      if (bytesRead + payload.byteLength > expected.size) throw new Error("Selected file changed while preparing the transfer.");
-      hash.update(payload);
-      chunkHash.update(payload);
-      chunkSha256.push(digestHex(chunkHash));
-      bytesRead += payload.byteLength;
-    } finally {
-      payload.fill(0);
+  let firstSample: Uint8Array | undefined;
+  let lastSample: Uint8Array | undefined;
+  let lastSamplePosition = 0;
+  try {
+    for await (const chunk of handle.createReadStream({ start: 0, highWaterMark: CHUNK_SIZE, autoClose: false })) {
+      const payload = fileStreamChunkBytes(chunk);
+      const chunkHash = createSha256();
+      try {
+        if (bytesRead + payload.byteLength > expected.size) throw new Error("Selected file changed while preparing the transfer.");
+        if (!firstSample) firstSample = copyBytes(payload);
+        lastSample?.fill(0);
+        lastSample = copyBytes(payload);
+        lastSamplePosition = bytesRead;
+        hash.update(payload);
+        chunkHash.update(payload);
+        chunkSha256.push(digestHex(chunkHash));
+        bytesRead += payload.byteLength;
+      } finally {
+        payload.fill(0);
+      }
     }
+    if (bytesRead !== expected.size) throw new Error("Selected file changed while preparing the transfer.");
+    if (firstSample) await assertHandleSampleUnchanged(handle, firstSample, 0);
+    if (lastSample && lastSamplePosition !== 0) await assertHandleSampleUnchanged(handle, lastSample, lastSamplePosition);
+    const afterHashStat = await handle.stat();
+    if (!sameFileSnapshot(afterHashStat, expected)) throw new Error("Selected file changed while preparing the transfer.");
+    if (!sameFileMutationSnapshot(await fileMutationSnapshot(handle), expectedMutation)) throw new Error("Selected file changed while preparing the transfer.");
+    return { sha256: digestHex(hash), chunkSha256 };
+  } finally {
+    firstSample?.fill(0);
+    lastSample?.fill(0);
   }
-  if (bytesRead !== expected.size) throw new Error("Selected file changed while preparing the transfer.");
-  const afterHashStat = await handle.stat();
-  if (!sameFileSnapshot(afterHashStat, expected)) throw new Error("Selected file changed while preparing the transfer.");
-  if (!sameFileMutationSnapshot(await fileMutationSnapshot(handle), expectedMutation)) throw new Error("Selected file changed while preparing the transfer.");
-  return { sha256: digestHex(hash), chunkSha256 };
 }
 
 const TYPED_ARRAY_BYTE_LENGTH_GETTER = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "byteLength")?.get;
@@ -541,6 +571,34 @@ function isCanonicalFileStreamBytes(data: Uint8Array): boolean {
   if (prototype !== Uint8Array.prototype && prototype !== Buffer.prototype) return false;
   const byteLength = TYPED_ARRAY_BYTE_LENGTH_GETTER?.call(data);
   return Number.isSafeInteger(byteLength) && byteLength >= 0;
+}
+
+function copyBytes(data: Uint8Array): Uint8Array {
+  const copy = new Uint8Array(data.byteLength);
+  copy.set(data);
+  return copy;
+}
+
+async function assertHandleSampleUnchanged(handle: fs.promises.FileHandle, expected: Uint8Array, position: number): Promise<void> {
+  const actual = new Uint8Array(expected.byteLength);
+  try {
+    let offset = 0;
+    while (offset < actual.byteLength) {
+      const { bytesRead } = await handle.read(actual, offset, actual.byteLength - offset, position + offset);
+      if (bytesRead === 0) break;
+      offset += bytesRead;
+    }
+    if (offset !== expected.byteLength || !sameBytes(actual, expected)) throw new Error("Selected file changed while preparing the transfer.");
+  } finally {
+    actual.fill(0);
+  }
+}
+
+function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.byteLength !== right.byteLength) return false;
+  let diff = 0;
+  for (let index = 0; index < left.byteLength; index += 1) diff |= left[index]! ^ right[index]!;
+  return diff === 0;
 }
 
 function fileSnapshot(stat: fs.Stats): FileSnapshot {
