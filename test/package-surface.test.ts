@@ -1460,8 +1460,8 @@ test("Node ambient types stay on the supported runtime major", () => {
   assert.doesNotMatch(nodeTypes ?? "", /^2[345]\./);
   assert.match(pnpmLock, /^  '@types\/node@22\.\d+\.\d+':$/m);
   assert.doesNotMatch(pnpmLock, /@types\/node@2[345]\./);
-  assert.match(pnpmWorkspace, /overrides:\n\s+"@types\/node": 22\.13\.14\n\s+undici-types: 6\.19\.1/);
-  assert.match(pnpmLock, /overrides:\n\s+'@types\/node': 22\.13\.14\n\s+undici-types: 6\.19\.1/);
+  assert.match(pnpmWorkspace, /overrides:\r?\n\s+"@types\/node": 22\.13\.14\r?\n\s+undici-types: 6\.19\.1/);
+  assert.match(pnpmLock, /overrides:\r?\n\s+'@types\/node': 22\.13\.14\r?\n\s+undici-types: 6\.19\.1/);
   assert.match(pnpmLock, /^  undici-types@6\.19\.1:$/m);
   assert.doesNotMatch(pnpmLock, /undici-types@6\.2[01]\./);
   assert.doesNotMatch(pnpmLock, /undici-types@7\./);
@@ -1726,15 +1726,15 @@ test("critical PAKE dependency identity and install surface stay reviewed", () =
   }
   assert.match(
     pnpmLock,
-    new RegExp(`^  '@cipherman/pake-js@0\\.1\\.1':\\n    resolution: \\{integrity: ${escapeRegExp(reviewedPakeIntegrity)}\\}`, "m")
+    new RegExp(`^  '@cipherman/pake-js@0\\.1\\.1':\\r?\\n    resolution: \\{integrity: ${escapeRegExp(reviewedPakeIntegrity)}\\}`, "m")
   );
   assert.match(
     pnpmLock,
-    new RegExp(`^  '@noble/curves@1\\.9\\.7':\\n    resolution: \\{integrity: ${escapeRegExp(reviewedNobleCurvesIntegrity)}\\}`, "m")
+    new RegExp(`^  '@noble/curves@1\\.9\\.7':\\r?\\n    resolution: \\{integrity: ${escapeRegExp(reviewedNobleCurvesIntegrity)}\\}`, "m")
   );
   assert.match(
     pnpmLock,
-    new RegExp(`^  '@noble/hashes@1\\.8\\.0':\\n    resolution: \\{integrity: ${escapeRegExp(reviewedNobleHashesCpaceIntegrity)}\\}`, "m")
+    new RegExp(`^  '@noble/hashes@1\\.8\\.0':\\r?\\n    resolution: \\{integrity: ${escapeRegExp(reviewedNobleHashesCpaceIntegrity)}\\}`, "m")
   );
   assert.match(cpaceReview, /# CPace Dependency Review/);
   assert.match(cpaceReview, new RegExp(`Package: \`${escapeRegExp(pakePackageJson.name ?? "")}\``));
@@ -1874,7 +1874,7 @@ test("direct noble hashes dependency identity and install surface stay reviewed"
   }
   assert.match(
     pnpmLock,
-    new RegExp(`^  '@noble/hashes@2\\.2\\.0':\\n    resolution: \\{integrity: ${escapeRegExp(reviewedNobleHashesIntegrity)}\\}`, "m")
+    new RegExp(`^  '@noble/hashes@2\\.2\\.0':\\r?\\n    resolution: \\{integrity: ${escapeRegExp(reviewedNobleHashesIntegrity)}\\}`, "m")
   );
   assert.match(nobleHashesReview, /# Noble Hashes Dependency Review/);
   assert.match(nobleHashesReview, new RegExp(`Package: \`${escapeRegExp(nobleHashesPackageJson.name ?? "")}\``));
@@ -1947,8 +1947,8 @@ test("scure wordlist dependency identity and install surface stay reviewed", () 
     type: "git",
     url: "git+https://github.com/paulmillr/scure-base.git"
   });
-  assert.match(pnpmLock, new RegExp(`^  '@scure/bip39@2\\.2\\.0':\\n    resolution: \\{integrity: ${escapeRegExp(reviewedScureBip39Integrity)}\\}`, "m"));
-  assert.match(pnpmLock, new RegExp(`^  '@scure/base@2\\.2\\.0':\\n    resolution: \\{integrity: ${escapeRegExp(reviewedScureBaseIntegrity)}\\}`, "m"));
+  assert.match(pnpmLock, new RegExp(`^  '@scure/bip39@2\\.2\\.0':\\r?\\n    resolution: \\{integrity: ${escapeRegExp(reviewedScureBip39Integrity)}\\}`, "m"));
+  assert.match(pnpmLock, new RegExp(`^  '@scure/base@2\\.2\\.0':\\r?\\n    resolution: \\{integrity: ${escapeRegExp(reviewedScureBaseIntegrity)}\\}`, "m"));
   assert.match(cliCryptoDependenciesSource, /name: "@scure\/bip39",\n    version: "2\.2\.0"/);
   assert.match(cliCryptoDependenciesSource, /name: "@scure\/base",\n    version: "2\.2\.0"/);
   assert.match(cliCryptoDependenciesSource, /requireFromCli\.resolve\("@scure\/bip39\/wordlists\/english\.js"\)/);
@@ -2019,18 +2019,18 @@ test("native WebRTC dependency identity and install surface stay reviewed", () =
   assert.equal(wrtcPackageJson.optionalDependencies?.domexception, "^4.0.0");
   assert.match(
     pnpmLock,
-    new RegExp(`^  '@roamhq/wrtc@0\\.10\\.0':\\n    resolution: \\{integrity: ${escapeRegExp(reviewedWrtcIntegrity)}\\}`, "m")
+    new RegExp(`^  '@roamhq/wrtc@0\\.10\\.0':\\r?\\n    resolution: \\{integrity: ${escapeRegExp(reviewedWrtcIntegrity)}\\}`, "m")
   );
   for (const name of reviewedWrtcPrebuiltPackages) {
     assert.match(
       pnpmLock,
-      new RegExp(`^  '${escapeRegExp(name)}@0\\.10\\.0':\\n    resolution: \\{integrity: ${escapeRegExp(reviewedWrtcPrebuiltIntegrities[name] ?? "")}\\}`, "m")
+      new RegExp(`^  '${escapeRegExp(name)}@0\\.10\\.0':\\r?\\n    resolution: \\{integrity: ${escapeRegExp(reviewedWrtcPrebuiltIntegrities[name] ?? "")}\\}`, "m")
     );
   }
-  assert.match(pnpmLock, new RegExp(`^  domexception@4\\.0\\.0:\\n    resolution: \\{integrity: ${escapeRegExp(reviewedDomexceptionIntegrity)}\\}`, "m"));
-  assert.match(pnpmLock, /^      domexception:\n        specifier: 4\.0\.0\n        version: 4\.0\.0/m);
-  assert.match(pnpmLock, /^      webidl-conversions:\n        specifier: 7\.0\.0\n        version: 7\.0\.0/m);
-  assert.match(pnpmLock, new RegExp(`^  webidl-conversions@7\\.0\\.0:\\n    resolution: \\{integrity: ${escapeRegExp(reviewedWebidlConversionsIntegrity)}\\}`, "m"));
+  assert.match(pnpmLock, new RegExp(`^  domexception@4\\.0\\.0:\\r?\\n    resolution: \\{integrity: ${escapeRegExp(reviewedDomexceptionIntegrity)}\\}`, "m"));
+  assert.match(pnpmLock, /^      domexception:\r?\n        specifier: 4\.0\.0\r?\n        version: 4\.0\.0/m);
+  assert.match(pnpmLock, /^      webidl-conversions:\r?\n        specifier: 7\.0\.0\r?\n        version: 7\.0\.0/m);
+  assert.match(pnpmLock, new RegExp(`^  webidl-conversions@7\\.0\\.0:\\r?\\n    resolution: \\{integrity: ${escapeRegExp(reviewedWebidlConversionsIntegrity)}\\}`, "m"));
   assert.match(nativeSmokeScript, /const mod = await import\("\.\.\/dist-node\/cli\/native-webrtc\.js"\)/);
   assert.match(nativeSmokeScript, /requiredConstructor\(wrtc\.RTCPeerConnection, "RTCPeerConnection"\)/);
   assert.match(nativeSmokeScript, /requiredConstructor\(wrtc\.RTCDataChannel, "RTCDataChannel"\)/);
@@ -2325,7 +2325,7 @@ function splitPackageNameAndVersion(packageAndVersion: string): [string, string]
 
 function lockfilePackageIntegrityPattern(name: string, version: string, integrity: string): RegExp {
   const key = name.startsWith("@") ? `'${escapeRegExp(name)}@${escapeRegExp(version)}'` : `${escapeRegExp(name)}@${escapeRegExp(version)}`;
-  return new RegExp(`^  ${key}:\\n    resolution: \\{integrity: ${escapeRegExp(integrity)}\\}`, "m");
+  return new RegExp(`^  ${key}:\\r?\\n    resolution: \\{integrity: ${escapeRegExp(integrity)}\\}`, "m");
 }
 
 function sourcePathForBuiltBin(relativePath: string): URL {

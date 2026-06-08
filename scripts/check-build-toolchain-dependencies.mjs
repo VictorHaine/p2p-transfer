@@ -287,8 +287,8 @@ function assertReviewedLockfileIntegrities() {
     const escapedName = escapeRegExp(name);
     const escapedVersion = escapeRegExp(version);
     const escapedIntegrity = escapeRegExp(integrity);
-    const pattern = new RegExp(`^  '${escapedName}@${escapedVersion}':\\n    resolution: \\{integrity: ${escapedIntegrity}\\}`, "m");
-    const unquotedPattern = new RegExp(`^  ${escapedName}@${escapedVersion}:\\n    resolution: \\{integrity: ${escapedIntegrity}\\}`, "m");
+    const pattern = new RegExp(`^  '${escapedName}@${escapedVersion}':\\r?\\n    resolution: \\{integrity: ${escapedIntegrity}\\}`, "m");
+    const unquotedPattern = new RegExp(`^  ${escapedName}@${escapedVersion}:\\r?\\n    resolution: \\{integrity: ${escapedIntegrity}\\}`, "m");
     if (!pattern.test(lockfile) && !unquotedPattern.test(lockfile)) throw new Error("reviewed build toolchain lockfile integrity changed.");
   }
 }
