@@ -53,14 +53,14 @@ importers:
         specifier: 1.60.0
         version: 1.60.0
       tsx:
-        specifier: 4.22.3
-        version: 4.22.3
+        specifier: 4.22.4
+        version: 4.22.4
       typescript:
         specifier: 6.0.3
         version: 6.0.3
       vite:
         specifier: 8.0.14
-        version: 8.0.14(@types/node@22.13.14)(esbuild@0.28.0)(tsx@4.22.3)
+        version: 8.0.14(@types/node@22.13.14)(esbuild@0.28.0)(tsx@4.22.4)
 
 packages:
 
@@ -553,8 +553,8 @@ packages:
   tslib@2.8.1:
     resolution: {integrity: sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==}
 
-  tsx@4.22.3:
-    resolution: {integrity: sha512-mdoNxBC/cSQObGGVQ5Bpn5i+yv7j68gk3Nfm3wFjcJg3Z0Mix9jzAFfP12prmm5eVGmDKtp0yyArrs0Q+8gZHg==}
+  tsx@4.22.4:
+    resolution: {integrity: sha512-X8EX+XV4QR5xCsrgxaED954zTDfY8KqlDtskKEL0cHhyS/P8b4IFOvGDQpsC9Q1XnLq915wEfwwY/zzskCtmhg==}
     engines: {node: '>=18.0.0'}
     hasBin: true
 
@@ -986,7 +986,7 @@ snapshots:
   tslib@2.8.1:
     optional: true
 
-  tsx@4.22.3:
+  tsx@4.22.4:
     dependencies:
       esbuild: 0.28.0
     optionalDependencies:
@@ -996,7 +996,7 @@ snapshots:
 
   undici-types@6.19.1: {}
 
-  vite@8.0.14(@types/node@22.13.14)(esbuild@0.28.0)(tsx@4.22.3):
+  vite@8.0.14(@types/node@22.13.14)(esbuild@0.28.0)(tsx@4.22.4):
     dependencies:
       lightningcss: 1.32.0
       picomatch: 4.0.4
@@ -1007,7 +1007,7 @@ snapshots:
       '@types/node': 22.13.14
       esbuild: 0.28.0
       fsevents: 2.3.3
-      tsx: 4.22.3
+      tsx: 4.22.4
 
   webidl-conversions@7.0.0: {}
 
