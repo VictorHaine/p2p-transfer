@@ -394,6 +394,64 @@ test("GitHub release API errors do not echo remote bodies or tokens", async () =
   }
 });
 
+test("GitHub release API recovers an existing draft release on rerun", async () => {
+  const { createGitHubRelease } = await import(`../scripts/create-github-release.mjs?release-rerun-draft=${Date.now()}`);
+  const originalFetch = globalThis.fetch;
+  const requests: string[] = [];
+  const liveChecks: string[] = [];
+  let createAttempts = 0;
+  try {
+    globalThis.fetch = async (url, init = {}) => {
+      const parsed = new URL(String(url));
+      const method = init.method ?? "GET";
+      requests.push(`${method} ${parsed.origin}${parsed.pathname}${parsed.search}`);
+      const json = (status: number, value: unknown) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
+      if (parsed.origin === "https://api.github.com" && method === "GET" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0") {
+        return json(200, { ref: "refs/tags/v0.1.0", object: { type: "commit", sha: RELEASE_TEST_SHA } });
+      }
+      if (parsed.origin === "https://api.github.com" && method === "POST" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/releases") {
+        createAttempts += 1;
+        if (createAttempts === 1) return json(422, { message: "Validation Failed token-that-must-not-be-printed /tmp/private" });
+        return json(201, { id: 99, tag_name: "v0.1.0", draft: true, upload_url: "https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets{?name,label}" });
+      }
+      if (parsed.origin === "https://api.github.com" && method === "GET" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/releases/tags/v0.1.0") {
+        return json(200, { id: 88, tag_name: "v0.1.0", draft: true });
+      }
+      if (parsed.origin === "https://api.github.com" && method === "DELETE" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/releases/88") {
+        return new Response(null, { status: 204 });
+      }
+      if (parsed.origin === "https://uploads.github.com" && method === "POST" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/releases/99/assets") {
+        return json(201, { name: parsed.searchParams.get("name") });
+      }
+      if (parsed.origin === "https://api.github.com" && method === "PATCH" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/releases/99") {
+        return json(200, { id: 99, tag_name: "v0.1.0", draft: false });
+      }
+      return json(500, {});
+    };
+
+    await createGitHubRelease("token-that-must-not-be-printed", "VictorHaine/p2p-transfer", "v0.1.0", RELEASE_TEST_SHA, "scoped release notes", releaseAssets(), async () => {
+      liveChecks.push(`before:${requests.length}`);
+    });
+
+    assert.equal(createAttempts, 2);
+    assert.deepEqual(liveChecks, ["before:1", "before:4", "before:8"]);
+    assert.deepEqual(requests, [
+      "GET https://api.github.com/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0",
+      "POST https://api.github.com/repos/VictorHaine/p2p-transfer/releases",
+      "GET https://api.github.com/repos/VictorHaine/p2p-transfer/releases/tags/v0.1.0",
+      "DELETE https://api.github.com/repos/VictorHaine/p2p-transfer/releases/88",
+      "POST https://api.github.com/repos/VictorHaine/p2p-transfer/releases",
+      "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=p2p-transfer-0.1.0.tgz",
+      "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=SHA256SUMS",
+      "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=SBOM.cdx.json",
+      "PATCH https://api.github.com/repos/VictorHaine/p2p-transfer/releases/99"
+    ]);
+    assert.doesNotMatch(JSON.stringify(requests), /token-that-must-not-be-printed|private/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("GitHub release API rejects tags that no longer point at the workflow commit", async () => {
   const { createGitHubRelease } = await import(`../scripts/create-github-release.mjs?release-tag-sha=${Date.now()}`);
   const originalFetch = globalThis.fetch;

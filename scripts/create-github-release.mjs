@@ -151,13 +151,7 @@ export async function createGitHubRelease(token, repository, tag, expectedSha, n
 
   if ((await githubReleaseTagCommitSha(token, repository, tag)) !== expectedSha) throw new Error("GitHub tag ref does not match the release workflow commit.");
   await liveRefCheck();
-  const release = await github(token, "POST", `/repos/${repository}/releases`, {
-    tag_name: tag,
-    name: tag,
-    body: notes,
-    draft: true,
-    prerelease: false
-  });
+  const release = await createDraftRelease(token, repository, tag, notes, liveRefCheck);
   const { id, uploadUrl } = releaseDraftInfo(release, tag);
   try {
     for (const asset of assets) {
@@ -174,6 +168,41 @@ export async function createGitHubRelease(token, repository, tag, expectedSha, n
     if (await reconcileDraftPublishFailure(token, repository, id, tag).catch(() => false)) return;
     throw error;
   }
+}
+
+async function createDraftRelease(token, repository, tag, notes, liveRefCheck) {
+  try {
+    return await postDraftRelease(token, repository, tag, notes);
+  } catch (error) {
+    if (!(error instanceof GitHubApiError) || error.status !== 422) throw error;
+    await deleteExistingDraftReleaseForTag(token, repository, tag);
+    await liveRefCheck();
+    return await postDraftRelease(token, repository, tag, notes);
+  }
+}
+
+async function postDraftRelease(token, repository, tag, notes) {
+  return await github(token, "POST", `/repos/${repository}/releases`, {
+    tag_name: tag,
+    name: tag,
+    body: notes,
+    draft: true,
+    prerelease: false
+  });
+}
+
+async function deleteExistingDraftReleaseForTag(token, repository, tag) {
+  const release = await github(token, "GET", `/repos/${repository}/releases/tags/${tag}`);
+  const { id } = existingDraftReleaseInfo(release, tag);
+  await deleteDraftRelease(token, repository, id);
+}
+
+function existingDraftReleaseInfo(release, tag) {
+  if (!release || release.tag_name !== tag || !Number.isSafeInteger(release.id) || release.id < 1 || typeof release.draft !== "boolean") {
+    throw new Error("GitHub release response was invalid.");
+  }
+  if (release.draft !== true) throw new Error("GitHub release already exists for this tag and is not a draft.");
+  return { id: release.id };
 }
 
 function assertReleaseAssetChecksums(assets) {

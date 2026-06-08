@@ -1117,6 +1117,11 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(githubReleaseScript, /\/repos\/\$\{repository\}\/git\/ref\/tags\/\$\{tag\}/);
   assert.match(githubReleaseScript, /if \(\(await githubReleaseTagCommitSha\(token, repository, tag\)\) !== expectedSha\) throw new Error\("GitHub tag ref does not match the release workflow commit\."\)/);
   assert.match(githubReleaseScript, /\/repos\/\$\{repository\}\/releases/);
+  assert.match(githubReleaseScript, /await deleteExistingDraftReleaseForTag\(token, repository, tag\)/);
+  assert.match(githubReleaseScript, /await liveRefCheck\(\);\n\s+return await postDraftRelease\(token, repository, tag, notes\)/);
+  assert.match(githubReleaseScript, /\/repos\/\$\{repository\}\/releases\/tags\/\$\{tag\}/);
+  assert.match(githubReleaseScript, /if \(release\.draft !== true\) throw new Error\("GitHub release already exists for this tag and is not a draft\."\)/);
+  assert.match(securityPolicy, /recover reruns that find an existing exact-tag draft by deleting only that draft, re-running the live ref verifier, and creating a fresh draft/);
   assert.match(githubReleaseScript, /uploadReleaseAsset\(token, uploadUrl, asset\)/);
   assert.match(githubReleaseScript, /draft: true/);
   assert.match(githubReleaseScript, /await publishDraftRelease\(token, repository, id\)/);
