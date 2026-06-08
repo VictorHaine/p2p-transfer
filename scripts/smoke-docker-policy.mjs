@@ -24,6 +24,7 @@ const CHILD_KILL_GRACE_MS = 5_000;
 const PRODUCTION_ORIGIN = "https://files.example.com";
 const BAD_ORIGIN = "https://evil.example";
 const VERBOSE_ENV = "DOCKER_SMOKE_VERBOSE";
+const HARDENED_DOCKER_RUN_FLAGS = ["--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "--pids-limit", "128", "--memory", "512m", "--cpus", "1"];
 
 if (isMain()) {
   try {
@@ -45,13 +46,13 @@ async function main() {
     await run("docker", ["info", "--format", "{{json .ServerVersion}}"], "docker daemon preflight", DOCKER_PREFLIGHT_TIMEOUT_MS, { env: dockerEnv });
     await run("docker", ["build", "-t", imageTag, "."], "docker image build", BUILD_TIMEOUT_MS, { env: dockerEnv });
     await expectDockerFailure(
-      ["run", "--rm", "--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "-e", "SIGNALING_TOPOLOGY=single-instance", imageTag],
+      ["run", "--rm", ...HARDENED_DOCKER_RUN_FLAGS, "-e", "SIGNALING_TOPOLOGY=single-instance", imageTag],
       "container without ALLOWED_ORIGINS",
       "Error: ALLOWED_ORIGINS is required in production.",
       dockerEnv
     );
     await expectDockerFailure(
-      ["run", "--rm", "--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "-e", `ALLOWED_ORIGINS=${PRODUCTION_ORIGIN}`, imageTag],
+      ["run", "--rm", ...HARDENED_DOCKER_RUN_FLAGS, "-e", `ALLOWED_ORIGINS=${PRODUCTION_ORIGIN}`, imageTag],
       "container without SIGNALING_TOPOLOGY",
       "Error: SIGNALING_TOPOLOGY must be single-instance or sticky-sessions for production or non-loopback deployments.",
       dockerEnv
@@ -66,10 +67,7 @@ async function main() {
           "-d",
           "--name",
           containerName,
-          "--read-only",
-          "--cap-drop=ALL",
-          "--security-opt",
-          "no-new-privileges",
+          ...HARDENED_DOCKER_RUN_FLAGS,
           "-p",
           "127.0.0.1::8787",
           "-e",

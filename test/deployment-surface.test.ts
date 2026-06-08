@@ -302,8 +302,8 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(ciDockerJob, /node scripts\/prepare-checked-pnpm\.mjs[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:test node scripts\/smoke-docker-policy\.mjs/);
   assert.doesNotMatch(ciDockerJob, /corepack prepare pnpm@/);
   assert.match(dockerPolicySmokeScript, /\["build", "-t", imageTag, "\."\]/);
-  assert.match(dockerPolicySmokeScript, /"run", "--rm", "--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "-e", "SIGNALING_TOPOLOGY=single-instance", imageTag/);
-  assert.match(dockerPolicySmokeScript, /"run", "--rm", "--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "-e", `ALLOWED_ORIGINS=\$\{PRODUCTION_ORIGIN\}`, imageTag/);
+  assert.match(dockerPolicySmokeScript, /\["run", "--rm", \.\.\.HARDENED_DOCKER_RUN_FLAGS, "-e", "SIGNALING_TOPOLOGY=single-instance", imageTag\]/);
+  assert.match(dockerPolicySmokeScript, /\["run", "--rm", \.\.\.HARDENED_DOCKER_RUN_FLAGS, "-e", `ALLOWED_ORIGINS=\$\{PRODUCTION_ORIGIN\}`, imageTag\]/);
   assert.match(dockerPolicySmokeScript, /"Error: ALLOWED_ORIGINS is required in production\."/);
   assert.match(dockerPolicySmokeScript, /"Error: SIGNALING_TOPOLOGY must be single-instance or sticky-sessions for production or non-loopback deployments\."/);
   assert.match(dockerPolicySmokeScript, /function hasExactOutputLine\(result, expectedLine\)/);
@@ -1122,8 +1122,15 @@ test("documented release gates require a hardened Docker runtime smoke, not just
     assert.match(document, /node scripts\/prepare-checked-pnpm\.mjs\npnpm install --frozen-lockfile\npnpm exec playwright install --with-deps chromium\npnpm verify:local/);
     assert.match(document, /pnpm verify:release:docker/);
     assert.match(document, /read-only filesystem, dropped Linux capabilities,[^.\n]+`no-new-privileges`/);
+    assert.match(document, /--pids-limit 128/);
+    assert.match(document, /--memory 512m/);
+    assert.match(document, /--cpus 1/);
     assert.match(document, /refuses to start without `ALLOWED_ORIGINS` and without `SIGNALING_TOPOLOGY`/);
   }
+  assert.match(dockerPolicySmokeScript, /const HARDENED_DOCKER_RUN_FLAGS = \["--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "--pids-limit", "128", "--memory", "512m", "--cpus", "1"\]/);
+  assert.match(dockerPolicySmokeScript, /\["run", "--rm", \.\.\.HARDENED_DOCKER_RUN_FLAGS, "-e", "SIGNALING_TOPOLOGY=single-instance", imageTag\]/);
+  assert.match(dockerPolicySmokeScript, /\["run", "--rm", \.\.\.HARDENED_DOCKER_RUN_FLAGS, "-e", `ALLOWED_ORIGINS=\$\{PRODUCTION_ORIGIN\}`, imageTag\]/);
+  assert.match(dockerPolicySmokeScript, /"run",\n\s+"-d",\n\s+"--name",\n\s+containerName,\n\s+\.\.\.HARDENED_DOCKER_RUN_FLAGS,/);
   assert.match(securityPolicy, /local release setup and preflight must also accept bounded `--token-stdin` input, reject interactive terminal stdin, reject and clear ambiguous stdin-plus-environment token input, and reject malformed stdin tokens before package reads, npm registry requests, GitHub API requests, or repository mutation/);
   assert.match(securityPolicy, /CI, release, Docker, and documented source builds must prepare pnpm through `scripts\/prepare-checked-pnpm\.mjs`, which byte-caps and no-follow-opens `package\.json` with pre\/post-read identity and mutation-metadata checks/);
   assert.match(securityPolicy, /runs Corepack and tar with a private package-manager home plus a minimal allowlisted child environment/);
