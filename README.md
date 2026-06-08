@@ -8,7 +8,7 @@ End-to-end encrypted peer-to-peer file transfer with:
 - WebRTC DataChannels for the data path
 - receiver accept gate before file bytes move
 - chunked transfer with backpressure and SHA-256 verification
-- short copyable handles in the form `12345678-two-words` using two distinct BIP39 English words
+- short copyable handles in the form `123456789012-two-words` using two distinct BIP39 English words
 - receiver-side filename sanitization and transfer limit enforcement
 - browser receive streams to the File System Access API when available, with download fallback
 - browser folder receives save with high-entropy `ff-<random>` tokenized names because File System Access lacks CLI-style exclusive create
@@ -29,7 +29,7 @@ This build implements the required untrusted-signaling security layer:
 - Receiver codes expire after a small bounded number of sender rendezvous claims, limiting online guessing and prefix-squatting before the accept gate.
 - Both peers display the same short SAS for optional out-of-band comparison.
 
-The signaling server sees the public eight-digit rendezvous prefix, IP-level connection metadata, roles, session timing, accept/reject/teardown events, bucketed public upper bounds for file count and total bytes, signaling frame sizes including coarse encrypted-manifest size buckets, PAKE public shares/tags, and authenticated SDP/ICE contents. Conforming clients do not send the two secret words, usable file names, MIME types, file contents, PAKE secrets, DataChannel plaintext, exact file count, exact manifest total bytes, exact encrypted-manifest JSON length, or declared per-file sizes. Traffic volume and timing still reveal approximate transfer size, and exact size can remain inferable from network byte volume for small or single-file transfers. A modified client can still transmit a malformed public pair-request containing plaintext metadata before rejection; the server rejects unredacted public manifests and does not forward or log them.
+The signaling server sees the public twelve-digit rendezvous prefix for newly generated codes, IP-level connection metadata, roles, session timing, accept/reject/teardown events, bucketed public upper bounds for file count and total bytes, signaling frame sizes including coarse encrypted-manifest size buckets, PAKE public shares/tags, and authenticated SDP/ICE contents. Eight-digit rendezvous prefixes remain accepted for legacy supplied codes. Conforming clients do not send the two secret words, usable file names, MIME types, file contents, PAKE secrets, DataChannel plaintext, exact file count, exact manifest total bytes, exact encrypted-manifest JSON length, or declared per-file sizes. Traffic volume and timing still reveal approximate transfer size, and exact size can remain inferable from network byte volume for small or single-file transfers. A modified client can still transmit a malformed public pair-request containing plaintext metadata before rejection; the server rejects unredacted public manifests and does not forward or log them.
 
 ## Install and build
 
@@ -170,7 +170,7 @@ Useful CLI flags:
 - `send --code-env <name>`: read the receive code from an environment variable instead of argv.
 - `send --files-stdin`: read newline-delimited file paths from stdin instead of argv.
 - `recv --yes`: auto-accept, required for headless receive flows. This bypasses the interactive consent gate, so use it only with a private receive code in trusted automation.
-- `recv --code <code>`: use a supplied code like `12345678-two-words` instead of generating one.
+- `recv --code <code>`: use a supplied code like `123456789012-two-words` instead of generating one.
 - `recv --code-stdin` / `recv --code-env <name>`: provide that supplied receive code without putting it directly in argv. Supplied receive codes are not reprinted in the CLI registered event or human output.
 - `recv --out-env <name>`: read the output directory from an environment variable instead of argv. In private-input mode, use this or the current working directory instead of `recv --out`.
 - `recv --resume`: keep failed CLI partials and resume a later attempt from the last verified chunk boundary on macOS/Linux. The final SHA-256 still has to match before publish. Windows CLI resume fails closed until equivalent private ACL checks are implemented.
@@ -200,7 +200,7 @@ Exit codes:
 
 In production, `GET /v1/version` returns only protocol compatibility so unauthenticated scanners do not get an exact package-version fingerprint; non-production runs also include package name and version for local debugging.
 
-The WebSocket broker keeps only in-memory state, matches peers by the public eight-digit rendezvous prefix, enforces one-shot registrations, validates manifest limits, rate-limits WebSocket upgrade churn, registration/connect attempts, static HTTP requests, and ICE credential issuance, rejects malformed or duplicated `Origin`/`Host` headers before policy checks, caps signaling frames at 256 KiB, applies hard global caps to waiting codes and active sessions, and keeps static asset responses under a global in-flight byte budget.
+The WebSocket broker keeps only in-memory state, matches peers by the public twelve-digit rendezvous prefix generated by current clients, still accepts eight-digit legacy supplied prefixes, enforces one-shot registrations, validates manifest limits, rate-limits WebSocket upgrade churn, registration/connect attempts, static HTTP requests, and ICE credential issuance, rejects malformed or duplicated `Origin`/`Host` headers before policy checks, caps signaling frames at 256 KiB, applies hard global caps to waiting codes and active sessions, and keeps static asset responses under a global in-flight byte budget.
 
 Metadata privacy is intentionally limited and should be understood before using the tool:
 

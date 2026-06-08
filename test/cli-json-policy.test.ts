@@ -369,7 +369,7 @@ test("CLI local-private-mode enables fail-closed redacted argv handling", () => 
   });
   assert.notEqual(recvGenerated.status, 0);
   assert.equal(recvGenerated.stdout, "");
-  assert.doesNotMatch(recvGenerated.stderr, /Receive code stdin|local-private-mode|apple-anchor|[0-9]{8}-[a-z]+-[a-z]+/);
+  assert.doesNotMatch(recvGenerated.stderr, /Receive code stdin|local-private-mode|apple-anchor|[0-9]{12}-[a-z]+-[a-z]+/);
   assert.equal(JSON.parse(recvGenerated.stderr.trim()).message, "Command failed. Re-run without --redact-output for details.");
 });
 

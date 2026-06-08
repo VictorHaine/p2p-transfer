@@ -204,7 +204,7 @@ app.innerHTML = staticTrustedHtml`
         </div>
         <label>
           <span>Receiver code</span>
-          <input id="sendCode" placeholder="12345678-apple-anchor" autocomplete="off" spellcheck="false" />
+          <input id="sendCode" placeholder="123456789012-apple-anchor" autocomplete="off" spellcheck="false" />
         </label>
         <label>
           <span>Files</span>
@@ -1584,7 +1584,7 @@ function connectCode(signaling: BrowserSignaling, code: string) {
 
 function parseRequiredCode(code: string) {
   const parsed = parseCode(code);
-  if (!parsed) throw new Error("Code must look like 12345678-two-words.");
+  if (!parsed) throw new Error("Code must look like 123456789012-two-words.");
   return parsed;
 }
 

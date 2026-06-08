@@ -1411,6 +1411,7 @@ test("signaling schema rejects malformed signal and manifest fields", () => {
   assert.equal(distIsServerMessage(accessorMessage), false);
   assertSignalingSchemasDoNotReadInheritedGetters();
   assert.equal(isClientMessage({ type: "register", role: "receiver", code: "12345678", protocolVersion: PROTOCOL_VERSION }), true);
+  assert.equal(isClientMessage({ type: "register", role: "receiver", code: "123456789012", protocolVersion: PROTOCOL_VERSION }), true);
   const hiddenExtraRegister = { type: "register", role: "receiver", code: "12345678", protocolVersion: PROTOCOL_VERSION };
   Object.defineProperty(hiddenExtraRegister, "extra", { enumerable: false, value: true });
   assert.equal(isClientMessage(hiddenExtraRegister), false);
@@ -1437,9 +1438,12 @@ test("signaling schema rejects malformed signal and manifest fields", () => {
   Object.defineProperty(hiddenExtraCandidate, "extra", { enumerable: false, value: true });
   assert.equal(isClientMessage({ type: "signal", sid: "sid", signal: { kind: "candidate", candidate: hiddenExtraCandidate, auth: validTag } }), false);
   assert.equal(isClientMessage({ type: "connect", role: "sender", code: "12345678", protocolVersion: PROTOCOL_VERSION }), true);
+  assert.equal(isClientMessage({ type: "connect", role: "sender", code: "123456789012", protocolVersion: PROTOCOL_VERSION }), true);
   assert.equal(isClientMessage({ type: "register", role: "receiver", code: "", protocolVersion: 1 }), false);
   assert.equal(isClientMessage({ type: "connect", role: "sender", code: "", protocolVersion: 1 }), false);
   assert.equal(isClientMessage({ type: "register", role: "receiver", code: "123456", protocolVersion: PROTOCOL_VERSION }), false);
+  assert.equal(isClientMessage({ type: "register", role: "receiver", code: "1234567890", protocolVersion: PROTOCOL_VERSION }), false);
+  assert.equal(isClientMessage({ type: "register", role: "receiver", code: "1234567890123", protocolVersion: PROTOCOL_VERSION }), false);
   assert.equal(isClientMessage({ type: "connect", role: "sender", code: "12345678-apple-anchor", protocolVersion: PROTOCOL_VERSION }), false);
   assert.equal(isClientMessage({ type: "register", role: "receiver", code: "12345678", protocolVersion: 1.5 }), false);
   assert.equal(isClientMessage({ type: "pake", sid: "", data: "share" }), false);
@@ -1560,7 +1564,9 @@ test("signaling schema rejects malformed signal and manifest fields", () => {
   });
   assert.equal(isManifest({ fileCount: 1, totalBytes: 1, files: accessorSchemaManifestFiles }), false);
   assert.equal(isServerMessage({ type: "registered", code: "12345678", expiresInSec: 600 }), true);
+  assert.equal(isServerMessage({ type: "registered", code: "123456789012", expiresInSec: 600 }), true);
   assert.equal(isServerMessage({ type: "registered", code: "123456", expiresInSec: 600 }), false);
+  assert.equal(isServerMessage({ type: "registered", code: "1234567890", expiresInSec: 600 }), false);
   assert.equal(isServerMessage({ type: "registered", code: "12345678", expiresInSec: "600" }), false);
   assert.equal(isServerMessage({ type: "registered", code: "12345678", expiresInSec: 600, extra: true }), false);
   assert.equal(isServerMessage({ type: "registered", code: "", expiresInSec: 600 }), false);

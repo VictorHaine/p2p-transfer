@@ -12,7 +12,7 @@ import {
 import { isClientMessage, isServerMessage, parseJsonMessage, serializeMessage } from "../src/shared/messages.js";
 import { abortControlMessage, assertControlMessage, assertSenderControlMessage, assertTransferManifestMatchesAccepted, remoteAbortError, MAX_ABORT_REASON_CHARS, REMOTE_ABORT_MESSAGE } from "../src/shared/transfer.js";
 import { assertControlMessage as distAssertControlMessage, assertSenderControlMessage as distAssertSenderControlMessage, assertTransferManifestMatchesAccepted as distAssertTransferManifestMatchesAccepted } from "../dist-node/shared/transfer.js";
-import { generateCode, isValidCode, isValidRendezvous, MAX_CODE_INPUT_BYTES, normalizeCode, parseCode, RENDEZVOUS_DIGITS } from "../src/shared/wordlist.js";
+import { generateCode, GENERATED_RENDEZVOUS_DIGITS, isValidCode, isValidRendezvous, MAX_CODE_INPUT_BYTES, normalizeCode, parseCode, RENDEZVOUS_DIGITS } from "../src/shared/wordlist.js";
 
 const vectors = JSON.parse(fs.readFileSync(new URL("../conformance/protocol-v7.json", import.meta.url), "utf8")) as {
   protocolVersion: number;
@@ -910,7 +910,13 @@ test("sender-side control messages fail closed to receiver acknowledgements only
 
 test("transfer code parser separates public rendezvous from secret words", () => {
   assert.equal(RENDEZVOUS_DIGITS, 8);
-  assert.match(securityPolicy, /do not shrink it below eight decimal digits/);
+  assert.equal(GENERATED_RENDEZVOUS_DIGITS, 12);
+  assert.match(securityPolicy, /current clients must generate twelve decimal digits, and legacy compatibility must not accept less than eight decimal digits/);
+  assert.deepEqual(parseCode("123456789012-Apple-Anchor"), {
+    handle: "123456789012-apple-anchor",
+    rendezvous: "123456789012",
+    secret: "apple-anchor"
+  });
   assert.deepEqual(parseCode("12345678-Apple-Anchor"), {
     handle: "12345678-apple-anchor",
     rendezvous: "12345678",
@@ -919,11 +925,15 @@ test("transfer code parser separates public rendezvous from secret words", () =>
   assert.equal(parseCode("apple-anchor"), null);
   assert.equal(parseCode("12345678-apple-apple"), null);
   assert.equal(parseCode("123456-apple-anchor"), null);
+  assert.equal(parseCode("1234567890-apple-anchor"), null);
+  assert.equal(parseCode("1234567890123-apple-anchor"), null);
+  assert.equal(isValidRendezvous("123456789012"), true);
   assert.equal(isValidRendezvous("12345678"), true);
   assert.equal(isValidRendezvous("123456"), false);
-  assert.match(generateCode(), /^[0-9]{8}-[a-z]+-[a-z]+$/);
+  assert.match(generateCode(), /^[0-9]{12}-[a-z]+-[a-z]+$/);
   const generated = parseCode(generateCode());
   assert.notEqual(generated?.secret.split("-")[0], generated?.secret.split("-")[1]);
+  assert.equal(generated?.rendezvous.length, GENERATED_RENDEZVOUS_DIGITS);
 });
 
 test("transfer code parser caps raw input before normalization", () => {

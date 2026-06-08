@@ -33,7 +33,7 @@ The project is expected to preserve these invariants:
 - the signaling server must not relay arbitrary peer-controlled disconnect text or stateful internal teardown text; client `bye.reason` values and server cleanup reasons must be reduced to a fixed server-owned reason set before any `peer-left` forwarding
 - production or non-loopback TURN REST deployments must require an explicit acknowledgement that the server cannot cryptographically verify receiver accept authenticity before minting short-lived relay credentials; operators must pair that acknowledgement with TURN-side allocation quotas, bandwidth caps, and abuse monitoring
 - wire-incompatible changes must bump `PROTOCOL_VERSION` and the current conformance fixture together
-- the server-visible rendezvous prefix must have enough namespace to resist cheap live-code enumeration and griefing; do not shrink it below eight decimal digits
+- the server-visible rendezvous prefix must have enough namespace to resist cheap live-code enumeration and griefing; current clients must generate twelve decimal digits, and legacy compatibility must not accept less than eight decimal digits
 - transfer code inputs must be capped before trim/lowercase normalization so CLI and browser callers cannot turn malformed local input into avoidable allocation pressure
 - transfer code helpers must reject non-string runtime values before length, trim, lowercase, or regular-expression processing so exported parsing helpers cannot invoke hostile string-like methods
 - retry/restoration paths must not re-acknowledge expired receiver rendezvous registrations

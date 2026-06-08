@@ -1,11 +1,14 @@
 import { wordlist } from "@scure/bip39/wordlists/english.js";
 
+// Legacy supplied-code floor; new clients generate GENERATED_RENDEZVOUS_DIGITS.
 export const RENDEZVOUS_DIGITS = 8;
+export const GENERATED_RENDEZVOUS_DIGITS = 12;
 export const MAX_CODE_INPUT_BYTES = 256;
 export const MAX_CODE_INPUT_CHARS = MAX_CODE_INPUT_BYTES;
-const RENDEZVOUS_SPACE = 10 ** RENDEZVOUS_DIGITS;
-const RENDEZVOUS_PATTERN = new RegExp(`^[0-9]{${RENDEZVOUS_DIGITS}}$`);
-const CODE_PATTERN = new RegExp(`^(?<rendezvous>[0-9]{${RENDEZVOUS_DIGITS}})-(?<wordA>[a-z]+)-(?<wordB>[a-z]+)$`);
+const GENERATED_RENDEZVOUS_CHUNK_DIGITS = 6;
+const RENDEZVOUS_CHUNK_SPACE = 10 ** GENERATED_RENDEZVOUS_CHUNK_DIGITS;
+const RENDEZVOUS_PATTERN = new RegExp(`^(?:[0-9]{${RENDEZVOUS_DIGITS}}|[0-9]{${GENERATED_RENDEZVOUS_DIGITS}})$`);
+const CODE_PATTERN = new RegExp(`^(?<rendezvous>(?:[0-9]{${RENDEZVOUS_DIGITS}}|[0-9]{${GENERATED_RENDEZVOUS_DIGITS}}))-(?<wordA>[a-z]+)-(?<wordB>[a-z]+)$`);
 
 export function generateCode(): string {
   const wordA = wordlist[randomIndex(wordlist.length)]!;
@@ -61,7 +64,11 @@ function randomIndex(maxExclusive: number): number {
 }
 
 function randomNameplate(): string {
-  return String(randomIndex(RENDEZVOUS_SPACE)).padStart(RENDEZVOUS_DIGITS, "0");
+  return `${randomNameplateChunk()}${randomNameplateChunk()}`;
+}
+
+function randomNameplateChunk(): string {
+  return String(randomIndex(RENDEZVOUS_CHUNK_SPACE)).padStart(GENERATED_RENDEZVOUS_CHUNK_DIGITS, "0");
 }
 
 function randomWordExcept(disallowed: string): string {

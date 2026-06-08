@@ -102,7 +102,7 @@ test("browser sender clears selected files after local validation failure", brow
     assert.equal(await page.locator("#sendCode").inputValue(), "");
     assert.equal(await browserSelectedFileCount(page), 0);
     const sendLogText = (await page.locator("#sendLog").textContent()) ?? "";
-    assert.equal(sendLogText, "Code must look like 12345678-two-words.");
+    assert.equal(sendLogText, "Code must look like 123456789012-two-words.");
     assert.doesNotMatch(sendLogText, /private-browser-source-name|not-a-valid-code/);
   } finally {
     await browser?.close();
@@ -220,7 +220,7 @@ test("CLI sender interoperates with browser receiver", browserTestOptions, async
     await page.locator("#receiveButton").click();
     await page.locator("#codeBox").waitFor({ state: "visible", timeout: 30_000 });
     const code = (await page.locator("#codeBox").textContent())?.trim();
-    assert.match(code ?? "", /^[0-9]{8}-[a-z]+-[a-z]+$/);
+    assert.match(code ?? "", /^[0-9]{12}-[a-z]+-[a-z]+$/);
 
     const sender = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "send", code!, source], { cwd: root, env: childEnv });
     const senderDone = collectExit(sender);
@@ -271,7 +271,7 @@ test("CLI sender interoperates with browser opaque-name download receiver", brow
     await page.locator("#receiveButton").click();
     await page.locator("#codeBox").waitFor({ state: "visible", timeout: 30_000 });
     const code = (await page.locator("#codeBox").textContent())?.trim();
-    assert.match(code ?? "", /^[0-9]{8}-[a-z]+-[a-z]+$/);
+    assert.match(code ?? "", /^[0-9]{12}-[a-z]+-[a-z]+$/);
 
     const sender = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "send", code!, source], { cwd: root, env: childEnv });
     const senderDone = collectExit(sender);
@@ -327,7 +327,7 @@ test("CLI sender interoperates with browser folder-only receiver", browserTestOp
     await page.locator("#receiveButton").click();
     await page.locator("#codeBox").waitFor({ state: "visible", timeout: 30_000 });
     const code = (await page.locator("#codeBox").textContent())?.trim();
-    assert.match(code ?? "", /^[0-9]{8}-[a-z]+-[a-z]+$/);
+    assert.match(code ?? "", /^[0-9]{12}-[a-z]+-[a-z]+$/);
 
     const sender = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "send", code!, source], { cwd: root, env: childEnv });
     const senderDone = collectExit(sender);
@@ -386,7 +386,7 @@ test("browser folder receiver removes published output if final acknowledgement 
     await page.locator("#receiveButton").click();
     await page.locator("#codeBox").waitFor({ state: "visible", timeout: 30_000 });
     const code = (await page.locator("#codeBox").textContent())?.trim();
-    assert.match(code ?? "", /^[0-9]{8}-[a-z]+-[a-z]+$/);
+    assert.match(code ?? "", /^[0-9]{12}-[a-z]+-[a-z]+$/);
 
     sender = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "send", code!, source], { cwd: root, env: childEnv });
     senderDone = collectExit(sender);
@@ -441,7 +441,7 @@ test("browser ordinary folder receiver does not create resume state", browserTes
     await page.locator("#receiveButton").click();
     await page.locator("#codeBox").waitFor({ state: "visible", timeout: 30_000 });
     const code = (await page.locator("#codeBox").textContent())?.trim();
-    assert.match(code ?? "", /^[0-9]{8}-[a-z]+-[a-z]+$/);
+    assert.match(code ?? "", /^[0-9]{12}-[a-z]+-[a-z]+$/);
 
     const sender = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "send", code!, source], { cwd: root, env: childEnv });
     const senderDone = collectExit(sender);
@@ -497,7 +497,7 @@ test("browser folder receiver redacts native filesystem error names", browserTes
     await page.locator("#receiveButton").click();
     await page.locator("#codeBox").waitFor({ state: "visible", timeout: 30_000 });
     const code = (await page.locator("#codeBox").textContent())?.trim();
-    assert.match(code ?? "", /^[0-9]{8}-[a-z]+-[a-z]+$/);
+    assert.match(code ?? "", /^[0-9]{12}-[a-z]+-[a-z]+$/);
 
     sender = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "send", code!, source], { cwd: root, env: childEnv });
     senderDone = collectExit(sender);
@@ -546,7 +546,7 @@ test("browser folder receiver does not expose resume for multi-file manifests", 
     await page.locator("#receiveButton").click();
     await page.locator("#codeBox").waitFor({ state: "visible", timeout: 30_000 });
     const code = (await page.locator("#codeBox").textContent())?.trim();
-    assert.match(code ?? "", /^[0-9]{8}-[a-z]+-[a-z]+$/);
+    assert.match(code ?? "", /^[0-9]{12}-[a-z]+-[a-z]+$/);
 
     const sender = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "send", code!, first, second], { cwd: root, env: childEnv });
     const senderDone = collectExit(sender);
@@ -596,7 +596,7 @@ test("CLI sender interoperates with browser opaque-name folder receiver", browse
     await page.locator("#receiveButton").click();
     await page.locator("#codeBox").waitFor({ state: "visible", timeout: 30_000 });
     const code = (await page.locator("#codeBox").textContent())?.trim();
-    assert.match(code ?? "", /^[0-9]{8}-[a-z]+-[a-z]+$/);
+    assert.match(code ?? "", /^[0-9]{12}-[a-z]+-[a-z]+$/);
 
     const sender = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "send", code!, source], { cwd: root, env: childEnv });
     const senderDone = collectExit(sender);
@@ -654,7 +654,7 @@ test("browser folder receiver restarts after a corrupted saved partial", browser
     await page.locator("#receiveButton").click();
     await page.locator("#codeBox").waitFor({ state: "visible", timeout: 30_000 });
     const firstCode = (await page.locator("#codeBox").textContent())?.trim();
-    assert.match(firstCode ?? "", /^[0-9]{8}-[a-z]+-[a-z]+$/);
+    assert.match(firstCode ?? "", /^[0-9]{12}-[a-z]+-[a-z]+$/);
     const failedSender = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "send", firstCode!, source], { cwd: root, env: childEnv });
     const failedSenderDone = collectExit(failedSender);
     await page.locator("#resumeButton").waitFor({ state: "visible", timeout: 30_000 });
@@ -670,7 +670,7 @@ test("browser folder receiver restarts after a corrupted saved partial", browser
     await setFolderMockFailure(page, null);
     await page.locator("#receiveButton").click();
     const secondCode = await waitForNewCode(page, firstCode!);
-    assert.match(secondCode ?? "", /^[0-9]{8}-[a-z]+-[a-z]+$/);
+    assert.match(secondCode ?? "", /^[0-9]{12}-[a-z]+-[a-z]+$/);
     assert.notEqual(secondCode, firstCode);
     const resumedSender = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "send", secondCode!, source], { cwd: root, env: childEnv });
     const resumedSenderDone = collectExit(resumedSender);
@@ -731,7 +731,7 @@ test("browser folder receiver resumes from a valid saved partial", browserTestOp
     await page.locator("#receiveButton").click();
     await page.locator("#codeBox").waitFor({ state: "visible", timeout: 30_000 });
     const firstCode = (await page.locator("#codeBox").textContent())?.trim();
-    assert.match(firstCode ?? "", /^[0-9]{8}-[a-z]+-[a-z]+$/);
+    assert.match(firstCode ?? "", /^[0-9]{12}-[a-z]+-[a-z]+$/);
     const failedSender = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "send", firstCode!, source], { cwd: root, env: childEnv });
     const failedSenderDone = collectExit(failedSender);
     await page.locator("#resumeButton").waitFor({ state: "visible", timeout: 30_000 });
@@ -749,7 +749,7 @@ test("browser folder receiver resumes from a valid saved partial", browserTestOp
     await setFolderMockFailure(page, null);
     await page.locator("#receiveButton").click();
     const secondCode = await waitForNewCode(page, firstCode!);
-    assert.match(secondCode ?? "", /^[0-9]{8}-[a-z]+-[a-z]+$/);
+    assert.match(secondCode ?? "", /^[0-9]{12}-[a-z]+-[a-z]+$/);
     assert.notEqual(secondCode, firstCode);
     const resumedSender = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "send", secondCode!, source], { cwd: root, env: childEnv });
     const resumedSenderDone = collectExit(resumedSender);

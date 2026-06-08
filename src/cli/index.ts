@@ -135,7 +135,7 @@ program
   .option("-y, --yes", "auto-accept incoming transfers")
   .option("--resume", "resume from chunk-aligned CLI partial files left in the output directory (macOS/Linux; disabled on Windows until ACL privacy checks exist)")
   .option("--opaque-output-names", "write received files to opaque ff-<token> names instead of peer-supplied basenames")
-  .option("--code <code>", "use a supplied code like 12345678-two-words")
+  .option("--code <code>", "use a supplied code like 123456789012-two-words")
   .option("--code-stdin", "read a supplied receive code from piped stdin")
   .option("--code-env <name>", "read a supplied receive code from an environment variable")
   .action(async (options: RecvCommandOptions) => {
@@ -996,7 +996,7 @@ function pairRejectMessage(_reason: string | undefined): string {
 
 function parseRequiredCode(wordlist: WordlistModule, code: string): ParsedCode {
   const parsed = wordlist.parseCode(code);
-  if (!parsed) throw new Error("Code must look like 12345678-two-words.");
+  if (!parsed) throw new Error("Code must look like 123456789012-two-words.");
   return parsed;
 }
 
