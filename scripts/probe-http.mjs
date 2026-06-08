@@ -75,7 +75,7 @@ export function probeErrorMessage(error) {
 }
 
 function containsUrlOrPathText(value) {
-  return /(?:^|[\s("'=])(?:https?:\/\/|\/|[A-Za-z]:[\\/])/.test(value) || /[?&][A-Za-z0-9_.-]+=/.test(value);
+  return /(?:^|[\s("'=])(?:https?:\/\/|file:\/\/|\/|[A-Za-z]:[\\/]|\\\\(?:\?\\)?[^\\/\s]+[\\/])/i.test(value) || /[?&][A-Za-z0-9_.-]+=/.test(value);
 }
 
 function envString(name, required) {
