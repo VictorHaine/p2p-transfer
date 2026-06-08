@@ -60,6 +60,7 @@ const NPM_REGISTRY_TIMEOUT_MS = 20_000;
 const GIT_TIMEOUT_MS = 30_000;
 const CHILD_KILL_GRACE_MS = 5_000;
 const MAX_CHILD_ENV_VALUE_BYTES = 8_192;
+const MAX_GIT_OUTPUT_BYTES = 1024;
 const GITHUB_ACTIONS_REQUIRED_OAUTH_SCOPES = ["repo"];
 const REPOSITORY_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const PACKAGE_NAME_RE = /^(?:@[a-z0-9][a-z0-9._-]{0,213}\/)?[a-z0-9][a-z0-9._-]{0,213}$/;
@@ -95,11 +96,8 @@ async function main() {
   const runningInGitHubActions = envString("GITHUB_ACTIONS") === "true";
   const tokenKind = assertReleaseWorkflowTokenClass(token, runningInGitHubActions);
   const releaseActorLogin = runningInGitHubActions ? githubActor() : undefined;
+  const localHeadSha = runningInGitHubActions ? undefined : await assertLocalReleaseCommitSigned();
   const failures = [];
-
-  if (!runningInGitHubActions) {
-    await assertLocalReleaseCommitSigned();
-  }
 
   await collectReadinessFailure(failures, async () => {
     const packageJson = await readPackageMetadata();
@@ -119,7 +117,7 @@ async function main() {
     }
   }
   if (tokenKind === "installation" || authenticatedLogin) {
-    await collectGitHubRepositoryReadiness(failures, token, options.repository, authenticatedLogin, releaseActorLogin);
+    await collectGitHubRepositoryReadiness(failures, token, options.repository, authenticatedLogin, releaseActorLogin, localHeadSha);
   }
 
   if (failures.length > 0) throw new ReleaseReadinessFailure(failures);
@@ -127,7 +125,7 @@ async function main() {
   console.log(JSON.stringify({ repository: options.repository, ok: true }, null, 2));
 }
 
-async function collectGitHubRepositoryReadiness(failures, token, repository, authenticatedLogin, releaseActorLogin) {
+async function collectGitHubRepositoryReadiness(failures, token, repository, authenticatedLogin, releaseActorLogin, localHeadSha) {
   const repositoryMetadata = await collectReadinessValue(failures, () => github(token, "GET", `/repos/${repository}`));
   if (!repositoryMetadata) return;
 
@@ -152,6 +150,9 @@ async function collectGitHubRepositoryReadiness(failures, token, repository, aut
     });
   });
   const mainSha = mainBranch ? collectReadinessValueSync(failures, () => requiredBranchSha(mainBranch, "main")) : undefined;
+  if (mainSha && localHeadSha && mainSha !== localHeadSha) {
+    failures.push(new Error("Local release preflight must run from the current remote main commit before tagging."));
+  }
   if (mainSha) {
     for (const workflow of REQUIRED_SUCCESSFUL_MAIN_WORKFLOWS) {
       await collectReadinessFailure(failures, () => assertSuccessfulMainWorkflowRun(token, repository, workflow, mainSha));
@@ -231,9 +232,17 @@ function collectReadinessValueSync(failures, fn) {
 }
 
 async function assertLocalReleaseCommitSigned() {
-  const result = await runGit(["verify-commit", "HEAD"], "release commit signature verification failed.", { allowFailure: true });
-  if (result.status === 0) return;
+  const headSha = await localHeadSha();
+  const result = await runGit(["verify-commit", headSha], "release commit signature verification failed.", { allowFailure: true });
+  if (result.status === 0) return headSha;
   throw new Error("Release target commit must have a valid Git commit signature before tagging.");
+}
+
+async function localHeadSha() {
+  const output = await runGitOutput(["rev-parse", "--verify", "HEAD^{commit}"], "release target commit could not be resolved.");
+  const value = output.trim();
+  if (!/^[0-9a-f]{40}$/.test(value)) throw new Error("release target commit could not be resolved.");
+  return value;
 }
 
 function runGit(args, failureMessage, options = {}) {
@@ -267,6 +276,84 @@ function runGit(args, failureMessage, options = {}) {
         return;
       }
       resolveOnce({ status });
+    });
+
+    function resolveOnce(result) {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(result);
+    }
+
+    function rejectOnce(error) {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    }
+
+    function cleanup() {
+      clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
+    }
+  });
+}
+
+function runGitOutput(args, failureMessage) {
+  return new Promise((resolve, reject) => {
+    const child = spawn("git", args, {
+      cwd: projectRoot(),
+      env: safeChildEnv(),
+      stdio: ["ignore", "pipe", "ignore"]
+    });
+    const chunks = [];
+    let total = 0;
+    let settled = false;
+    let killTimer;
+    let timeoutError;
+    let outputError;
+    const timer = setTimeout(() => {
+      timeoutError = new Error(`${failureMessage} Git subprocess timed out.`);
+      child.kill("SIGTERM");
+      killTimer = setTimeout(() => child.kill("SIGKILL"), CHILD_KILL_GRACE_MS);
+    }, GIT_TIMEOUT_MS);
+
+    child.stdout.on("data", (chunk) => {
+      if (!Buffer.isBuffer(chunk)) {
+        outputError = new Error(failureMessage);
+        child.kill("SIGTERM");
+        return;
+      }
+      total += chunk.byteLength;
+      if (total > MAX_GIT_OUTPUT_BYTES) {
+        outputError = new Error(failureMessage);
+        child.kill("SIGTERM");
+        return;
+      }
+      chunks.push(chunk);
+    });
+    child.on("error", () => {
+      rejectOnce(new Error(failureMessage));
+    });
+    child.on("exit", (code) => {
+      if (killTimer) clearTimeout(killTimer);
+      if (timeoutError) {
+        rejectOnce(timeoutError);
+        return;
+      }
+      if (outputError) {
+        rejectOnce(outputError);
+        return;
+      }
+      if (code !== 0) {
+        rejectOnce(new Error(failureMessage));
+        return;
+      }
+      try {
+        resolveOnce(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks, total)));
+      } catch {
+        rejectOnce(new Error(failureMessage));
+      }
     });
 
     function resolveOnce(result) {

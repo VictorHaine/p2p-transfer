@@ -3716,9 +3716,66 @@ globalThis.fetch = async (url, init = {}) => {
     assert.notEqual(result.status, 0);
     assert.equal(result.stdout, "");
     assert.match(result.stderr, /Release readiness check failed:\n- Release target commit must have a valid Git commit signature before tagging\./);
-    assert.doesNotMatch(result.stderr, /token-that-must-not-be-printed|unexpected network|verify-commit|HEAD|api\.github|registry\.npmjs|Error:/);
+    assert.doesNotMatch(result.stderr, /token-that-must-not-be-printed|unexpected network|verify-commit|0123456789abcdef|api\.github|registry\.npmjs|Error:/);
     assert.equal(requests, "");
-    assert.equal(gitRequests, "verify-commit HEAD\n");
+    assert.equal(gitRequests, `rev-parse --verify HEAD^{commit}\nverify-commit ${RELEASE_TEST_SHA}\n`);
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
+test("release preflight rejects local release targets that differ from remote main", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-preflight-main-drift-"));
+  const mock = path.join(tmp, "mock-release-preflight-main-drift-fetch.mjs");
+  const log = path.join(tmp, "requests.log");
+  try {
+    const git = await fakeReleaseGit(tmp);
+    await fs.writeFile(
+      mock,
+      `
+import { appendFileSync } from "node:fs";
+
+const log = process.env.FF_MOCK_PREFLIGHT_MAIN_DRIFT_LOG;
+const remoteMainSha = "ffffffffffffffffffffffffffffffffffffffff";
+
+function record(method, origin, path) {
+  appendFileSync(log, method + " " + origin + path + "\\n", "utf8");
+}
+
+globalThis.fetch = async (url, init = {}) => {
+  const parsed = new URL(url);
+  const method = init.method ?? "GET";
+  const path = parsed.pathname + parsed.search;
+  record(method, parsed.origin, path);
+  const json = (status, body, headers = {}) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
+  if (parsed.origin === "https://registry.npmjs.org" && method === "GET" && path === "/%40victorhaine%2Fp2p-transfer") return json(404, {});
+  if (parsed.origin !== "https://api.github.com") return json(500, {});
+  if (method === "GET" && path === "/user") return json(200, { login: "operator" }, { "x-oauth-scopes": "repo, workflow" });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer") return json(200, { id: 1 });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/branches/main") return json(200, { name: "main", commit: { sha: remoteMainSha } });
+  return json(500, {});
+};
+`,
+      "utf8"
+    );
+
+    const result = runScriptWithNodeArgs(
+      "scripts/check-release-readiness.mjs",
+      {
+        ...git.env,
+        FF_MOCK_PREFLIGHT_MAIN_DRIFT_LOG: log,
+        GITHUB_TOKEN: "token-that-must-not-be-printed"
+      },
+      [],
+      ["--import", mock]
+    );
+    const requests = await fs.readFile(log, "utf8");
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Local release preflight must run from the current remote main commit before tagging\./);
+    assert.doesNotMatch(result.stderr, /token-that-must-not-be-printed|0123456789abcdef|ffffffffffffffffffffffffffffffffffffffff|api\.github|registry\.npmjs|Error:/);
+    assert.match(requests, /GET https:\/\/api\.github\.com\/repos\/VictorHaine\/p2p-transfer\/branches\/main\n/);
   } finally {
     await fs.rm(tmp, { force: true, recursive: true });
   }
@@ -4988,7 +5045,7 @@ function releaseTagEnv(tag: string): Record<string, string> {
   return { GITHUB_REF_NAME: tag, GITHUB_REF_TYPE: "tag", GITHUB_REF: `refs/tags/${tag}`, GITHUB_SHA: RELEASE_TEST_SHA, GITHUB_ACTIONS: "true", GITHUB_RUN_ID: "12345" };
 }
 
-async function fakeReleaseGit(tmp: string, status = 0) {
+async function fakeReleaseGit(tmp: string, status = 0, headSha = RELEASE_TEST_SHA) {
   const bin = path.join(tmp, "git-bin");
   const log = path.join(tmp, "git.log");
   await fs.mkdir(bin);
@@ -5000,7 +5057,11 @@ import { appendFileSync } from "node:fs";
 
 const args = process.argv.slice(2);
 appendFileSync(${JSON.stringify(log)}, args.join(" ") + "\\n", "utf8");
-if (args.length !== 2 || args[0] !== "verify-commit" || args[1] !== "HEAD") process.exit(2);
+if (args.length === 3 && args[0] === "rev-parse" && args[1] === "--verify" && args[2] === "HEAD^{commit}") {
+  console.log(${JSON.stringify(headSha)});
+  process.exit(0);
+}
+if (args.length !== 2 || args[0] !== "verify-commit" || args[1] !== ${JSON.stringify(headSha)}) process.exit(2);
 process.exit(${Number(status)});
 `,
     "utf8"

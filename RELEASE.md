@@ -51,13 +51,17 @@ This project releases only from protected `main` with a matching `v*.*.*` tag. D
 
    ```sh
    git fetch origin main
+   git checkout main
+   git pull --ff-only origin main
    gh auth token | pnpm release:preflight --token-stdin
    ```
 
-3. Create and push the matching release tag from `origin/main` only after preflight is clean:
+   Local preflight refuses unsigned `HEAD` before package or network work, then compares that local `HEAD` with GitHub's current `main` branch response. Do not tag from a different checkout than the one that passed preflight.
+
+3. Create and push the matching release tag from that preflighted `HEAD` only after preflight is clean:
 
    ```sh
-   git tag -s -m v0.1.0 v0.1.0 origin/main
+   git tag -s -m v0.1.0 v0.1.0 HEAD
    git push origin v0.1.0
    ```
 
