@@ -176,7 +176,7 @@ async function createDraftRelease(token, repository, tag, notes, assets, liveRef
     return await postDraftRelease(token, repository, tag, notes);
   } catch (error) {
     if (!(error instanceof GitHubApiError) || error.status !== 422) throw error;
-    const existing = await existingReleaseForTag(token, repository, tag);
+    const existing = await existingReleaseForTag(token, repository, tag, notes);
     if (existing.state === "published") {
       await assertPublishedReleaseAssetsMatch(token, repository, existing.id, assets);
       return { alreadyPublished: true };
@@ -197,14 +197,17 @@ async function postDraftRelease(token, repository, tag, notes) {
   });
 }
 
-async function existingReleaseForTag(token, repository, tag) {
+async function existingReleaseForTag(token, repository, tag, notes) {
   const release = await github(token, "GET", `/repos/${repository}/releases/tags/${tag}`);
-  return existingReleaseInfo(release, tag);
+  return existingReleaseInfo(release, tag, notes);
 }
 
-function existingReleaseInfo(release, tag) {
+function existingReleaseInfo(release, tag, notes) {
   if (!release || release.tag_name !== tag || !Number.isSafeInteger(release.id) || release.id < 1 || typeof release.draft !== "boolean") {
     throw new Error("GitHub release response was invalid.");
+  }
+  if (release.draft === false && (release.name !== tag || release.body !== notes || release.prerelease !== false)) {
+    throw new Error("existing published GitHub release metadata does not match verified release metadata.");
   }
   return { id: release.id, state: release.draft ? "draft" : "published" };
 }

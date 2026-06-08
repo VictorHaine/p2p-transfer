@@ -1117,7 +1117,8 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(githubReleaseScript, /\/repos\/\$\{repository\}\/git\/ref\/tags\/\$\{tag\}/);
   assert.match(githubReleaseScript, /if \(\(await githubReleaseTagCommitSha\(token, repository, tag\)\) !== expectedSha\) throw new Error\("GitHub tag ref does not match the release workflow commit\."\)/);
   assert.match(githubReleaseScript, /\/repos\/\$\{repository\}\/releases/);
-  assert.match(githubReleaseScript, /const existing = await existingReleaseForTag\(token, repository, tag\)/);
+  assert.match(githubReleaseScript, /const existing = await existingReleaseForTag\(token, repository, tag, notes\)/);
+  assert.match(githubReleaseScript, /release\.draft === false && \(release\.name !== tag \|\| release\.body !== notes \|\| release\.prerelease !== false\)/);
   assert.match(githubReleaseScript, /if \(existing\.state === "published"\) \{[\s\S]*await assertPublishedReleaseAssetsMatch\(token, repository, existing\.id, assets\);[\s\S]*return \{ alreadyPublished: true \};[\s\S]*\}/);
   assert.match(githubReleaseScript, /await liveRefCheck\(\);\n\s+return await postDraftRelease\(token, repository, tag, notes\)/);
   assert.match(githubReleaseScript, /\/repos\/\$\{repository\}\/releases\/tags\/\$\{tag\}/);
@@ -1125,7 +1126,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(githubReleaseScript, /accept: "application\/octet-stream"/);
   assert.match(githubReleaseScript, /if \(!remoteBytes\.equals\(asset\.bytes\)\) throw new Error\("mismatch"\)/);
   assert.match(securityPolicy, /recover reruns that find an existing exact-tag draft by deleting only that draft, re-running the live ref verifier, and creating a fresh draft/);
-  assert.match(securityPolicy, /recover reruns that find an already-published exact-tag release only after listing and byte-checking every remote asset against the verified tarball, `SHA256SUMS`, and `SBOM\.cdx\.json`/);
+  assert.match(securityPolicy, /recover reruns that find an already-published exact-tag release only after checking its title, release notes body, and prerelease flag against the verified release metadata and listing and byte-checking every remote asset against the verified tarball, `SHA256SUMS`, and `SBOM\.cdx\.json`/);
   assert.match(githubReleaseScript, /uploadReleaseAsset\(token, uploadUrl, asset\)/);
   assert.match(githubReleaseScript, /draft: true/);
   assert.match(githubReleaseScript, /await publishDraftRelease\(token, repository, id\)/);

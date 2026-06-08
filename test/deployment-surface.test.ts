@@ -474,6 +474,8 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(githubReleaseScript, /\/repos\/\$\{repository\}\/releases/);
   assert.match(githubReleaseScript, /uploadReleaseAsset\(token, uploadUrl, asset\)/);
   assert.match(githubReleaseScript, /draft: true/);
+  assert.match(githubReleaseScript, /existingReleaseForTag\(token, repository, tag, notes\)/);
+  assert.match(githubReleaseScript, /release\.draft === false && \(release\.name !== tag \|\| release\.body !== notes \|\| release\.prerelease !== false\)/);
   assert.match(githubReleaseScript, /assertPublishedReleaseAssetsMatch\(token, repository, existing\.id, assets\)/);
   assert.match(githubReleaseScript, /\/repos\/\$\{repository\}\/releases\/\$\{releaseId\}\/assets\?per_page=100/);
   assert.match(githubReleaseScript, /if \(!remoteBytes\.equals\(asset\.bytes\)\) throw new Error\("mismatch"\)/);
@@ -481,7 +483,7 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(githubReleaseScript, /await reconcileDraftPublishFailure\(token, repository, id, tag\)\.catch\(\(\) => false\)/);
   assert.match(githubReleaseScript, /if \(state === "published"\) return true/);
   assert.match(githubReleaseScript, /await deleteDraftRelease\(token, repository, id\)\.catch\(\(\) => undefined\)/);
-  assert.match(securityPolicy, /recover reruns that find an already-published exact-tag release only after listing and byte-checking every remote asset against the verified tarball, `SHA256SUMS`, and `SBOM\.cdx\.json`/);
+  assert.match(securityPolicy, /recover reruns that find an already-published exact-tag release only after checking its title, release notes body, and prerelease flag against the verified release metadata and listing and byte-checking every remote asset against the verified tarball, `SHA256SUMS`, and `SBOM\.cdx\.json`/);
   assert.doesNotMatch(githubReleaseScript, /"gh"|gh release create|"--verify-tag"/);
   assert.match(githubReleaseScript, /requiredRepository\(requiredEnvString\("GITHUB_REPOSITORY"\)\)/);
   assert.match(githubReleaseScript, /\["scripts\/write-release-notes\.mjs"\]/);
