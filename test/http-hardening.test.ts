@@ -106,6 +106,17 @@ test("unsupported HTTP methods are not kept alive", () => {
   assert.match(methodNotAllowed, /connection:\s+"close"/);
 });
 
+test("JSON HTTP errors are not kept alive", () => {
+  assert.match(securityPolicy, /JSON HTTP error responses must explicitly close the connection/);
+  for (const source of [serverSource, distServerSource]) {
+    const jsonBody = extractFunctionBody(source, "json");
+    assert.match(jsonBody, /\.\.\.errorConnectionHeader\(status\)/);
+    const errorConnectionHeader = extractFunctionBody(source, "errorConnectionHeader");
+    assert.match(errorConnectionHeader, /status >= 200 && status < 300/);
+    assert.match(errorConnectionHeader, /connection:\s+"close"/);
+  }
+});
+
 test("websocket peers are heartbeat-terminated to release stale capacity", () => {
   assert.equal(SIGNALING_HEARTBEAT_INTERVAL_MS, 30_000);
   assert.match(securityPolicy, /signaling WebSockets must use an application heartbeat/);

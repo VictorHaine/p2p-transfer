@@ -895,9 +895,14 @@ function json(res: http.ServerResponse, status: number, body: unknown, extraHead
     "content-type": "application/json; charset=utf-8",
     "cache-control": "no-store",
     ...extraHeaders,
+    ...errorConnectionHeader(status),
     ...securityHeaders(false)
   });
   res.end(JSON.stringify(body));
+}
+
+function errorConnectionHeader(status: number): Record<string, string> {
+  return status >= 200 && status < 300 ? {} : { connection: "close" };
 }
 
 function methodNotAllowed(res: http.ServerResponse, extraHeaders: Record<string, string>): void {
