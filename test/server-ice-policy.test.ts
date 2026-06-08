@@ -31,7 +31,8 @@ test("unauthenticated ICE lookups cannot consume accepted-session TURN issuance 
   assert.match(serverSource, /const iceHttpRateLimits = new Map<string, number\[\]>\(\)/);
   assert.match(serverSource, /const turnIssueRateLimits = new Map<string, number\[\]>\(\)/);
   assert.match(httpRateLimitBody, /hitIceConfigRateLimit\(iceHttpRateLimits, requestIp\(req\)\)/);
-  assert.match(sendIceConfigBody, /hitIceConfigRateLimit\(turnIssueRateLimits, peer\.ip\)/);
+  assert.match(sendIceConfigBody, /hasTurnRestConfig\(serverConfig\)/);
+  assert.match(sendIceConfigBody, /hitTurnCredentialIssueRateLimit\(turnIssueRateLimits, peer\.ip\)/);
   assert.match(sendIceConfigBody, /iceServersForUnauthenticatedRequest\(serverConfig\)/);
   assert.match(sendIceConfigBody, /return send\(peer, \{ type: "ice-config", iceServers \}\)/);
   assert.doesNotMatch(sendIceConfigBody, /\biceHttpRateLimits\b/);

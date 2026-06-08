@@ -37,7 +37,7 @@ import {
 import { isValidRendezvous, normalizeCode } from "../shared/wordlist.js";
 import { canCreateSession, canRegisterWaitingCode, staticFileWithinLimit } from "./capacity.js";
 import { websocketCloseReason } from "./close-reason.js";
-import { corsHeaders, iceServersForRequest, iceServersForUnauthenticatedRequest, loadServerConfig, originAllowedForRequest, type ServerConfig } from "./config.js";
+import { corsHeaders, hasTurnRestConfig, iceServersForRequest, iceServersForUnauthenticatedRequest, loadServerConfig, originAllowedForRequest, type ServerConfig } from "./config.js";
 import { PACKAGE_NAME, PACKAGE_VERSION } from "../shared/package-info.js";
 import { applyHttpServerHardening } from "./http-hardening.js";
 import {
@@ -53,7 +53,7 @@ import {
   type SessionPeerId
 } from "./policy.js";
 import { canRestorePrePairCode, consumePrePairAttempt, initialPrePairAttempts } from "./prepair-attempts.js";
-import { hitFixedWindowRateLimit, hitIceConfigRateLimit, pruneFixedWindowRateLimits, recordFixedWindowHit } from "./rate-limit.js";
+import { hitFixedWindowRateLimit, hitIceConfigRateLimit, hitTurnCredentialIssueRateLimit, pruneFixedWindowRateLimits, recordFixedWindowHit } from "./rate-limit.js";
 import { requestBaseUrl, requestHostAuthority, requestMethod, requestOriginHeader, requestRemoteAddress, requestUrl } from "./request-headers.js";
 import { securityHeaders } from "./security-headers.js";
 import { initialSessionExpiresAt, nextSessionExpiresAt, remainingExpirySeconds } from "./session-expiry.js";
@@ -815,7 +815,8 @@ function fail(peer: Peer, code: ErrorCode, message: string): void {
 }
 
 function sendIceConfig(peer: Peer): boolean {
-  const iceServers = hitIceConfigRateLimit(turnIssueRateLimits, peer.ip) ? iceServersForRequest(serverConfig) : iceServersForUnauthenticatedRequest(serverConfig);
+  const issueTurnCredentials = !hasTurnRestConfig(serverConfig) || hitTurnCredentialIssueRateLimit(turnIssueRateLimits, peer.ip);
+  const iceServers = issueTurnCredentials ? iceServersForRequest(serverConfig) : iceServersForUnauthenticatedRequest(serverConfig);
   return send(peer, { type: "ice-config", iceServers });
 }
 

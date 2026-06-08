@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { ICE_CONFIG_MAX_REQUESTS_PER_MINUTE } from "../src/shared/constants.js";
-import { hitFixedWindowRateLimit, hitIceConfigRateLimit, pruneFixedWindowRateLimits, recordFixedWindowHit } from "../src/server/rate-limit.js";
+import { ICE_CONFIG_MAX_REQUESTS_PER_MINUTE, TURN_REST_CREDENTIALS_MAX_ISSUES_PER_MINUTE } from "../src/shared/constants.js";
+import { hitFixedWindowRateLimit, hitIceConfigRateLimit, hitTurnCredentialIssueRateLimit, pruneFixedWindowRateLimits, recordFixedWindowHit } from "../src/server/rate-limit.js";
 
 const rateLimitSource = fs.readFileSync(new URL("../src/server/rate-limit.ts", import.meta.url), "utf8");
 const distRateLimitSource = fs.readFileSync(new URL("../dist-node/server/rate-limit.js", import.meta.url), "utf8");
@@ -101,11 +101,21 @@ test("fixed-window rate limiter pruning removes stale keys", () => {
   assert.deepEqual(hits.get("mixed"), [61_000]);
 });
 
-test("ICE configuration limiter caps TURN credential issuance per IP", () => {
+test("ICE configuration limiter caps unauthenticated discovery per IP", () => {
   const hits = new Map<string, number[]>();
   for (let i = 0; i < ICE_CONFIG_MAX_REQUESTS_PER_MINUTE; i += 1) {
     assert.equal(hitIceConfigRateLimit(hits, "ip", 1_000 + i), true);
   }
   assert.equal(hitIceConfigRateLimit(hits, "ip", 2_000), false);
   assert.equal(hitIceConfigRateLimit(hits, "other-ip", 2_000), true);
+});
+
+test("TURN credential issue limiter is stricter than unauthenticated ICE discovery", () => {
+  assert.ok(TURN_REST_CREDENTIALS_MAX_ISSUES_PER_MINUTE < ICE_CONFIG_MAX_REQUESTS_PER_MINUTE);
+  const hits = new Map<string, number[]>();
+  for (let i = 0; i < TURN_REST_CREDENTIALS_MAX_ISSUES_PER_MINUTE; i += 1) {
+    assert.equal(hitTurnCredentialIssueRateLimit(hits, "ip", 1_000 + i), true);
+  }
+  assert.equal(hitTurnCredentialIssueRateLimit(hits, "ip", 2_000), false);
+  assert.equal(hitTurnCredentialIssueRateLimit(hits, "other-ip", 2_000), true);
 });

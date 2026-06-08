@@ -203,6 +203,10 @@ export function iceServersForRequest(config: ServerConfig, now = Date.now()): RT
   return [...iceServers, { urls: turnRest.urls, username, credential }];
 }
 
+export function hasTurnRestConfig(config: ServerConfig): boolean {
+  return configTurnRest(config) !== undefined;
+}
+
 export function iceServersForUnauthenticatedRequest(config: ServerConfig): RTCIceServer[] {
   const publicServers = publicConfigIceServers(config).flatMap(publicIceServer);
   return publicServers.length > 0 ? publicServers : cloneIceServers(DEFAULT_ICE_SERVERS);

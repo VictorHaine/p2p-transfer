@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   corsHeaders,
+  hasTurnRestConfig,
   iceServersForRequest,
   iceServersForUnauthenticatedRequest,
   loadServerConfig,
@@ -381,6 +382,12 @@ test("server ICE configuration helpers return defensive snapshots", () => {
   assert.deepEqual(iceServersForUnauthenticatedRequest(turnOnlyConfig), DEFAULT_ICE_SERVERS);
 });
 
+test("server ICE configuration helper detects TURN REST before credential issuance", () => {
+  assert.equal(hasTurnRestConfig(loadServerConfig({})), false);
+  assert.equal(hasTurnRestConfig(loadServerConfig({ TURN_REST_SECRET: strongTurnSecret, TURN_URLS: '"turn:turn.example.test"' })), true);
+  assert.throws(() => hasTurnRestConfig({ iceServers: [], turnRest: { urls: "turn:turn.example.test", secret: "short", ttlSeconds: 600 } } as never), /TURN REST config is invalid/);
+});
+
 test("server ICE configuration helpers reject malformed runtime config without invoking accessors", () => {
   assert.match(securityPolicy, /exported ICE\/TURN configuration helpers must read runtime config through own data descriptors/);
 
@@ -403,6 +410,7 @@ test("server ICE configuration helpers reject malformed runtime config without i
     }
   });
   assert.throws(() => iceServersForRequest(accessorTurnRestConfig as never, 1_700_000_000_000), /Server config fields must be data properties/);
+  assert.throws(() => hasTurnRestConfig(accessorTurnRestConfig as never), /Server config fields must be data properties/);
 
   const accessorSecret = { urls: "turn:turn.example.test", ttlSeconds: 600 };
   Object.defineProperty(accessorSecret, "secret", {

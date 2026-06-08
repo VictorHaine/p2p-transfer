@@ -1,4 +1,4 @@
-import { ICE_CONFIG_MAX_REQUESTS_PER_MINUTE } from "../shared/constants.js";
+import { ICE_CONFIG_MAX_REQUESTS_PER_MINUTE, TURN_REST_CREDENTIALS_MAX_ISSUES_PER_MINUTE } from "../shared/constants.js";
 
 const MAX_RATE_LIMIT_RETAINED_HITS = 100_000;
 
@@ -26,6 +26,10 @@ export function recordFixedWindowHit(values: readonly number[], now: number, win
 
 export function hitIceConfigRateLimit(hits: Map<string, number[]>, key: string, now = Date.now()): boolean {
   return hitFixedWindowRateLimit(hits, key, now, 60_000, ICE_CONFIG_MAX_REQUESTS_PER_MINUTE);
+}
+
+export function hitTurnCredentialIssueRateLimit(hits: Map<string, number[]>, key: string, now = Date.now()): boolean {
+  return hitFixedWindowRateLimit(hits, key, now, 60_000, TURN_REST_CREDENTIALS_MAX_ISSUES_PER_MINUTE);
 }
 
 export function pruneFixedWindowRateLimits(hits: Map<string, number[]>, now: number, windowMs: number): void {
