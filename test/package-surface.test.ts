@@ -812,7 +812,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(dockerPublishScript, /import \{ createIsolatedDockerConfig \} from "\.\/docker-config\.mjs"/);
   assert.match(dockerPublishScript, /createIsolatedDockerConfig\("p2p-transfer-docker-release-"\)/);
   assert.match(securityPolicy, /release Docker publishing must read package metadata through no-follow regular-file opens with exact-size handle reads and pre\/post-read identity checks/);
-  assert.match(securityPolicy, /emit the digest through checked `GITHUB_OUTPUT` no-follow regular-file appends with size and identity checks/);
+  assert.match(securityPolicy, /emit the staged digest through checked `GITHUB_OUTPUT` no-follow regular-file appends with size and identity checks/);
   assert.match(dockerPublishScript, /const MAX_GITHUB_OUTPUT_BYTES = 1024 \* 1024/);
   assert.match(dockerPublishScript, /await open\(file, constants\.O_WRONLY \| constants\.O_APPEND \| \(constants\.O_NOFOLLOW \?\? 0\)\)/);
   assert.match(dockerPublishScript, /if \(!opened\.isFile\(\) \|\| !sameFile\(info, opened\)\) throw new Error\("GitHub output path is invalid\."\)/);
@@ -1112,6 +1112,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(liveReleaseRefScript, /\/repos\/\$\{repository\}\/git\/ref\/heads\/main/);
   assert.match(liveReleaseRefScript, /return error instanceof Error && error\.name === "AbortError"/);
   assert.match(securityPolicy, /last-mile live release-ref verifier must reject ambiguous `GITHUB_TOKEN` plus `GH_TOKEN` input before network work, then re-check the GitHub tag ref or annotated tag object and GitHub `main` ref against `GITHUB_SHA` through bounded GitHub API calls immediately before release artifact attestation, immediately before npm publish, before Docker smoke, immediately before GHCR staging push, immediately before GHCR promotion, immediately before GitHub Release draft creation, and immediately before GitHub Release final publish/);
+  assert.match(securityPolicy, /push only that staging tag before provenance[\s\S]*then promote only that attested digest to the `vX\.Y\.Z` and `X\.Y\.Z` release tags/);
   assert.match(dockerPublishScript, /await assertLiveReleaseRefFromEnv\(\);\n      const digest = dockerDigest\(requiredEnvString\("DOCKER_STAGED_DIGEST"\)\)/);
   assert.match(dockerPublishScript, /await assertLiveReleaseRefFromEnv\(\);\n    await run\("docker", \["login", REGISTRY/);
   assert.match(releaseWorkflow, /release docker image[\s\S]*environment: npm[\s\S]*run: node scripts\/publish-docker-image\.mjs[\s\S]*run: node scripts\/publish-docker-image\.mjs --promote/);

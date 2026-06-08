@@ -397,7 +397,8 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.doesNotMatch(dockerConfigScript, /readFileSync/);
   assert.match(securityPolicy, /release Docker publishing must read package metadata through no-follow regular-file opens with exact-size handle reads and pre\/post-read identity checks/);
   assert.match(securityPolicy, /byte-cap, no-follow-open, identity-check, handle-read, and fatal-UTF-8-decode that source Docker config\/context metadata/);
-  assert.match(securityPolicy, /emit the digest through checked `GITHUB_OUTPUT` no-follow regular-file appends with size and identity checks/);
+  assert.match(securityPolicy, /emit the staged digest through checked `GITHUB_OUTPUT` no-follow regular-file appends with size and identity checks/);
+  assert.match(securityPolicy, /then promote only that attested digest to the `vX\.Y\.Z` and `X\.Y\.Z` release tags/);
   assert.match(dockerPublishScript, /const MAX_GITHUB_OUTPUT_BYTES = 1024 \* 1024/);
   assert.match(dockerPublishScript, /await open\(file, constants\.O_WRONLY \| constants\.O_APPEND \| \(constants\.O_NOFOLLOW \?\? 0\)\)/);
   assert.match(dockerPublishScript, /if \(!opened\.isFile\(\) \|\| !sameFile\(info, opened\)\) throw new Error\("GitHub output path is invalid\."\)/);
