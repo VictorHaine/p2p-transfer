@@ -1,12 +1,17 @@
 #!/usr/bin/env node
+import { spawn } from "node:child_process";
 import { constants, realpathSync } from "node:fs";
 import { lstat, open } from "node:fs/promises";
+import { devNull } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const MAX_PACKAGE_JSON_BYTES = 128 * 1024;
 const MAX_RELEASE_ENV_VALUE_BYTES = 256;
+const MAX_CHILD_ENV_VALUE_BYTES = 8_192;
 const MAX_ERROR_MESSAGE_CHARS = 1024;
+const GIT_TIMEOUT_MS = 30_000;
+const CHILD_KILL_GRACE_MS = 5_000;
 
 const scriptPath = fileURLToPath(import.meta.url);
 const root = path.resolve(path.dirname(scriptPath), "..");
@@ -29,6 +34,7 @@ async function verifyReleaseTag() {
   if (tag !== `v${version}`) {
     throw new Error("release tag does not match package version.");
   }
+  await assertReleaseTagAnnotated(tag);
 }
 
 function assertNoArgs(args) {
@@ -111,6 +117,118 @@ function assertReleaseTagRef(tag) {
   }
 }
 
+async function assertReleaseTagAnnotated(tag) {
+  const output = await runGitOutput(["cat-file", "-t", `refs/tags/${tag}`], "release tag object could not be inspected.");
+  if (output.trim() !== "tag") throw new Error("release tag must be an annotated tag.");
+}
+
+function runGitOutput(args, failureMessage) {
+  return new Promise((resolve, reject) => {
+    const child = spawn("git", args, {
+      cwd: root,
+      env: safeChildEnv(),
+      stdio: ["ignore", "pipe", "ignore"]
+    });
+    const chunks = [];
+    let total = 0;
+    let outputError;
+    child.stdout.on("data", (chunk) => {
+      if (!Buffer.isBuffer(chunk)) {
+        outputError = new Error(failureMessage);
+        child.kill("SIGTERM");
+        return;
+      }
+      total += chunk.byteLength;
+      if (total > 1024) {
+        outputError = new Error(failureMessage);
+        child.kill("SIGTERM");
+        return;
+      }
+      chunks.push(chunk);
+    });
+    settleGitChild(child, failureMessage, () => {
+      if (outputError) {
+        reject(outputError);
+        return;
+      }
+      try {
+        resolve(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks, total)));
+      } catch {
+        reject(new Error(failureMessage));
+      }
+    }, reject);
+  });
+}
+
+function settleGitChild(child, failureMessage, resolve, reject) {
+  let settled = false;
+  let killTimer;
+  let timeoutError;
+  const timer = setTimeout(() => {
+    timeoutError = new Error(`${failureMessage} Git subprocess timed out.`);
+    child.kill("SIGTERM");
+    killTimer = setTimeout(() => child.kill("SIGKILL"), CHILD_KILL_GRACE_MS);
+  }, GIT_TIMEOUT_MS);
+
+  child.on("error", () => rejectOnce(new Error(failureMessage)));
+  child.on("exit", (code) => {
+    if (killTimer) clearTimeout(killTimer);
+    if (timeoutError) {
+      rejectOnce(timeoutError);
+      return;
+    }
+    if (code !== 0) {
+      rejectOnce(new Error(failureMessage));
+      return;
+    }
+    resolveOnce();
+  });
+
+  function resolveOnce() {
+    if (settled) return;
+    settled = true;
+    cleanup();
+    resolve();
+  }
+
+  function rejectOnce(error) {
+    if (settled) return;
+    settled = true;
+    cleanup();
+    reject(error);
+  }
+
+  function cleanup() {
+    clearTimeout(timer);
+    if (killTimer) clearTimeout(killTimer);
+  }
+}
+
+function safeChildEnv() {
+  const allowed = [
+    ["PATH", true],
+    ["SystemRoot", false],
+    ["SYSTEMROOT", false],
+    ["COMSPEC", false],
+    ["PATHEXT", false]
+  ];
+  const env = {};
+  for (const [name, required] of allowed) {
+    const descriptor = Object.getOwnPropertyDescriptor(process.env, name);
+    if (descriptor && "value" in descriptor && isSafeChildEnvValue(descriptor.value)) {
+      env[name] = descriptor.value;
+    } else if (required) {
+      throw new Error(`${name} must be a non-empty control-free child environment value under ${MAX_CHILD_ENV_VALUE_BYTES} UTF-8 bytes.`);
+    }
+  }
+  return {
+    ...env,
+    GIT_CONFIG_GLOBAL: devNull,
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_TERMINAL_PROMPT: "0"
+  };
+}
+
 function envString(name) {
   const descriptor = Object.getOwnPropertyDescriptor(process.env, name);
   if (
@@ -170,6 +288,10 @@ function utf8ByteLengthExceeds(value, maxBytes) {
     if (bytes > maxBytes) return true;
   }
   return false;
+}
+
+function isSafeChildEnvValue(value) {
+  return typeof value === "string" && value.length > 0 && !/[\p{Cc}\p{Cf}]/u.test(value) && !utf8ByteLengthExceeds(value, MAX_CHILD_ENV_VALUE_BYTES);
 }
 
 function isMain() {

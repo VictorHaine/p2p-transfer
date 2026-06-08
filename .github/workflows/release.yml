@@ -32,6 +32,10 @@ jobs:
         run: node scripts/check-release-tag.mjs
       - name: Verify release tag is on main
         run: node scripts/check-release-main.mjs
+      - name: Verify live release ref
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/verify-live-release-ref.mjs
       - name: Release controls preflight
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PREFLIGHT_TOKEN }}

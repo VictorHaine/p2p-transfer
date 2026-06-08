@@ -57,8 +57,9 @@ git push origin v0.1.0
 ```
 
 The checked tag creator must be used after preflight. It revalidates the signed
-commit, clean worktree, package version, local tag absence, tag target, and tag
-signature while suppressing signer subprocess output.
+commit, clean worktree, package version, freshly fetched `origin/main`
+equality, local and remote tag absence, tag target, and tag signature while
+suppressing signer subprocess output.
 
 ## Security Rules
 

@@ -31,7 +31,10 @@ async function createReleaseTag() {
   const headSha = await localHeadSha();
   await assertLocalReleaseCommitSigned(headSha);
   await assertLocalReleaseWorktreeClean();
+  await fetchReleaseMain();
+  await assertLocalHeadMatchesRemoteMain(headSha);
   await assertLocalReleaseTagMissing(tag);
+  await assertRemoteReleaseTagMissing(tag);
 
   let created = false;
   try {
@@ -78,9 +81,24 @@ async function assertLocalReleaseWorktreeClean() {
   if (output.trim().length > 0) throw new Error("Release tag creation must run from a clean worktree.");
 }
 
+async function fetchReleaseMain() {
+  await runGit(["fetch", "--no-tags", "--prune", "origin", "+refs/heads/main:refs/remotes/origin/main"], "remote main could not be refreshed.");
+}
+
+async function assertLocalHeadMatchesRemoteMain(headSha) {
+  const output = await runGitOutput(["rev-parse", "--verify", "origin/main^{commit}"], "remote main commit could not be resolved.");
+  if (output.trim() !== headSha) throw new Error("Release tag creation must run from the current remote main commit.");
+}
+
 async function assertLocalReleaseTagMissing(tag) {
   const result = await runGit(["show-ref", "--verify", "--quiet", `refs/tags/${tag}`], "local release tag existence could not be checked.", { allowFailure: true });
   if (result.status === 0) throw new Error("Release tag already exists locally.");
+}
+
+async function assertRemoteReleaseTagMissing(tag) {
+  const result = await runGit(["ls-remote", "--exit-code", "--tags", "origin", `refs/tags/${tag}`], "remote release tag existence could not be checked.", { allowFailure: true });
+  if (result.status === 0) throw new Error("Release tag already exists on origin.");
+  if (result.status !== 2) throw new Error("remote release tag existence could not be checked.");
 }
 
 async function assertReleaseTagPointsAt(tag, headSha) {

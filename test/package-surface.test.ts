@@ -834,6 +834,8 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseTagScript, /envString\("GITHUB_REF_TYPE"\) !== "tag"/);
   assert.match(releaseTagScript, /envString\("GITHUB_REF"\) !== `refs\/tags\/\$\{tag\}`/);
   assert.match(releaseTagScript, /release tag does not match package version\./);
+  assert.match(releaseTagScript, /runGitOutput\(\["cat-file", "-t", `refs\/tags\/\$\{tag\}`\], "release tag object could not be inspected\."\)/);
+  assert.match(releaseTagScript, /release tag must be an annotated tag\./);
   assert.doesNotMatch(releaseTagScript, /process\.env\.GITHUB_REF_NAME|readFile\(file, "utf8"\)|String\(error\)|error\.stack|release tag \$\{value\} does not match/);
   assert.match(securityPolicy, /release tag commit must exactly match protected `main` before release artifact packaging, attestation, npm publish, Docker publish, or GitHub Release creation/);
   assert.match(releaseWorkflow, /fetch-depth: 0/);
@@ -1276,11 +1278,14 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(dockerPublishScript, /await assertLiveReleaseRefFromEnv\(\)/);
   assert.match(liveReleaseRefScript, /export async function assertLiveReleaseRefFromEnv\(\)/);
   assert.match(liveReleaseRefScript, /\/repos\/\$\{repository\}\/git\/ref\/tags\/\$\{tag\}/);
+  assert.match(liveReleaseRefScript, /if \(tagRef\.object\.type === "commit"\) throw new Error\("GitHub release tag must be an annotated tag\."\)/);
+  assert.match(liveReleaseRefScript, /githubTagSignatureVerified\(tagObject\.verification\)/);
+  assert.match(liveReleaseRefScript, /GitHub release tag signature was not verified\./);
   assert.match(liveReleaseRefScript, /\/repos\/\$\{repository\}\/git\/ref\/heads\/main/);
   assert.match(liveReleaseRefScript, /return error instanceof Error && error\.name === "AbortError"/);
   assert.match(liveReleaseRefScript, /const EXPECTED_GITHUB_REPOSITORY = "VictorHaine\/p2p-transfer"/);
   assert.match(liveReleaseRefScript, /GITHUB_REPOSITORY must match the release repository/);
-  assert.match(securityPolicy, /last-mile live release-ref verifier must reject ambiguous `GITHUB_TOKEN` plus `GH_TOKEN` input and wrong `GITHUB_REPOSITORY` values before network work, then re-check the GitHub tag ref or annotated tag object and GitHub `main` ref against `GITHUB_SHA` through bounded GitHub API calls immediately before release artifact attestation, immediately before npm publish, before Docker smoke, immediately before GHCR staging push, immediately before GHCR promotion, immediately before GitHub Release draft creation, and immediately before GitHub Release final publish/);
+  assert.match(securityPolicy, /last-mile live release-ref verifier must reject ambiguous `GITHUB_TOKEN` plus `GH_TOKEN` input and wrong `GITHUB_REPOSITORY` values before network work, then reject lightweight tag refs, require a GitHub-verified signed annotated tag object, and re-check the GitHub tag object target plus GitHub `main` ref against `GITHUB_SHA` through bounded GitHub API calls immediately in the early release verification job, immediately before release artifact attestation, immediately before npm publish, before Docker smoke, immediately before GHCR staging push, immediately before GHCR promotion, immediately before GitHub Release draft creation, and immediately before GitHub Release final publish/);
   assert.match(securityPolicy, /push only that staging tag before provenance[\s\S]*make npm publish depend on that staged, attested digest[\s\S]*After npm publish succeeds[\s\S]*promote the attested digest to GHCR as both `vX\.Y\.Z` and `X\.Y\.Z`/);
   assert.match(securityPolicy, /Docker staging must scan the exact staged GHCR digest for OS and library vulnerabilities at every Trivy severity, including unknown, low, medium, high, critical, and unfixed advisories, before provenance attestation, must generate a CycloneDX image SBOM artifact from that same digest, must attest that SBOM to the staged digest before artifact upload or provenance attestation, and must use full-length pinned scanner and attestation actions/);
   assert.match(dockerPublishScript, /await assertLiveReleaseRefFromEnv\(\);\n      const digest = dockerDigest\(requiredEnvString\("DOCKER_STAGED_DIGEST"\)\)/);

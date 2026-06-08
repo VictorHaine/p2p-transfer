@@ -202,13 +202,17 @@ test("GitHub release script rejects moved main before artifact work", async () =
 import { appendFileSync } from "node:fs";
 
 const log = process.env.FF_MOCK_GITHUB_RELEASE_MAIN_LOG;
+const tagObjectSha = "2222222222222222222222222222222222222222";
 
 globalThis.fetch = async (url, init = {}) => {
   const parsed = new URL(url);
   appendFileSync(log, (init.method ?? "GET") + " " + parsed.origin + parsed.pathname + "\\n", "utf8");
   const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
   if (parsed.origin === "https://api.github.com" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0") {
-    return json(200, { ref: "refs/tags/v0.1.0", object: { type: "commit", sha: process.env.GITHUB_SHA } });
+    return json(200, { ref: "refs/tags/v0.1.0", object: { type: "tag", sha: tagObjectSha } });
+  }
+  if (parsed.origin === "https://api.github.com" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/git/tags/" + tagObjectSha) {
+    return json(200, { object: { type: "commit", sha: process.env.GITHUB_SHA }, verification: { verified: true, reason: "valid" } });
   }
   if (parsed.origin === "https://api.github.com" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/git/ref/heads/main") {
     return json(200, { ref: "refs/heads/main", object: { type: "commit", sha: "1111111111111111111111111111111111111111", message: "raw main body" } });
@@ -238,7 +242,7 @@ globalThis.fetch = async (url, init = {}) => {
     assert.doesNotMatch(result.stderr, /token-that-must-not-be-printed|raw main body|unexpected mock route|release artifact directory|Error:/);
     assert.equal(
       requests,
-      "GET https://api.github.com/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0\nGET https://api.github.com/repos/VictorHaine/p2p-transfer/git/ref/heads/main\n"
+      "GET https://api.github.com/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0\nGET https://api.github.com/repos/VictorHaine/p2p-transfer/git/tags/2222222222222222222222222222222222222222\nGET https://api.github.com/repos/VictorHaine/p2p-transfer/git/ref/heads/main\n"
     );
   } finally {
     await fs.rm(tmp, { force: true, recursive: true });
@@ -1132,7 +1136,10 @@ import { appendFileSync } from "node:fs";
 
 const log = process.env.FF_MOCK_LIVE_REF_LOG;
 const tagSha = process.env.FF_MOCK_TAG_SHA ?? process.env.GITHUB_SHA;
+const tagObjectSha = "2222222222222222222222222222222222222222";
 const mainSha = process.env.FF_MOCK_MAIN_SHA ?? process.env.GITHUB_SHA;
+const refType = process.env.FF_MOCK_TAG_REF_TYPE ?? "tag";
+const verification = process.env.FF_MOCK_TAG_VERIFICATION === "invalid" ? { verified: false, reason: "bad_email", payload: "raw signature body" } : { verified: true, reason: "valid" };
 
 function record(method, origin, path) {
   appendFileSync(log, method + " " + origin + path + "\\n", "utf8");
@@ -1146,7 +1153,10 @@ globalThis.fetch = async (url, init = {}) => {
   const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
   if (parsed.origin !== "https://api.github.com") return json(500, { message: "unexpected origin body" });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0") {
-    return json(200, { ref: "refs/tags/v0.1.0", object: { type: "commit", sha: tagSha } });
+    return json(200, { ref: "refs/tags/v0.1.0", object: { type: refType, sha: refType === "tag" ? tagObjectSha : tagSha } });
+  }
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/git/tags/" + tagObjectSha) {
+    return json(200, { object: { type: "commit", sha: tagSha }, verification });
   }
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/git/ref/heads/main") {
     return json(200, { ref: "refs/heads/main", object: { type: "commit", sha: mainSha, message: "raw main body" } });
@@ -1191,7 +1201,83 @@ globalThis.fetch = async (url, init = {}) => {
     assert.match(movedMain.stderr, /Live release ref verification failed:\n- GitHub main branch does not match the release workflow commit\./);
     assert.doesNotMatch(movedMain.stderr, /token-that-must-not-be-printed|raw main body|unexpected mock route|api\.github|Error:/);
     assert.match(requests, /GET https:\/\/api\.github\.com\/repos\/VictorHaine\/p2p-transfer\/git\/ref\/tags\/v0\.1\.0\n/);
+    assert.match(requests, /GET https:\/\/api\.github\.com\/repos\/VictorHaine\/p2p-transfer\/git\/tags\/2222222222222222222222222222222222222222\n/);
     assert.match(requests, /GET https:\/\/api\.github\.com\/repos\/VictorHaine\/p2p-transfer\/git\/ref\/heads\/main\n/);
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
+test("live release ref verifier rejects lightweight and unverified release tags", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-live-release-ref-tag-signature-"));
+  const mock = path.join(tmp, "mock-live-release-ref-tag-signature.mjs");
+  const log = path.join(tmp, "requests.log");
+  try {
+    await fs.writeFile(
+      mock,
+      `
+import { appendFileSync } from "node:fs";
+
+const log = process.env.FF_MOCK_LIVE_REF_TAG_SIGNATURE_LOG;
+const tagObjectSha = "2222222222222222222222222222222222222222";
+
+globalThis.fetch = async (url, init = {}) => {
+  const parsed = new URL(url);
+  const method = init.method ?? "GET";
+  const path = parsed.pathname + parsed.search;
+  appendFileSync(log, method + " " + parsed.origin + path + "\\n", "utf8");
+  const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+  if (parsed.origin !== "https://api.github.com") return json(500, { message: "unexpected origin body" });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0") {
+    if (process.env.FF_MOCK_TAG_REF_TYPE === "commit") {
+      return json(200, { ref: "refs/tags/v0.1.0", object: { type: "commit", sha: process.env.GITHUB_SHA } });
+    }
+    return json(200, { ref: "refs/tags/v0.1.0", object: { type: "tag", sha: tagObjectSha } });
+  }
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/git/tags/" + tagObjectSha) {
+    return json(200, {
+      object: { type: "commit", sha: process.env.GITHUB_SHA },
+      verification: { verified: false, reason: "bad_email", payload: "raw signature body token-that-must-not-be-printed" }
+    });
+  }
+  return json(500, { message: "unexpected mock route body token-that-must-not-be-printed" });
+};
+`,
+      "utf8"
+    );
+
+    const lightweight = runScriptWithNodeArgs(
+      "scripts/verify-live-release-ref.mjs",
+      {
+        FF_MOCK_LIVE_REF_TAG_SIGNATURE_LOG: log,
+        FF_MOCK_TAG_REF_TYPE: "commit",
+        GITHUB_REPOSITORY: "VictorHaine/p2p-transfer",
+        GITHUB_TOKEN: "token-that-must-not-be-printed",
+        ...releaseTagEnv("v0.1.0")
+      },
+      [],
+      ["--import", mock]
+    );
+    const unverified = runScriptWithNodeArgs(
+      "scripts/verify-live-release-ref.mjs",
+      {
+        FF_MOCK_LIVE_REF_TAG_SIGNATURE_LOG: log,
+        GITHUB_REPOSITORY: "VictorHaine/p2p-transfer",
+        GITHUB_TOKEN: "token-that-must-not-be-printed",
+        ...releaseTagEnv("v0.1.0")
+      },
+      [],
+      ["--import", mock]
+    );
+
+    assert.notEqual(lightweight.status, 0);
+    assert.equal(lightweight.stdout, "");
+    assert.match(lightweight.stderr, /Live release ref verification failed:\n- GitHub release tag must be an annotated tag\./);
+    assert.doesNotMatch(lightweight.stderr, /token-that-must-not-be-printed|raw signature body|api\.github|Error:/);
+    assert.notEqual(unverified.status, 0);
+    assert.equal(unverified.stdout, "");
+    assert.match(unverified.stderr, /Live release ref verification failed:\n- GitHub release tag signature was not verified\./);
+    assert.doesNotMatch(unverified.stderr, /token-that-must-not-be-printed|raw signature body|bad_email|api\.github|Error:/);
   } finally {
     await fs.rm(tmp, { force: true, recursive: true });
   }
@@ -3840,7 +3926,10 @@ test("release tag creator creates and verifies a signed tag from the preflighted
         "rev-parse --verify HEAD^{commit}",
         `verify-commit ${RELEASE_TEST_SHA}`,
         "status --porcelain=v1 --untracked-files=normal",
+        "fetch --no-tags --prune origin +refs/heads/main:refs/remotes/origin/main",
+        "rev-parse --verify origin/main^{commit}",
         "show-ref --verify --quiet refs/tags/v0.1.0",
+        "ls-remote --exit-code --tags origin refs/tags/v0.1.0",
         `tag -s -m v0.1.0 v0.1.0 ${RELEASE_TEST_SHA}`,
         "rev-parse --verify refs/tags/v0.1.0^{commit}",
         "tag -v v0.1.0",
@@ -3866,7 +3955,49 @@ test("release tag creator rejects existing local tags before signing", async () 
     assert.doesNotMatch(result.stderr, /v0\.1\.0|0123456789abcdef|Error:/);
     assert.equal(
       gitRequests,
-      `rev-parse --verify HEAD^{commit}\nverify-commit ${RELEASE_TEST_SHA}\nstatus --porcelain=v1 --untracked-files=normal\nshow-ref --verify --quiet refs/tags/v0.1.0\n`
+      `rev-parse --verify HEAD^{commit}\nverify-commit ${RELEASE_TEST_SHA}\nstatus --porcelain=v1 --untracked-files=normal\nfetch --no-tags --prune origin +refs/heads/main:refs/remotes/origin/main\nrev-parse --verify origin/main^{commit}\nshow-ref --verify --quiet refs/tags/v0.1.0\n`
+    );
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
+test("release tag creator rejects stale local main before creating tags", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-tag-stale-main-"));
+  try {
+    const git = await fakeReleaseGit(tmp, 0, RELEASE_TEST_SHA, "", { remoteMainSha: "1111111111111111111111111111111111111111" });
+
+    const result = runScript("scripts/create-release-tag.mjs", git.env, ["v0.1.0"]);
+    const gitRequests = await fs.readFile(git.log, "utf8");
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Release tag creation failed:\n- Release tag creation must run from the current remote main commit\./);
+    assert.doesNotMatch(result.stderr, /111111111111111111|0123456789abcdef|Error:/);
+    assert.equal(
+      gitRequests,
+      `rev-parse --verify HEAD^{commit}\nverify-commit ${RELEASE_TEST_SHA}\nstatus --porcelain=v1 --untracked-files=normal\nfetch --no-tags --prune origin +refs/heads/main:refs/remotes/origin/main\nrev-parse --verify origin/main^{commit}\n`
+    );
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
+test("release tag creator rejects existing remote tags before signing", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-tag-existing-remote-"));
+  try {
+    const git = await fakeReleaseGit(tmp, 0, RELEASE_TEST_SHA, "", { remoteTagExists: true });
+
+    const result = runScript("scripts/create-release-tag.mjs", git.env, ["v0.1.0"]);
+    const gitRequests = await fs.readFile(git.log, "utf8");
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Release tag creation failed:\n- Release tag already exists on origin\./);
+    assert.doesNotMatch(result.stderr, /v0\.1\.0|0123456789abcdef|Error:/);
+    assert.equal(
+      gitRequests,
+      `rev-parse --verify HEAD^{commit}\nverify-commit ${RELEASE_TEST_SHA}\nstatus --porcelain=v1 --untracked-files=normal\nfetch --no-tags --prune origin +refs/heads/main:refs/remotes/origin/main\nrev-parse --verify origin/main^{commit}\nshow-ref --verify --quiet refs/tags/v0.1.0\nls-remote --exit-code --tags origin refs/tags/v0.1.0\n`
     );
   } finally {
     await fs.rm(tmp, { force: true, recursive: true });
@@ -3891,7 +4022,10 @@ test("release tag creator suppresses signer output and rolls back failed post-cr
         "rev-parse --verify HEAD^{commit}",
         `verify-commit ${RELEASE_TEST_SHA}`,
         "status --porcelain=v1 --untracked-files=normal",
+        "fetch --no-tags --prune origin +refs/heads/main:refs/remotes/origin/main",
+        "rev-parse --verify origin/main^{commit}",
         "show-ref --verify --quiet refs/tags/v0.1.0",
+        "ls-remote --exit-code --tags origin refs/tags/v0.1.0",
         `tag -s -m v0.1.0 v0.1.0 ${RELEASE_TEST_SHA}`,
         "rev-parse --verify refs/tags/v0.1.0^{commit}",
         "tag -v v0.1.0",
@@ -5230,7 +5364,7 @@ async function fakeReleaseGit(
   status = 0,
   headSha = RELEASE_TEST_SHA,
   statusOutput = "",
-  options: { existingTag?: boolean; tagVerifyStatus?: number; signerError?: string } = {}
+  options: { existingTag?: boolean; remoteMainSha?: string; remoteTagExists?: boolean; remoteTagStatus?: number; tagVerifyStatus?: number; signerError?: string } = {}
 ) {
   const bin = path.join(tmp, "git-bin");
   const log = path.join(tmp, "git.log");
@@ -5247,6 +5381,10 @@ if (args.length === 3 && args[0] === "rev-parse" && args[1] === "--verify" && ar
   console.log(${JSON.stringify(headSha)});
   process.exit(0);
 }
+if (args.length === 3 && args[0] === "rev-parse" && args[1] === "--verify" && args[2] === "origin/main^{commit}") {
+  console.log(${JSON.stringify(options.remoteMainSha ?? headSha)});
+  process.exit(0);
+}
 if (args.length === 3 && args[0] === "rev-parse" && args[1] === "--verify" && args[2] === "refs/tags/v0.1.0^{commit}") {
   console.log(${JSON.stringify(headSha)});
   process.exit(0);
@@ -5255,8 +5393,10 @@ if (args.length === 3 && args[0] === "status" && args[1] === "--porcelain=v1" &&
   process.stdout.write(${JSON.stringify(statusOutput)});
   process.exit(0);
 }
+if (args.length === 5 && args[0] === "fetch" && args[1] === "--no-tags" && args[2] === "--prune" && args[3] === "origin" && args[4] === "+refs/heads/main:refs/remotes/origin/main") process.exit(0);
 if (args.length === 2 && args[0] === "verify-commit" && args[1] === ${JSON.stringify(headSha)}) process.exit(${Number(status)});
 if (args.length === 4 && args[0] === "show-ref" && args[1] === "--verify" && args[2] === "--quiet" && args[3] === "refs/tags/v0.1.0") process.exit(${options.existingTag ? 0 : 1});
+if (args.length === 5 && args[0] === "ls-remote" && args[1] === "--exit-code" && args[2] === "--tags" && args[3] === "origin" && args[4] === "refs/tags/v0.1.0") process.exit(${Number(options.remoteTagStatus ?? (options.remoteTagExists ? 0 : 2))});
 if (args.length === 6 && args[0] === "tag" && args[1] === "-s" && args[2] === "-m" && args[3] === "v0.1.0" && args[4] === "v0.1.0" && args[5] === ${JSON.stringify(headSha)}) {
   if (${JSON.stringify(options.signerError ?? "")}) console.error(${JSON.stringify(options.signerError ?? "")});
   process.exit(0);

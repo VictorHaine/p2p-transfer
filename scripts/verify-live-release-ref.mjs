@@ -45,11 +45,14 @@ async function githubTagCommitSha(token, repository, tag) {
   if (!tagRef || tagRef.ref !== `refs/tags/${tag}` || !tagRef.object || typeof tagRef.object.sha !== "string" || typeof tagRef.object.type !== "string") {
     throw new Error("GitHub tag ref response was invalid.");
   }
-  if (tagRef.object.type === "commit") return requiredCommitSha(tagRef.object.sha);
+  if (tagRef.object.type === "commit") throw new Error("GitHub release tag must be an annotated tag.");
   if (tagRef.object.type !== "tag") throw new Error("GitHub tag ref response was invalid.");
   const tagObject = await github(token, `/repos/${repository}/git/tags/${requiredCommitSha(tagRef.object.sha)}`);
   if (!tagObject || !tagObject.object || tagObject.object.type !== "commit" || typeof tagObject.object.sha !== "string") {
     throw new Error("GitHub tag object response was invalid.");
+  }
+  if (!githubTagSignatureVerified(tagObject.verification)) {
+    throw new Error("GitHub release tag signature was not verified.");
   }
   return requiredCommitSha(tagObject.object.sha);
 }
@@ -126,6 +129,14 @@ function requiredRepository(value) {
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(value)) throw new Error("GITHUB_REPOSITORY must be owner/name.");
   if (value !== EXPECTED_GITHUB_REPOSITORY) throw new Error("GITHUB_REPOSITORY must match the release repository.");
   return value;
+}
+
+function githubTagSignatureVerified(value) {
+  return isPlainRecord(value) && value.verified === true && value.reason === "valid";
+}
+
+function isPlainRecord(value) {
+  return value !== null && typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype;
 }
 
 function requiredEnvString(name) {

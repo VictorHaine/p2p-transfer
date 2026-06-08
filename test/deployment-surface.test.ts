@@ -284,6 +284,8 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releaseTagScript, /envString\("GITHUB_REF_TYPE"\) !== "tag"/);
   assert.match(releaseTagScript, /envString\("GITHUB_REF"\) !== `refs\/tags\/\$\{tag\}`/);
   assert.match(releaseTagScript, /release tag does not match package version\./);
+  assert.match(releaseTagScript, /runGitOutput\(\["cat-file", "-t", `refs\/tags\/\$\{tag\}`\], "release tag object could not be inspected\."\)/);
+  assert.match(releaseTagScript, /release tag must be an annotated tag\./);
   assert.match(securityPolicy, /release tag commit must exactly match protected `main` before release artifact packaging, attestation, npm publish, Docker publish, or GitHub Release creation/);
   assert.match(releaseWorkflow, /fetch-depth: 0/);
   assert.match(securityPolicy, /release tag current-main matching must use the checked release main verifier/);
@@ -532,6 +534,9 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(githubReleaseScript, /if \(\(await githubReleaseTagCommitSha\(token, repository, tag\)\) !== expectedSha\) throw new Error\("GitHub tag ref does not match the release workflow commit\."\)/);
   assert.match(liveReleaseRefScript, /export async function assertLiveReleaseRefFromEnv\(\)/);
   assert.match(liveReleaseRefScript, /\/repos\/\$\{repository\}\/git\/ref\/tags\/\$\{tag\}/);
+  assert.match(liveReleaseRefScript, /if \(tagRef\.object\.type === "commit"\) throw new Error\("GitHub release tag must be an annotated tag\."\)/);
+  assert.match(liveReleaseRefScript, /githubTagSignatureVerified\(tagObject\.verification\)/);
+  assert.match(liveReleaseRefScript, /GitHub release tag signature was not verified\./);
   assert.match(liveReleaseRefScript, /\/repos\/\$\{repository\}\/git\/ref\/heads\/main/);
   assert.match(liveReleaseRefScript, /GitHub tag ref does not match the release workflow commit\./);
   assert.match(liveReleaseRefScript, /GitHub main branch does not match the release workflow commit\./);
@@ -539,7 +544,7 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(liveReleaseRefScript, /return error instanceof Error && error\.name === "AbortError"/);
   assert.match(liveReleaseRefScript, /const EXPECTED_GITHUB_REPOSITORY = "VictorHaine\/p2p-transfer"/);
   assert.match(liveReleaseRefScript, /GITHUB_REPOSITORY must match the release repository/);
-  assert.match(securityPolicy, /last-mile live release-ref verifier must reject ambiguous `GITHUB_TOKEN` plus `GH_TOKEN` input and wrong `GITHUB_REPOSITORY` values before network work, then re-check the GitHub tag ref or annotated tag object and GitHub `main` ref against `GITHUB_SHA` through bounded GitHub API calls immediately before release artifact attestation, immediately before npm publish, before Docker smoke, immediately before GHCR staging push, immediately before GHCR promotion, immediately before GitHub Release draft creation, and immediately before GitHub Release final publish/);
+  assert.match(securityPolicy, /last-mile live release-ref verifier must reject ambiguous `GITHUB_TOKEN` plus `GH_TOKEN` input and wrong `GITHUB_REPOSITORY` values before network work, then reject lightweight tag refs, require a GitHub-verified signed annotated tag object, and re-check the GitHub tag object target plus GitHub `main` ref against `GITHUB_SHA` through bounded GitHub API calls immediately in the early release verification job, immediately before release artifact attestation, immediately before npm publish, before Docker smoke, immediately before GHCR staging push, immediately before GHCR promotion, immediately before GitHub Release draft creation, and immediately before GitHub Release final publish/);
   assert.match(securityPolicy, /Docker publishing subprocesses must use a minimal allowlisted child environment plus a temporary 0700 `DOCKER_CONFIG`/);
   assert.match(securityPolicy, /Docker publishing subprocesses must use a minimal allowlisted child environment plus a temporary 0700 `DOCKER_CONFIG`[\s\S]*handle child stdin pipe errors with generic non-token-reporting failures/);
   assert.match(dockerPublishScript, /endChildStdin\(child, options\.input \?\? "", label/);
@@ -854,7 +859,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(readme, /Once those controls are active, do not direct-push release changes to `main`/);
   assert.match(readme, /For normal releases, update local `main` to the exact current `origin\/main` commit after the protected pull request has merged, then run release preflight from that checked-out commit/);
   assert.match(readme, /Local preflight refuses unsigned `HEAD` and dirty worktrees before package or network work, and it refuses to pass if that local `HEAD` differs from GitHub's current `main` branch response/);
-  assert.match(readme, /The checked tag creator revalidates signed `HEAD`, clean worktree state, package-version matching, local tag absence, tag target, and tag signature while suppressing signer subprocess output/);
+  assert.match(readme, /The checked tag creator revalidates signed `HEAD`, clean worktree state, package-version matching, freshly fetched `origin\/main` equality, local and remote tag absence, tag target, and tag signature while suppressing signer subprocess output/);
   assert.match(readme, /configure `user\.signingkey` to the public key file or literal public key, not the private key path/);
   assert.doesNotMatch(readme, /git push -u origin main\nGITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
   assert.match(readme, /the exact repository rulesets that release preflight requires for `main` and `v\*\.\*\.\*` release tags/);
@@ -874,7 +879,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(contributing, /The checked tag creator must be used after preflight/);
   assert.match(contributing, /make sure `main` already exists on\nGitHub, then run the full release gate/);
   assert.match(securityPolicy, /local release preflight must fail before tagging when local `HEAD` is unsigned, the local worktree is dirty, local `HEAD` differs from GitHub's current `main` branch response, the npm package is missing, the target npm version already exists, the bootstrap placeholder exists without the exact `bootstrap` dist-tag or with `latest` pointing to it, private vulnerability reporting is disabled, dependency vulnerability alerts are disabled or hidden from the release token/);
-  assert.match(securityPolicy, /local tag creation must use the checked tag creator after preflight, revalidate signed `HEAD`, clean worktree state, package-version matching, local tag absence, tag target, and tag signature with ignored Git signer output, and delete only the newly-created local tag if post-create verification fails/);
+  assert.match(securityPolicy, /local tag creation must use the checked tag creator after preflight, revalidate signed `HEAD`, clean worktree state, package-version matching, freshly fetched `origin\/main` equality, local and remote tag absence, tag target, and tag signature with ignored Git signer output, and delete only the newly-created local tag if post-create verification fails/);
   assert.match(securityPolicy, /GitHub repository `security_and_analysis` is missing or reports disabled secret scanning, disabled secret scanning push protection, disabled Dependabot security updates, or paused Dependabot security updates from the dedicated `automated-security-fixes` endpoint/);
   assert.match(securityPolicy, /the GitHub token is missing or lacks `workflow` scope/);
   assert.match(securityPolicy, /current `main` commit lacks a successful CodeQL, Scorecard, or dependency-integrity workflow run/);
@@ -968,6 +973,14 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /mainSha && localHeadSha && mainSha !== localHeadSha/);
   assert.match(releaseReadinessScript, /Local release preflight must run from the current remote main commit before tagging\./);
   assert.match(releaseTagCreatorScript, /runGit\(\["tag", "-s", "-m", tag, tag, headSha\], "release tag could not be signed\."\)/);
+  assert.match(releaseTagCreatorScript, /fetchReleaseMain\(\)/);
+  assert.match(releaseTagCreatorScript, /assertLocalHeadMatchesRemoteMain\(headSha\)/);
+  assert.match(releaseTagCreatorScript, /assertRemoteReleaseTagMissing\(tag\)/);
+  assert.match(releaseTagCreatorScript, /\["fetch", "--no-tags", "--prune", "origin", "\+refs\/heads\/main:refs\/remotes\/origin\/main"\]/);
+  assert.match(releaseTagCreatorScript, /\["rev-parse", "--verify", "origin\/main\^\{commit\}"\]/);
+  assert.match(releaseTagCreatorScript, /\["ls-remote", "--exit-code", "--tags", "origin", `refs\/tags\/\$\{tag\}`\]/);
+  assert.match(releaseTagCreatorScript, /Release tag creation must run from the current remote main commit\./);
+  assert.match(releaseTagCreatorScript, /Release tag already exists on origin\./);
   assert.match(releaseTagCreatorScript, /runGit\(\["tag", "-v", tag\], "release tag signature verification failed\."\)/);
   assert.match(releaseTagCreatorScript, /await deleteCreatedTag\(tag\)/);
   assert.match(releaseTagCreatorScript, /stdio: "ignore"/);
@@ -1308,7 +1321,7 @@ test("documented release gates require a hardened Docker runtime smoke, not just
   assert.match(securityPolicy, /packed-install smoke that verifier-emitted downloaded tarball path/);
   assert.match(securityPolicy, /pass the verifier-emitted tarball path to packed smoke and `pnpm publish` instead of rediscovering the artifact with `find` or a shell glob after verification/);
   assert.match(securityPolicy, /The release workflow must not support manual dispatch/);
-  assert.match(securityPolicy, /release artifacts, npm publishes, Docker images, and GitHub Releases must only be produced from `v\*\.\*\.\*` tag refs that match `package\.json` version/);
+  assert.match(securityPolicy, /release artifacts, npm publishes, Docker images, and GitHub Releases must only be produced from GitHub-verified signed annotated `v\*\.\*\.\*` tag refs that match `package\.json` version/);
   assert.match(securityPolicy, /package-surface tests must run after the release build/);
   assert.match(securityPolicy, /checked release-artifact verifier/);
   assert.match(securityPolicy, /publish that resolved tarball path with `--ignore-scripts`/);
@@ -1549,7 +1562,7 @@ test("server deployment policy requires an explicit in-memory signaling topology
   assert.match(releaseRunbook, /Local preflight refuses unsigned `HEAD` and dirty worktrees before package or network work, then compares that local `HEAD` with GitHub's current `main` branch response/);
   assert.match(releaseRunbook, /pnpm release:tag -- v0\.1\.0/);
   assert.doesNotMatch(releaseRunbook, /git tag -s -m v0\.1\.0 v0\.1\.0 HEAD/);
-  assert.match(releaseRunbook, /The checked tag creator revalidates signed `HEAD`, clean worktree state, package-version matching, local tag absence, tag target, and tag signature while suppressing signer subprocess output/);
+  assert.match(releaseRunbook, /The checked tag creator revalidates signed `HEAD`, clean worktree state, package-version matching, freshly fetched `origin\/main` equality, local and remote tag absence, tag target, and tag signature while suppressing signer subprocess output/);
   assert.match(releaseRunbook, /configure `user\.signingkey` to the public key file or literal public key, not the private key path/);
   assert.match(releaseRunbook, /publish npm, verify npm registry metadata, publish GHCR, provenance, checksums, SBOM, and the GitHub Release/);
   assert.match(readme, /Use the released package after the first npm publish:[\s\S]*pnpm add -g @victorhaine\/p2p-transfer[\s\S]*ff recv[\s\S]*ff send --code-stdin --files-stdin/);
