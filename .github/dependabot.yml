@@ -20,6 +20,7 @@ updates:
           - "@roamhq/wrtc"
           - "@roamhq/wrtc-*"
           - "domexception"
+          - "webidl-conversions"
         dependency-type: production
       build-toolchain-dependencies:
         patterns:
@@ -39,6 +40,7 @@ updates:
           - "@roamhq/wrtc"
           - "@roamhq/wrtc-*"
           - "domexception"
+          - "webidl-conversions"
       development-dependencies:
         dependency-type: development
         exclude-patterns:

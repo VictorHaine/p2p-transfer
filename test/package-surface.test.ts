@@ -1521,12 +1521,14 @@ test("direct noble hashes dependency identity and install surface stay reviewed"
 test("native WebRTC dependency identity and install surface stay reviewed", () => {
   const wrtcPin = packageJson.dependencies?.["@roamhq/wrtc"];
   const domexceptionPin = packageJson.dependencies?.domexception;
+  const webidlConversionsPin = packageJson.dependencies?.["webidl-conversions"];
   assert.match(securityPolicy, /native WebRTC dependency metadata, optional prebuilt package set, allowed build-script surface, and platform smoke coverage must stay reviewed/);
-  assert.match(securityPolicy, /Dependabot must track `@roamhq\/wrtc`, `@roamhq\/wrtc-\*`, and `domexception` in their own production update group/);
-  assert.match(dependabotConfig, /native-webrtc-dependency:\n\s+patterns:\n\s+- "@roamhq\/wrtc"\n\s+- "@roamhq\/wrtc-\*"\n\s+- "domexception"\n\s+dependency-type: production/);
-  assert.match(dependabotConfig, /production-dependencies:\n\s+dependency-type: production\n\s+exclude-patterns:\n\s+- "@cipherman\/pake-js"\n\s+- "@noble\/curves"\n\s+- "@noble\/hashes"\n\s+- "@roamhq\/wrtc"\n\s+- "@roamhq\/wrtc-\*"/);
+  assert.match(securityPolicy, /Dependabot must track `@roamhq\/wrtc`, `@roamhq\/wrtc-\*`, `domexception`, and `webidl-conversions` in their own production update group/);
+  assert.match(dependabotConfig, /native-webrtc-dependency:\n\s+patterns:\n\s+- "@roamhq\/wrtc"\n\s+- "@roamhq\/wrtc-\*"\n\s+- "domexception"\n\s+- "webidl-conversions"\n\s+dependency-type: production/);
+  assert.match(dependabotConfig, /production-dependencies:\n\s+dependency-type: production\n\s+exclude-patterns:\n\s+- "@cipherman\/pake-js"\n\s+- "@noble\/curves"\n\s+- "@noble\/hashes"\n\s+- "@roamhq\/wrtc"\n\s+- "@roamhq\/wrtc-\*"\n\s+- "domexception"\n\s+- "webidl-conversions"/);
   assert.equal(wrtcPin, "0.10.0");
   assert.equal(domexceptionPin, "4.0.0");
+  assert.equal(webidlConversionsPin, "7.0.0");
   assert.equal(wrtcPackageJson.name, "@roamhq/wrtc");
   assert.equal(wrtcPackageJson.version, wrtcPin);
   assert.equal(wrtcPackageJson.license, "BSD-2-Clause");
@@ -1578,6 +1580,7 @@ test("native WebRTC dependency identity and install surface stay reviewed", () =
   }
   assert.match(pnpmLock, new RegExp(`^  domexception@4\\.0\\.0:\\n    resolution: \\{integrity: ${escapeRegExp(reviewedDomexceptionIntegrity)}\\}`, "m"));
   assert.match(pnpmLock, /^      domexception:\n        specifier: 4\.0\.0\n        version: 4\.0\.0/m);
+  assert.match(pnpmLock, /^      webidl-conversions:\n        specifier: 7\.0\.0\n        version: 7\.0\.0/m);
   assert.match(pnpmLock, new RegExp(`^  webidl-conversions@7\\.0\\.0:\\n    resolution: \\{integrity: ${escapeRegExp(reviewedWebidlConversionsIntegrity)}\\}`, "m"));
   assert.match(nativeSmokeScript, /const mod = await import\("\.\.\/dist-node\/cli\/native-webrtc\.js"\)/);
   assert.match(nativeSmokeScript, /requiredConstructor\(wrtc\.RTCPeerConnection, "RTCPeerConnection"\)/);
@@ -1632,7 +1635,7 @@ test("native WebRTC dependency identity and install surface stay reviewed", () =
   assert.match(nativeWebrtcReview, /# Native WebRTC Dependency Review/);
   assert.match(nativeWebrtcReview, new RegExp(`Package: \`${escapeRegExp(wrtcPackageJson.name ?? "")}\``));
   assert.match(nativeWebrtcReview, new RegExp(`Reviewed package version: \`${escapeRegExp(wrtcPin ?? "")}\``));
-  assert.match(nativeWebrtcReview, new RegExp(`Local pin: \`package\\.json\` pins \`@roamhq/wrtc\` to exact version \`${escapeRegExp(wrtcPin ?? "")}\` and pins the reviewed non-native runtime companion \`domexception\` to exact version \`${escapeRegExp(domexceptionPin ?? "")}\``));
+  assert.match(nativeWebrtcReview, new RegExp(`Local pin: \`package\\.json\` pins \`@roamhq/wrtc\` to exact version \`${escapeRegExp(wrtcPin ?? "")}\` and pins the reviewed non-native runtime companions \`domexception\` to exact version \`${escapeRegExp(domexceptionPin ?? "")}\` and \`webidl-conversions\` to exact version \`${escapeRegExp(webidlConversionsPin ?? "")}\``));
   assert.match(nativeWebrtcReview, new RegExp(`Installed package identity: \`node_modules/@roamhq/wrtc/package\\.json\` reports name \`${escapeRegExp(wrtcPackageJson.name ?? "")}\` and version \`${escapeRegExp(wrtcPackageJson.version ?? "")}\``));
   assert.match(nativeWebrtcReview, new RegExp(`License: \`${escapeRegExp(wrtcPackageJson.license ?? "")}\``));
   assert.match(nativeWebrtcReview, /Upstream repository: `git\+ssh:\/\/git@github\.com\/WonderInventions\/node-webrtc\.git`/);
@@ -1663,7 +1666,7 @@ test("native WebRTC dependency identity and install surface stay reviewed", () =
   assert.match(nativeWebrtcReview, /This repo does not contain a formal independent audit certificate for the package or its prebuilts/);
   assert.match(nativeWebrtcReview, /does not include Windows ARM64, Linux ARMv7, or other unsupported platforms/);
   assert.match(nativeWebrtcReview, /does not hide endpoint compromise, MDM inspection of local files before encryption or after decryption, or network-level metadata/);
-  assert.match(nativeWebrtcReview, /Dependabot must keep `@roamhq\/wrtc`, `@roamhq\/wrtc-\*`, and `domexception` in the `native-webrtc-dependency` production group and excluded from the bulk production dependency group/);
+  assert.match(nativeWebrtcReview, /Dependabot must keep `@roamhq\/wrtc`, `@roamhq\/wrtc-\*`, `domexception`, and `webidl-conversions` in the `native-webrtc-dependency` production group and excluded from the bulk production dependency group/);
   assert.match(nativeWebrtcReview, /Native WebRTC dependency updates must update this artifact in the same change as the package pin and lockfile, with the changed package metadata, lifecycle hooks, optional prebuilt set, exact resolved-file SHA-256 evidence/);
   assert.match(nativeWebrtcReview, /Release must stop if any of these are true:/);
   assert.match(nativeWebrtcReview, /current-platform prebuilt metadata, domexception metadata, webidl-conversions metadata, or reviewed resolved-file SHA-256 evidence no longer agree/);
