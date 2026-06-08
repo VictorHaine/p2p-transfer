@@ -1535,6 +1535,14 @@ test("dependency update automation covers npm, GitHub Actions, and Docker", () =
   assert.match(dependabotConfig, /package-ecosystem: npm[\s\S]*directory: \//);
   assert.match(dependabotConfig, /package-ecosystem: github-actions[\s\S]*directory: \//);
   assert.match(dependabotConfig, /package-ecosystem: docker[\s\S]*directory: \//);
+  assert.match(securityPolicy, /Dependabot version and security update PRs for npm, GitHub Actions, and Docker ecosystems must explicitly request `VictorHaine` review/);
+  assert.match(readme, /keep Dependabot reviewer routing enabled for npm, GitHub Actions, and Docker updates/);
+  for (const ecosystem of ["npm", "github-actions", "docker"]) {
+    assert.match(
+      dependabotConfig,
+      new RegExp(`package-ecosystem: ${ecosystem}[\\s\\S]*reviewers:\\n\\s+- VictorHaine[\\s\\S]*open-pull-requests-limit:`)
+    );
+  }
   assert.match(
     dependabotConfig,
     /build-toolchain-dependencies:\n\s+patterns:\n\s+- "vite"\n\s+- "esbuild"\n\s+- "@esbuild\/\*"\n\s+- "rolldown"\n\s+- "@rolldown\/\*"\n\s+- "lightningcss"\n\s+- "lightningcss-\*"/
