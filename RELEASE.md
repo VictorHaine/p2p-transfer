@@ -66,8 +66,9 @@ This project releases only from protected `main` with a matching `v*.*.*` tag. D
 
 As of this runbook, local `pnpm verify:release` passes. The remaining known first-release blockers are external:
 
-- the installed GitHub token needs `workflow` scope
-- remote `main` must be pushed
+- the installed GitHub token needs `workflow` scope before workflow files can be pushed
+- remote `main` must be pushed after refreshing that token scope
+- GitHub release controls must be configured so the `p2p-transfer: protect main` ruleset enforces required status checks
 - the npm package name must be bootstrapped with `pnpm bootstrap:npm --token-stdin --apply`
 - npm trusted publishing must be configured for `.github/workflows/release.yml` and environment `npm`
 - GHCR package visibility must be made public after first package creation before the anonymous Docker pull release gate can pass
