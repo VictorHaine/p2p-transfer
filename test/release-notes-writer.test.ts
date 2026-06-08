@@ -116,7 +116,7 @@ test("release notes writer refuses to overwrite an existing notes file", async (
     const result = spawnSync(process.execPath, [script], { encoding: "utf8" });
     assert.equal(result.status, 1);
     assert.equal(result.stdout, "");
-    assert.match(result.stderr, /Release notes generation failed:\nrelease notes generation failed\./);
+    assert.match(result.stderr, /Release notes generation failed:\nrelease notes could not be created\./);
     assert.equal(await fs.readFile(path.join(artifactDir, "RELEASE_NOTES.md"), "utf8"), "stale notes\n");
   } finally {
     await fs.rm(root, { force: true, recursive: true });

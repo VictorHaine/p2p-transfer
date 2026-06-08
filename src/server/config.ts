@@ -20,6 +20,7 @@ export type ServerConfig = {
   port: number;
   host: string;
   production: boolean;
+  hardenedDeployment: boolean;
   iceServers: RTCIceServer[];
   webRoot: string;
   allowedOrigins: string[] | undefined;
@@ -41,39 +42,41 @@ export type TurnRestConfig = {
 
 export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   const production = parseProductionEnv(envValue(env, "NODE_ENV"));
-  const iceServers = parseIceServers(envValue(env, "ICE_SERVERS"));
-  assertNoProductionStaticTurnCredentials(iceServers, production);
   const host = parseHost(envValue(env, "HOST"));
   const allowedOrigins = parseAllowedOrigins(envValue(env, "ALLOWED_ORIGINS"));
   const signalingTopology = parseSignalingTopology(envValue(env, "SIGNALING_TOPOLOGY"));
   const trustedProxyHops = parseTrustedProxyHops(envValue(env, "TRUSTED_PROXY_HOPS"));
   const trustedProxyIps = parseTrustedProxyIps(envValue(env, "TRUSTED_PROXY_IPS"));
   assertTrustedProxyPolicy(trustedProxyHops, trustedProxyIps);
+  const hardenedDeployment = hardenedDeploymentRequired(production, host, allowedOrigins, trustedProxyHops);
+  const iceServers = parseIceServers(envValue(env, "ICE_SERVERS"));
+  assertNoHardenedStaticTurnCredentials(iceServers, hardenedDeployment);
   assertNoUnsupportedOriginBypass(env);
   const allowInsecureOrigins = parseBooleanEnv(envValue(env, "ALLOW_INSECURE_ORIGINS"), "ALLOW_INSECURE_ORIGINS");
-  assertRequiredOriginPolicy(allowedOrigins, production, host);
-  assertRequiredSignalingTopology(signalingTopology, production, host);
-  assertProductionSecureOrigins(allowedOrigins, production, allowInsecureOrigins);
+  assertRequiredOriginPolicy(allowedOrigins, hardenedDeployment);
+  assertRequiredSignalingTopology(signalingTopology, hardenedDeployment);
+  assertHardenedSecureOrigins(allowedOrigins, hardenedDeployment, allowInsecureOrigins);
   return {
     port: parsePort(envValue(env, "PORT")),
     host,
     production,
+    hardenedDeployment,
     iceServers,
     webRoot: parseWebRoot(envValue(env, "WEB_ROOT")),
     allowedOrigins,
     signalingTopology,
     browserAllowAnyWss: parseBooleanEnv(envValue(env, "BROWSER_ALLOW_ANY_WSS"), "BROWSER_ALLOW_ANY_WSS"),
-    browserAllowLoopbackWs: parseBrowserLoopbackWs(env, production),
+    browserAllowLoopbackWs: parseBrowserLoopbackWs(env, hardenedDeployment),
     trustedProxyHops,
     trustedProxyIps,
-    turnRest: parseTurnRestConfig(env, production, host)
+    turnRest: parseTurnRestConfig(env, hardenedDeployment)
   };
 }
 
-function assertNoProductionStaticTurnCredentials(iceServers: RTCIceServer[], production: boolean): void {
-  if (!production) return;
+function assertNoHardenedStaticTurnCredentials(iceServers: RTCIceServer[], hardenedDeployment: boolean): void {
+  if (!hardenedDeployment) return;
   if (iceServers.some(hasStaticTurnCredential)) {
-    throw new Error("Static TURN credentials in ICE_SERVERS are disabled in production. Use TURN_REST_SECRET and TURN_URLS for ephemeral credentials.");
+    throw new Error("Static TURN credentials in ICE_SERVERS are disabled for public deployments. Use TURN_REST_SECRET and TURN_URLS for ephemeral credentials.");
   }
 }
 
@@ -82,16 +85,29 @@ function hasStaticTurnCredential(server: RTCIceServer): boolean {
   return urls.some((url) => /^(?:turn|turns):/i.test(url) && (server.username !== undefined || server.credential !== undefined || hasUrlCredentials(url)));
 }
 
-function assertRequiredOriginPolicy(allowedOrigins: string[] | undefined, production: boolean, host: string): void {
-  if (allowedOrigins) return;
-  if (production) throw new Error("ALLOWED_ORIGINS is required in production.");
-  if (!isLoopbackBindHost(host)) throw new Error("ALLOWED_ORIGINS is required when HOST is not loopback.");
+function hardenedDeploymentRequired(production: boolean, host: string, allowedOrigins: readonly string[] | undefined, trustedProxyHops: number): boolean {
+  return production || !isLoopbackBindHost(host) || trustedProxyHops > 0 || hasPublicAllowedOrigin(allowedOrigins);
 }
 
-function assertRequiredSignalingTopology(topology: SignalingTopology | undefined, production: boolean, host: string): void {
+function hasPublicAllowedOrigin(allowedOrigins: readonly string[] | undefined): boolean {
+  if (allowedOrigins === undefined) return false;
+  for (let index = 0; index < allowedOrigins.length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(allowedOrigins, String(index));
+    if (!descriptor || !("value" in descriptor) || typeof descriptor.value !== "string") return true;
+    if (!originUsesLoopbackAuthority(descriptor.value)) return true;
+  }
+  return false;
+}
+
+function assertRequiredOriginPolicy(allowedOrigins: string[] | undefined, hardenedDeployment: boolean): void {
+  if (allowedOrigins) return;
+  if (hardenedDeployment) throw new Error("ALLOWED_ORIGINS is required for public deployments.");
+}
+
+function assertRequiredSignalingTopology(topology: SignalingTopology | undefined, hardenedDeployment: boolean): void {
   if (topology) return;
-  if (production || !isLoopbackBindHost(host)) {
-    throw new Error("SIGNALING_TOPOLOGY must be single-instance or sticky-sessions for production or non-loopback deployments.");
+  if (hardenedDeployment) {
+    throw new Error("SIGNALING_TOPOLOGY must be single-instance or sticky-sessions for public deployments.");
   }
 }
 
@@ -101,10 +117,10 @@ function assertNoUnsupportedOriginBypass(env: NodeJS.ProcessEnv): void {
   throw new Error("ALLOW_ANY_ORIGIN is not supported. Set an explicit ALLOWED_ORIGINS allowlist.");
 }
 
-function assertProductionSecureOrigins(allowedOrigins: string[] | undefined, production: boolean, allowInsecureOrigins: boolean): void {
-  if (!production || allowInsecureOrigins) return;
+function assertHardenedSecureOrigins(allowedOrigins: string[] | undefined, hardenedDeployment: boolean, allowInsecureOrigins: boolean): void {
+  if (!hardenedDeployment || allowInsecureOrigins) return;
   if (allowedOrigins?.some((origin) => origin.startsWith("http://"))) {
-    throw new Error("Production ALLOWED_ORIGINS entries must use https. Set ALLOW_INSECURE_ORIGINS=true only for private deployments.");
+    throw new Error("Public ALLOWED_ORIGINS entries must use https. Set ALLOW_INSECURE_ORIGINS=true only for private deployments.");
   }
 }
 
@@ -404,7 +420,7 @@ function parseAllowedOriginList(raw: string): string[] {
   return origins;
 }
 
-function parseTurnRestConfig(env: NodeJS.ProcessEnv, production: boolean, host: string): TurnRestConfig | undefined {
+function parseTurnRestConfig(env: NodeJS.ProcessEnv, hardenedDeployment: boolean): TurnRestConfig | undefined {
   const secret = optionalEnvString(envValue(env, "TURN_REST_SECRET"), "TURN_REST_SECRET");
   const rawUrls = optionalEnvString(envValue(env, "TURN_URLS"), "TURN_URLS");
   if (secret !== undefined) assertEnvStringByteLength(secret, "TURN_REST_SECRET", MAX_TURN_REST_SECRET_BYTES);
@@ -412,7 +428,7 @@ function parseTurnRestConfig(env: NodeJS.ProcessEnv, production: boolean, host: 
   const trimmedUrls = rawUrls?.trim();
   if (!secret && !trimmedUrls) return undefined;
   if (!secret || !trimmedUrls) throw new Error("TURN_REST_SECRET and TURN_URLS must be set together.");
-  assertTurnRestPublicIssuanceAcknowledged(env, production, host);
+  assertTurnRestPublicIssuanceAcknowledged(env, hardenedDeployment);
   const secretBytes = Buffer.byteLength(secret, "utf8");
   if (secretBytes < TURN_REST_SECRET_MIN_BYTES) {
     throw new Error(`TURN_REST_SECRET must be at least ${TURN_REST_SECRET_MIN_BYTES} bytes.`);
@@ -426,11 +442,11 @@ function parseTurnRestConfig(env: NodeJS.ProcessEnv, production: boolean, host: 
   return { urls, secret, ttlSeconds };
 }
 
-function assertTurnRestPublicIssuanceAcknowledged(env: NodeJS.ProcessEnv, production: boolean, host: string): void {
+function assertTurnRestPublicIssuanceAcknowledged(env: NodeJS.ProcessEnv, hardenedDeployment: boolean): void {
   const acknowledgement = parseBooleanEnv(envValue(env, "TURN_REST_ALLOW_UNVERIFIED_ACCEPT"), "TURN_REST_ALLOW_UNVERIFIED_ACCEPT");
   if (acknowledgement) return;
-  if (!production && isLoopbackBindHost(host)) return;
-  throw new Error("TURN_REST_ALLOW_UNVERIFIED_ACCEPT=true is required before enabling TURN REST credentials in production or non-loopback deployments.");
+  if (!hardenedDeployment) return;
+  throw new Error("TURN_REST_ALLOW_UNVERIFIED_ACCEPT=true is required before enabling TURN REST credentials in public deployments.");
 }
 
 export function parseTurnUrls(raw: string): string | string[] {
@@ -522,13 +538,13 @@ function requiredEnvString(raw: unknown, name: string): string {
   return raw;
 }
 
-function parseBrowserLoopbackWs(env: NodeJS.ProcessEnv, production: boolean): boolean {
+function parseBrowserLoopbackWs(env: NodeJS.ProcessEnv, hardenedDeployment: boolean): boolean {
   const raw = optionalEnvString(envValue(env, "BROWSER_ALLOW_LOOPBACK_WS"), "BROWSER_ALLOW_LOOPBACK_WS");
   if (raw !== undefined) assertEnvStringByteLength(raw, "BROWSER_ALLOW_LOOPBACK_WS", MAX_SCALAR_ENV_BYTES);
   if (raw !== undefined && raw.trim() !== "") {
     return parseBooleanEnv(raw, "BROWSER_ALLOW_LOOPBACK_WS");
   }
-  return !production;
+  return !hardenedDeployment;
 }
 
 function envValue(env: NodeJS.ProcessEnv, name: string): unknown {

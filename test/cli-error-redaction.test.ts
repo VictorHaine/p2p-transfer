@@ -10,6 +10,8 @@ test("CLI local path evidence redacts quoted and unquoted absolute paths", () =>
     "outside /opt/releases/secret.tgz failed",
     "windows C:\\Users\\Alice\\secret.txt failed",
     "file url file:///Users/alice/private.txt failed",
+    "localhost file url file://localhost/Users/alice/private.txt failed",
+    "authority file url file://server/share/private.txt failed",
     "unc \\\\server\\share\\private.txt failed",
     "extended \\\\?\\C:\\Users\\Alice\\private.txt failed",
     "cwd /workspace/project/nested/file.txt failed"
@@ -22,6 +24,8 @@ test("CLI local path evidence redacts quoted and unquoted absolute paths", () =>
   assert.equal(redacted.includes("/opt/releases"), false);
   assert.equal(redacted.includes("C:\\Users"), false);
   assert.equal(redacted.includes("file:///Users"), false);
+  assert.equal(redacted.includes("file://localhost/Users"), false);
+  assert.equal(redacted.includes("file://server/share"), false);
   assert.equal(redacted.includes("\\\\server\\share"), false);
   assert.equal(redacted.includes("\\\\?\\C:"), false);
   assert.equal(redacted.includes("/workspace/project"), false);
@@ -30,6 +34,8 @@ test("CLI local path evidence redacts quoted and unquoted absolute paths", () =>
   assert.match(redacted, /outside \[path\] failed/);
   assert.match(redacted, /windows \[path\] failed/);
   assert.match(redacted, /file url \[path\] failed/);
+  assert.match(redacted, /localhost file url \[path\] failed/);
+  assert.match(redacted, /authority file url \[path\] failed/);
   assert.match(redacted, /unc \[path\] failed/);
   assert.match(redacted, /extended \[path\] failed/);
   assert.match(redacted, /cwd \[path\] failed/);

@@ -35,6 +35,7 @@ import {
   type ServerMessage
 } from "../shared/messages.js";
 import { isValidRendezvous, normalizeCode } from "../shared/wordlist.js";
+import { isLoopbackAuthority } from "../shared/authority.js";
 import { canCreateSession, canRegisterWaitingCode, staticFileWithinLimit } from "./capacity.js";
 import { websocketCloseReason } from "./close-reason.js";
 import { corsHeaders, hasTurnRestConfig, iceServersForRequest, iceServersForUnauthenticatedRequest, loadServerConfig, originAllowedForRequest, type ServerConfig } from "./config.js";
@@ -54,7 +55,7 @@ import {
 } from "./policy.js";
 import { canRestorePrePairCode, consumePrePairAttempt, initialPrePairAttempts } from "./prepair-attempts.js";
 import { hitFixedWindowRateLimit, hitIceConfigRateLimit, hitTurnCredentialIssueRateLimit, pruneFixedWindowRateLimits, recordFixedWindowHit } from "./rate-limit.js";
-import { requestBaseUrl, requestHostAuthority, requestMethod, requestOriginHeader, requestRemoteAddress, requestUrl } from "./request-headers.js";
+import { requestBaseUrl, requestHasForwardedHeaderEvidence, requestHostAuthority, requestMethod, requestOriginHeader, requestRemoteAddress, requestUrl } from "./request-headers.js";
 import { securityHeaders } from "./security-headers.js";
 import { initialSessionExpiresAt, nextSessionExpiresAt, remainingExpirySeconds } from "./session-expiry.js";
 import { canServeIndexFallback, isMissingStaticPathError, isPathInsideRoot, staticUrlPathToRelative } from "./static-path.js";
@@ -109,9 +110,9 @@ type Session = {
 };
 
 const serverConfig = loadCheckedServerConfig();
-const { port, host, production, webRoot, allowedOrigins, browserAllowAnyWss, browserAllowLoopbackWs, trustedProxyHops, trustedProxyIps } = serverConfig;
+const { port, host, hardenedDeployment, webRoot, allowedOrigins, browserAllowAnyWss, browserAllowLoopbackWs, trustedProxyHops, trustedProxyIps } = serverConfig;
 const realWebRoot = await checkedRealWebRoot(webRoot);
-const webAssetManifest = await loadCheckedWebAssetManifest(webRoot, production);
+const webAssetManifest = await loadCheckedWebAssetManifest(webRoot, hardenedDeployment);
 const codes = new Map<string, WaitingCode>();
 const sessions = new Map<string, Session>();
 const rateLimits = new Map<string, number[]>();
@@ -136,7 +137,7 @@ const server = http.createServer((req, res) => {
   if (requestMethod(req) !== "GET") return methodNotAllowed(res, cors);
   if (url.pathname === "/healthz") return json(res, 200, { ok: true }, cors);
   if (url.pathname === "/v1/version") {
-    return json(res, 200, versionResponse(), cors);
+    return json(res, 200, versionResponse(req), cors);
   }
   if (url.pathname === "/v1/ice") {
     if (!hitIceConfigHttpRateLimit(req)) return json(res, 429, { error: "rate_limited" }, cors);
@@ -268,9 +269,9 @@ async function checkedRealWebRoot(root: string): Promise<string> {
   }
 }
 
-async function loadCheckedWebAssetManifest(root: string, productionMode: boolean): Promise<Awaited<ReturnType<typeof loadWebAssetManifest>>> {
+async function loadCheckedWebAssetManifest(root: string, requireManifest: boolean): Promise<Awaited<ReturnType<typeof loadWebAssetManifest>>> {
   try {
-    return await loadWebAssetManifest(root, productionMode);
+    return await loadWebAssetManifest(root, requireManifest);
   } catch (error) {
     startupFailure("web root", error);
   }
@@ -873,9 +874,15 @@ function hitWebSocketConnectionRateLimit(req: http.IncomingMessage): boolean {
   return hitFixedWindowRateLimit(websocketConnectionRateLimits, requestIp(req), Date.now(), 60_000, SIGNALING_MAX_CONNECTION_ATTEMPTS_PER_MINUTE);
 }
 
-function versionResponse(): { protocolVersion: number; name?: string; version?: string } {
-  if (production) return { protocolVersion: PROTOCOL_VERSION };
+function versionResponse(req: http.IncomingMessage): { protocolVersion: number; name?: string; version?: string } {
+  if (hardenedDeployment || requestLooksPublic(req)) return { protocolVersion: PROTOCOL_VERSION };
   return { protocolVersion: PROTOCOL_VERSION, name: PACKAGE_NAME, version: PACKAGE_VERSION };
+}
+
+function requestLooksPublic(req: http.IncomingMessage): boolean {
+  if (requestHasForwardedHeaderEvidence(req)) return true;
+  const authority = requestHostAuthority(req);
+  return authority === null || !isLoopbackAuthority(authority);
 }
 
 function hitMessageLimit(peer: Peer): boolean {
@@ -1043,19 +1050,18 @@ function sameFile(
 
 async function readExactFile(handle: FileHandle, expectedBytes: number, maxBytes: number): Promise<Buffer> {
   if (!staticFileWithinLimit(expectedBytes, maxBytes)) throw new Error("static asset exceeds maximum size");
-  const chunks: Buffer[] = [];
-  const scratch = Buffer.alloc(64 * 1024);
+  const body = Buffer.alloc(expectedBytes);
   let total = 0;
   let position = 0;
   while (position < expectedBytes) {
     const bytesRemaining = expectedBytes - position;
-    const { bytesRead } = await handle.read(scratch, 0, Math.min(scratch.length, bytesRemaining), position);
+    const { bytesRead } = await handle.read(body, position, bytesRemaining, position);
     if (bytesRead === 0) throw new Error("static asset changed while being read");
     total += bytesRead;
-    chunks.push(Buffer.from(scratch.subarray(0, bytesRead)));
     position += bytesRead;
   }
-  return Buffer.concat(chunks, expectedBytes);
+  if (total !== expectedBytes) throw new Error("static asset changed while being read");
+  return body;
 }
 
 function contentType(filePath: string): string {

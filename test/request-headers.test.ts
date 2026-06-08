@@ -1,9 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type http from "node:http";
-import { requestBaseUrl, requestHostAuthority, requestMethod, requestOriginHeader, requestRemoteAddress, requestUrl } from "../src/server/request-headers.js";
+import { requestBaseUrl, requestHasForwardedHeaderEvidence, requestHostAuthority, requestMethod, requestOriginHeader, requestRemoteAddress, requestUrl } from "../src/server/request-headers.js";
 import {
   requestBaseUrl as distRequestBaseUrl,
+  requestHasForwardedHeaderEvidence as distRequestHasForwardedHeaderEvidence,
   requestHostAuthority as distRequestHostAuthority,
   requestMethod as distRequestMethod,
   requestOriginHeader as distRequestOriginHeader,
@@ -214,6 +215,18 @@ test("trusted proxy client IP parsing is explicit, bounded, and fail-closed", ()
   assert.equal(requestRemoteAddress(proxied, 1, hostileTrustedProxyIps), "10.0.0.10");
   assert.equal(requestRemoteAddress(proxied, 1, new Array(33).fill("10.0.0.10")), "10.0.0.10");
   assert.equal(getterCalled, false);
+});
+
+test("forwarded header evidence is detected without trusting it for client identity", () => {
+  assert.equal(requestHasForwardedHeaderEvidence(req({ host: "127.0.0.1" })), false);
+  assert.equal(requestHasForwardedHeaderEvidence(req({ host: "127.0.0.1", "x-forwarded-host": "files.example" })), true);
+  assert.equal(requestHasForwardedHeaderEvidence(req({ host: "127.0.0.1", "x-forwarded-proto": "https" })), true);
+  assert.equal(requestHasForwardedHeaderEvidence(req({ host: "127.0.0.1", forwarded: "for=198.51.100.9;proto=https;host=files.example" })), true);
+  assert.equal(distRequestHasForwardedHeaderEvidence(req({ host: "127.0.0.1", "x-forwarded-host": "files.example" })), true);
+
+  const duplicated = req({ host: "127.0.0.1" }, "/", ["Host", "127.0.0.1", "X-Forwarded-Host", "files.example", "X-Forwarded-Host", "other.example"]);
+  assert.equal(requestHasForwardedHeaderEvidence(duplicated), true);
+  assert.equal(requestRemoteAddress(req({ host: "files.example", "x-forwarded-for": "198.51.100.9" }, "/", undefined, "GET", "10.0.0.10")), "10.0.0.10");
 });
 
 test("request parsing rejects malformed rawHeaders and url fields before invoking methods", () => {

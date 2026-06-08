@@ -4,9 +4,14 @@ COPY package.json ./
 COPY scripts/prepare-checked-pnpm.mjs ./scripts/prepare-checked-pnpm.mjs
 RUN node scripts/prepare-checked-pnpm.mjs
 COPY pnpm-lock.yaml pnpm-workspace.yaml ./
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile --ignore-scripts
 COPY . .
 RUN pnpm check:install-state
+RUN pnpm security:build-toolchain
+RUN pnpm security:dependencies
+RUN pnpm rebuild @roamhq/wrtc esbuild
+RUN pnpm security:build-toolchain
+RUN pnpm security:dependencies
 RUN pnpm build
 RUN pnpm prune --prod
 RUN rm -rf \

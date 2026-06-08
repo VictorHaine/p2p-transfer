@@ -41,11 +41,19 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PREFLIGHT_TOKEN }}
         run: node scripts/check-release-readiness.mjs --allow-existing-npm-version
       - name: Install
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Check installed dependency tree
         run: pnpm check:install-state
+      - name: Reviewed build-toolchain attestation
+        run: pnpm security:build-toolchain
       - name: Reviewed dependency attestations
         run: pnpm security:dependencies
+      - name: Rebuild reviewed native dependencies
+        run: pnpm rebuild @roamhq/wrtc esbuild
+      - name: Verify rebuilt dependency attestations
+        run: |
+          pnpm security:build-toolchain
+          pnpm security:dependencies
       - name: Install Chromium
         run: pnpm exec playwright install --with-deps chromium
       - name: Build
@@ -147,6 +155,30 @@ jobs:
           subject-digest: ${{ steps.docker_image.outputs.digest }}
           push-to-registry: true
 
+  docker-public-read:
+    name: verify public docker image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    needs:
+      - docker-stage
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.22.3
+      - name: Enable pnpm
+        run: |
+          node scripts/prepare-checked-pnpm.mjs
+      - name: Verify staged image is publicly pullable
+        env:
+          DOCKER_STAGED_DIGEST: ${{ needs.docker-stage.outputs.digest }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/publish-docker-image.mjs --assert-public
+
   docker-promote:
     name: promote docker image
     runs-on: ubuntu-24.04
@@ -223,11 +255,19 @@ jobs:
         run: |
           node scripts/prepare-checked-pnpm.mjs
       - name: Install
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Check installed dependency tree
         run: pnpm check:install-state
+      - name: Reviewed build-toolchain attestation
+        run: pnpm security:build-toolchain
       - name: Reviewed dependency attestations
         run: pnpm security:dependencies
+      - name: Rebuild reviewed native dependencies
+        run: pnpm rebuild @roamhq/wrtc esbuild
+      - name: Verify rebuilt dependency attestations
+        run: |
+          pnpm security:build-toolchain
+          pnpm security:dependencies
       - name: Build
         run: pnpm build
       - name: Typecheck
@@ -248,6 +288,7 @@ jobs:
       - platform-smoke
       - docker-validate
       - docker-stage
+      - docker-public-read
     environment: npm
     permissions:
       contents: read

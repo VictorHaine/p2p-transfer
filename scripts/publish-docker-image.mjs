@@ -4,7 +4,7 @@ import { lstat, open, rm } from "node:fs/promises";
 import { constants, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { createIsolatedDockerConfig } from "./docker-config.mjs";
+import { assertNoUserDockerCliPlugins, createIsolatedDockerConfig } from "./docker-config.mjs";
 import { safeChildEnv } from "./smoke-packed.mjs";
 import { assertLiveReleaseRefFromEnv } from "./verify-live-release-ref.mjs";
 
@@ -38,7 +38,7 @@ async function main() {
   const repository = githubRepository(requiredEnvString("GITHUB_REPOSITORY"));
   const runId = requiredGitHubActionsContext();
   const revision = requiredCommitSha(requiredEnvString("GITHUB_SHA"));
-  const actor = githubActor(requiredEnvString("GITHUB_ACTOR"));
+  const actor = mode === "assert-public" ? undefined : githubActor(requiredEnvString("GITHUB_ACTOR"));
   const token = requiredEnvString("GITHUB_TOKEN", MAX_TOKEN_BYTES);
   const packageJson = await readPackageJson();
   const version = packageVersion(packageJson.version);
@@ -49,10 +49,18 @@ async function main() {
   const versionRef = `${image}:${tag}`;
   const plainVersionRef = `${image}:${version}`;
   const stagedRef = `${image}:attest-${version}-${runId}`;
+  assertNoUserDockerCliPlugins();
   const dockerConfigDir = createIsolatedDockerConfig("p2p-transfer-docker-release-");
-  const dockerEnv = { DOCKER_CONFIG: dockerConfigDir };
+  const dockerEnv = isolatedDockerEnv(dockerConfigDir);
 
   try {
+    if (mode === "assert-public") {
+      const digest = dockerDigest(requiredEnvString("DOCKER_STAGED_DIGEST"));
+      await assertAnonymousDockerPull({ ref: stagedRef, digest, label: "anonymous staged docker pull" });
+      console.log(`Verified public ${image}@${digest}`);
+      return;
+    }
+
     if (mode === "promote") {
       await assertLiveReleaseRefFromEnv();
       const digest = dockerDigest(requiredEnvString("DOCKER_STAGED_DIGEST"));
@@ -61,10 +69,17 @@ async function main() {
         input: `${token}\n`
       });
       await run("docker", ["pull", `${image}@${digest}`], "docker attested image pull", PUSH_TIMEOUT_MS, { env: dockerEnv });
-      await publishDockerReleaseTag({ image, digest, ref: versionRef, label: "docker release image", dockerEnv });
-      await publishDockerReleaseTag({ image, digest, ref: plainVersionRef, label: "docker release image alias", dockerEnv });
-      await assertAnonymousDockerPull({ ref: versionRef, digest });
-      await assertAnonymousDockerPull({ ref: plainVersionRef, digest });
+      const releaseTags = [
+        { ref: versionRef, label: "docker release image" },
+        { ref: plainVersionRef, label: "docker release image alias" }
+      ];
+      const missingTags = await missingDockerReleaseTags({ refs: releaseTags, digest, dockerEnv });
+      for (const releaseTag of missingTags) {
+        await pushDockerReleaseTag({ image, digest, ref: releaseTag.ref, label: releaseTag.label, dockerEnv });
+      }
+      for (const releaseTag of releaseTags) {
+        await assertAnonymousDockerPull({ ref: releaseTag.ref, digest });
+      }
       await writeGithubOutput({ image, digest, tag: versionRef, alias: plainVersionRef });
       console.log(`Promoted ${image}@${digest}`);
       return;
@@ -90,7 +105,8 @@ async function main() {
 function dockerPublishMode(args) {
   if (args.length === 0) return "stage";
   if (args.length === 1 && args[0] === "--promote") return "promote";
-  throw new Error("Usage: node scripts/publish-docker-image.mjs [--promote]");
+  if (args.length === 1 && args[0] === "--assert-public") return "assert-public";
+  throw new Error("Usage: node scripts/publish-docker-image.mjs [--promote|--assert-public]");
 }
 
 function isMain() {
@@ -194,23 +210,31 @@ function pushedDigest(output) {
   return matches[0];
 }
 
-async function publishDockerReleaseTag({ image, digest, ref, label, dockerEnv }) {
-  const existingDigest = await existingDockerTagDigest(ref, dockerEnv);
-  if (existingDigest !== undefined) {
-    if (existingDigest !== digest) throw new Error(`${label} already points to a different digest.`);
-    return;
+async function missingDockerReleaseTags({ refs, digest, dockerEnv }) {
+  const missing = [];
+  for (const candidate of refs) {
+    const existingDigest = await existingDockerTagDigest(candidate.ref, dockerEnv);
+    if (existingDigest === undefined) {
+      missing.push(candidate);
+    } else if (existingDigest !== digest) {
+      throw new Error(`${candidate.label} already points to a different digest.`);
+    }
   }
+  return missing;
+}
+
+async function pushDockerReleaseTag({ image, digest, ref, label, dockerEnv }) {
   await run("docker", ["tag", `${image}@${digest}`, ref], `${label} tag`, COMMAND_TIMEOUT_MS, { env: dockerEnv });
   const pushed = await run("docker", ["push", ref], `${label} push`, PUSH_TIMEOUT_MS, { env: dockerEnv });
   const pushedDigestValue = pushedDigest(`${pushed.stdout}\n${pushed.stderr}`);
   if (pushedDigestValue !== digest) throw new Error(`${label} resolved to a different digest.`);
 }
 
-async function assertAnonymousDockerPull({ ref, digest }) {
+async function assertAnonymousDockerPull({ ref, digest, label = "anonymous docker release pull" }) {
   const anonymousDockerConfigDir = createIsolatedDockerConfig("p2p-transfer-docker-anonymous-");
   try {
-    const pulled = await run("docker", ["pull", ref], "anonymous docker release pull", PUSH_TIMEOUT_MS, {
-      env: { DOCKER_CONFIG: anonymousDockerConfigDir }
+    const pulled = await run("docker", ["pull", ref], label, PUSH_TIMEOUT_MS, {
+      env: isolatedDockerEnv(anonymousDockerConfigDir)
     });
     if (pulledDigest(`${pulled.stdout}\n${pulled.stderr}`) !== digest) {
       throw new Error("anonymous docker release pull resolved to a different digest.");
@@ -218,6 +242,10 @@ async function assertAnonymousDockerPull({ ref, digest }) {
   } finally {
     await rm(anonymousDockerConfigDir, { recursive: true, force: true });
   }
+}
+
+function isolatedDockerEnv(dockerConfigDir) {
+  return { DOCKER_CONFIG: dockerConfigDir, HOME: dockerConfigDir, USERPROFILE: dockerConfigDir };
 }
 
 async function existingDockerTagDigest(ref, dockerEnv) {
@@ -452,9 +480,20 @@ function appendBoundedOutput(current, chunk) {
 }
 
 function publishErrorMessage(error) {
-  if (!(error instanceof Error) || typeof error.message !== "string" || error.message.length < 1 || error.message.length > MAX_OUTPUT_BYTES) {
+  const message = errorMessage(error);
+  if (typeof message !== "string" || message.length < 1 || message.length > MAX_OUTPUT_BYTES) {
     return "docker image publish failed with an internal error.";
   }
-  if (/(^|[\s("'=])(?:file:\/\/|\/|[A-Za-z]:[\\/]|\\\\(?:\?\\)?[^\\/\s]+[\\/])/i.test(error.message)) return "docker image publish failed with path-sensitive evidence.";
-  return error.message;
+  if (containsSensitiveErrorText(message)) return "docker image publish failed with path-sensitive evidence.";
+  return message;
+}
+
+function containsSensitiveErrorText(value) {
+  return /(^|[\s("'=])(?:https?:\/\/|wss?:\/\/|file:\/\/|\/|[A-Za-z]:[\\/]|\\\\(?:\?\\)?[^\\/\s]+[\\/])/i.test(value) || /[?&][A-Za-z0-9_.-]+=/i.test(value) || /\b(?:github_pat_|gh[opsru]_|token-(?!stdin\b)[A-Za-z0-9._-]{12,})/i.test(value);
+}
+
+function errorMessage(error) {
+  if (!(error instanceof Error)) return undefined;
+  const descriptor = Object.getOwnPropertyDescriptor(error, "message");
+  return descriptor && "value" in descriptor ? descriptor.value : undefined;
 }

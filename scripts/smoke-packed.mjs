@@ -161,13 +161,20 @@ function isMain() {
 }
 
 function packedSmokeErrorMessage(error) {
-  if (!(error instanceof Error) || typeof error.message !== "string" || error.message.length < 1 || error.message.length > MAX_CHILD_OUTPUT_CHARS || /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u.test(error.message)) {
+  const message = errorMessage(error);
+  if (typeof message !== "string" || message.length < 1 || message.length > MAX_CHILD_OUTPUT_CHARS || /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u.test(message)) {
     return "Packed smoke failed with an internal error.";
   }
-  if (containsPathLikeText(error.message)) {
+  if (containsPathLikeText(message)) {
     return "Packed smoke failed with path-sensitive evidence.";
   }
-  return error.message;
+  return message;
+}
+
+function errorMessage(error) {
+  if (!(error instanceof Error)) return undefined;
+  const descriptor = Object.getOwnPropertyDescriptor(error, "message");
+  return descriptor && "value" in descriptor ? descriptor.value : undefined;
 }
 
 async function readText(file, maxBytes) {
@@ -180,7 +187,7 @@ async function readText(file, maxBytes) {
     if (!opened.isFile()) throw new Error(`${path.relative(root, file)} is not a regular file.`);
     if (opened.size < 1 || opened.size > maxBytes) throw new Error(`${path.relative(root, file)} size is outside the allowed range.`);
     if (!sameFile(info, opened)) throw new Error(`${path.relative(root, file)} changed before verification.`);
-    return await readHandleText(handle, opened.size, path.relative(root, file));
+    return await readHandleText(handle, opened, path.relative(root, file));
   } finally {
     await handle.close();
   }
@@ -457,7 +464,8 @@ function utf8ByteLengthExceeds(value, limit) {
   return false;
 }
 
-async function readHandleText(handle, size, label) {
+async function readHandleText(handle, opened, label) {
+  const size = opened.size;
   const buffer = Buffer.alloc(size);
   let offset = 0;
   while (offset < size) {
@@ -466,8 +474,8 @@ async function readHandleText(handle, size, label) {
     offset += bytesRead;
   }
   if (offset !== size) throw new Error(`${label} changed while being read.`);
-  const opened = await handle.stat();
-  if (opened.size !== size) throw new Error(`${label} changed while being read.`);
+  const afterRead = await handle.stat();
+  if (!sameFile(opened, afterRead)) throw new Error(`${label} changed while being read.`);
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(buffer);
   } catch {
@@ -564,7 +572,9 @@ function sanitizeLogText(value) {
 }
 
 function redactPathLikeText(value) {
-  return value.replace(/(^|[\s("'=])(?:file:\/\/[^\s"'()]+|\/[^\s"'()]+|[A-Za-z]:[\\/][^\s"'()]+|\\\\(?:\?\\)?[^\\/\s]+[\\/][^\s"'()]*)/gi, "$1[path]");
+  return value
+    .replace(/(^|[\s("'=])(?:https?:\/\/[^\s"'()<>?]+\?[^\s"'()<>]+|wss?:\/\/[^\s"'()<>]+|file:\/\/[^\s"'()<>]+|\/[^\s"'()]+|[A-Za-z]:[\\/][^\s"'()]+|\\\\(?:\?\\)?[^\\/\s]+[\\/][^\s"'()]*)/gi, "$1[path]")
+    .replace(/\b(?:github_pat_|gh[opsru]_|token-(?!stdin\b)[A-Za-z0-9._-]{12,})[A-Za-z0-9._-]*/gi, "[redacted]");
 }
 
 async function packCurrentProject(destination, env, expectedTarballName) {
@@ -614,7 +624,7 @@ export async function stageVerifiedTarball(tarball, destination) {
     if (opened.size < 1 || opened.size > MAX_PACKED_SMOKE_TARBALL_BYTES) throw new Error(`Packed smoke tarball size is outside the allowed range: ${opened.size}`);
     if (!sameFile(info, opened)) throw new Error("Packed smoke tarball changed before verification.");
     target = await open(staged, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
-    await copyVerifiedHandle(source, target, opened.size);
+    await copyVerifiedHandle(source, target, opened);
     const copied = await target.stat();
     if (!copied.isFile() || copied.size !== opened.size) throw new Error("Packed smoke tarball changed while being staged.");
     return staged;
@@ -628,7 +638,8 @@ function hasUnsafePathText(value) {
   return /[\p{Cc}\p{Cf}]/u.test(value);
 }
 
-async function copyVerifiedHandle(source, target, size) {
+async function copyVerifiedHandle(source, target, sourceInfo) {
+  const size = sourceInfo.size;
   const buffer = Buffer.alloc(TARBALL_COPY_CHUNK_BYTES);
   let offset = 0;
   while (offset < size) {
@@ -640,8 +651,8 @@ async function copyVerifiedHandle(source, target, size) {
     if (offset > size) throw new Error("Packed smoke tarball read exceeded the verified size.");
   }
   if (offset !== size) throw new Error("Packed smoke tarball changed while being staged.");
-  const opened = await source.stat();
-  if (opened.size !== size) throw new Error("Packed smoke tarball changed while being staged.");
+  const afterRead = await source.stat();
+  if (!sameFile(sourceInfo, afterRead)) throw new Error("Packed smoke tarball changed while being staged.");
 }
 
 async function writeFull(handle, data, position) {
@@ -824,7 +835,7 @@ async function fetchBoundedResponseText(url, maxBytes) {
 }
 
 function containsPathLikeText(value) {
-  return /(^|[\s("'=])(?:file:\/\/|\/|[A-Za-z]:[\\/]|\\\\(?:\?\\)?[^\\/\s]+[\\/])/i.test(value);
+  return /(^|[\s("'=])(?:https?:\/\/[^\s"'()<>?]+\?|wss?:\/\/|file:\/\/|\/|[A-Za-z]:[\\/]|\\\\(?:\?\\)?[^\\/\s]+[\\/])/i.test(value) || /[?&][A-Za-z0-9_.-]+=/i.test(value) || /\b(?:github_pat_|gh[opsru]_|token-(?!stdin\b)[A-Za-z0-9._-]{12,})/i.test(value);
 }
 
 function waitForExit(child, timeoutMs) {

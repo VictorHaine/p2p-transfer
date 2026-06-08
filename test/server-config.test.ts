@@ -246,9 +246,22 @@ test("server config accepts explicit STUN and TURN ICE servers", () => {
   ]);
 });
 
-test("server config rejects static TURN credentials in production", () => {
+test("server config rejects static TURN credentials in public deployments", () => {
   const iceServers = '[{"urls":"turn:turn.example.test:3478","username":"u","credential":"p"}]';
   assert.throws(() => loadServerConfig({ NODE_ENV: "production", ALLOWED_ORIGINS: "https://files.example", SIGNALING_TOPOLOGY: "single-instance", ICE_SERVERS: iceServers }), /Static TURN credentials/);
+  assert.throws(() => loadServerConfig({ HOST: "0.0.0.0", ALLOWED_ORIGINS: "https://files.example", SIGNALING_TOPOLOGY: "single-instance", ICE_SERVERS: iceServers }), /Static TURN credentials/);
+  assert.throws(() => loadServerConfig({ ALLOWED_ORIGINS: "https://files.example", SIGNALING_TOPOLOGY: "single-instance", ICE_SERVERS: iceServers }), /Static TURN credentials/);
+  assert.throws(
+    () =>
+      loadServerConfig({
+        TRUSTED_PROXY_HOPS: "1",
+        TRUSTED_PROXY_IPS: "10.0.0.10",
+        ALLOWED_ORIGINS: "https://files.example",
+        SIGNALING_TOPOLOGY: "single-instance",
+        ICE_SERVERS: iceServers
+      }),
+    /Static TURN credentials/
+  );
   assert.throws(
     () => loadServerConfig({ NODE_ENV: "production", ALLOWED_ORIGINS: "https://files.example", SIGNALING_TOPOLOGY: "single-instance", ICE_SERVERS: '[{"urls":"turn:user@turn.example.test:3478"}]' }),
     /ICE_SERVERS/
@@ -258,7 +271,7 @@ test("server config rejects static TURN credentials in production", () => {
     /Static TURN credentials/
   );
   assert.throws(() => loadServerConfig({ NODE_ENV: "production", ALLOWED_ORIGINS: "https://files.example", SIGNALING_TOPOLOGY: "single-instance", ICE_SERVERS: '[{"urls":"turn:turn.example.test:3478"}]' }), /ICE_SERVERS/);
-  assert.match(securityPolicy, /production configuration must reject reusable static TURN credentials/);
+  assert.match(securityPolicy, /public deployment configuration must reject reusable static TURN credentials/);
 });
 
 test("server config requires an explicit browser origin policy in production", () => {
@@ -269,6 +282,7 @@ test("server config requires an explicit browser origin policy in production", (
   assert.throws(() => loadServerConfig({ NODE_ENV: "production", ALLOW_ANY_ORIGIN: "true", ALLOWED_ORIGINS: "https://files.example" }), /ALLOW_ANY_ORIGIN/);
   assert.throws(() => loadServerConfig({ NODE_ENV: "production", ALLOWED_ORIGINS: "https://files.example" }), /SIGNALING_TOPOLOGY/);
   assert.deepEqual(loadServerConfig({ NODE_ENV: "production", ALLOWED_ORIGINS: "https://files.example", SIGNALING_TOPOLOGY: "single-instance" }).allowedOrigins, ["https://files.example"]);
+  assert.equal(loadServerConfig({ NODE_ENV: "production", ALLOWED_ORIGINS: "https://files.example", SIGNALING_TOPOLOGY: "single-instance" }).hardenedDeployment, true);
   assert.equal(loadServerConfig({ NODE_ENV: "production", ALLOWED_ORIGINS: "https://files.example", SIGNALING_TOPOLOGY: "sticky-sessions" }).signalingTopology, "sticky-sessions");
   assert.throws(() => loadServerConfig({ NODE_ENV: "production", ALLOWED_ORIGINS: "http://files.example", SIGNALING_TOPOLOGY: "single-instance" }), /must use https/);
   assert.deepEqual(loadServerConfig({ NODE_ENV: "production", ALLOWED_ORIGINS: "http://files.example", SIGNALING_TOPOLOGY: "single-instance", ALLOW_INSECURE_ORIGINS: "true" }).allowedOrigins, [
@@ -281,12 +295,49 @@ test("server config requires an explicit browser origin policy for non-loopback 
   assert.throws(() => loadServerConfig({ HOST: "::" }), /ALLOWED_ORIGINS/);
   assert.throws(() => loadServerConfig({ HOST: "files.example" }), /ALLOWED_ORIGINS/);
   assert.throws(() => loadServerConfig({ HOST: "0.0.0.0", ALLOWED_ORIGINS: "https://files.example" }), /SIGNALING_TOPOLOGY/);
-  assert.equal(loadServerConfig({ HOST: "0.0.0.0", ALLOWED_ORIGINS: "https://files.example", SIGNALING_TOPOLOGY: "single-instance" }).host, "0.0.0.0");
+  assert.throws(() => loadServerConfig({ HOST: "0.0.0.0", ALLOWED_ORIGINS: "http://files.example", SIGNALING_TOPOLOGY: "single-instance" }), /must use https/);
+  assert.deepEqual(loadServerConfig({ HOST: "0.0.0.0", ALLOWED_ORIGINS: "http://files.example", SIGNALING_TOPOLOGY: "single-instance", ALLOW_INSECURE_ORIGINS: "true" }).allowedOrigins, [
+    "http://files.example"
+  ]);
+  const publicConfig = loadServerConfig({ HOST: "0.0.0.0", ALLOWED_ORIGINS: "https://files.example", SIGNALING_TOPOLOGY: "single-instance" });
+  assert.equal(publicConfig.host, "0.0.0.0");
+  assert.equal(publicConfig.hardenedDeployment, true);
+  assert.equal(publicConfig.browserAllowLoopbackWs, false);
   assert.equal(loadServerConfig({ HOST: "::", ALLOWED_ORIGINS: "https://files.example", SIGNALING_TOPOLOGY: "single-instance" }).host, "::");
   assert.equal(loadServerConfig({ HOST: "files.example", ALLOWED_ORIGINS: "https://files.example", SIGNALING_TOPOLOGY: "sticky-sessions" }).host, "files.example");
   assert.equal(loadServerConfig({ HOST: "localhost" }).host, "localhost");
   assert.equal(loadServerConfig({ HOST: "127.0.0.1" }).host, "127.0.0.1");
   assert.equal(loadServerConfig({ HOST: "::1" }).host, "::1");
+});
+
+test("server config hardens loopback bind when configured for a public origin or trusted proxy", () => {
+  assert.throws(() => loadServerConfig({ ALLOWED_ORIGINS: "https://files.example" }), /SIGNALING_TOPOLOGY/);
+  assert.throws(() => loadServerConfig({ ALLOWED_ORIGINS: "http://files.example", SIGNALING_TOPOLOGY: "single-instance" }), /must use https/);
+  assert.throws(() => loadServerConfig({ TRUSTED_PROXY_HOPS: "1", TRUSTED_PROXY_IPS: "10.0.0.10" }), /ALLOWED_ORIGINS/);
+  assert.throws(
+    () => loadServerConfig({ TRUSTED_PROXY_HOPS: "1", TRUSTED_PROXY_IPS: "10.0.0.10", ALLOWED_ORIGINS: "https://files.example" }),
+    /SIGNALING_TOPOLOGY/
+  );
+
+  const publicOrigin = loadServerConfig({ ALLOWED_ORIGINS: "https://files.example", SIGNALING_TOPOLOGY: "single-instance" });
+  assert.equal(publicOrigin.host, "127.0.0.1");
+  assert.equal(publicOrigin.hardenedDeployment, true);
+  assert.equal(publicOrigin.browserAllowLoopbackWs, false);
+
+  const proxy = loadServerConfig({
+    TRUSTED_PROXY_HOPS: "1",
+    TRUSTED_PROXY_IPS: "10.0.0.10",
+    ALLOWED_ORIGINS: "https://files.example",
+    SIGNALING_TOPOLOGY: "sticky-sessions"
+  });
+  assert.equal(proxy.hardenedDeployment, true);
+  assert.equal(proxy.browserAllowLoopbackWs, false);
+  assert.equal(proxy.signalingTopology, "sticky-sessions");
+
+  const loopbackOrigin = loadServerConfig({ ALLOWED_ORIGINS: "http://127.0.0.1:8787" });
+  assert.equal(loopbackOrigin.hardenedDeployment, false);
+  assert.equal(loopbackOrigin.signalingTopology, undefined);
+  assert.equal(loopbackOrigin.browserAllowLoopbackWs, true);
 });
 
 test("server config defaults are explicit and usable for local development", () => {
@@ -302,13 +353,15 @@ test("server config defaults are explicit and usable for local development", () 
   assert.throws(() => loadServerConfig({ WEB_ROOT: "dist-web\u200b" }), /WEB_ROOT.*format characters/);
   assert.equal(config.allowedOrigins, undefined);
   assert.equal(config.signalingTopology, undefined);
+  assert.equal(config.hardenedDeployment, false);
   assert.equal(config.browserAllowAnyWss, false);
   assert.equal(config.browserAllowLoopbackWs, true);
   assert.equal(config.trustedProxyHops, 0);
   assert.deepEqual(config.trustedProxyIps, []);
-  assert.equal(loadServerConfig({ TRUSTED_PROXY_HOPS: "1", TRUSTED_PROXY_IPS: "10.0.0.10" }).trustedProxyHops, 1);
-  assert.equal(loadServerConfig({ TRUSTED_PROXY_HOPS: "3", TRUSTED_PROXY_IPS: "10.0.0.10" }).trustedProxyHops, 3);
-  assert.deepEqual(loadServerConfig({ TRUSTED_PROXY_HOPS: "1", TRUSTED_PROXY_IPS: "::ffff:10.0.0.10,10.0.0.0/24,::1,2001:db8::/32" }).trustedProxyIps, [
+  const proxyPolicy = { ALLOWED_ORIGINS: "https://files.example", SIGNALING_TOPOLOGY: "single-instance" };
+  assert.equal(loadServerConfig({ ...proxyPolicy, TRUSTED_PROXY_HOPS: "1", TRUSTED_PROXY_IPS: "10.0.0.10" }).trustedProxyHops, 1);
+  assert.equal(loadServerConfig({ ...proxyPolicy, TRUSTED_PROXY_HOPS: "3", TRUSTED_PROXY_IPS: "10.0.0.10" }).trustedProxyHops, 3);
+  assert.deepEqual(loadServerConfig({ ...proxyPolicy, TRUSTED_PROXY_HOPS: "1", TRUSTED_PROXY_IPS: "::ffff:10.0.0.10,10.0.0.0/24,::1,2001:db8::/32" }).trustedProxyIps, [
     "10.0.0.10",
     "10.0.0.0/24",
     "::1",
@@ -491,10 +544,14 @@ test("server config requires explicit opt-in before browser CSP allows arbitrary
 test("server config disables browser loopback WebSockets in production unless explicitly enabled", () => {
   assert.equal(loadServerConfig({}).browserAllowLoopbackWs, true);
   assert.equal(loadServerConfig({ NODE_ENV: "production", ALLOWED_ORIGINS: "https://files.example", SIGNALING_TOPOLOGY: "single-instance" }).browserAllowLoopbackWs, false);
+  assert.equal(loadServerConfig({ HOST: "0.0.0.0", ALLOWED_ORIGINS: "https://files.example", SIGNALING_TOPOLOGY: "single-instance" }).browserAllowLoopbackWs, false);
+  assert.equal(loadServerConfig({ ALLOWED_ORIGINS: "https://files.example", SIGNALING_TOPOLOGY: "single-instance" }).browserAllowLoopbackWs, false);
+  assert.equal(loadServerConfig({ TRUSTED_PROXY_HOPS: "1", TRUSTED_PROXY_IPS: "10.0.0.10", ALLOWED_ORIGINS: "https://files.example", SIGNALING_TOPOLOGY: "single-instance" }).browserAllowLoopbackWs, false);
   assert.equal(
     loadServerConfig({ NODE_ENV: "production", ALLOWED_ORIGINS: "https://files.example", SIGNALING_TOPOLOGY: "single-instance", BROWSER_ALLOW_LOOPBACK_WS: "true" }).browserAllowLoopbackWs,
     true
   );
+  assert.equal(loadServerConfig({ HOST: "0.0.0.0", ALLOWED_ORIGINS: "https://files.example", SIGNALING_TOPOLOGY: "single-instance", BROWSER_ALLOW_LOOPBACK_WS: "true" }).browserAllowLoopbackWs, true);
   assert.equal(loadServerConfig({ BROWSER_ALLOW_LOOPBACK_WS: "false" }).browserAllowLoopbackWs, false);
 });
 
@@ -508,7 +565,7 @@ test("server config accepts explicit hostnames and IP bind addresses", () => {
 
 test("server config issues ephemeral TURN REST credentials without static secrets", () => {
   assert.match(securityPolicy, /`TURN_URLS` parsing must reject empty or over-cap JSON arrays before element validation/);
-  assert.match(securityPolicy, /production or non-loopback TURN REST deployments must require an explicit acknowledgement that the server cannot cryptographically verify receiver accept authenticity/);
+  assert.match(securityPolicy, /public TURN REST deployments must require an explicit acknowledgement that the server cannot cryptographically verify receiver accept authenticity/);
   assert.equal(parseTurnUrls('"turn:turn.example.test:3478?transport=tcp"'), "turn:turn.example.test:3478?transport=tcp");
   assert.deepEqual(parseTurnUrls('["turn:turn.example.test","turns:turn.example.test:5349"]'), ["turn:turn.example.test", "turns:turn.example.test:5349"]);
   assert.throws(() => parseTurnUrls(JSON.stringify(new Array(9).fill("turn:turn.example.test"))), /TURN_URLS/);

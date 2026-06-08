@@ -6,7 +6,7 @@ This project handles cryptography, local files, and network handshakes. Keep cha
 
 ```sh
 node scripts/prepare-checked-pnpm.mjs
-pnpm install --frozen-lockfile
+pnpm install --frozen-lockfile --ignore-scripts
 pnpm exec playwright install --with-deps chromium
 pnpm verify:local
 ```
@@ -19,6 +19,10 @@ Before opening a pull request:
 
 ```sh
 pnpm check:install-state
+pnpm security:build-toolchain
+pnpm security:dependencies
+pnpm rebuild @roamhq/wrtc esbuild
+pnpm security:build-toolchain
 pnpm security:dependencies
 pnpm build
 pnpm check
@@ -47,14 +51,20 @@ preflight:
 
 ```sh
 node scripts/prepare-checked-pnpm.mjs
-pnpm install --frozen-lockfile
+pnpm install --frozen-lockfile --ignore-scripts
 pnpm exec playwright install --with-deps chromium
 DOCKER_SMOKE_TAG=p2p-transfer:test pnpm verify:release:docker
+git config --local gpg.ssh.allowedSignersFile .github/allowed_signers
 gh auth refresh -h github.com -s workflow
 gh auth token | pnpm release:preflight --token-stdin
 pnpm release:tag -- v0.1.0
 git push origin v0.1.0
 ```
+
+The Docker release gate intentionally fails before invoking Docker when user
+Docker CLI plugins exist under the active Docker config root. Disable or move
+those plugins before running release validation; Docker can execute plugin
+metadata outside the isolated `DOCKER_CONFIG` used by the checked scripts.
 
 The checked tag creator must be used after preflight. It revalidates the signed
 commit, clean worktree, package version, freshly fetched `origin/main`

@@ -72,6 +72,11 @@ type ResolvedRecvCode = {
   supplied: boolean;
 };
 
+type ResolvedRecvCodeInput = {
+  code: string;
+  supplied: true;
+};
+
 const RECEIVE_CODE_GENERATION_ATTEMPTS = 10;
 const ICE_CONFIG_GRACE_MS = 1_000;
 const CLI_STDIN_MAX_BYTES = 512 * 1024;
@@ -232,10 +237,11 @@ async function reviewedCliRuntime(): Promise<ReviewedCliRuntime> {
 
 async function recv(options: RecvOptions): Promise<void> {
   rejectSensitiveRecvArgvInputs(options);
+  const suppliedCodeInput = await resolveRecvCodeInput(options);
   const serverUrl = resolveServerUrl(options);
   const outputDirInput = resolveRecvOutputDir(options);
   const runtime = await reviewedCliRuntime();
-  const suppliedCode = await resolveRecvCode(options, runtime.wordlist);
+  const suppliedCode = parseResolvedRecvCode(suppliedCodeInput, runtime.wordlist);
   const outDir = await ensureOutputDir(outputDirInput, { private: Boolean(options.localPrivateMode) });
 
   const signaling = await openSignaling(serverUrl);
@@ -513,7 +519,7 @@ async function send(code: string, paths: string[], options: CommonOptions): Prom
   }
 }
 
-async function resolveRecvCode(options: RecvOptions, wordlist: WordlistModule): Promise<ResolvedRecvCode | undefined> {
+async function resolveRecvCodeInput(options: RecvOptions): Promise<ResolvedRecvCodeInput | undefined> {
   const sourceCount = Number(options.code !== undefined) + Number(Boolean(options.codeStdin)) + Number(options.codeEnv !== undefined);
   if (sourceCount === 0 && options.localPrivateMode) throw new Error("Receive code stdin or environment input is required by --local-private-mode.");
   if (sourceCount === 0) return undefined;
@@ -523,7 +529,13 @@ async function resolveRecvCode(options: RecvOptions, wordlist: WordlistModule): 
     warnSensitiveRecvArgv(options);
   }
   const code = options.codeStdin ? await readCodeFromStdin("Receive code") : options.codeEnv !== undefined ? readCodeEnv(options.codeEnv) : options.code;
-  return { parsedCode: parseRequiredCode(wordlist, wordlist.normalizeCode(code)), supplied: true };
+  if (code === undefined) throw new Error("Receive code is required.");
+  return { code, supplied: true };
+}
+
+function parseResolvedRecvCode(input: ResolvedRecvCodeInput | undefined, wordlist: WordlistModule): ResolvedRecvCode | undefined {
+  if (!input) return undefined;
+  return { parsedCode: parseRequiredCode(wordlist, wordlist.normalizeCode(input.code)), supplied: input.supplied };
 }
 
 function resolveRecvOutputDir(options: RecvOptions): string {

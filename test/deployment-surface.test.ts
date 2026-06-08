@@ -17,6 +17,7 @@ const scorecardWorkflow = fs.readFileSync(new URL("../.github/workflows/scorecar
 const dependencyReviewWorkflow = fs.readFileSync(new URL("../.github/workflows/dependency-review.yml", import.meta.url), "utf8");
 const dependencyIntegrityWorkflow = fs.readFileSync(new URL("../.github/workflows/dependency-integrity.yml", import.meta.url), "utf8");
 const codeowners = fs.readFileSync(new URL("../.github/CODEOWNERS", import.meta.url), "utf8");
+const allowedSigners = fs.readFileSync(new URL("../.github/allowed_signers", import.meta.url), "utf8");
 const pullRequestTemplate = fs.readFileSync(new URL("../.github/pull_request_template.md", import.meta.url), "utf8");
 const httpProbeScript = fs.readFileSync(new URL("../scripts/probe-http.mjs", import.meta.url), "utf8");
 const releaseTagScript = fs.readFileSync(new URL("../scripts/check-release-tag.mjs", import.meta.url), "utf8");
@@ -98,8 +99,12 @@ test("Docker runtime image keeps a minimal non-root production surface", () => {
   assert.doesNotMatch(dockerfile, /^FROM node:[^@\n]+(?: AS build)?$/m);
   assert.match(dockerfile, /^ENV NODE_ENV=production$/m);
   assert.match(dockerfile, /^ENV HOST=0\.0\.0\.0$/m);
-  assert.match(dockerfile, /^RUN pnpm check:install-state$/m);
-  assert.match(dockerfile, /^RUN pnpm build\nRUN pnpm prune --prod\nRUN rm -rf \\\n  node_modules\/@roamhq \\\n  node_modules\/domexception \\\n  node_modules\/webidl-conversions \\/m);
+  assert.match(dockerfile, /^RUN pnpm install --frozen-lockfile --ignore-scripts$/m);
+  assert.doesNotMatch(dockerfile, /^RUN pnpm install --frozen-lockfile$/m);
+  assert.match(
+    dockerfile,
+    /^RUN pnpm check:install-state\nRUN pnpm security:build-toolchain\nRUN pnpm security:dependencies\nRUN pnpm rebuild @roamhq\/wrtc esbuild\nRUN pnpm security:build-toolchain\nRUN pnpm security:dependencies\nRUN pnpm build\nRUN pnpm prune --prod\nRUN rm -rf \\\n  node_modules\/@roamhq \\\n  node_modules\/domexception \\\n  node_modules\/webidl-conversions \\/m
+  );
   assert.match(dockerfile, /node_modules\/\.pnpm\/@roamhq\+wrtc@\* \\\n  node_modules\/\.pnpm\/@roamhq\+wrtc-\*@\* \\\n  node_modules\/\.pnpm\/domexception@\* \\\n  node_modules\/\.pnpm\/webidl-conversions@\*\n\nFROM /m);
   assert.match(dockerfile, /^COPY --chown=node:node --from=build \/app\/node_modules \.\/node_modules$/m);
   assert.doesNotMatch(dockerfile, /^COPY --chown=node:node --from=build \/app\/dist-node \.\/dist-node$/m);
@@ -286,6 +291,9 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releaseTagScript, /release tag does not match package version\./);
   assert.match(releaseTagScript, /runGitOutput\(\["cat-file", "-t", `refs\/tags\/\$\{tag\}`\], "release tag object could not be inspected\."\)/);
   assert.match(releaseTagScript, /release tag must be an annotated tag\./);
+  assert.match(releaseTagScript, /function releaseTagErrorMessage\(error\)[\s\S]*const message = errorMessage\(error\)[\s\S]*containsSensitiveErrorText\(message\)/);
+  assert.match(releaseTagScript, /function errorMessage\(error\)[\s\S]*Object\.getOwnPropertyDescriptor\(error, "message"\)[\s\S]*"value" in descriptor/);
+  assert.doesNotMatch(releaseTagScript, /error\.message/);
   assert.match(securityPolicy, /release tag commit must exactly match protected `main` before release artifact packaging, attestation, npm publish, Docker publish, or GitHub Release creation/);
   assert.match(releaseWorkflow, /fetch-depth: 0/);
   assert.match(securityPolicy, /release tag current-main matching must use the checked release main verifier/);
@@ -310,6 +318,9 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releaseMainScript, /GIT_CONFIG_GLOBAL: devNull/);
   assert.match(releaseMainScript, /GIT_CONFIG_NOSYSTEM: "1"/);
   assert.match(releaseMainScript, /GIT_TERMINAL_PROMPT: "0"/);
+  assert.match(releaseMainScript, /function releaseMainErrorMessage\(error\)[\s\S]*const message = errorMessage\(error\)[\s\S]*containsSensitiveErrorText\(message\)/);
+  assert.match(releaseMainScript, /function errorMessage\(error\)[\s\S]*Object\.getOwnPropertyDescriptor\(error, "message"\)[\s\S]*"value" in descriptor/);
+  assert.doesNotMatch(releaseMainScript, /error\.message/);
   assert.match(securityPolicy, /a control-free minimal Git child environment that ignores global and system Git config and disables terminal prompts/);
   assert.match(securityPolicy, /release main checks must signal timed-out Git subprocesses, arm a bounded `SIGKILL` fallback, and reject only after the child exits/);
   assert.match(releaseWorkflow, /Release controls preflight[\s\S]*GITHUB_TOKEN: \$\{\{ secrets\.RELEASE_PREFLIGHT_TOKEN \}\}[\s\S]*run: node scripts\/check-release-readiness\.mjs --allow-existing-npm-version[\s\S]*Install/);
@@ -320,13 +331,14 @@ test("CI and release workflows keep minimal token permissions", () => {
   const releasePlatformSmokeJob = workflowJob(releaseWorkflow, "platform-smoke");
   const releaseDockerValidateJob = workflowJob(releaseWorkflow, "docker-validate");
   const releaseDockerStageJob = workflowJob(releaseWorkflow, "docker-stage");
+  const releaseDockerPublicReadJob = workflowJob(releaseWorkflow, "docker-public-read");
   const releaseDockerPromoteJob = workflowJob(releaseWorkflow, "docker-promote");
   for (const runner of PINNED_RUNNERS) {
     assert.match(ciWorkflow, new RegExp(escapeRegExp(runner)));
     assert.match(releaseWorkflow, new RegExp(escapeRegExp(runner)));
   }
-  assert.match(ciVerifyJob, /pnpm check:install-state[\s\S]*pnpm security:dependencies[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:release-artifact/);
-  assert.match(ciBrowserInteropJob, /pnpm check:install-state[\s\S]*pnpm security:dependencies[\s\S]*pnpm exec playwright install --with-deps chromium[\s\S]*pnpm build[\s\S]*pnpm test:e2e[\s\S]*pnpm test:browser/);
+  assert.match(ciVerifyJob, /pnpm install --frozen-lockfile --ignore-scripts[\s\S]*pnpm check:install-state[\s\S]*pnpm security:build-toolchain[\s\S]*pnpm security:dependencies[\s\S]*pnpm rebuild @roamhq\/wrtc esbuild[\s\S]*pnpm security:build-toolchain[\s\S]*pnpm security:dependencies[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:release-artifact/);
+  assert.match(ciBrowserInteropJob, /pnpm install --frozen-lockfile --ignore-scripts[\s\S]*pnpm check:install-state[\s\S]*pnpm security:build-toolchain[\s\S]*pnpm security:dependencies[\s\S]*pnpm rebuild @roamhq\/wrtc esbuild[\s\S]*pnpm security:build-toolchain[\s\S]*pnpm security:dependencies[\s\S]*pnpm exec playwright install --with-deps chromium[\s\S]*pnpm build[\s\S]*pnpm test:e2e[\s\S]*pnpm test:browser/);
   assert.match(ciVerifyJob, /timeout-minutes: 20/);
   assert.match(ciBrowserInteropJob, /timeout-minutes: 45/);
   assert.match(ciPlatformSmokeJob, /timeout-minutes: 25/);
@@ -334,11 +346,11 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(securityPolicy, /CI must enforce the same local typecheck, build, unit, native smoke, release-artifact smoke, packed-install, browser interop, and hardened Docker policy gates/);
   assert.match(securityPolicy, /every CI and release workflow job must set an explicit `timeout-minutes` bound/);
   assert.doesNotMatch(ciVerifyJob, /pnpm test:unit[\s\S]*pnpm build[\s\S]*pnpm smoke:native/);
-  assert.match(ciPlatformSmokeJob, /pnpm check:install-state[\s\S]*pnpm security:dependencies[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed/);
+  assert.match(ciPlatformSmokeJob, /pnpm install --frozen-lockfile --ignore-scripts[\s\S]*pnpm check:install-state[\s\S]*pnpm security:build-toolchain[\s\S]*pnpm security:dependencies[\s\S]*pnpm rebuild @roamhq\/wrtc esbuild[\s\S]*pnpm security:build-toolchain[\s\S]*pnpm security:dependencies[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed/);
   assert.doesNotMatch(ciPlatformSmokeJob, /pnpm test:unit[\s\S]*pnpm build[\s\S]*pnpm smoke:native/);
   assert.match(releasePlatformSmokeJob, /node:\n\s+- 22\.22\.3\n\s+- 24\.13\.1/);
   assert.match(releasePlatformSmokeJob, /os:\n\s+- ubuntu-24\.04\n\s+- ubuntu-24\.04-arm\n\s+- macos-15\n\s+- macos-15-intel\n\s+- windows-2025/);
-  assert.match(releasePlatformSmokeJob, /pnpm check:install-state[\s\S]*pnpm security:dependencies[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed/);
+  assert.match(releasePlatformSmokeJob, /pnpm install --frozen-lockfile --ignore-scripts[\s\S]*pnpm check:install-state[\s\S]*pnpm security:build-toolchain[\s\S]*pnpm security:dependencies[\s\S]*pnpm rebuild @roamhq\/wrtc esbuild[\s\S]*pnpm security:build-toolchain[\s\S]*pnpm security:dependencies[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed/);
   assert.doesNotMatch(releasePlatformSmokeJob, /pnpm test:unit[\s\S]*pnpm build[\s\S]*pnpm smoke:native/);
   assert.match(ciWorkflow, /pnpm smoke:packed/);
   assert.match(ciVerifyJob, /pnpm smoke:release-artifact[\s\S]*dependency audit[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures/);
@@ -361,8 +373,8 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(dockerPolicySmokeScript, /distribution-doc-missing/);
   assert.match(dockerPolicySmokeScript, /\["run", "--rm", \.\.\.HARDENED_DOCKER_RUN_FLAGS, "-e", "SIGNALING_TOPOLOGY=single-instance", imageTag\]/);
   assert.match(dockerPolicySmokeScript, /\["run", "--rm", \.\.\.HARDENED_DOCKER_RUN_FLAGS, "-e", `ALLOWED_ORIGINS=\$\{PRODUCTION_ORIGIN\}`, imageTag\]/);
-  assert.match(dockerPolicySmokeScript, /"Error: ALLOWED_ORIGINS is required in production\."/);
-  assert.match(dockerPolicySmokeScript, /"Error: SIGNALING_TOPOLOGY must be single-instance or sticky-sessions for production or non-loopback deployments\."/);
+  assert.match(dockerPolicySmokeScript, /"Error: ALLOWED_ORIGINS is required for public deployments\."/);
+  assert.match(dockerPolicySmokeScript, /"Error: SIGNALING_TOPOLOGY must be single-instance or sticky-sessions for public deployments\."/);
   assert.match(dockerPolicySmokeScript, /function hasExactOutputLine\(result, expectedLine\)/);
   assert.match(dockerPolicySmokeScript, /line\.trim\(\) === expectedLine/);
   assert.match(dockerPolicySmokeScript, /MAX_DOCKER_FAILURE_EVIDENCE_CHARS = 128 \* 1024/);
@@ -375,8 +387,8 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(dockerPolicySmokeScript, /child\.kill\("SIGTERM"\)/);
   assert.match(dockerPolicySmokeScript, /setTimeout\(\(\) => child\.kill\("SIGKILL"\), CHILD_KILL_GRACE_MS\)/);
   assert.match(dockerPolicySmokeScript, /if \(timeoutError\) \{\n\s+rejectOnce\(timeoutError\)/);
-  assert.match(dockerPolicySmokeScript, /stdout = appendBoundedOutput\(stdout, chunk\)/);
-  assert.match(dockerPolicySmokeScript, /stderr = appendBoundedOutput\(stderr, chunk\)/);
+  assert.match(dockerPolicySmokeScript, /stdout = appendBoundedOutputText\(stdout, next\)/);
+  assert.match(dockerPolicySmokeScript, /stderr = appendBoundedOutputText\(stderr, next\)/);
   assert.doesNotMatch(dockerPolicySmokeScript, /spawnSync|maxBuffer: MAX_COMMAND_OUTPUT_BYTES/);
   assert.doesNotMatch(dockerPolicySmokeScript, /combinedOutput\(result\)\.includes\(requiredEvidence\)/);
   assert.match(dockerPolicySmokeScript, /"127\.0\.0\.1::8787"/);
@@ -402,11 +414,12 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.doesNotMatch(releaseWorkflow, /\n  attest:\n/);
   assert.match(releasePublishJob, /timeout-minutes: 20/);
   assert.match(releaseGitHubReleaseJob, /timeout-minutes: 10/);
-  assert.match(packageJson.scripts?.["verify:release"] ?? "", /pnpm check:install-state && pnpm security:dependencies && pnpm build/);
+  assert.match(packageJson.scripts?.["verify:release"] ?? "", /pnpm check:install-state && pnpm security:build-toolchain && pnpm security:dependencies && pnpm rebuild @roamhq\/wrtc esbuild && pnpm security:build-toolchain && pnpm security:dependencies && pnpm build/);
   assert.match(packageJson.scripts?.["verify:release"] ?? "", /pnpm test:e2e && pnpm test:browser && pnpm security:audit && pnpm security:signatures && node scripts\/write-release-notes\.mjs --check && pnpm smoke:release-artifact/);
-  assert.match(readme, /`pnpm verify:release` runs the full non-Docker local release gate, checks version-scoped release notes, and runs `pnpm security:dependencies` before the build/);
+  assert.match(readme, /`pnpm verify:release` runs the full non-Docker local release gate, checks version-scoped release notes, runs `pnpm security:build-toolchain` and `pnpm security:dependencies` before rebuilding only the reviewed dependency-build packages, reruns those attestations after rebuild, and then builds/);
   assert.match(readme, /`pnpm verify:release:docker` runs that same gate plus the hardened Docker policy smoke/);
-  assert.match(releaseVerifyJob, /pnpm check:install-state[\s\S]*pnpm security:dependencies[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed[\s\S]*pnpm test:e2e[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures/);
+  assert.match(readme, /The Docker gate refuses user Docker CLI plugins under the active Docker config root because Docker can execute plugin metadata outside the isolated `DOCKER_CONFIG`/);
+  assert.match(releaseVerifyJob, /pnpm install --frozen-lockfile --ignore-scripts[\s\S]*pnpm check:install-state[\s\S]*pnpm security:build-toolchain[\s\S]*pnpm security:dependencies[\s\S]*pnpm rebuild @roamhq\/wrtc esbuild[\s\S]*pnpm security:build-toolchain[\s\S]*pnpm security:dependencies[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed[\s\S]*pnpm test:e2e[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures/);
   assert.doesNotMatch(releaseVerifyJob, /pnpm test:unit[\s\S]*pnpm build[\s\S]*pnpm smoke:native/);
   assert.match(securityPolicy, /release workflow artifact packaging must use `scripts\/smoke-release-artifact\.mjs --keep-artifacts`/);
   assert.match(releaseWorkflow, /pack release artifact[\s\S]*node scripts\/smoke-release-artifact\.mjs --keep-artifacts/);
@@ -432,6 +445,9 @@ test("CI and release workflows keep minimal token permissions", () => {
     assert.match(script, /const realFilePath = await realpathStrict\(filePath, description\)/);
     assert.match(script, /writeAll\(handle, bodyBytes, description\)/);
     assert.match(script, /afterWrite\.size !== bodyBytes\.byteLength/);
+    assert.match(script, /const message = errorMessage\(error\)/);
+    assert.match(script, /function errorMessage\(error\)[\s\S]*Object\.getOwnPropertyDescriptor\(error, "message"\)[\s\S]*"value" in descriptor/);
+    assert.doesNotMatch(script, /error\.message/);
   }
   assert.doesNotMatch(releaseWorkflow, /pack release artifact[\s\S]*(find release-artifacts|basename "\$tgz"|sha256sum)/);
   assert.match(releaseDockerValidateJob, /needs:\n      - verify\n      - platform-smoke/);
@@ -451,6 +467,10 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releaseDockerStageJob, /run: node scripts\/publish-docker-image\.mjs[\s\S]*Scan staged image for vulnerabilities[\s\S]*Generate staged image SBOM[\s\S]*actions\/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4\.1\.0[\s\S]*actions\/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4\.6\.2[\s\S]*actions\/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4\.1\.0/);
   assert.match(releaseDockerStageJob, /actions\/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4\.1\.0[\s\S]*subject-name: \$\{\{ steps\.docker_image\.outputs\.image \}\}[\s\S]*subject-digest: \$\{\{ steps\.docker_image\.outputs\.digest \}\}[\s\S]*push-to-registry: true/);
   assert.doesNotMatch(releaseDockerStageJob, /Promote attested image|corepack prepare pnpm@/);
+  assert.match(releaseDockerPublicReadJob, /needs:\n      - docker-stage/);
+  assert.match(releaseDockerPublicReadJob, /permissions:\n      contents: read/);
+  assert.match(releaseDockerPublicReadJob, /node scripts\/prepare-checked-pnpm\.mjs[\s\S]*Verify staged image is publicly pullable[\s\S]*DOCKER_STAGED_DIGEST: \$\{\{ needs\.docker-stage\.outputs\.digest \}\}[\s\S]*run: node scripts\/publish-docker-image\.mjs --assert-public/);
+  assert.doesNotMatch(releaseDockerPublicReadJob, /packages: write|id-token: write|attestations: write|pnpm install|pnpm build/);
   assert.match(releaseDockerPromoteJob, /needs:\n      - publish\n      - docker-stage/);
   assert.match(releaseDockerPromoteJob, /environment: npm/);
   assert.match(releaseDockerPromoteJob, /permissions:\n      contents: read\n      packages: write/);
@@ -459,16 +479,17 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releaseDockerPromoteJob, /node scripts\/prepare-checked-pnpm\.mjs[\s\S]*Promote attested image[\s\S]*DOCKER_STAGED_DIGEST: \$\{\{ needs\.docker-stage\.outputs\.digest \}\}[\s\S]*run: node scripts\/publish-docker-image\.mjs --promote/);
   assert.doesNotMatch(releaseDockerPromoteJob, /corepack prepare pnpm@/);
   assert.match(dockerPublishScript, /import \{ assertLiveReleaseRefFromEnv \} from "\.\/verify-live-release-ref\.mjs"/);
-  assert.match(dockerPublishScript, /const runId = requiredGitHubActionsContext\(\);\n  const revision = requiredCommitSha\(requiredEnvString\("GITHUB_SHA"\)\);\n  const actor = githubActor\(requiredEnvString\("GITHUB_ACTOR"\)\);\n  const token = requiredEnvString\("GITHUB_TOKEN", MAX_TOKEN_BYTES\);\n  const packageJson = await readPackageJson\(\);[\s\S]*if \(tag !== `v\$\{version\}`\) throw new Error\("release tag does not match package version\."\);\n\n  await assertLiveReleaseRefFromEnv\(\);/);
+  assert.match(dockerPublishScript, /const runId = requiredGitHubActionsContext\(\);\n  const revision = requiredCommitSha\(requiredEnvString\("GITHUB_SHA"\)\);\n  const actor = mode === "assert-public" \? undefined : githubActor\(requiredEnvString\("GITHUB_ACTOR"\)\);\n  const token = requiredEnvString\("GITHUB_TOKEN", MAX_TOKEN_BYTES\);\n  const packageJson = await readPackageJson\(\);[\s\S]*if \(tag !== `v\$\{version\}`\) throw new Error\("release tag does not match package version\."\);\n\n  await assertLiveReleaseRefFromEnv\(\);/);
   assert.match(dockerPublishScript, /env: \{ DOCKER_SMOKE_TAG: stagedRef, DOCKER_SMOKE_VERSION: version, DOCKER_SMOKE_REVISION: revision \}/);
   assert.match(dockerPublishScript, /await run\("docker", \["push", stagedRef\]/);
-  assert.match(dockerPublishScript, /if \(mode === "promote"\) \{[\s\S]*dockerDigest\(requiredEnvString\("DOCKER_STAGED_DIGEST"\)\)[\s\S]*await publishDockerReleaseTag\(\{ image, digest, ref: versionRef, label: "docker release image", dockerEnv \}\)[\s\S]*await publishDockerReleaseTag\(\{ image, digest, ref: plainVersionRef, label: "docker release image alias", dockerEnv \}\)[\s\S]*await assertAnonymousDockerPull\(\{ ref: versionRef, digest \}\)[\s\S]*await assertAnonymousDockerPull\(\{ ref: plainVersionRef, digest \}\)/);
+  assert.match(dockerPublishScript, /if \(mode === "promote"\) \{[\s\S]*dockerDigest\(requiredEnvString\("DOCKER_STAGED_DIGEST"\)\)[\s\S]*const missingTags = await missingDockerReleaseTags\(\{ refs: releaseTags, digest, dockerEnv \}\)[\s\S]*for \(const releaseTag of missingTags\)[\s\S]*await pushDockerReleaseTag\(\{ image, digest, ref: releaseTag\.ref, label: releaseTag\.label, dockerEnv \}\)[\s\S]*for \(const releaseTag of releaseTags\)[\s\S]*await assertAnonymousDockerPull\(\{ ref: releaseTag\.ref, digest \}\)/);
   assert.match(dockerPublishScript, /async function existingDockerTagDigest\(ref, dockerEnv\)/);
-  assert.match(dockerPublishScript, /if \(existingDigest !== digest\) throw new Error\(`\$\{label\} already points to a different digest\.`\)/);
+  assert.match(dockerPublishScript, /throw new Error\(`\$\{candidate\.label\} already points to a different digest\.`\)/);
   assert.match(dockerPublishScript, /if \(dockerTagMissing\(output\)\) return undefined/);
-  assert.match(securityPolicy, /Docker promotion must inspect existing GHCR `vX\.Y\.Z` and `X\.Y\.Z` release tags before pushing them, treat already-published matching digests as idempotent success, verify anonymous pulls for both promoted release tags resolve to the attested digest, and fail closed instead of moving either release tag when an existing tag points to a different digest or either release tag is not publicly pullable/);
+  assert.match(securityPolicy, /Docker promotion must inspect existing GHCR `vX\.Y\.Z` and `X\.Y\.Z` release tags before pushing either of them, treat already-published matching digests as idempotent success, verify anonymous pulls for both promoted release tags resolve to the attested digest, and fail closed instead of moving either release tag when an existing tag points to a different digest or either release tag is not publicly pullable/);
   assert.match(dockerPublishScript, /writeGithubOutput\(\{ image, digest, tag: versionRef, alias: plainVersionRef \}\)/);
-  assert.match(dockerPublishScript, /import \{ createIsolatedDockerConfig \} from "\.\/docker-config\.mjs"/);
+  assert.match(dockerPublishScript, /import \{ assertNoUserDockerCliPlugins, createIsolatedDockerConfig \} from "\.\/docker-config\.mjs"/);
+  assert.match(dockerPublishScript, /assertNoUserDockerCliPlugins\(\);\n  const dockerConfigDir = createIsolatedDockerConfig\("p2p-transfer-docker-release-"\)/);
   assert.match(dockerPublishScript, /createIsolatedDockerConfig\("p2p-transfer-docker-release-"\)/);
   assert.match(dockerConfigScript, /JSON\.stringify\(config\), \{ mode: 0o600 \}/);
   assert.match(dockerConfigScript, /currentContext: localContext\.name/);
@@ -503,6 +524,7 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releasePublishJob, /environment: npm/);
   assert.match(releasePublishJob, /permissions:\n      contents: read\n      id-token: write\n      attestations: write/);
   assert.match(releasePublishJob, /verify downloaded release artifact[\s\S]*id: verify_artifact[\s\S]*node scripts\/verify-release-artifact\.mjs --github-output tarball[\s\S]*verify live release ref before attestation[\s\S]*GITHUB_TOKEN: \$\{\{ github\.token \}\}[\s\S]*node scripts\/verify-live-release-ref\.mjs[\s\S]*uses: actions\/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4\.1\.0[\s\S]*subject-checksums: release-artifacts\/SHA256SUMS[\s\S]*verify, smoke, and publish release artifact/);
+  assert.match(releaseWorkflow, /publish npm package[\s\S]*needs:\n      - verify\n      - platform-smoke\n      - docker-validate\n      - docker-stage\n      - docker-public-read/);
   assert.match(releaseWorkflow, /publish npm package[\s\S]*verify, smoke, and publish release artifact[\s\S]*GITHUB_TOKEN: \$\{\{ github\.token \}\}[\s\S]*node scripts\/publish-release-artifact\.mjs/);
   assert.match(releasePublishScript, /rejectStaticNpmTokens\(\)/);
   assert.match(releasePublishScript, /import \{ assertLiveReleaseRefFromEnv \} from "\.\/verify-live-release-ref\.mjs"/);
@@ -554,17 +576,21 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(liveReleaseRefScript, /GitHub tag ref does not match the release workflow commit\./);
   assert.match(liveReleaseRefScript, /GitHub main branch does not match the release workflow commit\./);
   assert.match(liveReleaseRefScript, /if \(githubToken !== undefined && ghToken !== undefined\) throw new Error\("Set only one of GITHUB_TOKEN or GH_TOKEN for live release ref verification\."\)/);
-  assert.match(liveReleaseRefScript, /return error instanceof Error && error\.name === "AbortError"/);
+  assert.match(liveReleaseRefScript, /function isAbortError\(error\)[\s\S]*return errorName\(error\) === "AbortError"/);
+  assert.match(liveReleaseRefScript, /function errorName\(error\)[\s\S]*Object\.getOwnPropertyDescriptor\(error, "name"\)[\s\S]*"value" in descriptor/);
   assert.match(liveReleaseRefScript, /const EXPECTED_GITHUB_REPOSITORY = "VictorHaine\/p2p-transfer"/);
   assert.match(liveReleaseRefScript, /GITHUB_REPOSITORY must match the release repository/);
+  assert.match(liveReleaseRefScript, /function liveReleaseRefErrorMessage\(error\)[\s\S]*const message = errorMessage\(error\)[\s\S]*containsSensitiveErrorText\(message\)/);
+  assert.match(liveReleaseRefScript, /function errorMessage\(error\)[\s\S]*Object\.getOwnPropertyDescriptor\(error, "message"\)[\s\S]*"value" in descriptor/);
+  assert.doesNotMatch(liveReleaseRefScript, /error\.(?:message|name)/);
   assert.match(securityPolicy, /last-mile live release-ref verifier must reject ambiguous `GITHUB_TOKEN` plus `GH_TOKEN` input and wrong `GITHUB_REPOSITORY` values before network work, then reject lightweight tag refs, require a GitHub-verified signed annotated tag object, and re-check the GitHub tag object target plus GitHub `main` ref against `GITHUB_SHA` through bounded GitHub API calls immediately in the early release verification job, immediately before release artifact attestation, immediately before npm publish, before Docker smoke, immediately before GHCR staging push, immediately before GHCR promotion, immediately before GitHub Release draft creation, and immediately before GitHub Release final publish/);
-  assert.match(securityPolicy, /Docker publishing subprocesses must use a minimal allowlisted child environment plus a temporary 0700 `DOCKER_CONFIG`/);
-  assert.match(securityPolicy, /Docker publishing subprocesses must use a minimal allowlisted child environment plus a temporary 0700 `DOCKER_CONFIG`[\s\S]*handle child stdin pipe errors with generic non-token-reporting failures/);
+  assert.match(securityPolicy, /Docker publishing subprocesses must use a minimal allowlisted child environment plus a temporary 0700 `DOCKER_CONFIG` and matching temporary `HOME`\/`USERPROFILE`/);
+  assert.match(securityPolicy, /Docker publishing subprocesses must use a minimal allowlisted child environment plus a temporary 0700 `DOCKER_CONFIG`[\s\S]*avoid Docker credential helpers[\s\S]*fail before any Docker subprocess when user Docker CLI plugins exist because Docker can execute plugin metadata outside isolated `DOCKER_CONFIG`[\s\S]*handle child stdin pipe errors with generic non-token-reporting failures/);
   assert.match(dockerPublishScript, /endChildStdin\(child, options\.input \?\? "", label/);
   assert.match(dockerPublishScript, /new Error\(`\$\{label\} stdin pipe failed\.`\)/);
   assert.match(dockerPublishScript, /const EXPECTED_GITHUB_REPOSITORY = "VictorHaine\/p2p-transfer"/);
   assert.match(dockerPublishScript, /GitHub repository must match the release repository/);
-  assert.match(dockerPublishScript, /const tag = releaseTag\(requiredEnvString\("GITHUB_REF_NAME"\)\);\n  assertReleaseTagRef\(tag\);\n  const repository = githubRepository\(requiredEnvString\("GITHUB_REPOSITORY"\)\);\n  const runId = requiredGitHubActionsContext\(\);\n  const revision = requiredCommitSha\(requiredEnvString\("GITHUB_SHA"\)\);\n  const actor = githubActor\(requiredEnvString\("GITHUB_ACTOR"\)\);\n  const token = requiredEnvString\("GITHUB_TOKEN", MAX_TOKEN_BYTES\);\n  const packageJson = await readPackageJson\(\);/);
+  assert.match(dockerPublishScript, /const tag = releaseTag\(requiredEnvString\("GITHUB_REF_NAME"\)\);\n  assertReleaseTagRef\(tag\);\n  const repository = githubRepository\(requiredEnvString\("GITHUB_REPOSITORY"\)\);\n  const runId = requiredGitHubActionsContext\(\);\n  const revision = requiredCommitSha\(requiredEnvString\("GITHUB_SHA"\)\);\n  const actor = mode === "assert-public" \? undefined : githubActor\(requiredEnvString\("GITHUB_ACTOR"\)\);\n  const token = requiredEnvString\("GITHUB_TOKEN", MAX_TOKEN_BYTES\);\n  const packageJson = await readPackageJson\(\);/);
   assert.match(githubReleaseScript, /\/repos\/\$\{repository\}\/releases/);
   assert.match(githubReleaseScript, /uploadReleaseAsset\(token, uploadUrl, asset\)/);
   assert.match(githubReleaseScript, /draft: true/);
@@ -602,6 +628,7 @@ test("CI and release workflows keep minimal token permissions", () => {
   const publishJob = releaseWorkflow.slice(releaseWorkflow.indexOf("  publish:"));
   assert.match(publishJob, /needs:\n      - verify\n      - platform-smoke\n      - docker-validate/);
   assert.match(publishJob, /needs:[\s\S]*- docker-stage/);
+  assert.match(publishJob, /needs:[\s\S]*- docker-public-read/);
   assert.doesNotMatch(publishJob, /pnpm install|pnpm build|pnpm smoke:native/);
   assert.match(releasePublishScript, /"--ignore-scripts"/);
   assert.match(releasePublishScript, /verifiedTarballPath\(\{ \.\.\.childEnv, \.\.\.releaseVerifierEnv\(tag\) \}\)/);
@@ -862,6 +889,8 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.equal(packageJson.scripts?.["release:tag"], "node scripts/create-release-tag.mjs");
   assert.equal(packageJson.scripts?.["bootstrap:npm"], "node scripts/bootstrap-npm-package.mjs");
   assert.equal(packageJson.scripts?.["verify:release:docker"], "pnpm verify:release && pnpm smoke:docker-policy");
+  assert.match(releaseRunbook, /node scripts\/prepare-checked-pnpm\.mjs\n   pnpm install --frozen-lockfile --ignore-scripts\n   pnpm exec playwright install --with-deps chromium\n   DOCKER_SMOKE_TAG=p2p-transfer:test pnpm verify:release:docker/);
+  assert.match(contributing, /Docker release gate intentionally fails before invoking Docker when user\nDocker CLI plugins exist under the active Docker config root/);
   assert.match(readme, /gh auth refresh -h github\.com -s workflow/);
   assert.doesNotMatch(readme, /DOCKER_SMOKE_TAG=p2p-transfer:test pnpm verify:release:docker\nnode scripts\/write-release-notes\.mjs --check/);
   assert.match(readme, /First remote bootstrap:[\s\S]*gh auth refresh -h github\.com -s workflow\ngit push -u origin main/);
@@ -871,6 +900,9 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(readme, /The first push needs a GitHub token with `workflow` scope because this repository ships GitHub Actions workflow files/);
   assert.match(readme, /Once those controls are active, do not direct-push release changes to `main`/);
   assert.match(readme, /For normal releases, update local `main` to the exact current `origin\/main` commit after the protected pull request has merged, then run release preflight from that checked-out commit/);
+  assert.match(readme, /git config --local gpg\.ssh\.allowedSignersFile \.github\/allowed_signers/);
+  assert.match(releaseRunbook, /git config --local gpg\.ssh\.allowedSignersFile \.github\/allowed_signers\n   git fetch origin main/);
+  assert.match(allowedSigners, /^git@victorhaine\.me namespaces="git" ssh-rsa /);
   assert.match(readme, /Local preflight refuses unsigned `HEAD` and dirty worktrees before package or network work, and it refuses to pass if that local `HEAD` differs from GitHub's current `main` branch response/);
   assert.match(readme, /The checked tag creator revalidates signed `HEAD`, clean worktree state, package-version matching, freshly fetched `origin\/main` equality, local and remote tag absence, tag target, and tag signature while suppressing signer subprocess output/);
   assert.match(readme, /configure `user\.signingkey` to the public key file or literal public key, not the private key path/);
@@ -888,14 +920,14 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.doesNotMatch(readme, /GITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
   assert.match(securityPolicy, /gh auth token \| pnpm release:preflight --token-stdin/);
   assert.doesNotMatch(securityPolicy, /GITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
-  assert.match(contributing, /node scripts\/prepare-checked-pnpm\.mjs\npnpm install --frozen-lockfile\npnpm exec playwright install --with-deps chromium\nDOCKER_SMOKE_TAG=p2p-transfer:test pnpm verify:release:docker\ngh auth refresh -h github\.com -s workflow\ngh auth token \| pnpm release:preflight --token-stdin\npnpm release:tag -- v0\.1\.0\ngit push origin v0\.1\.0/);
+  assert.match(contributing, /node scripts\/prepare-checked-pnpm\.mjs\npnpm install --frozen-lockfile --ignore-scripts\npnpm exec playwright install --with-deps chromium\nDOCKER_SMOKE_TAG=p2p-transfer:test pnpm verify:release:docker\ngit config --local gpg\.ssh\.allowedSignersFile \.github\/allowed_signers\ngh auth refresh -h github\.com -s workflow\ngh auth token \| pnpm release:preflight --token-stdin\npnpm release:tag -- v0\.1\.0\ngit push origin v0\.1\.0/);
   assert.match(contributing, /The checked tag creator must be used after preflight/);
   assert.match(contributing, /make sure `main` already exists on\nGitHub, then run the full release gate/);
   assert.match(securityPolicy, /local release preflight must fail before tagging when local `HEAD` is unsigned, the local worktree is dirty, local `HEAD` differs from GitHub's current `main` branch response, the npm package is missing, the target npm version already exists, the bootstrap placeholder exists without the exact `bootstrap` dist-tag or with `latest` pointing to it, private vulnerability reporting is disabled, dependency vulnerability alerts are disabled or hidden from the release token/);
   assert.match(securityPolicy, /local tag creation must use the checked tag creator after preflight, revalidate signed `HEAD`, clean worktree state, package-version matching, freshly fetched `origin\/main` equality, local and remote tag absence, tag target, and tag signature with ignored Git signer output, and delete only the newly-created local tag if post-create verification fails/);
   assert.match(securityPolicy, /GitHub repository `security_and_analysis` is missing or reports disabled secret scanning, disabled secret scanning push protection, disabled Dependabot security updates, or paused Dependabot security updates from the dedicated `automated-security-fixes` endpoint/);
   assert.match(securityPolicy, /the GitHub token is missing or lacks `workflow` scope/);
-  assert.match(securityPolicy, /current `main` commit lacks a successful CodeQL, Scorecard, or dependency-integrity workflow run/);
+  assert.match(securityPolicy, /current `main` commit lacks a successful CI, CodeQL, Scorecard, or dependency-integrity workflow run/);
   assert.match(securityPolicy, /the `RELEASE_PREFLIGHT_TOKEN` repository secret is missing/);
   assert.match(securityPolicy, /GitHub `npm` environment lacks required reviewers, lacks a non-self user reviewer with write, maintain, or admin repository permission, allows self-review, allows admin bypass, allows branch deployments, lacks the exact `v\*\.\*\.\*` tag deployment policy, or has the authenticated release operator or release tag pusher as its sole required reviewer/);
   assert.match(securityPolicy, /first-time npm package bootstrap must use the checked bootstrap script, publish only the minimal temporary `0\.0\.0-bootstrap\.0` package from a private temporary directory under the non-default `bootstrap` dist-tag/);
@@ -973,7 +1005,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /const REQUIRED_OAUTH_SCOPES = \["repo", "workflow"\]/);
   assert.match(releaseReadinessScript, /const GITHUB_ACTIONS_REQUIRED_OAUTH_SCOPES = \["repo"\]/);
   assert.match(releaseReadinessScript, /const RELEASE_PREFLIGHT_SECRET = "RELEASE_PREFLIGHT_TOKEN"/);
-  assert.match(releaseReadinessScript, /const REQUIRED_SUCCESSFUL_MAIN_WORKFLOWS = \[[\s\S]*\{ file: "codeql\.yml", name: "codeql" \}[\s\S]*\{ file: "scorecard\.yml", name: "scorecard" \}[\s\S]*\{ file: "dependency-integrity\.yml", name: "dependency-integrity" \}[\s\S]*\]/);
+  assert.match(releaseReadinessScript, /const REQUIRED_SUCCESSFUL_MAIN_WORKFLOWS = \[[\s\S]*\{ file: "ci\.yml", name: "ci" \}[\s\S]*\{ file: "codeql\.yml", name: "codeql" \}[\s\S]*\{ file: "scorecard\.yml", name: "scorecard" \}[\s\S]*\{ file: "dependency-integrity\.yml", name: "dependency-integrity" \}[\s\S]*\]/);
   assert.match(releaseReadinessScript, /class ReleaseReadinessFailure extends Error/);
   assert.match(releaseReadinessScript, /const token = await githubToken\(options\);[\s\S]*const runningInGitHubActions = envString\("GITHUB_ACTIONS"\) === "true";[\s\S]*const tokenKind = assertReleaseWorkflowTokenClass\(token, runningInGitHubActions\);[\s\S]*const releaseActorLogin = runningInGitHubActions \? githubActor\(\) : undefined;[\s\S]*const localHeadSha = runningInGitHubActions \? undefined : await assertLocalReleaseCommitSigned\(\);[\s\S]*if \(!runningInGitHubActions\) await assertLocalReleaseWorktreeClean\(\);[\s\S]*const failures = \[\]/);
   assert.match(releaseReadinessScript, /async function assertLocalReleaseCommitSigned\(\)/);
@@ -999,7 +1031,9 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseTagCreatorScript, /stdio: "ignore"/);
   assert.match(releaseTagCreatorScript, /Release tag creation must run from a clean worktree\./);
   assert.match(releaseTagCreatorScript, /Release tag already exists locally\./);
-  assert.doesNotMatch(releaseTagCreatorScript, /stdio: "inherit"|String\(error\)|error\.stack|console\.error\(error\)|process\.argv\.slice\(2\)\.join/);
+  assert.match(releaseTagCreatorScript, /function releaseTagCreateErrorMessage\(error\)[\s\S]*const message = errorMessage\(error\)[\s\S]*containsSensitiveErrorText\(message\)/);
+  assert.match(releaseTagCreatorScript, /function errorMessage\(error\)[\s\S]*Object\.getOwnPropertyDescriptor\(error, "message"\)[\s\S]*"value" in descriptor/);
+  assert.doesNotMatch(releaseTagCreatorScript, /stdio: "inherit"|String\(error\)|error\.stack|console\.error\(error\)|process\.argv\.slice\(2\)\.join|error\.message/);
   assert.match(releaseReadinessScript, /function githubActor\(\)/);
   assert.match(releaseReadinessScript, /GITHUB_ACTOR must be a GitHub username in the release workflow\./);
   assert.match(releaseReadinessScript, /await collectReadinessFailure\(failures, async \(\) => \{/);
@@ -1009,6 +1043,10 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /if \(failures\.length > 0\) throw new ReleaseReadinessFailure\(failures\)/);
   assert.match(releaseReadinessScript, /function readinessErrorMessages\(error\)/);
   assert.match(releaseReadinessScript, /return error\.failures\.map\(\(failure\) => readinessErrorMessage\(failure\)\)/);
+  assert.match(releaseReadinessScript, /function readinessErrorMessage\(error\)[\s\S]*const message = errorMessage\(error\)[\s\S]*containsSensitiveErrorText\(message\)[\s\S]*release readiness check failed with sensitive evidence/);
+  assert.match(releaseReadinessScript, /function errorMessage\(error\)[\s\S]*Object\.getOwnPropertyDescriptor\(error, "message"\)[\s\S]*"value" in descriptor/);
+  assert.doesNotMatch(releaseReadinessScript, /error\.message/);
+  assert.match(securityPolicy, /release workflow preflight must run before dependency install[\s\S]*must use descriptor-read top-level failure reporting that does not print control text, raw path-sensitive evidence, or stack traces/);
   assert.match(releaseReadinessScript, /if \(tokenKind !== "installation"\) \{[\s\S]*const auth = await collectReadinessValue\(failures, \(\) => githubWithHeaders\(token, "GET", "\/user"\)\)/);
   assert.match(releaseReadinessScript, /collectReadinessFailureSync\(failures, \(\) => \{[\s\S]*assertTokenScopes\(auth\.headers, runningInGitHubActions\)/);
   assert.match(releaseReadinessScript, /if \(tokenKind === "installation" \|\| authenticatedLogin\) \{[\s\S]*await collectGitHubRepositoryReadiness\(failures, token, options\.repository, authenticatedLogin, releaseActorLogin, localHeadSha\)/);
@@ -1022,6 +1060,9 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /await readText\(path\.join\(projectRoot\(\), "package\.json"\), MAX_PACKAGE_JSON_BYTES, "package metadata"\)/);
   assert.match(releaseReadinessScript, /constants\.O_RDONLY \| \(constants\.O_NOFOLLOW \?\? 0\)/);
   assert.match(releaseReadinessScript, /throw new Error\(`\$\{label\} changed before verification\.`\)/);
+  assert.match(releaseReadinessScript, /return await readHandleText\(handle, opened, label\)/);
+  assert.match(releaseReadinessScript, /const afterRead = await handle\.stat\(\)/);
+  assert.match(releaseReadinessScript, /if \(!sameFile\(opened, afterRead\)\) throw new Error\(`\$\{label\} changed while being read\.`\)/);
   assert.match(releaseReadinessScript, /await assertNpmPackageReady\(packageJson, options\)/);
   assert.match(releaseReadinessScript, /--allow-existing-npm-version/);
   assert.match(releaseReadinessScript, /function assertReleaseWorkflowExistingVersionContext\(version\)/);
@@ -1271,12 +1312,12 @@ test("dependency review blocks vulnerable dependency introductions", () => {
 
 test("dependency integrity monitor catches new registry risk and gates releases", () => {
   assert.match(securityPolicy, /dependency integrity monitoring must run from a pinned workflow on pushes to `main`, manual dispatch, and a daily schedule on unchanged `main` across the supported native WebRTC runner set with read-only permissions/);
-  assert.match(securityPolicy, /release-evidence concurrency that does not cancel in-progress runs, checked pnpm bootstrap, frozen install, installed-state verification, `pnpm security:dependencies`, `pnpm security:audit`, and `pnpm security:signatures`/);
-  assert.match(securityPolicy, /crypto, wordlist, or native dependency drift, new advisories, or registry signature failures/);
-  assert.match(securityPolicy, /release preflight must require a successful dependency-integrity run for the current `main` commit/);
+  assert.match(securityPolicy, /release-evidence concurrency that does not cancel in-progress runs, checked pnpm bootstrap, frozen scriptless install, installed-state verification, `pnpm security:build-toolchain`, `pnpm security:dependencies`, reviewed `pnpm rebuild @roamhq\/wrtc esbuild`, repeated post-rebuild `pnpm security:build-toolchain` and `pnpm security:dependencies`, `pnpm security:audit`, and `pnpm security:signatures`/);
+  assert.match(securityPolicy, /build-toolchain, crypto, wordlist, or native dependency drift, new advisories, or registry signature failures/);
+  assert.match(securityPolicy, /release preflight must require successful CI and dependency-integrity runs for the current `main` commit/);
   assert.match(readme, /\.github\/workflows\/dependency-integrity\.yml` runs on pushes to `main`, manual dispatch, and daily across the supported native WebRTC runner set with read-only permissions without cancelling in-progress release-evidence runs/);
-  assert.match(readme, /re-checks the frozen install, installed dependency tree, reviewed crypto\/wordlist\/native dependency attestations, npm advisory audit, and registry package signatures even when `main` has not changed/);
-  assert.match(readme, /release preflight requires a successful dependency-integrity run for the exact current `main` commit before tagging/);
+  assert.match(readme, /re-checks the frozen scriptless install, installed dependency tree, reviewed build-toolchain\/crypto\/wordlist\/native dependency attestations, the reviewed native rebuild path, post-rebuild attestations, npm advisory audit, and registry package signatures even when `main` has not changed/);
+  assert.match(readme, /release preflight requires successful CI and dependency-integrity runs for the exact current `main` commit before tagging/);
   assert.equal(packageJson.scripts?.["security:dependencies"], "node --import tsx --test test/crypto-dependencies.test.ts test/cpace-vectors.test.ts test/native-webrtc-dependencies.test.ts");
   assert.match(dependencyIntegrityWorkflow, /^name: dependency-integrity$/m);
   assert.match(dependencyIntegrityWorkflow, /^on:\n  push:\n    branches:\n      - main\n  schedule:\n    - cron: "41 5 \* \* \*"\n  workflow_dispatch:$/m);
@@ -1286,13 +1327,16 @@ test("dependency integrity monitor catches new registry risk and gates releases"
   assert.match(workflowJob(dependencyIntegrityWorkflow, "dependency-integrity"), /fail-fast: false[\s\S]*os:\n\s+- ubuntu-24\.04\n\s+- ubuntu-24\.04-arm\n\s+- macos-15\n\s+- macos-15-intel\n\s+- windows-2025/);
   assert.match(dependencyIntegrityWorkflow, /uses: actions\/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4\.2\.2[\s\S]*persist-credentials: false/);
   assert.match(dependencyIntegrityWorkflow, /uses: actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3/);
-  assert.match(dependencyIntegrityWorkflow, /node scripts\/prepare-checked-pnpm\.mjs[\s\S]*pnpm install --frozen-lockfile[\s\S]*pnpm check:install-state[\s\S]*pnpm security:dependencies[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures/);
+  assert.match(
+    dependencyIntegrityWorkflow,
+    /node scripts\/prepare-checked-pnpm\.mjs[\s\S]*pnpm install --frozen-lockfile --ignore-scripts[\s\S]*pnpm check:install-state[\s\S]*pnpm security:build-toolchain[\s\S]*pnpm security:dependencies[\s\S]*pnpm rebuild @roamhq\/wrtc esbuild[\s\S]*pnpm security:build-toolchain[\s\S]*pnpm security:dependencies[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures/
+  );
   assert.doesNotMatch(dependencyIntegrityWorkflow, /pull_request_target|workflow_run|contents:\s*write|pull-requests:\s*write|id-token:\s*write|actions:\s*write|packages:\s*write/);
 });
 
 test("documented release gates require a hardened Docker runtime smoke, not just image build", () => {
   for (const document of [readme, securityPolicy]) {
-    assert.match(document, /node scripts\/prepare-checked-pnpm\.mjs\npnpm install --frozen-lockfile\npnpm exec playwright install --with-deps chromium\npnpm verify:local/);
+    assert.match(document, /node scripts\/prepare-checked-pnpm\.mjs\npnpm install --frozen-lockfile --ignore-scripts\n(?:pnpm security:build-toolchain\npnpm security:dependencies\npnpm rebuild @roamhq\/wrtc esbuild\npnpm security:build-toolchain\npnpm security:dependencies\n)?pnpm exec playwright install --with-deps chromium\npnpm verify:local/);
     assert.match(document, /pnpm verify:release:docker/);
     assert.match(document, /read-only filesystem, dropped Linux capabilities,[^.\n]+`no-new-privileges`/);
     assert.match(document, /--pids-limit 128/);
@@ -1317,9 +1361,9 @@ test("documented release gates require a hardened Docker runtime smoke, not just
   assert.match(securityPolicy, /CI, release, Docker, and documented source builds must prepare pnpm through `scripts\/prepare-checked-pnpm\.mjs`, which byte-caps and no-follow-opens `package\.json` with pre\/post-read identity and mutation-metadata checks/);
   assert.match(securityPolicy, /runs Corepack with a private package-manager home plus a minimal allowlisted child environment/);
   assert.match(securityPolicy, /parses the packed pnpm `\.tgz` metadata in-process with gzip\/tar byte caps and tar checksum validation instead of trusting a local `tar` executable/);
-  assert.match(readme, /Build from source:[\s\S]*node scripts\/prepare-checked-pnpm\.mjs\npnpm install --frozen-lockfile\npnpm build\npnpm test/);
+  assert.match(readme, /Build from source:[\s\S]*node scripts\/prepare-checked-pnpm\.mjs\npnpm install --frozen-lockfile --ignore-scripts\npnpm security:build-toolchain\npnpm security:dependencies\npnpm rebuild @roamhq\/wrtc esbuild\npnpm security:build-toolchain\npnpm security:dependencies\npnpm build\npnpm test/);
   assert.doesNotMatch(readme, /Build from source:[\s\S]*```sh\npnpm install\n/);
-  assert.match(contributing, /## Local Setup[\s\S]*node scripts\/prepare-checked-pnpm\.mjs\npnpm install --frozen-lockfile\npnpm exec playwright install --with-deps chromium\npnpm verify:local/);
+  assert.match(contributing, /## Local Setup[\s\S]*node scripts\/prepare-checked-pnpm\.mjs\npnpm install --frozen-lockfile --ignore-scripts\npnpm exec playwright install --with-deps chromium\npnpm verify:local/);
   assert.match(contributing, /For release-sensitive or protocol-sensitive changes, also run:[\s\S]*pnpm test:e2e[\s\S]*pnpm test:browser[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures[\s\S]*node scripts\/write-release-notes\.mjs --check[\s\S]*pnpm smoke:release-artifact[\s\S]*pnpm smoke:docker-policy/);
   assert.match(securityPolicy, /packed-install checks on Linux x64, Linux arm64, macOS arm64, macOS Intel, and Windows x64 for every supported Node major/);
   assert.match(securityPolicy, /packs the verified npm tarball with lifecycle scripts disabled after the explicit verified build/);
@@ -1369,7 +1413,10 @@ test("Docker HTTP probes are bounded and timeout protected", () => {
   assert.match(httpProbeScript, /console\.error\("HTTP probe failed:"\)/);
   assert.match(httpProbeScript, /function probeErrorMessage\(error\)/);
   assert.match(httpProbeScript, /const MAX_ERROR_MESSAGE_CHARS = 4_096/);
-  assert.match(httpProbeScript, /containsUrlOrPathText\(error\.message\)/);
+  assert.match(httpProbeScript, /const message = errorMessage\(error\)/);
+  assert.match(httpProbeScript, /function errorMessage\(error\)[\s\S]*Object\.getOwnPropertyDescriptor\(error, "message"\)[\s\S]*"value" in descriptor/);
+  assert.match(httpProbeScript, /containsUrlOrPathText\(message\)/);
+  assert.doesNotMatch(httpProbeScript, /error\.message/);
   assert.match(httpProbeScript, /from probe target/);
   assert.match(httpProbeScript, /HTTP probe timed out after \$\{PROBE_TIMEOUT_MS\}ms\./);
   assert.doesNotMatch(httpProbeScript, /from \$\{url\.href\}|: \$\{url\.href\}|error\.stack/);
@@ -1412,7 +1459,7 @@ test("release artifact verification is bounded and exact", () => {
   assert.match(releaseChecksumScript, /async function readVerifiedHandleBytes\(handle, size, description\)[\s\S]*Buffer\.alloc\(size\)[\s\S]*await handle\.read\(buffer, offset, size - offset, offset\)[\s\S]*if \(offset !== size\)/);
   assert.doesNotMatch(releaseChecksumScript, /handle\.readFile\(/);
   assert.match(releaseChecksumScript, /Release checksum generation failed:/);
-  assert.match(releaseChecksumScript, /function releaseChecksumErrorMessage\(error\)[\s\S]*containsAbsolutePathText\(error\.message\)/);
+  assert.match(releaseChecksumScript, /function releaseChecksumErrorMessage\(error\)[\s\S]*const message = errorMessage\(error\)[\s\S]*containsSensitiveErrorText\(message\)/);
   assert.doesNotMatch(releaseChecksumScript, /execFileSync|child_process|sha256sum|find release-artifacts/);
   assert.match(releaseArtifactScript, /const MAX_TARBALL_BYTES = 50 \* 1024 \* 1024/);
   assert.match(releaseArtifactScript, /const MAX_RELEASE_ENV_VALUE_BYTES = 256/);
@@ -1459,8 +1506,9 @@ test("release artifact verification is bounded and exact", () => {
   assert.match(releaseArtifactScript, /if \(info\.size < 1 \|\| info\.size > MAX_CHECKSUM_FILE_BYTES\)/);
   assert.match(releaseArtifactScript, /const handle = await open\(checksumFile, constants\.O_RDONLY \| \(constants\.O_NOFOLLOW \?\? 0\)\)/);
   assert.match(releaseArtifactScript, /if \(!sameFile\(info, opened\)\) throw new Error\("SHA256SUMS changed before verification\."\)/);
-  assert.match(releaseArtifactScript, /const checksumText = await readHandleText\(handle, opened\.size, "SHA256SUMS"\)/);
-  assert.match(releaseArtifactScript, /function readHandleText\(handle, size, label\)/);
+  assert.match(releaseArtifactScript, /const checksumText = await readHandleText\(handle, opened, "SHA256SUMS"\)/);
+  assert.match(releaseArtifactScript, /function readHandleText\(handle, opened, label\)/);
+  assert.match(releaseArtifactScript, /if \(!sameFile\(opened, afterRead\)\) throw new Error\(`\$\{label\} changed while being read\.`\)/);
   assert.match(releaseArtifactScript, /const buffer = Buffer\.alloc\(size\)/);
   assert.match(releaseArtifactScript, /handle\.read\(buffer, offset, size - offset, offset\)/);
   assert.match(releaseArtifactScript, /\$\{label\} changed while being read/);
@@ -1534,13 +1582,24 @@ test("server deployment policy has no wildcard origin bypass flag", () => {
   assert.doesNotMatch(configSource, /ALLOW_ANY_ORIGIN[\s\S]{0,160}return true/);
 });
 
-test("server deployment policy requires origin allowlists for non-loopback binds", () => {
+test("server deployment policy requires hardened defaults for public deployments", () => {
   const configSource = fs.readFileSync(new URL("../src/server/config.ts", import.meta.url), "utf8");
   const serverSource = fs.readFileSync(new URL("../src/server/index.ts", import.meta.url), "utf8");
   assert.match(configSource, /const production = parseProductionEnv\(envValue\(env, "NODE_ENV"\)\)/);
-  assert.match(configSource, /assertRequiredOriginPolicy\(allowedOrigins, production, host\)/);
+  assert.match(configSource, /const host = parseHost\(envValue\(env, "HOST"\)\)/);
+  assert.match(configSource, /const hardenedDeployment = hardenedDeploymentRequired\(production, host, allowedOrigins, trustedProxyHops\)/);
+  assert.match(configSource, /assertNoHardenedStaticTurnCredentials\(iceServers, hardenedDeployment\)/);
+  assert.match(configSource, /assertRequiredOriginPolicy\(allowedOrigins, hardenedDeployment\)/);
+  assert.match(configSource, /assertHardenedSecureOrigins\(allowedOrigins, hardenedDeployment, allowInsecureOrigins\)/);
+  assert.match(configSource, /browserAllowLoopbackWs: parseBrowserLoopbackWs\(env, hardenedDeployment\)/);
+  assert.match(configSource, /turnRest: parseTurnRestConfig\(env, hardenedDeployment\)/);
+  assert.match(configSource, /assertTurnRestPublicIssuanceAcknowledged\(env, hardenedDeployment\)/);
+  assert.match(configSource, /Public ALLOWED_ORIGINS entries must use https/);
   assert.match(configSource, /function parseProductionEnv/);
-  assert.match(configSource, /ALLOWED_ORIGINS is required when HOST is not loopback/);
+  assert.match(configSource, /function hardenedDeploymentRequired/);
+  assert.match(configSource, /trustedProxyHops > 0 \|\| hasPublicAllowedOrigin\(allowedOrigins\)/);
+  assert.match(configSource, /function hasPublicAllowedOrigin/);
+  assert.match(configSource, /ALLOWED_ORIGINS is required for public deployments/);
   assert.match(configSource, /function isLoopbackBindHost/);
   assert.match(configSource, /function originAllowedForRequest/);
   assert.match(configSource, /originUsesLoopbackAuthority\(origin\)/);
@@ -1553,6 +1612,12 @@ test("server deployment policy requires origin allowlists for non-loopback binds
   assert.match(serverSource, /originAllowedForRequest\(origin, allowedOrigins, requestHostAuthority\(req\)\)/);
   assert.match(readme, /When `ALLOWED_ORIGINS` is omitted, browser `Origin` traffic is accepted only when both the request `Host` and browser `Origin` are loopback/);
   assert.match(securityPolicy, /non-loopback server binds must require an explicit `ALLOWED_ORIGINS` policy even outside production mode/);
+  assert.match(securityPolicy, /non-loopback server binds must use hardened public-deployment defaults even when `NODE_ENV` is unset/);
+  assert.match(securityPolicy, /public-origin loopback reverse-proxy deployments must use hardened public-deployment defaults even when `NODE_ENV` is unset/);
+  assert.match(securityPolicy, /trusted proxy deployments must use hardened public-deployment defaults even when the local bind address is loopback/);
+  assert.match(securityPolicy, /public deployment configuration must reject reusable static TURN credentials/);
+  assert.match(readme, /Public deployments reject `http:\/\/` allowlist origins unless `ALLOW_INSECURE_ORIGINS=true`/);
+  assert.match(readme, /Static TURN credentials in `ICE_SERVERS` work for private loopback non-production testing, but public deployments reject them/);
   assert.match(securityPolicy, /omitted `ALLOWED_ORIGINS` must only allow browser `Origin` traffic when both the request `Host` and browser `Origin` are loopback/);
   assert.match(securityPolicy, /WebSocket upgrades must reject missing `Origin` headers/);
 });
@@ -1560,10 +1625,10 @@ test("server deployment policy requires origin allowlists for non-loopback binds
 test("server deployment policy requires an explicit in-memory signaling topology", () => {
   const configSource = fs.readFileSync(new URL("../src/server/config.ts", import.meta.url), "utf8");
   assert.match(configSource, /const signalingTopology = parseSignalingTopology\(envValue\(env, "SIGNALING_TOPOLOGY"\)\)/);
-  assert.match(configSource, /assertRequiredSignalingTopology\(signalingTopology, production, host\)/);
+  assert.match(configSource, /assertRequiredSignalingTopology\(signalingTopology, hardenedDeployment\)/);
   assert.match(configSource, /SIGNALING_TOPOLOGY must be single-instance or sticky-sessions/);
   assert.match(readme, /Because rendezvous state is in memory[\s\S]*SIGNALING_TOPOLOGY=single-instance[\s\S]*SIGNALING_TOPOLOGY=sticky-sessions/);
-  assert.match(securityPolicy, /production and non-loopback signaling deployments must explicitly declare `SIGNALING_TOPOLOGY=single-instance` or `SIGNALING_TOPOLOGY=sticky-sessions`/);
+  assert.match(securityPolicy, /public signaling deployments must explicitly declare `SIGNALING_TOPOLOGY=single-instance` or `SIGNALING_TOPOLOGY=sticky-sessions`/);
   assert.match(readme, /create an Actions secret named `RELEASE_PREFLIGHT_TOKEN`/);
   assert.match(readme, /fine-grained PAT or an externally rotated GitHub App installation token/);
   assert.match(readme, /do not store a raw one-hour GitHub App installation token as a static secret unless rotation updates it before each release/);
@@ -1580,7 +1645,7 @@ test("server deployment policy requires an explicit in-memory signaling topology
   assert.doesNotMatch(releaseRunbook, /git tag -s -m v0\.1\.0 v0\.1\.0 HEAD/);
   assert.match(releaseRunbook, /The checked tag creator revalidates signed `HEAD`, clean worktree state, package-version matching, freshly fetched `origin\/main` equality, local and remote tag absence, tag target, and tag signature while suppressing signer subprocess output/);
   assert.match(releaseRunbook, /configure `user\.signingkey` to the public key file or literal public key, not the private key path/);
-  assert.match(releaseRunbook, /publish npm, verify npm registry metadata, publish GHCR, provenance, checksums, SBOM, and the GitHub Release/);
+  assert.match(releaseRunbook, /verify GHCR public-read access, publish npm, verify npm registry metadata, publish GHCR, provenance, checksums, SBOM, and the GitHub Release/);
   assert.match(readme, /Use the released package after the first npm publish:[\s\S]*pnpm add -g @victorhaine\/p2p-transfer[\s\S]*ff recv[\s\S]*ff send --code-stdin --files-stdin/);
   assert.match(readme, /Run the packaged server:[\s\S]*ff-server/);
   assert.match(readme, /Production-shaped run, assuming TLS terminates at `https:\/\/files\.example\.com`/);
@@ -1609,12 +1674,15 @@ test("trusted reverse-proxy client IP handling is explicit and documented", () =
   assert.match(requestHeaderSource, /prefix <= 0/);
   assert.match(requestHeaderSource, /function forwardedIp/);
   assert.match(requestHeaderSource, /return isIP\(normalized\) === 0 \? undefined : normalized/);
-  assert.match(serverSource, /const \{ port, host, production, webRoot, allowedOrigins, browserAllowAnyWss, browserAllowLoopbackWs, trustedProxyHops, trustedProxyIps \} = serverConfig/);
+  assert.match(serverSource, /const \{ port, host, hardenedDeployment, webRoot, allowedOrigins, browserAllowAnyWss, browserAllowLoopbackWs, trustedProxyHops, trustedProxyIps \} = serverConfig/);
+  assert.match(serverSource, /if \(hardenedDeployment \|\| requestLooksPublic\(req\)\) return \{ protocolVersion: PROTOCOL_VERSION \}/);
+  assert.match(serverSource, /function requestLooksPublic\(req: http\.IncomingMessage\): boolean \{[\s\S]*requestHasForwardedHeaderEvidence\(req\)[\s\S]*!isLoopbackAuthority\(authority\)/);
   assert.match(serverSource, /requestRemoteAddress\(req, trustedProxyHops, trustedProxyIps\)/);
   assert.match(readme, /Set `TRUSTED_PROXY_HOPS=1` and `TRUSTED_PROXY_IPS='<proxy-ip-or-cidr>'`/);
   assert.match(securityPolicy, /server-side abuse buckets must derive keys from normalized IP literals only/);
   assert.match(securityPolicy, /accepted trusted-proxy `X-Forwarded-For` client hops must canonicalize IPv4-mapped IPv6 literals to the same IPv4 identity/);
   assert.match(securityPolicy, /`X-Forwarded-For` must not be trusted unless `TRUSTED_PROXY_HOPS` is explicitly set and the socket peer matches non-wildcard `TRUSTED_PROXY_IPS`/);
+  assert.match(securityPolicy, /forwarded headers are deployment evidence for fingerprint redaction only and must not be trusted for abuse-bucket identity unless `TRUSTED_PROXY_HOPS` and `TRUSTED_PROXY_IPS` are explicitly configured/);
   assert.match(readme, /`0\.0\.0\.0\/0` and `::\/0` are rejected/);
 });
 
@@ -1654,7 +1722,7 @@ test("README reports implemented release capabilities without stale MVP-gap lang
 test("interop tests run the signaling server behind an explicit origin policy", () => {
   const e2eTest = fs.readFileSync(new URL("../test/e2e/cli-transfer.test.ts", import.meta.url), "utf8");
   const browserTest = fs.readFileSync(new URL("../test/browser/browser-cli-send.test.ts", import.meta.url), "utf8");
-  assert.match(readme, /browser sender to CLI receiver, browser sender resume into a CLI receiver partial, CLI sender to browser download receiver, CLI sender to browser opaque-name download receiver, CLI sender to browser folder-only receiver, browser folder cleanup after final acknowledgement failure, native browser filesystem error redaction, multi-file browser folder receive without resume exposure, CLI sender to browser opaque-name folder receiver, ordinary folder receives without resume-key creation, valid single-file browser folder resume from a saved partial, invalid resume-key isolation, browser resume-registry metadata scrubbing, and browser folder restart after a corrupted saved partial/);
+  assert.match(readme, /browser sender to CLI receiver, browser sender resume into a CLI receiver partial, CLI sender to browser download receiver, CLI sender to browser opaque-name download receiver, CLI sender to browser folder-only receiver, browser folder cleanup after final acknowledgement failure, browser folder cleanup after terminal completion acknowledgement failure, browser folder cleanup reporting when non-resume plaintext partial removal fails, native browser filesystem error redaction, multi-file browser folder receive without resume exposure, CLI sender to browser opaque-name folder receiver, ordinary folder receives without resume-key creation, valid single-file browser folder resume from a saved partial, invalid resume-key isolation, browser resume-registry metadata scrubbing, and browser folder restart after a corrupted saved partial/);
   assert.match(browserTest, /CLI sender interoperates with browser opaque-name download receiver/);
   assert.match(browserTest, /browser sender resumes into CLI receiver partials/);
   assert.match(browserTest, /browser folder receiver redacts native filesystem error names/);

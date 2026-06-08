@@ -63,6 +63,14 @@ type FileIdentity = {
   ino: number;
 };
 
+type FileMutationSnapshot = {
+  dev: bigint;
+  ino: bigint;
+  size: bigint;
+  mtimeNs: bigint;
+  ctimeNs: bigint;
+};
+
 export async function buildManifest(paths: string[]): Promise<{ files: SendFile[]; manifest: FileManifest }> {
   const inputs = validateSendPathInputs(paths);
 
@@ -87,7 +95,9 @@ export async function buildManifest(paths: string[]): Promise<{ files: SendFile[
         const snapshot = fileSnapshot(stat);
         const name = basename(filePath);
         assertFileWithinLimits(name, snapshot.size);
-        const { sha256, chunkSha256 } = await hashFileHandle(handle, snapshot);
+        const mutationSnapshot = await fileMutationSnapshot(handle);
+        if (mutationSnapshot.size !== BigInt(snapshot.size)) throw new Error("Selected file changed while preparing the transfer.");
+        const { sha256, chunkSha256 } = await hashFileHandle(handle, snapshot, mutationSnapshot);
         totalBytes += snapshot.size;
         files.push({ id: files.length, name, size: snapshot.size, path: filePath, handle, sha256, chunkSha256 });
       } catch (error) {
@@ -274,7 +284,10 @@ async function reserveExistingResumablePart(finalPath: string, partPath: string,
     if (resumeBytes < expectedSize) resumeBytes -= resumeBytes % CHUNK_SIZE;
     if (resumeBytes < 0) resumeBytes = 0;
     if (resumeBytes !== stat.size) await handle.truncate(resumeBytes);
-    const resumeHash = await hashOpenFilePrefix(handle, resumeBytes);
+    const afterTruncateStat = await handle.stat();
+    if (!sameFileSnapshot(afterTruncateStat, { dev: stat.dev, ino: stat.ino, size: resumeBytes })) throw new Error("Resume partial changed while hashing.");
+    const expectedSnapshot = await fileMutationSnapshot(handle);
+    const resumeHash = await hashOpenFilePrefix(handle, resumeBytes, expectedSnapshot);
     return { finalPath, partPath, handle, dev: stat.dev, ino: stat.ino, dirDev: outputDirIdentity.dev, dirIno: outputDirIdentity.ino, resumeBytes, resumeHash };
   } catch (error) {
     await handle.close().catch(() => {});
@@ -379,13 +392,28 @@ async function readOrCreateResumeSecret(outputDir: string): Promise<Buffer> {
 
   const secret = randomBytes(RESUME_SECRET_BYTES);
   let handle: fs.promises.FileHandle | undefined;
+  let createdSecretIdentity: FileIdentity | undefined;
   try {
     handle = await fs.promises.open(secretPath, SAFE_SECRET_CREATE_FLAGS, 0o600);
+    const createdStat = await handle.stat();
+    createdSecretIdentity = { dev: createdStat.dev, ino: createdStat.ino };
     await handle.writeFile(secret);
-    assertResumeSecretStat(await handle.stat());
+    const verifiedStat = await handle.stat();
+    if (!sameFileIdentity(verifiedStat, createdSecretIdentity)) throw new Error("Resume secret changed while creating.");
+    assertResumeSecretStat(verifiedStat);
+    createdSecretIdentity = undefined;
     return Buffer.from(secret);
   } catch (error) {
     if (isNodeErrorCode(error, "EEXIST")) return readResumeSecret(secretPath);
+    if (createdSecretIdentity) {
+      await handle?.close().catch(() => {});
+      handle = undefined;
+      try {
+        await removePathIfIdentity(secretPath, createdSecretIdentity);
+      } catch {
+        throw new Error("Resume secret cleanup failed.");
+      }
+    }
     throw error;
   } finally {
     secret.fill(0);
@@ -396,10 +424,13 @@ async function readOrCreateResumeSecret(outputDir: string): Promise<Buffer> {
 async function readResumeSecret(secretPath: string): Promise<Buffer> {
   const handle = await fs.promises.open(secretPath, SAFE_SECRET_READ_FLAGS);
   try {
-    assertResumeSecretStat(await handle.stat());
+    const beforeReadStat = await handle.stat();
+    assertResumeSecretStat(beforeReadStat);
+    const beforeReadSnapshot = await fileMutationSnapshot(handle);
     const secret = Buffer.alloc(RESUME_SECRET_BYTES);
     const { bytesRead } = await handle.read(secret, 0, secret.byteLength, 0);
     if (bytesRead !== secret.byteLength) throw new Error("Resume secret is invalid.");
+    if (!sameFileMutationSnapshot(await fileMutationSnapshot(handle), beforeReadSnapshot)) throw new Error("Resume secret changed while reading.");
     return secret;
   } catch (error) {
     throw error;
@@ -472,7 +503,7 @@ function ownDataValue(value: unknown, key: string): unknown {
   return descriptor && "value" in descriptor ? descriptor.value : undefined;
 }
 
-async function hashFileHandle(handle: fs.promises.FileHandle, expected: FileSnapshot): Promise<{ sha256: string; chunkSha256: string[] }> {
+async function hashFileHandle(handle: fs.promises.FileHandle, expected: FileSnapshot, expectedMutation: FileMutationSnapshot): Promise<{ sha256: string; chunkSha256: string[] }> {
   const hash = createSha256();
   const chunkSha256: string[] = [];
   let bytesRead = 0;
@@ -492,6 +523,7 @@ async function hashFileHandle(handle: fs.promises.FileHandle, expected: FileSnap
   if (bytesRead !== expected.size) throw new Error("Selected file changed while preparing the transfer.");
   const afterHashStat = await handle.stat();
   if (!sameFileSnapshot(afterHashStat, expected)) throw new Error("Selected file changed while preparing the transfer.");
+  if (!sameFileMutationSnapshot(await fileMutationSnapshot(handle), expectedMutation)) throw new Error("Selected file changed while preparing the transfer.");
   return { sha256: digestHex(hash), chunkSha256 };
 }
 
@@ -519,20 +551,31 @@ function sameFileSnapshot(stat: fs.Stats, expected: FileSnapshot): boolean {
   return stat.isFile() && stat.dev === expected.dev && stat.ino === expected.ino && stat.size === expected.size;
 }
 
-async function hashOpenFilePrefix(handle: fs.promises.FileHandle, bytes: number): Promise<Sha256> {
+async function fileMutationSnapshot(handle: fs.promises.FileHandle): Promise<FileMutationSnapshot> {
+  const stat = await handle.stat({ bigint: true });
+  return { dev: stat.dev, ino: stat.ino, size: stat.size, mtimeNs: stat.mtimeNs, ctimeNs: stat.ctimeNs };
+}
+
+function sameFileMutationSnapshot(actual: FileMutationSnapshot, expected: FileMutationSnapshot): boolean {
+  return actual.dev === expected.dev && actual.ino === expected.ino && actual.size === expected.size && actual.mtimeNs === expected.mtimeNs && actual.ctimeNs === expected.ctimeNs;
+}
+
+async function hashOpenFilePrefix(handle: fs.promises.FileHandle, bytes: number, expected: FileMutationSnapshot): Promise<Sha256> {
   const hash = createSha256();
-  if (bytes === 0) return hash;
-  let bytesRead = 0;
-  for await (const chunk of handle.createReadStream({ start: 0, end: bytes - 1, autoClose: false })) {
-    const payload = fileStreamChunkBytes(chunk);
-    try {
-      if (bytesRead + payload.byteLength > bytes) throw new Error("Resume partial size changed while hashing.");
-      hash.update(payload);
-      bytesRead += payload.byteLength;
-    } finally {
-      payload.fill(0);
+  if (bytes > 0) {
+    let bytesRead = 0;
+    for await (const chunk of handle.createReadStream({ start: 0, end: bytes - 1, autoClose: false })) {
+      const payload = fileStreamChunkBytes(chunk);
+      try {
+        if (bytesRead + payload.byteLength > bytes) throw new Error("Resume partial changed while hashing.");
+        hash.update(payload);
+        bytesRead += payload.byteLength;
+      } finally {
+        payload.fill(0);
+      }
     }
+    if (bytesRead !== bytes) throw new Error("Resume partial changed while hashing.");
   }
-  if (bytesRead !== bytes) throw new Error("Resume partial size changed while hashing.");
+  if (!sameFileMutationSnapshot(await fileMutationSnapshot(handle), expected)) throw new Error("Resume partial changed while hashing.");
   return hash;
 }

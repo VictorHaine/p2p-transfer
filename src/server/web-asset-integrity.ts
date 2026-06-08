@@ -18,13 +18,13 @@ export type WebAssetManifest = {
   files: ReadonlyMap<string, WebAssetEntry>;
 };
 
-export async function loadWebAssetManifest(webRoot: string, production: boolean): Promise<WebAssetManifest | undefined> {
+export async function loadWebAssetManifest(webRoot: string, requireManifest: boolean): Promise<WebAssetManifest | undefined> {
   const manifestPath = path.join(webRoot, MANIFEST_FILE_NAME);
   let body: string;
   try {
     body = await readManifestText(manifestPath);
   } catch (error) {
-    if (isMissingManifestError(error) && !production) return undefined;
+    if (isMissingManifestError(error) && !requireManifest) return undefined;
     throw new Error("web asset manifest is invalid");
   }
   const manifest = parseWebAssetManifest(body);

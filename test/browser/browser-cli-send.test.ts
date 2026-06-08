@@ -335,6 +335,9 @@ test("CLI sender interoperates with browser folder-only receiver", browserTestOp
     await page.locator("#acceptButton").waitFor({ state: "hidden", timeout: 30_000 });
     await page.locator("#folderButton").click();
     await expectText(page.locator("#recvStatus"), "Done");
+    const recvLogText = (await page.locator("#recvLog").textContent()) ?? "";
+    assert.equal(recvLogText, "");
+    assert.doesNotMatch(recvLogText, /33|B|KiB|source|received/i);
 
     const senderResult = await senderDone;
     assert.equal(senderResult.code, 0, senderResult.stderr);
@@ -379,7 +382,7 @@ test("browser folder receiver removes published output if final acknowledgement 
     browser = await chromium.launch(chromiumLaunchOptions());
     const page = await browser.newPage();
     await installFolderPickerMock(page);
-    await installFolderFinalAckFailure(page);
+    await installFolderFinalAckFailure(page, 1);
     await page.goto(`http://127.0.0.1:${port}/`);
     await page.locator("#serverUrl").fill(serverUrl);
     await page.locator("#folderOnly").check();
@@ -402,6 +405,172 @@ test("browser folder receiver removes published output if final acknowledgement 
     assert.equal(folder.removed.some((name) => /^final-ack \(ff-[a-f0-9]{32}\)\.txt$/.test(name)), true);
     assert.equal(folder.removed.some((name) => /\.part$/.test(name)), true);
     assert.equal(folder.operations.some((operation) => /^remove:final-ack \(ff-[a-f0-9]{32}\)\.txt$/.test(operation)), true);
+  } finally {
+    terminateChild(sender);
+    await ignoreSettled(senderDone);
+    await browser?.close();
+    server.kill();
+    await removeTestTemp(tmp);
+  }
+});
+
+test("browser folder receiver removes published output if terminal completion acknowledgement fails", browserTestOptions, async () => {
+  const root = process.cwd();
+  const port = 31_000 + randomInt(1_000);
+  const origin = `http://127.0.0.1:${port}`;
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-cli-browser-terminal-ack-cleanup-"));
+  const childEnv = testChildEnv(tmp);
+  const server = spawn(process.execPath, ["dist-node/server/index.js"], {
+    cwd: root,
+    env: { ...childEnv, PORT: String(port), HOST: "127.0.0.1", NODE_ENV: "production", ALLOWED_ORIGINS: origin, SIGNALING_TOPOLOGY: "single-instance", ALLOW_INSECURE_ORIGINS: "true" }
+  });
+
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  let sender: ChildProcessWithoutNullStreams | undefined;
+  let senderDone: Promise<{ code: number | null; stdout: string; stderr: string }> | undefined;
+  try {
+    await waitForOutput(server, /listening/);
+    const source = path.join(tmp, "terminal-ack.txt");
+    await fs.writeFile(source, "terminal acknowledgement cleanup\n");
+
+    const serverUrl = `ws://127.0.0.1:${port}/v1/ws`;
+    browser = await chromium.launch(chromiumLaunchOptions());
+    const page = await browser.newPage();
+    await installFolderPickerMock(page);
+    await installFolderFinalAckFailure(page, 2);
+    await page.goto(`http://127.0.0.1:${port}/`);
+    await page.locator("#serverUrl").fill(serverUrl);
+    await page.locator("#folderOnly").check();
+    await page.locator("#receiveButton").click();
+    await page.locator("#codeBox").waitFor({ state: "visible", timeout: 30_000 });
+    const code = (await page.locator("#codeBox").textContent())?.trim();
+    assert.match(code ?? "", /^[0-9]{12}-[a-z]+-[a-z]+$/);
+
+    sender = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "send", code!, source], { cwd: root, env: childEnv });
+    senderDone = collectExit(sender);
+    await page.locator("#folderButton").waitFor({ state: "visible", timeout: 30_000 });
+    await page.locator("#folderButton").click();
+    await expectText(page.locator("#recvStatus"), "Failed");
+
+    const senderResult = await senderDone;
+    assert.notEqual(senderResult.code, 0);
+    const folder = await folderPickerSnapshot(page);
+    assert.deepEqual(folder.files, {});
+    assert.deepEqual(folder.partFiles, []);
+    assert.equal(folder.removed.some((name) => /^terminal-ack \(ff-[a-f0-9]{32}\)\.txt$/.test(name)), true);
+    assert.equal(folder.removed.some((name) => /\.part$/.test(name)), true);
+    assert.equal(folder.operations.some((operation) => /^remove:terminal-ack \(ff-[a-f0-9]{32}\)\.txt$/.test(operation)), true);
+  } finally {
+    terminateChild(sender);
+    await ignoreSettled(senderDone);
+    await browser?.close();
+    server.kill();
+    await removeTestTemp(tmp);
+  }
+});
+
+test("browser folder receiver reports cleanup failure if published output cannot be removed", browserTestOptions, async () => {
+  const root = process.cwd();
+  const port = 31_000 + randomInt(1_000);
+  const origin = `http://127.0.0.1:${port}`;
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-cli-browser-final-cleanup-failure-"));
+  const childEnv = testChildEnv(tmp);
+  const server = spawn(process.execPath, ["dist-node/server/index.js"], {
+    cwd: root,
+    env: { ...childEnv, PORT: String(port), HOST: "127.0.0.1", NODE_ENV: "production", ALLOWED_ORIGINS: origin, SIGNALING_TOPOLOGY: "single-instance", ALLOW_INSECURE_ORIGINS: "true" }
+  });
+
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  let sender: ChildProcessWithoutNullStreams | undefined;
+  let senderDone: Promise<{ code: number | null; stdout: string; stderr: string }> | undefined;
+  try {
+    await waitForOutput(server, /listening/);
+    const source = path.join(tmp, "final-cleanup.txt");
+    await fs.writeFile(source, "final cleanup failure\n");
+
+    const serverUrl = `ws://127.0.0.1:${port}/v1/ws`;
+    browser = await chromium.launch(chromiumLaunchOptions());
+    const page = await browser.newPage();
+    await installFolderPickerMock(page, { failRemovePublishedOutputs: true });
+    await installFolderFinalAckFailure(page, 1);
+    await page.goto(`http://127.0.0.1:${port}/`);
+    await page.locator("#serverUrl").fill(serverUrl);
+    await page.locator("#folderOnly").check();
+    await page.locator("#receiveButton").click();
+    await page.locator("#codeBox").waitFor({ state: "visible", timeout: 30_000 });
+    const code = (await page.locator("#codeBox").textContent())?.trim();
+    assert.match(code ?? "", /^[0-9]{12}-[a-z]+-[a-z]+$/);
+
+    sender = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "send", code!, source], { cwd: root, env: childEnv });
+    senderDone = collectExit(sender);
+    await page.locator("#folderButton").waitFor({ state: "visible", timeout: 30_000 });
+    await page.locator("#folderButton").click();
+    await expectText(page.locator("#recvStatus"), "Failed");
+    await expectText(page.locator("#recvLog"), "Browser folder cleanup incomplete.");
+
+    const senderResult = await senderDone;
+    assert.notEqual(senderResult.code, 0);
+    const folder = await folderPickerSnapshot(page);
+    assert.equal(Object.keys(folder.files).some((name) => /^final-cleanup \(ff-[a-f0-9]{32}\)\.txt$/.test(name)), true);
+    assert.deepEqual(folder.partFiles, []);
+    assert.equal(folder.operations.some((operation) => /^remove-failed:final-cleanup \(ff-[a-f0-9]{32}\)\.txt$/.test(operation)), true);
+    assert.equal(folder.operations.some((operation) => /^remove:final-cleanup \(ff-[a-f0-9]{32}\)\.txt$/.test(operation)), false);
+    assert.equal(folder.operations.some((operation) => /^remove:ff-[a-f0-9]{32}\.part$/.test(operation)), true);
+  } finally {
+    terminateChild(sender);
+    await ignoreSettled(senderDone);
+    await browser?.close();
+    server.kill();
+    await removeTestTemp(tmp);
+  }
+});
+
+test("browser folder receiver reports cleanup failure if non-resume partial cannot be removed", browserTestOptions, async () => {
+  const root = process.cwd();
+  const port = 31_000 + randomInt(1_000);
+  const origin = `http://127.0.0.1:${port}`;
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-cli-browser-part-cleanup-failure-"));
+  const childEnv = testChildEnv(tmp);
+  const server = spawn(process.execPath, ["dist-node/server/index.js"], {
+    cwd: root,
+    env: { ...childEnv, PORT: String(port), HOST: "127.0.0.1", NODE_ENV: "production", ALLOWED_ORIGINS: origin, SIGNALING_TOPOLOGY: "single-instance", ALLOW_INSECURE_ORIGINS: "true" }
+  });
+
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  let sender: ChildProcessWithoutNullStreams | undefined;
+  let senderDone: Promise<{ code: number | null; stdout: string; stderr: string }> | undefined;
+  try {
+    await waitForOutput(server, /listening/);
+    const source = path.join(tmp, "part-cleanup.txt");
+    await fs.writeFile(source, "partial cleanup failure\n");
+
+    const serverUrl = `ws://127.0.0.1:${port}/v1/ws`;
+    browser = await chromium.launch(chromiumLaunchOptions());
+    const page = await browser.newPage();
+    await installFolderPickerMock(page, { failRemovePartFiles: true });
+    await page.goto(`http://127.0.0.1:${port}/`);
+    await page.locator("#serverUrl").fill(serverUrl);
+    await page.locator("#folderOnly").check();
+    await page.locator("#receiveButton").click();
+    await page.locator("#codeBox").waitFor({ state: "visible", timeout: 30_000 });
+    const code = (await page.locator("#codeBox").textContent())?.trim();
+    assert.match(code ?? "", /^[0-9]{12}-[a-z]+-[a-z]+$/);
+
+    await page.evaluate(() => {
+      (window as unknown as { __ffTestFs: { setFailAfterPartBytes(bytes: number): void } }).__ffTestFs.setFailAfterPartBytes(1);
+    });
+    sender = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "send", code!, source], { cwd: root, env: childEnv });
+    senderDone = collectExit(sender);
+    await page.locator("#folderButton").waitFor({ state: "visible", timeout: 30_000 });
+    await page.locator("#folderButton").click();
+    await expectText(page.locator("#recvStatus"), "Failed");
+    await expectText(page.locator("#recvLog"), "Browser folder cleanup incomplete.");
+
+    const senderResult = await senderDone;
+    assert.notEqual(senderResult.code, 0);
+    const folder = await folderPickerSnapshot(page);
+    assert.equal(folder.partFiles.length, 1);
+    assert.equal(folder.operations.some((operation) => /^remove-failed:ff-[a-f0-9]{32}\.part$/.test(operation)), true);
   } finally {
     terminateChild(sender);
     await ignoreSettled(senderDone);
@@ -508,6 +677,57 @@ test("browser folder receiver redacts native filesystem error names", browserTes
     const recvLog = (await page.locator("#recvLog").textContent()) ?? "";
     assert.equal(recvLog, "Browser receive failed.");
     assert.doesNotMatch(recvLog, /private-name|\/Users|Denied|NotAllowedError/);
+  } finally {
+    terminateChild(sender);
+    await ignoreSettled(senderDone);
+    await browser?.close();
+    server.kill();
+    await removeTestTemp(tmp);
+  }
+});
+
+test("browser folder receiver reports cleanup failure if created partial cannot be removed after writable creation fails", browserTestOptions, async () => {
+  const root = process.cwd();
+  const port = 23_000 + randomInt(1_000);
+  const origin = `http://127.0.0.1:${port}`;
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-cli-browser-create-cleanup-failure-"));
+  const childEnv = testChildEnv(tmp);
+  const server = spawn(process.execPath, ["dist-node/server/index.js"], {
+    cwd: root,
+    env: { ...childEnv, PORT: String(port), HOST: "127.0.0.1", NODE_ENV: "production", ALLOWED_ORIGINS: origin, SIGNALING_TOPOLOGY: "single-instance", ALLOW_INSECURE_ORIGINS: "true" }
+  });
+
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  let sender: ChildProcessWithoutNullStreams | undefined;
+  let senderDone: Promise<{ code: number | null; stdout: string; stderr: string }> | undefined;
+  try {
+    await waitForOutput(server, /listening/);
+    const source = path.join(tmp, "create-cleanup.txt");
+    await fs.writeFile(source, "create cleanup failure\n");
+
+    const serverUrl = `ws://127.0.0.1:${port}/v1/ws`;
+    browser = await chromium.launch(chromiumLaunchOptions());
+    const page = await browser.newPage();
+    await installFolderPickerMock(page, { failCreateWritableMessage: "Denied create-cleanup.txt at /Users/example/create-cleanup.txt", failRemovePartFiles: true });
+    await page.goto(`http://127.0.0.1:${port}/`);
+    await page.locator("#serverUrl").fill(serverUrl);
+    await page.locator("#folderOnly").check();
+    await page.locator("#receiveButton").click();
+    await page.locator("#codeBox").waitFor({ state: "visible", timeout: 30_000 });
+    const code = (await page.locator("#codeBox").textContent())?.trim();
+    assert.match(code ?? "", /^[0-9]{12}-[a-z]+-[a-z]+$/);
+
+    sender = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "send", code!, source], { cwd: root, env: childEnv });
+    senderDone = collectExit(sender);
+    await page.locator("#folderButton").waitFor({ state: "visible", timeout: 30_000 });
+    await page.locator("#folderButton").click();
+    await expectText(page.locator("#recvStatus"), "Failed");
+    await expectText(page.locator("#recvLog"), "Browser folder cleanup incomplete.");
+
+    const folder = await folderPickerSnapshot(page);
+    assert.equal(folder.partFiles.length, 1);
+    assert.equal(folder.operations.some((operation) => /^remove-failed:ff-[a-f0-9]{32}\.part$/.test(operation)), true);
+    assert.doesNotMatch((await page.locator("#recvLog").textContent()) ?? "", /create-cleanup|\/Users|Denied|NotAllowedError/);
   } finally {
     terminateChild(sender);
     await ignoreSettled(senderDone);
@@ -824,6 +1044,35 @@ test("browser startup scrubs legacy resume registry metadata", browserTestOption
   }
 });
 
+test("browser startup clears oversized legacy resume registry before parsing", browserTestOptions, async () => {
+  const root = process.cwd();
+  const port = 25_000 + randomInt(1_000);
+  const origin = `http://127.0.0.1:${port}`;
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-browser-registry-large-"));
+  const childEnv = testChildEnv(tmp);
+  const server = spawn(process.execPath, ["dist-node/server/index.js"], {
+    cwd: root,
+    env: { ...childEnv, PORT: String(port), HOST: "127.0.0.1", NODE_ENV: "production", ALLOWED_ORIGINS: origin, SIGNALING_TOPOLOGY: "single-instance", ALLOW_INSECURE_ORIGINS: "true" }
+  });
+
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  try {
+    await waitForOutput(server, /listening/);
+    browser = await chromium.launch(chromiumLaunchOptions());
+    const page = await browser.newPage();
+    await page.goto(`http://127.0.0.1:${port}/healthz`);
+    await seedOversizedLegacyBrowserResumeRegistry(page);
+    await page.goto(`http://127.0.0.1:${port}/`);
+    await page.waitForFunction(() => localStorage.getItem("ff.browserReceiveResume.v1") === null, undefined, { timeout: 10_000 });
+    const registry = await browserResumeRegistryObject(page);
+    assert.equal(registry, null);
+  } finally {
+    await browser?.close();
+    server.kill();
+    await removeTestTemp(tmp);
+  }
+});
+
 test("browser clear resume records removes origin resume registry and key store", browserTestOptions, async () => {
   const root = process.cwd();
   const port = 26_000 + randomInt(1_000);
@@ -977,7 +1226,7 @@ function chromiumLaunchOptions() {
   return chromiumPath === undefined ? { headless: true } : { executablePath: chromiumPath, headless: true };
 }
 
-async function installFolderPickerMock(page: Page, options: { failCreateWritableMessage?: string } = {}): Promise<void> {
+async function installFolderPickerMock(page: Page, options: { failCreateWritableMessage?: string; failRemovePublishedOutputs?: boolean; failRemovePartFiles?: boolean } = {}): Promise<void> {
   await page.addInitScript({
     content: `
 (() => {
@@ -986,7 +1235,9 @@ async function installFolderPickerMock(page: Page, options: { failCreateWritable
     const operations = [];
     let pickerCalls = 0;
     let failAfterPartBytes = null;
-    const failCreateWritableMessage = ${JSON.stringify(options.failCreateWritableMessage ?? null)};
+	    const failCreateWritableMessage = ${JSON.stringify(options.failCreateWritableMessage ?? null)};
+	    const failRemovePublishedOutputs = ${JSON.stringify(Boolean(options.failRemovePublishedOutputs))};
+	    const failRemovePartFiles = ${JSON.stringify(Boolean(options.failRemovePartFiles))};
 
     class MockFileHandle {
       constructor(name) {
@@ -1051,8 +1302,16 @@ async function installFolderPickerMock(page: Page, options: { failCreateWritable
         }
         return new MockFileHandle(name);
       },
-      async removeEntry(name) {
-        if (!files.delete(name)) throw new DOMException("Not found", "NotFoundError");
+	      async removeEntry(name) {
+	        if (failRemovePublishedOutputs && !name.endsWith(".part")) {
+	          operations.push("remove-failed:" + name);
+	          throw new DOMException("mock remove failure", "NotAllowedError");
+	        }
+	        if (failRemovePartFiles && name.endsWith(".part")) {
+	          operations.push("remove-failed:" + name);
+	          throw new DOMException("mock remove failure", "NotAllowedError");
+	        }
+	        if (!files.delete(name)) throw new DOMException("Not found", "NotFoundError");
         operations.push("remove:" + name);
         removed.push(name);
       }
@@ -1130,19 +1389,23 @@ async function waitForReceiveSecretCleanup(page: Page): Promise<void> {
   );
 }
 
-async function installFolderFinalAckFailure(page: Page): Promise<void> {
+async function installFolderFinalAckFailure(page: Page, failAfterPublishedSends: number): Promise<void> {
   await page.addInitScript({
     content: `
 (() => {
     const originalSend = RTCDataChannel.prototype.send;
     let failed = false;
+    let publishedSends = 0;
     RTCDataChannel.prototype.send = function(data) {
       const testFs = window.__ffTestFs;
       const snapshot = typeof testFs?.snapshot === "function" ? testFs.snapshot() : undefined;
       const names = snapshot ? Object.keys(snapshot.files) : [];
       const hasPublishedOutput = names.some((name) => !name.endsWith(".part"));
       const partWasRemoved = Boolean(snapshot?.removed?.some((name) => name.endsWith(".part")));
-      if (!failed && hasPublishedOutput && partWasRemoved && snapshot.partFiles.length === 0) {
+      if (hasPublishedOutput && partWasRemoved && snapshot.partFiles.length === 0) {
+        publishedSends += 1;
+      }
+      if (!failed && publishedSends >= ${JSON.stringify(failAfterPublishedSends)}) {
         failed = true;
         throw new Error("mock control send failure after publish");
       }
@@ -1405,6 +1668,12 @@ function seedLegacyBrowserResumeRegistry(page: Page): Promise<void> {
         }
       })
     );
+  });
+}
+
+function seedOversizedLegacyBrowserResumeRegistry(page: Page): Promise<void> {
+  return page.evaluate(() => {
+    localStorage.setItem("ff.browserReceiveResume.v1", `{"${"x".repeat(70 * 1024)}":{}}`);
   });
 }
 

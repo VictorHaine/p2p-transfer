@@ -489,10 +489,123 @@ test("CLI receiver reports partial cleanup failure without path evidence", { ski
   const warning = JSON.parse(stderr[0] ?? "{}");
   assert.deepEqual(warning, {
     event: "warning",
-    warning: "partial_cleanup_failed",
-    message: "Warning: transfer failed and a partial file could not be cleaned up. Inspect the receive output directory manually."
+    warning: "receive_cleanup_failed",
+    message: "Warning: transfer failed and a received file or partial file could not be cleaned up. Inspect the receive output directory manually."
   });
   assert.doesNotMatch(stderr.join("\n"), /secret-local-name|ff-recv-cleanup-warning|Unexpected chunk sequence|EISDIR|ENOTEMPTY/);
+});
+
+test("CLI receiver reports partial cleanup failure even in quiet modes", { skip: process.platform === "win32" ? "POSIX permissions required." : false }, async () => {
+  for (const json of [true, false]) {
+    const { senderKeys, receiverKeys } = await makeKeys(`cleanup-error-quiet-${json ? "json" : "human"}`);
+    const outDir = await fs.mkdtemp(path.join(os.tmpdir(), `ff-recv-cleanup-quiet-${json ? "json" : "human"}-`));
+    const control = fakeChannel();
+    const bulk = fakeChannel();
+    const stderr: string[] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => {
+      stderr.push(args.map((arg) => String(arg)).join(" "));
+    };
+    try {
+      const receive = receiveFiles(control, bulk, receiverKeys, outDir, json, true);
+      await control.emit(await seal(senderKeys, { t: "manifest", files: [{ id: 0, name: "quiet-secret-name.txt", size: 1 }], totalBytes: 1 }));
+      await control.emit(await seal(senderKeys, { t: "file-begin", id: 0, name: "quiet-secret-name.txt", size: 1 }));
+      await findSingleCliPartPath(outDir, "quiet-secret-name.txt");
+      await fs.chmod(outDir, 0o500);
+      await bulk.emit(encodeChunk(0, 1, await sealBulk(senderKeys, 0, 1, new Uint8Array([1]))));
+
+      await assert.rejects(receive, /Unexpected chunk sequence/);
+    } finally {
+      console.error = originalError;
+      await fs.chmod(outDir, 0o700).catch(() => {});
+    }
+
+    assert.equal(stderr.length, 1);
+    if (json) {
+      assert.deepEqual(JSON.parse(stderr[0] ?? "{}"), {
+        event: "warning",
+        warning: "receive_cleanup_failed",
+        message: "Warning: transfer failed and a received file or partial file could not be cleaned up. Inspect the receive output directory manually."
+      });
+    } else {
+      assert.equal(stderr[0], "Warning: transfer failed and a received file or partial file could not be cleaned up. Inspect the receive output directory manually.");
+    }
+    assert.doesNotMatch(stderr.join("\n"), /quiet-secret-name|ff-recv-cleanup-quiet|Unexpected chunk sequence|EISDIR|ENOTEMPTY/);
+  }
+});
+
+test("CLI receiver removes published output if final acknowledgement fails", async () => {
+  const { senderKeys, receiverKeys } = await makeKeys("published-output-ack-failure");
+  const outDir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-recv-published-ack-failure-"));
+  const control = fakeChannel();
+  const bulk = fakeChannel();
+  const originalSend = control.send.bind(control);
+  let sends = 0;
+  control.send = ((data: unknown) => {
+    sends += 1;
+    if (sends > 2) throw new Error("mock final acknowledgement failure");
+    (originalSend as (value: unknown) => void)(data);
+  }) as RTCDataChannel["send"];
+  const receive = receiveFiles(control, bulk, receiverKeys, outDir, false, true);
+  const payload = new TextEncoder().encode("published output");
+  const hash = createSha256();
+  hash.update(payload);
+
+  await control.emit(await seal(senderKeys, { t: "manifest", files: [{ id: 0, name: "post-publish.txt", size: payload.byteLength }], totalBytes: payload.byteLength }));
+  await control.emit(await seal(senderKeys, { t: "file-begin", id: 0, name: "post-publish.txt", size: payload.byteLength }));
+  await bulk.emit(encodeChunk(0, 0, await sealBulk(senderKeys, 0, 0, payload)));
+  await control.emit(await seal(senderKeys, { t: "file-end", id: 0, sha256: digestHex(hash) }));
+  assert.equal(await fs.readFile(path.join(outDir, "post-publish.txt"), "utf8"), "published output");
+  await control.emit(await seal(senderKeys, { t: "all-done" }));
+
+  await assert.rejects(receive, /mock final acknowledgement failure/);
+  await assert.rejects(() => fs.stat(path.join(outDir, "post-publish.txt")), { code: "ENOENT" });
+  assert.deepEqual(await findCliPartPaths(outDir, "post-publish.txt"), []);
+});
+
+test("CLI receiver reports published output cleanup failure without path evidence", { skip: process.platform === "win32" ? "POSIX permissions required." : false }, async () => {
+  const { senderKeys, receiverKeys } = await makeKeys("published-output-cleanup-failure");
+  const outDir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-recv-published-cleanup-failure-"));
+  const control = fakeChannel();
+  const bulk = fakeChannel();
+  const originalSend = control.send.bind(control);
+  let sends = 0;
+  control.send = ((data: unknown) => {
+    sends += 1;
+    if (sends > 2) throw new Error("mock final acknowledgement failure");
+    (originalSend as (value: unknown) => void)(data);
+  }) as RTCDataChannel["send"];
+  const stderr: string[] = [];
+  const originalError = console.error;
+  console.error = (...args: unknown[]) => {
+    stderr.push(args.map((arg) => String(arg)).join(" "));
+  };
+  try {
+    const receive = receiveFiles(control, bulk, receiverKeys, outDir, true, true);
+    const payload = new TextEncoder().encode("published cleanup failure");
+    const hash = createSha256();
+    hash.update(payload);
+
+    await control.emit(await seal(senderKeys, { t: "manifest", files: [{ id: 0, name: "published-secret-name.txt", size: payload.byteLength }], totalBytes: payload.byteLength }));
+    await control.emit(await seal(senderKeys, { t: "file-begin", id: 0, name: "published-secret-name.txt", size: payload.byteLength }));
+    await bulk.emit(encodeChunk(0, 0, await sealBulk(senderKeys, 0, 0, payload)));
+    await control.emit(await seal(senderKeys, { t: "file-end", id: 0, sha256: digestHex(hash) }));
+    await fs.chmod(outDir, 0o500);
+    await control.emit(await seal(senderKeys, { t: "all-done" }));
+
+    await assert.rejects(receive, /mock final acknowledgement failure/);
+  } finally {
+    console.error = originalError;
+    await fs.chmod(outDir, 0o700).catch(() => {});
+  }
+
+  assert.equal(stderr.length, 1);
+  assert.deepEqual(JSON.parse(stderr[0] ?? "{}"), {
+    event: "warning",
+    warning: "receive_cleanup_failed",
+    message: "Warning: transfer failed and a received file or partial file could not be cleaned up. Inspect the receive output directory manually."
+  });
+  assert.doesNotMatch(stderr.join("\n"), /published-secret-name|ff-recv-published-cleanup-failure|mock final acknowledgement failure|EACCES|EPERM|ENOTEMPTY/);
 });
 
 test("CLI receiver cleanup does not remove a replaced partial pathname", { skip: process.platform === "win32" ? "Windows does not allow replacing an open partial file path." : false }, async () => {

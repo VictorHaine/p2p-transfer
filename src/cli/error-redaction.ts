@@ -1,4 +1,5 @@
-const LOCAL_PATH_START = "(?:file:\\/\\/\\/|[A-Za-z]:[\\\\/]|\\/|\\\\\\\\\\?\\\\[A-Za-z]:[\\\\/]|\\\\\\\\[^\\\\\\/\\s'\"\\x60<>]+\\\\[^\\\\\\/\\s'\"\\x60<>]+[\\\\/]?)";
+const FILE_URL_START = "file:\\/\\/(?:\\/|localhost\\/|[^\\/\\s'\"\\x60<>]+\\/)";
+const LOCAL_PATH_START = `(?:${FILE_URL_START}|[A-Za-z]:[\\\\/]|\\/|\\\\\\\\\\?\\\\[A-Za-z]:[\\\\/]|\\\\\\\\[^\\\\\\/\\s'\"\\x60<>]+\\\\[^\\\\\\/\\s'\"\\x60<>]+[\\\\/]?)`;
 const QUOTED_SINGLE_ABSOLUTE_PATH = new RegExp(`'(${LOCAL_PATH_START}[^']*)'`, "g");
 const QUOTED_DOUBLE_ABSOLUTE_PATH = new RegExp(`"(${LOCAL_PATH_START}[^"]*)"`, "g");
 const UNQUOTED_ABSOLUTE_PATH = new RegExp(`(^|[\\s([{;,=]|:\\s)(${LOCAL_PATH_START}[^\\s'"\\x60<>]*)`, "g");

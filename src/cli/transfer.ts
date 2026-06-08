@@ -351,6 +351,7 @@ type ReceiveState = {
   partIno: number;
   dirDev: number;
   dirIno: number;
+  publishedIdentity: FileIdentity | undefined;
   stream: fs.WriteStream;
   hash: Sha256;
   bytes: number;
@@ -531,6 +532,7 @@ export async function receiveFiles(
           partIno: ino,
           dirDev,
           dirIno,
+          publishedIdentity: undefined,
           stream: handle.createWriteStream({ start: resumeBytes, autoClose: false }),
           hash: resumeHash ?? createSha256(),
           bytes: resumeBytes,
@@ -622,7 +624,13 @@ export async function receiveFiles(
     if (!failed) printProgress("received", "complete", progress, true);
     let cleanupError: unknown;
     for (const state of files.values()) {
-      if (!state.done) {
+      if (state.done && state.publishedIdentity && doneError && !completed) {
+        try {
+          await removePublishedFile(state);
+        } catch (error) {
+          cleanupError ??= error;
+        }
+      } else if (!state.done) {
         try {
           await discardPartialFile(state, resume);
         } catch (error) {
@@ -688,27 +696,28 @@ async function maybeFinalize(state: ReceiveState, control: RTCDataChannel, keys:
     const fileOk = await sealControl(keys, { t: "file-ok", id: state.id });
     throwIfReceiveStopped();
     const publishedIdentity = await publishPartFile(state.partPath, state.finalPath, { dev: state.partDev, ino: state.partIno }, state.size, { dev: state.dirDev, ino: state.dirIno }, { privateOutputDir });
+    state.publishedIdentity = publishedIdentity;
     try {
       throwIfReceiveStopped();
     } catch (error) {
-      await removePathIfIdentity(state.finalPath, publishedIdentity);
+      await cleanupPublishedAfterFailure(state);
       throw error;
     }
     const published = await digestFilePath(state.finalPath, publishedIdentity, state.size);
     try {
       throwIfReceiveStopped();
     } catch (error) {
-      await removePathIfIdentity(state.finalPath, publishedIdentity);
+      await cleanupPublishedAfterFailure(state);
       throw error;
     }
     if (published !== state.expectedSha256) {
-      await removePathIfIdentity(state.finalPath, publishedIdentity);
+      await cleanupPublishedAfterFailure(state);
       throw new Error(`Published file hash mismatch for ${state.name}.`);
     }
     try {
       throwIfReceiveStopped();
     } catch (error) {
-      await removePathIfIdentity(state.finalPath, publishedIdentity);
+      await cleanupPublishedAfterFailure(state);
       throw error;
     }
     control.send(fileOk);
@@ -720,9 +729,24 @@ async function maybeFinalize(state: ReceiveState, control: RTCDataChannel, keys:
 }
 
 async function discardPartialFile(state: ReceiveState, keepPartial = false): Promise<void> {
+  await removePublishedFile(state);
   await closeReceiveStream(state.stream);
   if (keepPartial) return;
   await removePathIfIdentity(state.partPath, { dev: state.partDev, ino: state.partIno });
+}
+
+async function cleanupPublishedAfterFailure(state: ReceiveState): Promise<void> {
+  try {
+    await removePublishedFile(state);
+  } catch {
+    // Preserve the transfer failure. Final cleanup reports generic residual plaintext cleanup failures.
+  }
+}
+
+async function removePublishedFile(state: ReceiveState): Promise<void> {
+  if (!state.publishedIdentity) return;
+  await removePathIfIdentity(state.finalPath, state.publishedIdentity);
+  state.publishedIdentity = undefined;
 }
 
 async function closeReceiveStream(stream: fs.WriteStream): Promise<void> {
@@ -1158,13 +1182,12 @@ function printProgress(action: string, label: string, progress: Progress, force 
   }
 }
 
-const PARTIAL_CLEANUP_WARNING = "Warning: transfer failed and a partial file could not be cleaned up. Inspect the receive output directory manually.";
+const RECEIVE_CLEANUP_WARNING = "Warning: transfer failed and a received file or partial file could not be cleaned up. Inspect the receive output directory manually.";
 
 function printCleanupWarning(progress: Progress): void {
-  if (progress.quiet) return;
-  const message = sanitizeDisplayText(PARTIAL_CLEANUP_WARNING);
+  const message = sanitizeDisplayText(RECEIVE_CLEANUP_WARNING);
   if (progress.json) {
-    console.error(JSON.stringify(sanitizeStructuredOutput({ event: "warning", warning: "partial_cleanup_failed", message })));
+    console.error(JSON.stringify(sanitizeStructuredOutput({ event: "warning", warning: "receive_cleanup_failed", message })));
     return;
   }
   console.error(message);

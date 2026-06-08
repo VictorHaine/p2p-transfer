@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import http from "node:http";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -35,6 +36,132 @@ test("built production server version endpoint does not expose exact package fin
     const response = await fetch(`http://127.0.0.1:${port}/v1/version`, { headers: { Origin: origin } });
     assert.equal(response.status, 200);
     const bodyText = await response.text();
+    const body = JSON.parse(bodyText) as Record<string, unknown>;
+    assert.deepEqual(body, { protocolVersion: PROTOCOL_VERSION });
+    assert.equal(bodyText.includes(PACKAGE_NAME), false);
+    assert.equal(bodyText.includes(PACKAGE_VERSION), false);
+  } finally {
+    server.kill();
+    await serverOutput.done;
+    await removeTestTemp(tmp);
+  }
+});
+
+test("built non-loopback server version endpoint defaults to hardened fingerprint redaction", async () => {
+  const root = process.cwd();
+  const port = 27_000 + randomInt(1_000);
+  const origin = "https://files.example";
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-server-public-version-"));
+  const server = spawn(process.execPath, ["dist-node/server/index.js"], {
+    cwd: root,
+    env: {
+      ...testChildEnv(tmp),
+      PORT: String(port),
+      HOST: "0.0.0.0",
+      ALLOWED_ORIGINS: origin,
+      SIGNALING_TOPOLOGY: "single-instance"
+    }
+  });
+  const serverOutput = collectOutput(server);
+
+  try {
+    await waitForOutput(server, /listening/);
+    const response = await fetch(`http://127.0.0.1:${port}/v1/version`, { headers: { Origin: origin } });
+    assert.equal(response.status, 200);
+    const bodyText = await response.text();
+    const body = JSON.parse(bodyText) as Record<string, unknown>;
+    assert.deepEqual(body, { protocolVersion: PROTOCOL_VERSION });
+    assert.equal(bodyText.includes(PACKAGE_NAME), false);
+    assert.equal(bodyText.includes(PACKAGE_VERSION), false);
+  } finally {
+    server.kill();
+    await serverOutput.done;
+    await removeTestTemp(tmp);
+  }
+});
+
+test("built loopback server with public origin defaults to hardened fingerprint redaction", async () => {
+  const root = process.cwd();
+  const port = 27_000 + randomInt(1_000);
+  const origin = "https://files.example";
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-server-proxy-version-"));
+  const server = spawn(process.execPath, ["dist-node/server/index.js"], {
+    cwd: root,
+    env: {
+      ...testChildEnv(tmp),
+      PORT: String(port),
+      HOST: "127.0.0.1",
+      ALLOWED_ORIGINS: origin,
+      SIGNALING_TOPOLOGY: "single-instance"
+    }
+  });
+  const serverOutput = collectOutput(server);
+
+  try {
+    await waitForOutput(server, /listening/);
+    const response = await fetch(`http://127.0.0.1:${port}/v1/version`, { headers: { Host: "files.example", Origin: origin } });
+    assert.equal(response.status, 200);
+    const bodyText = await response.text();
+    const body = JSON.parse(bodyText) as Record<string, unknown>;
+    assert.deepEqual(body, { protocolVersion: PROTOCOL_VERSION });
+    assert.equal(bodyText.includes(PACKAGE_NAME), false);
+    assert.equal(bodyText.includes(PACKAGE_VERSION), false);
+  } finally {
+    server.kill();
+    await serverOutput.done;
+    await removeTestTemp(tmp);
+  }
+});
+
+test("built default loopback server redacts version fingerprints for public Host requests", async () => {
+  const root = process.cwd();
+  const port = 27_000 + randomInt(1_000);
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-server-default-public-host-version-"));
+  const server = spawn(process.execPath, ["dist-node/server/index.js"], {
+    cwd: root,
+    env: {
+      ...testChildEnv(tmp),
+      PORT: String(port),
+      HOST: "127.0.0.1"
+    }
+  });
+  const serverOutput = collectOutput(server);
+
+  try {
+    await waitForOutput(server, /listening/);
+    const response = await httpGetTextWithHost(port, "/v1/version", "files.example");
+    assert.equal(response.status, 200);
+    const bodyText = response.body;
+    const body = JSON.parse(bodyText) as Record<string, unknown>;
+    assert.deepEqual(body, { protocolVersion: PROTOCOL_VERSION });
+    assert.equal(bodyText.includes(PACKAGE_NAME), false);
+    assert.equal(bodyText.includes(PACKAGE_VERSION), false);
+  } finally {
+    server.kill();
+    await serverOutput.done;
+    await removeTestTemp(tmp);
+  }
+});
+
+test("built default loopback server redacts version fingerprints for forwarded public proxy evidence", async () => {
+  const root = process.cwd();
+  const port = 27_000 + randomInt(1_000);
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-server-default-forwarded-version-"));
+  const server = spawn(process.execPath, ["dist-node/server/index.js"], {
+    cwd: root,
+    env: {
+      ...testChildEnv(tmp),
+      PORT: String(port),
+      HOST: "127.0.0.1"
+    }
+  });
+  const serverOutput = collectOutput(server);
+
+  try {
+    await waitForOutput(server, /listening/);
+    const response = await httpGetTextWithHost(port, "/v1/version", `127.0.0.1:${port}`, { "X-Forwarded-Host": "files.example" });
+    assert.equal(response.status, 200);
+    const bodyText = response.body;
     const body = JSON.parse(bodyText) as Record<string, unknown>;
     assert.deepEqual(body, { protocolVersion: PROTOCOL_VERSION });
     assert.equal(bodyText.includes(PACKAGE_NAME), false);
@@ -831,6 +958,20 @@ function requiredEnv(name: string): string {
     throw new Error(`Test environment is missing safe ${name}.`);
   }
   return descriptor.value;
+}
+
+function httpGetTextWithHost(port: number, pathName: string, host: string, headers: Record<string, string> = {}): Promise<{ status: number | undefined; body: string }> {
+  return new Promise((resolve, reject) => {
+    const req = http.request({ host: "127.0.0.1", port, path: pathName, method: "GET", headers: { Host: host, ...headers } }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (chunk: unknown) => {
+        if (Buffer.isBuffer(chunk)) chunks.push(chunk);
+      });
+      res.on("end", () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString("utf8") }));
+    });
+    req.on("error", reject);
+    req.end();
+  });
 }
 
 function collectOutput(child: ChildProcessWithoutNullStreams): { done: Promise<void>; text: () => string } {

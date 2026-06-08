@@ -63,9 +63,13 @@ test("HTTP probe runtime failures do not echo raw probe URLs or stack traces", a
 
 test("HTTP probe error renderer suppresses URL and path shaped runtime evidence", () => {
   assert.equal(probeErrorMessage(new Error("connect failed for http://127.0.0.1:8787/secret-token?api_key=hidden")), "HTTP probe failed with an internal error.");
+  assert.equal(probeErrorMessage(new Error("connect failed for wss://files.example/v1/ws")), "HTTP probe failed with an internal error.");
+  assert.equal(probeErrorMessage(new Error("registry failed with token-that-must-not-be-printed")), "HTTP probe failed with an internal error.");
   assert.equal(probeErrorMessage(new Error("open /private/tmp/p2p-transfer/secret failed")), "HTTP probe failed with an internal error.");
   assert.equal(probeErrorMessage(new Error("open C:\\Users\\victor\\secret failed")), "HTTP probe failed with an internal error.");
   assert.equal(probeErrorMessage(new Error("open file:///Users/victor/secret failed")), "HTTP probe failed with an internal error.");
+  assert.equal(probeErrorMessage(new Error("open file://localhost/Users/victor/secret failed")), "HTTP probe failed with an internal error.");
+  assert.equal(probeErrorMessage(new Error("open file://server/share/secret failed")), "HTTP probe failed with an internal error.");
   assert.equal(probeErrorMessage(new Error("open \\\\server\\share\\secret failed")), "HTTP probe failed with an internal error.");
   assert.equal(probeErrorMessage(new Error("expected HTTP 200 from probe target, got 500")), "expected HTTP 200 from probe target, got 500");
 });

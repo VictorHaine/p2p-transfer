@@ -57,6 +57,10 @@ export function requestRemoteAddress(req: http.IncomingMessage, trustedProxyHops
   return requestForwardedClientAddress(req, hops) ?? socketAddress;
 }
 
+export function requestHasForwardedHeaderEvidence(req: http.IncomingMessage): boolean {
+  return rawHeaderValue(req, "forwarded") !== undefined || rawHeaderValue(req, "x-forwarded-for") !== undefined || rawHeaderValue(req, "x-forwarded-host") !== undefined || rawHeaderValue(req, "x-forwarded-proto") !== undefined;
+}
+
 function requestSocketRemoteAddress(req: http.IncomingMessage): string {
   const socket = ownDataValue(req, "socket");
   if (!socket || typeof socket !== "object" || Array.isArray(socket)) return "unknown";

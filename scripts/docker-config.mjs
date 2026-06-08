@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
-import { chmodSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 
 const MAX_DOCKER_CONFIG_BYTES = 64 * 1024;
 const MAX_DOCKER_CONTEXT_BYTES = 32 * 1024;
 const DOCKER_CONTEXT_NAME_RE = /^[A-Za-z0-9_.-]{1,128}$/u;
+const DOCKER_CLI_PLUGIN_NAME_RE = /^docker-[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/u;
 
 export function createIsolatedDockerConfig(prefix = "p2p-transfer-docker-", sourceConfigRoot = defaultDockerConfigRoot()) {
   const dir = mkdtempSync(path.join(tmpdir(), prefix));
@@ -15,6 +16,29 @@ export function createIsolatedDockerConfig(prefix = "p2p-transfer-docker-", sour
   writeFileSync(path.join(dir, "config.json"), JSON.stringify(config), { mode: 0o600 });
   if (localContext) writeDockerContext(dir, localContext);
   return dir;
+}
+
+export function assertNoUserDockerCliPlugins(sourceConfigRoot = defaultDockerConfigRoot()) {
+  const pluginDir = path.join(sourceConfigRoot, "cli-plugins");
+  let entries;
+  try {
+    entries = readdirSync(pluginDir, { withFileTypes: true });
+  } catch (error) {
+    if (isMissingDirectoryError(error)) return;
+    throw new Error("Docker CLI plugin directory could not be safely inspected for release validation.");
+  }
+  for (const entry of entries) {
+    if (!DOCKER_CLI_PLUGIN_NAME_RE.test(entry.name)) continue;
+    let info;
+    try {
+      info = lstatSync(path.join(pluginDir, entry.name));
+    } catch {
+      throw new Error("Docker CLI plugin directory changed during release validation.");
+    }
+    if (info.isFile() || info.isSymbolicLink()) {
+      throw new Error("User Docker CLI plugins must be disabled before Docker release validation because Docker can execute plugin metadata outside isolated DOCKER_CONFIG.");
+    }
+  }
 }
 
 function defaultDockerConfigRoot() {
@@ -103,6 +127,10 @@ function readJsonFile(file, maxBytes) {
   } finally {
     if (fd !== undefined) closeSync(fd);
   }
+}
+
+function isMissingDirectoryError(error) {
+  return error && typeof error === "object" && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR");
 }
 
 function sameFile(left, right) {

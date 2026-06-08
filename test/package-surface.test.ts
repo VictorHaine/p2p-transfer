@@ -33,6 +33,13 @@ type PackageJson = {
 };
 
 const packageJson = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")) as PackageJson;
+const allScriptSources = new Map(
+  fs
+    .readdirSync(new URL("../scripts/", import.meta.url))
+    .filter((name) => name.endsWith(".mjs"))
+    .map((name) => [name, fs.readFileSync(new URL(`../scripts/${name}`, import.meta.url), "utf8")])
+);
+const allRuntimeSources = new Map(readSourceFiles(new URL("../src/", import.meta.url)));
 const pnpmWorkspace = fs.readFileSync(new URL("../pnpm-workspace.yaml", import.meta.url), "utf8");
 const pnpmLock = fs.readFileSync(new URL("../pnpm-lock.yaml", import.meta.url), "utf8");
 const packedSmokeScript = fs.readFileSync(new URL("../scripts/smoke-packed.mjs", import.meta.url), "utf8");
@@ -43,6 +50,7 @@ const dockerConfigScript = fs.readFileSync(new URL("../scripts/docker-config.mjs
 const nativeSmokeScript = fs.readFileSync(new URL("../scripts/smoke-native.mjs", import.meta.url), "utf8");
 const installStateScript = fs.readFileSync(new URL("../scripts/check-install-state.mjs", import.meta.url), "utf8");
 const cryptoDependencyCheckScript = fs.readFileSync(new URL("../scripts/check-crypto-dependencies.mjs", import.meta.url), "utf8");
+const buildToolchainDependencyCheckScript = fs.readFileSync(new URL("../scripts/check-build-toolchain-dependencies.mjs", import.meta.url), "utf8");
 const checkedPnpmScript = fs.readFileSync(new URL("../scripts/prepare-checked-pnpm.mjs", import.meta.url), "utf8");
 const cliCryptoDependenciesSource = fs.readFileSync(new URL("../src/cli/crypto-dependencies.ts", import.meta.url), "utf8");
 const cliDependencyMetadataSource = fs.readFileSync(new URL("../src/cli/dependency-metadata.ts", import.meta.url), "utf8");
@@ -62,6 +70,7 @@ const releaseNotesScript = fs.readFileSync(new URL("../scripts/write-release-not
 const liveReleaseRefScript = fs.readFileSync(new URL("../scripts/verify-live-release-ref.mjs", import.meta.url), "utf8");
 const fileStabilityCheckedScripts = [
   installStateScript,
+  buildToolchainDependencyCheckScript,
   bootstrapNpmScript,
   releaseReadinessScript,
   packedSmokeScript,
@@ -265,6 +274,36 @@ const reviewedLightningCssOptionalPackages = [
   "lightningcss-win32-x64-msvc"
 ];
 
+test("scripts use descriptor-read error messages for top-level reporting", () => {
+  for (const [name, source] of allScriptSources) {
+    assert.doesNotMatch(source, /error\.(?:message|name|stack)|String\(error\)|console\.error\(error\)/, `${name} must not read or render raw error objects`);
+  }
+});
+
+test("release scripts classify native DOMException aborts without raw error-name reads", () => {
+  const abortClassifiers = new Map([
+    ["bootstrap-npm-package", bootstrapNpmScript],
+    ["check-release-readiness", releaseReadinessScript],
+    ["configure-github-release-controls", fs.readFileSync(new URL("../scripts/configure-github-release-controls.mjs", import.meta.url), "utf8")],
+    ["create-github-release", githubReleaseScript],
+    ["publish-release-artifact", releasePublishScript],
+    ["verify-live-release-ref", liveReleaseRefScript]
+  ]);
+
+  for (const [name, source] of abortClassifiers) {
+    assert.match(source, /function domExceptionName\(error\)/, `${name} must handle native DOMException aborts`);
+    assert.match(source, /Object\.getOwnPropertyDescriptor\(DOMException\.prototype, "name"\)/, `${name} must use the native DOMException name getter`);
+    assert.match(source, /descriptor\.get\.call\(error\)/, `${name} must invoke the native getter explicitly`);
+    assert.doesNotMatch(source, /error\.name/, `${name} must not use raw error.name`);
+  }
+});
+
+test("runtime sources use descriptor-read error messages for reporting and classification", () => {
+  for (const [name, source] of allRuntimeSources) {
+    assert.doesNotMatch(source, /error\.(?:message|name|stack)|String\(error\)|console\.error\(error\)/, `${name} must not read or render raw error objects`);
+  }
+});
+
 test("npm package surface is restricted to built artifacts and required docs", () => {
   assert.deepEqual(packageJson.files, [
     "conformance",
@@ -291,6 +330,20 @@ test("npm package surface is restricted to built artifacts and required docs", (
     assert.equal(packageJson.files?.some((entry) => normalized === entry || normalized.startsWith(`${entry}/`)), true, `${binPath} must be included by package files`);
   }
 });
+
+function readSourceFiles(root: URL, prefix = ""): [string, string][] {
+  const files: [string, string][] = [];
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    const name = prefix ? `${prefix}/${entry.name}` : entry.name;
+    const url = new URL(`${entry.name}${entry.isDirectory() ? "/" : ""}`, root);
+    if (entry.isDirectory()) {
+      files.push(...readSourceFiles(url, name));
+    } else if (entry.isFile() && entry.name.endsWith(".ts")) {
+      files.push([name, fs.readFileSync(url, "utf8")]);
+    }
+  }
+  return files;
+}
 
 test("published bin entrypoints are executable Node CLIs", () => {
   assert.match(securityPolicy, /published CLI bin entrypoints must keep a Node shebang and executable mode/);
@@ -335,12 +388,13 @@ test("package publishing config keeps provenance and reproducible dependency pin
     "pnpm@11.1.3+sha512.c85357fe17ca12dd23dd7071822666dfd7e3cb76fe214e3370b5ea2fb34f2a231185509b63e717f3cd0acb38dd3f8d82bcd5e8172400ae678b70ea4fbed0896d"
   );
   assert.deepEqual(packageJson.publishConfig, { access: "public", provenance: true });
-  assert.match(packageJson.scripts?.build ?? "", /^node --import tsx scripts\/check-crypto-dependencies\.mjs && /);
+  assert.match(packageJson.scripts?.build ?? "", /^node scripts\/check-build-toolchain-dependencies\.mjs && node --import tsx scripts\/check-crypto-dependencies\.mjs && /);
   assert.equal(packageJson.scripts?.prepack, "pnpm build");
   assert.equal(packageJson.scripts?.prepublishOnly, "node scripts/guard-direct-publish.mjs");
   assert.equal(packageJson.scripts?.check, "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.test.json");
   assert.equal(packageJson.scripts?.["security:audit"], "pnpm audit --audit-level low");
   assert.equal(packageJson.scripts?.["security:signatures"], "pnpm audit signatures");
+  assert.equal(packageJson.scripts?.["security:build-toolchain"], "node scripts/check-build-toolchain-dependencies.mjs");
   assert.equal(packageJson.scripts?.["smoke:native"], "node scripts/smoke-native.mjs");
   assert.equal(packageJson.scripts?.["smoke:packed"], "node scripts/smoke-packed.mjs");
   assert.equal(packageJson.scripts?.["smoke:release-artifact"], "node scripts/smoke-release-artifact.mjs");
@@ -354,7 +408,11 @@ test("package publishing config keeps provenance and reproducible dependency pin
   assert.match(directPublishGuardScript, /Use the tag-only GitHub release workflow/);
   assert.match(directPublishGuardScript, /realpathSync\(process\.argv\[1\]\) === realpathSync\(fileURLToPath\(import\.meta\.url\)\)/);
   assert.match(directPublishGuardScript, /function assertNoArgs\(args\)/);
+  assert.match(directPublishGuardScript, /function safeErrorMessage\(error\)[\s\S]*const message = errorMessage\(error\)[\s\S]*MAX_ERROR_MESSAGE_CHARS[\s\S]*containsSensitiveErrorText\(message\)[\s\S]*return "direct publish guard failed\."/);
+  assert.match(directPublishGuardScript, /function errorMessage\(error\)[\s\S]*Object\.getOwnPropertyDescriptor\(error, "message"\)[\s\S]*"value" in descriptor/);
+  assert.doesNotMatch(directPublishGuardScript, /error\.message/);
   assert.doesNotMatch(directPublishGuardScript, /process\.exit\(/);
+  assert.match(securityPolicy, /direct workspace `pnpm publish`\/`npm publish` must fail closed through `prepublishOnly`, and that guard must use a symlink-safe entrypoint check, reject arguments without echoing them, use top-level failure reporting that does not print control text, raw path-sensitive evidence, or stack traces, and stay inert when imported/);
   assert.match(securityPolicy, /installed direct dependency tree does not match the exact `package\.json` pins or when `node_modules\/\.pnpm\/lock\.yaml` diverges from `pnpm-lock\.yaml`/);
   assert.match(securityPolicy, /installed-state verification must validate direct dependency names and package pins before installed package reads, check both installed direct package identity and installed direct package version against `package\.json` pins before accepting the local dependency tree, and mismatch output must not echo raw workspace paths, raw filesystem errors, stack traces, or installed package metadata/);
   assert.match(securityPolicy, /installed-state verification must resolve the project root from the checked script location, use a symlink-safe realpath entrypoint check, avoid filesystem verification side effects when imported, and use verifier-owned top-level failure reporting/);
@@ -365,8 +423,22 @@ test("package publishing config keeps provenance and reproducible dependency pin
   assert.equal(installStateScript.includes("/^resolution: \\{integrity: sha512-[A-Za-z0-9+/]+={0,2}\\}$/.test(trimmed)"), true);
   assert.match(securityPolicy, /runtime crypto and native WebRTC dependency attestation must byte-cap, no-follow-open, identity-check, mutation-metadata-check, handle-read, and fatal-UTF-8-decode dependency package metadata before accepting installed package identity/);
   assert.match(securityPolicy, /browser and CLI builds must run the reviewed crypto dependency attestation before producing production artifacts/);
+  assert.match(securityPolicy, /release build-time native and wasm-capable tooling metadata, optional native\/wasm package sets, lifecycle hooks, allowed build-script surface, and lockfile integrity must stay reviewed/);
   assert.match(cryptoDependencyCheckScript, /assertReviewedCryptoDependencies\(\)/);
   assert.match(cryptoDependencyCheckScript, /Reviewed cryptographic dependency metadata is not installed\./);
+  assert.match(buildToolchainDependencyCheckScript, /assertWorkspaceBuildPolicy\(\)/);
+  assert.match(buildToolchainDependencyCheckScript, /assertReviewedPackageMetadata\(\)/);
+  assert.match(buildToolchainDependencyCheckScript, /assertReviewedOptionalDependencySets\(\)/);
+  assert.match(buildToolchainDependencyCheckScript, /assertReviewedLockfileIntegrities\(\)/);
+  assert.match(buildToolchainDependencyCheckScript, /Reviewed build toolchain dependency metadata is not installed\./);
+  assert.match(buildToolchainDependencyCheckScript, /assertStrictDepBuildsPolicy\(workspace\)/);
+  assert.match(buildToolchainDependencyCheckScript, /values\.length !== 1 \|\| values\[0\] !== "true"/);
+  assert.match(buildToolchainDependencyCheckScript, /const REVIEWED_ALLOWED_BUILDS = \["@roamhq\/wrtc", "esbuild"\]/);
+  assert.match(buildToolchainDependencyCheckScript, /allowedBuildNamesFromWorkspace\(workspace\)/);
+  assert.match(buildToolchainDependencyCheckScript, /vite: \{[\s\S]*version: "8\.0\.14"/);
+  assert.match(buildToolchainDependencyCheckScript, /esbuild: \{[\s\S]*version: "0\.28\.0"/);
+  assert.match(buildToolchainDependencyCheckScript, /rolldown: \{[\s\S]*version: "1\.0\.2"/);
+  assert.match(buildToolchainDependencyCheckScript, /lightningcss: \{[\s\S]*version: "1\.32\.0"/);
   assert.match(cliDependencyMetadataSource, /const MAX_PACKAGE_JSON_BYTES = 128 \* 1024/);
   assert.match(cliDependencyMetadataSource, /lstatSync\(file\)/);
   assert.match(cliDependencyMetadataSource, /openSync\(file, constants\.O_RDONLY \| noFollowFlag\(\)\)/);
@@ -381,7 +453,7 @@ test("package publishing config keeps provenance and reproducible dependency pin
   assert.doesNotMatch(cliNativeWebrtcSource, /readFileSync\(path\.join\(root, "package\.json"\)/);
   assert.match(securityPolicy, /installed-state verification must reject duplicate direct dependency declarations across `dependencies` and `devDependencies`/);
   assert.match(securityPolicy, /release verification scripts must resolve the project root from the checked script location/);
-  assert.match(securityPolicy, /release verification scripts must byte-cap, no-follow-open, identity-check, and handle-read project metadata before parsing/);
+  assert.match(securityPolicy, /release verification scripts must byte-cap, no-follow-open, identity-check, mutation-metadata-check, and handle-read project metadata and expected packed workspace file bytes before parsing metadata or accepting tarball content digests/);
   assert.match(installStateScript, /node_modules", "\.pnpm", "lock\.yaml"/);
   assert.match(installStateScript, /pnpm-lock\.yaml/);
   assert.match(installStateScript, /fileURLToPath\(import\.meta\.url\)/);
@@ -396,7 +468,10 @@ test("package publishing config keeps provenance and reproducible dependency pin
   assert.match(installStateScript, /lstatSync\(file\)/);
   assert.match(installStateScript, /openSync\(file, constants\.O_RDONLY \| \(constants\.O_NOFOLLOW \?\? 0\)\)/);
   assert.match(installStateScript, /if \(!sameFile\(info, opened\)\) throw new Error\(`\$\{label\} changed before verification`\)/);
-  assert.match(installStateScript, /function readHandleText\(fd, size, label\)/);
+  assert.match(installStateScript, /return readHandleText\(fd, opened, label\)/);
+  assert.match(installStateScript, /function readHandleText\(fd, opened, label\)/);
+  assert.match(installStateScript, /const afterRead = fstatSync\(fd\)/);
+  assert.match(installStateScript, /if \(!sameFile\(opened, afterRead\)\) throw new Error\(`\$\{label\} changed while being read`\)/);
   assert.match(installStateScript, /readSync\(fd, buffer, offset, size - offset, offset\)/);
   assert.match(installStateScript, /new TextDecoder\("utf-8", \{ fatal: true \}\)/);
   assert.match(installStateScript, /return fatalUtf8\.decode\(buffer\)/);
@@ -405,8 +480,10 @@ test("package publishing config keeps provenance and reproducible dependency pin
   assert.match(installStateScript, /function sameFile\(left, right\)/);
   assert.match(installStateScript, /function relativeEvidencePath\(file\)/);
   assert.match(installStateScript, /function installStateErrorMessage\(error\)/);
+  assert.match(installStateScript, /const message = errorMessage\(error\)/);
+  assert.match(installStateScript, /function errorMessage\(error\)[\s\S]*Object\.getOwnPropertyDescriptor\(error, "message"\)[\s\S]*"value" in descriptor/);
   assert.match(installStateScript, /could not read installed package evidence at/);
-  assert.doesNotMatch(installStateScript, /errorMessage\(error\)|String\(error\)|error\.stack|ENOENT/);
+  assert.doesNotMatch(installStateScript, /String\(error\)|error\.message|error\.stack|ENOENT/);
   assert.doesNotMatch(installStateScript, /readFileSync\(file|(?<!l)statSync\(file\)/);
   assert.match(installStateScript, /function validatePackageName\(name\)/);
   assert.match(installStateScript, /Invalid dependency name in package\.json\./);
@@ -423,10 +500,13 @@ test("package publishing config keeps provenance and reproducible dependency pin
   assert.match(installStateScript, /Object\.getOwnPropertyDescriptor\(record, key\)/);
   assert.match(installStateScript, /info\.isFile\(\)/);
   assert.match(installStateScript, /info\.size < 1 \|\| info\.size > maxBytes/);
-  assert.equal(packageJson.scripts?.["verify:local"], "pnpm check:install-state && pnpm security:dependencies && pnpm build && pnpm check && pnpm test:unit && pnpm smoke:native && pnpm smoke:packed");
+  assert.equal(
+    packageJson.scripts?.["verify:local"],
+    "pnpm check:install-state && pnpm security:build-toolchain && pnpm security:dependencies && pnpm rebuild @roamhq/wrtc esbuild && pnpm security:build-toolchain && pnpm security:dependencies && pnpm build && pnpm check && pnpm test:unit && pnpm smoke:native && pnpm smoke:packed"
+  );
   assert.equal(
     packageJson.scripts?.["verify:release"],
-    "pnpm check:install-state && pnpm security:dependencies && pnpm build && pnpm check && pnpm test:unit && pnpm smoke:native && pnpm smoke:packed && pnpm test:e2e && pnpm test:browser && pnpm security:audit && pnpm security:signatures && node scripts/write-release-notes.mjs --check && pnpm smoke:release-artifact"
+    "pnpm check:install-state && pnpm security:build-toolchain && pnpm security:dependencies && pnpm rebuild @roamhq/wrtc esbuild && pnpm security:build-toolchain && pnpm security:dependencies && pnpm build && pnpm check && pnpm test:unit && pnpm smoke:native && pnpm smoke:packed && pnpm test:e2e && pnpm test:browser && pnpm security:audit && pnpm security:signatures && node scripts/write-release-notes.mjs --check && pnpm smoke:release-artifact"
   );
   assert.equal(packageJson.scripts?.["verify:release:docker"], "pnpm verify:release && pnpm smoke:docker-policy");
   assert.equal(packageJson.scripts?.test, "pnpm build && pnpm test:unit && pnpm test:e2e && pnpm test:browser");
@@ -440,13 +520,16 @@ test("release file stability helpers compare mutation metadata", () => {
     assert.match(source, /function sameFile\(left, right\)/);
     assert.match(source, /left\.dev === right\.dev && left\.ino === right\.ino && left\.size === right\.size && left\.mtimeMs === right\.mtimeMs && left\.ctimeMs === right\.ctimeMs/);
   }
+  assert.match(releaseArtifactScript, /async function workspaceFileDigest\(file, info\)[\s\S]*const opened = await handle\.stat\(\)[\s\S]*if \(!sameFile\(info, opened\)\) throw new Error\("package file changed before release verification\."\)[\s\S]*if \(offset !== opened\.size\) throw new Error\("package file changed while being read\."\)[\s\S]*const afterRead = await handle\.stat\(\)[\s\S]*if \(!sameFile\(opened, afterRead\)\) throw new Error\("package file changed while being read\."\)/);
 });
 
 test("release-owned path-sensitive error redactors cover URL and UNC evidence", () => {
-  assert.match(securityPolicy, /top-level path-sensitive error redactors must treat POSIX absolute paths, Windows drive-letter paths, `file:\/\/` URLs, and UNC or Windows extended-length paths as sensitive evidence/);
+  assert.match(securityPolicy, /top-level sensitive-evidence redactors must treat POSIX absolute paths, Windows drive-letter paths, `file:\/\/` URLs with or without an authority, `ws:\/\/`\/`wss:\/\/` endpoints, query-bearing URLs, token-shaped evidence, and UNC or Windows extended-length paths as sensitive evidence/);
   for (const [label, source] of pathSensitiveErrorScripts) {
     assert.equal(source.includes("file:\\/\\/"), true, `${label} must catch file:// path evidence`);
     assert.equal(source.includes("\\\\\\\\(?:\\?\\\\)?[^\\\\/\\s]+[\\\\/]"), true, `${label} must catch UNC path evidence`);
+    assert.equal(source.includes("wss?:\\/\\/"), true, `${label} must catch websocket endpoint evidence`);
+    assert.equal(source.includes("github_pat_"), true, `${label} must catch token-shaped evidence`);
   }
 });
 
@@ -480,7 +563,7 @@ test("packed package smoke installs and executes published bins", () => {
   assert.match(packedSmokeScript, /const MAX_PROJECT_PACKAGE_JSON_BYTES = 128 \* 1024/);
   assert.match(packedSmokeScript, /const MAX_CONFORMANCE_JSON_BYTES = 128 \* 1024/);
   assert.match(packedSmokeScript, /if \(!sameFile\(info, opened\)\) throw new Error\(`\$\{path\.relative\(root, file\)\} changed before verification\.`\)/);
-  assert.match(packedSmokeScript, /return await readHandleText\(handle, opened\.size, path\.relative\(root, file\)\)/);
+  assert.match(packedSmokeScript, /return await readHandleText\(handle, opened, path\.relative\(root, file\)\)/);
   assert.doesNotMatch(packedSmokeScript, /readFile\(file, "utf8"\)|import\("node:fs\/promises"\)\.then/);
   assert.match(packedSmokeScript, /pnpm.*add/s);
   assert.match(packedSmokeScript, /pnpm.*exec", "ff", "--version"/);
@@ -520,7 +603,7 @@ test("packed package smoke installs and executes published bins", () => {
   assert.match(packedSmokeScript, /ff transfer/);
   assert.match(securityPolicy, /packed-install smoke must use an OS-assigned loopback port/);
   assert.match(securityPolicy, /packed-install smoke options and subprocesses must run with descriptor-read, non-empty, control-free, byte-capped environment values/);
-  assert.match(securityPolicy, /packed-install smoke must use a symlink-safe realpath entrypoint check and smoke-owned top-level failure reporting that does not print stack traces or raw path-sensitive evidence, preflight temporary filesystem capacity before creating its private workspace or starting package-manager\/native-install work, strip terminal control and format characters and redact path-shaped evidence from captured subprocess output and rendered command labels, reject non-string command label parts and non-Buffer child output chunks before coercion, bound that sanitized output, and force-kill timed-out subprocesses/);
+  assert.match(securityPolicy, /packed-install smoke must use a symlink-safe realpath entrypoint check and smoke-owned top-level failure reporting that does not print stack traces or raw path-sensitive evidence, preflight temporary filesystem capacity before creating its private workspace or starting package-manager\/native-install work, strip terminal control and format characters and redact path-shaped evidence plus `ws:\/\/`\/`wss:\/\/` endpoints from captured subprocess output and rendered command labels, reject non-string command label parts and non-Buffer child output chunks before coercion, bound that sanitized output, and force-kill timed-out subprocesses/);
   assert.match(securityPolicy, /packed-install smoke command timeouts must reject only after the timed-out subprocess exits/);
   assert.match(securityPolicy, /packed-install smoke startup waits must clean up listeners, terminate timed-out server subprocesses, and reject only after the server subprocess exits/);
   assert.match(securityPolicy, /packed-install smoke must byte-cap server health and web UI response bodies/);
@@ -552,6 +635,7 @@ test("packed package smoke installs and executes published bins", () => {
   assert.match(packedSmokeScript, /function renderCommandForLog\(command, args\)/);
   assert.match(packedSmokeScript, /function commandParts\(command, args\)/);
   assert.match(packedSmokeScript, /function redactPathLikeText\(value\)/);
+  assert.match(packedSmokeScript, /wss\?:\\\/\\\//);
   assert.match(packedSmokeScript, /export async function assertTemporaryDiskSpace\(minFreeBytes, failureMessage\)/);
   assert.match(packedSmokeScript, /await assertTemporaryDiskSpace\(MIN_PACKED_SMOKE_TMP_FREE_BYTES, "Packed smoke requires at least 1 GiB of free temporary disk space\."\)/);
   assert.match(packedSmokeScript, /Object\.getOwnPropertyDescriptor\(args, String\(index\)\)/);
@@ -625,8 +709,9 @@ test("packed package smoke installs and executes published bins", () => {
   assert.match(packedSmokeScript, /constants\.O_RDONLY \| \(constants\.O_NOFOLLOW \?\? 0\)/);
   assert.match(packedSmokeScript, /if \(!sameFile\(info, opened\)\) throw new Error\("Packed smoke tarball changed before verification\."\)/);
   assert.match(packedSmokeScript, /constants\.O_CREAT \| constants\.O_EXCL \| constants\.O_WRONLY/);
-  assert.match(packedSmokeScript, /await copyVerifiedHandle\(source, target, opened\.size\)/);
-  assert.match(packedSmokeScript, /function copyVerifiedHandle\(source, target, size\)/);
+  assert.match(packedSmokeScript, /await copyVerifiedHandle\(source, target, opened\)/);
+  assert.match(packedSmokeScript, /if \(!sameFile\(sourceInfo, afterRead\)\) throw new Error\("Packed smoke tarball changed while being staged\."\)/);
+  assert.match(packedSmokeScript, /function copyVerifiedHandle\(source, target, sourceInfo\)/);
   assert.match(packedSmokeScript, /function writeFull\(handle, data, position\)/);
   assert.match(packedSmokeScript, /Packed smoke tarball changed while being staged/);
   assert.doesNotMatch(packedSmokeScript, /await assertRegularTarball\(tarball\)/);
@@ -668,10 +753,11 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.match(ciWorkflow, /- 22\.x/);
   assert.match(ciWorkflow, /- 24\.13\.1/);
   assert.match(ciWorkflow, /- 24\.x/);
-  assert.match(ciWorkflow, /pnpm install --frozen-lockfile/);
+  assert.match(ciWorkflow, /pnpm install --frozen-lockfile --ignore-scripts/);
   assert.match(ciWorkflow, /pnpm check:install-state/);
+  assert.match(ciWorkflow, /pnpm security:build-toolchain/);
   assert.match(ciWorkflow, /pnpm security:dependencies/);
-  assert.match(ciWorkflow, /pnpm check:install-state[\s\S]*pnpm security:dependencies[\s\S]*pnpm build/);
+  assert.match(ciWorkflow, /pnpm check:install-state[\s\S]*pnpm security:build-toolchain[\s\S]*pnpm security:dependencies[\s\S]*pnpm rebuild @roamhq\/wrtc esbuild[\s\S]*pnpm security:build-toolchain[\s\S]*pnpm security:dependencies[\s\S]*pnpm build/);
   assert.match(ciWorkflow, /pnpm check/);
   assert.match(ciWorkflow, /pnpm build/);
   assert.match(ciWorkflow, /pnpm test:unit/);
@@ -728,8 +814,8 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.match(dockerPolicySmokeScript, /const HARDENED_DOCKER_RUN_FLAGS = \["--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "--pids-limit", "128", "--memory", "512m", "--cpus", "1"\]/);
   assert.match(dockerPolicySmokeScript, /\["run", "--rm", \.\.\.HARDENED_DOCKER_RUN_FLAGS, "-e", "SIGNALING_TOPOLOGY=single-instance", imageTag\]/);
   assert.match(dockerPolicySmokeScript, /\["run", "--rm", \.\.\.HARDENED_DOCKER_RUN_FLAGS, "-e", `ALLOWED_ORIGINS=\$\{PRODUCTION_ORIGIN\}`, imageTag\]/);
-  assert.match(dockerPolicySmokeScript, /"Error: ALLOWED_ORIGINS is required in production\."/);
-  assert.match(dockerPolicySmokeScript, /"Error: SIGNALING_TOPOLOGY must be single-instance or sticky-sessions for production or non-loopback deployments\."/);
+  assert.match(dockerPolicySmokeScript, /"Error: ALLOWED_ORIGINS is required for public deployments\."/);
+  assert.match(dockerPolicySmokeScript, /"Error: SIGNALING_TOPOLOGY must be single-instance or sticky-sessions for public deployments\."/);
   assert.match(dockerPolicySmokeScript, /function hasExactOutputLine\(result, expectedLine\)/);
   assert.match(dockerPolicySmokeScript, /line\.trim\(\) === expectedLine/);
   assert.match(dockerPolicySmokeScript, /MAX_COMMAND_OUTPUT_BYTES = 1024 \* 1024/);
@@ -745,8 +831,8 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.match(dockerPolicySmokeScript, /setTimeout\(\(\) => child\.kill\("SIGKILL"\), CHILD_KILL_GRACE_MS\)/);
   assert.match(dockerPolicySmokeScript, /child\.on\("exit", \(code, signal\) =>/);
   assert.match(dockerPolicySmokeScript, /if \(timeoutError\) \{\n\s+rejectOnce\(timeoutError\)/);
-  assert.match(dockerPolicySmokeScript, /stdout = appendBoundedOutput\(stdout, chunk\)/);
-  assert.match(dockerPolicySmokeScript, /stderr = appendBoundedOutput\(stderr, chunk\)/);
+  assert.match(dockerPolicySmokeScript, /const next = sanitizedOutputChunk\(chunk\);[\s\S]*stdout = appendBoundedOutputText\(stdout, next\);[\s\S]*if \(verbose\) process\.stdout\.write\(next\)/);
+  assert.match(dockerPolicySmokeScript, /const next = sanitizedOutputChunk\(chunk\);[\s\S]*stderr = appendBoundedOutputText\(stderr, next\);[\s\S]*if \(verbose\) process\.stderr\.write\(next\)/);
   assert.match(dockerPolicySmokeScript, /function truncateUtf8Tail\(value, maxBytes\)/);
   assert.match(dockerPolicySmokeScript, /Buffer\.byteLength\(next, "utf8"\) <= MAX_COMMAND_OUTPUT_BYTES/);
   assert.doesNotMatch(dockerPolicySmokeScript, /spawnSync|maxBuffer: MAX_COMMAND_OUTPUT_BYTES/);
@@ -766,8 +852,15 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.match(dockerPolicySmokeScript, /\["PATH", true\]/);
   assert.doesNotMatch(dockerPolicySmokeScript, /"DOCKER_HOST"/);
   assert.doesNotMatch(dockerPolicySmokeScript, /"DOCKER_CONTEXT"/);
-  assert.match(dockerPolicySmokeScript, /import \{ createIsolatedDockerConfig \} from "\.\/docker-config\.mjs"/);
+  assert.match(dockerPolicySmokeScript, /import \{ assertNoUserDockerCliPlugins, createIsolatedDockerConfig \} from "\.\/docker-config\.mjs"/);
+  assert.match(dockerPolicySmokeScript, /assertNoUserDockerCliPlugins\(\);\n  const dockerConfigDir = createIsolatedDockerConfig\(\)/);
   assert.match(dockerConfigScript, /export function createIsolatedDockerConfig\(prefix = "p2p-transfer-docker-", sourceConfigRoot = defaultDockerConfigRoot\(\)\)/);
+  assert.match(dockerConfigScript, /export function assertNoUserDockerCliPlugins\(sourceConfigRoot = defaultDockerConfigRoot\(\)\)/);
+  assert.match(dockerConfigScript, /const pluginDir = path\.join\(sourceConfigRoot, "cli-plugins"\)/);
+  assert.match(dockerConfigScript, /readdirSync\(pluginDir, \{ withFileTypes: true \}\)/);
+  assert.match(dockerConfigScript, /DOCKER_CLI_PLUGIN_NAME_RE\.test\(entry\.name\)/);
+  assert.match(dockerConfigScript, /lstatSync\(path\.join\(pluginDir, entry\.name\)\)/);
+  assert.match(dockerConfigScript, /User Docker CLI plugins must be disabled before Docker release validation/);
   assert.match(dockerConfigScript, /mkdtempSync\(path\.join\(tmpdir\(\), prefix\)\)/);
   assert.match(dockerConfigScript, /chmodSync\(dir, 0o700\)/);
   assert.match(dockerConfigScript, /JSON\.stringify\(config\), \{ mode: 0o600 \}/);
@@ -782,10 +875,13 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.match(dockerConfigScript, /new TextDecoder\("utf-8", \{ fatal: true \}\)\.decode\(bytes\)/);
   assert.doesNotMatch(dockerConfigScript, /readFileSync/);
   assert.doesNotMatch(dockerConfigScript, /tcp:\/\/|ssh:\/\/|https:\/\//);
-  assert.match(dockerPolicySmokeScript, /const dockerEnv = \{ DOCKER_CONFIG: dockerConfigDir \}/);
+  assert.match(dockerPolicySmokeScript, /const dockerEnv = isolatedDockerEnv\(dockerConfigDir\)/);
+  assert.match(dockerPolicySmokeScript, /function isolatedDockerEnv\(dockerConfigDir\) \{[\s\S]*DOCKER_CONFIG: dockerConfigDir[\s\S]*HOME: dockerConfigDir[\s\S]*USERPROFILE: dockerConfigDir[\s\S]*\}/);
   assert.match(dockerPolicySmokeScript, /rmSync\(dockerConfigDir, \{ recursive: true, force: true \}\)/);
   assert.match(dockerPolicySmokeScript, /function smokeErrorMessage\(error\)/);
   assert.match(dockerPolicySmokeScript, /function containsPathLikeText\(value\)/);
+  assert.match(dockerPolicySmokeScript, /function redactSensitiveOutputText\(value\)/);
+  assert.match(dockerPolicySmokeScript, /wss\?:\\\/\\\//);
   assert.match(dockerPolicySmokeScript, /return "docker policy smoke failed with path-sensitive evidence\."/);
   assert.match(dockerPolicySmokeScript, /Object\.getOwnPropertyDescriptor\(process\.env, name\)/);
   assert.match(dockerPolicySmokeScript, /MAX_CHILD_ENV_VALUE_BYTES = 8_192/);
@@ -798,7 +894,8 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.doesNotMatch(dockerPolicySmokeScript, /env: \{ \.\.\.process\.env/);
   assert.match(dockerPolicySmokeScript, /\/\[\\p\{Cc\}\\p\{Cf\}\]\/u\.test\(value\)/);
   assert.match(securityPolicy, /Docker policy smoke options and subprocesses must run with descriptor-read, non-empty, control-free, byte-capped environment values/);
-  assert.match(securityPolicy, /Docker policy smoke top-level failure reporting must not print stack traces or raw path-sensitive evidence/);
+  assert.match(securityPolicy, /Docker policy smoke top-level failure reporting must not print stack traces or raw path-sensitive evidence, and verbose Docker smoke output must still be pipe-captured and sanitized before terminal emission/);
+  assert.doesNotMatch(dockerPolicySmokeScript, /stdio: verbose \? "inherit"|stdio: "inherit"/);
   assert.match(securityPolicy, /Docker policy smoke must run a fast daemon preflight before `docker build`/);
   assert.match(securityPolicy, /command timeouts must terminate timed-out subprocesses with `SIGTERM`, arm a bounded `SIGKILL` fallback, and reject only after the subprocess exits/);
   assert.match(securityPolicy, /Docker policy smoke must validate production-policy container startup failures with bounded exact output-line evidence/);
@@ -806,7 +903,8 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.match(securityPolicy, /accepts the configured production origin and rejects an untrusted origin on both the HTTP ICE endpoint and the WebSocket signaling upgrade path/);
   assert.match(securityPolicy, /`DOCKER_HOST`, or `DOCKER_CONTEXT`/);
   assert.match(securityPolicy, /send the release build context to a caller-configured remote Docker daemon/);
-  assert.match(securityPolicy, /temporary 0700 `DOCKER_CONFIG` containing no credential helper or registry credentials/);
+  assert.match(securityPolicy, /temporary 0700 `DOCKER_CONFIG` and matching temporary `HOME`\/`USERPROFILE` containing no credential helper or registry credentials/);
+  assert.match(securityPolicy, /must fail before any Docker subprocess when user Docker CLI plugins exist because Docker can execute plugin metadata outside isolated `DOCKER_CONFIG`/);
   assert.match(securityPolicy, /byte-cap, no-follow-open, identity-check, handle-read, and fatal-UTF-8-decode that source Docker config\/context metadata/);
   assert.doesNotMatch(ciWorkflow, /\bnpm\s+(?:install|ci|publish)\b|npx\b/);
 });
@@ -836,7 +934,9 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseTagScript, /release tag does not match package version\./);
   assert.match(releaseTagScript, /runGitOutput\(\["cat-file", "-t", `refs\/tags\/\$\{tag\}`\], "release tag object could not be inspected\."\)/);
   assert.match(releaseTagScript, /release tag must be an annotated tag\./);
-  assert.doesNotMatch(releaseTagScript, /process\.env\.GITHUB_REF_NAME|readFile\(file, "utf8"\)|String\(error\)|error\.stack|release tag \$\{value\} does not match/);
+  assert.match(releaseTagScript, /function releaseTagErrorMessage\(error\)[\s\S]*const message = errorMessage\(error\)[\s\S]*containsSensitiveErrorText\(message\)/);
+  assert.match(releaseTagScript, /function errorMessage\(error\)[\s\S]*Object\.getOwnPropertyDescriptor\(error, "message"\)[\s\S]*"value" in descriptor/);
+  assert.doesNotMatch(releaseTagScript, /process\.env\.GITHUB_REF_NAME|readFile\(file, "utf8"\)|String\(error\)|error\.stack|error\.message|release tag \$\{value\} does not match/);
   assert.match(securityPolicy, /release tag commit must exactly match protected `main` before release artifact packaging, attestation, npm publish, Docker publish, or GitHub Release creation/);
   assert.match(releaseWorkflow, /fetch-depth: 0/);
   assert.match(releaseWorkflow, /Verify release tag is on main[\s\S]*run: node scripts\/check-release-main\.mjs[\s\S]*Release controls preflight/);
@@ -868,7 +968,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.doesNotMatch(releaseMainScript, /process\.env\.GITHUB_SHA|String\(error\)|error\.stack|\.\.\.process\.env/);
   assert.match(securityPolicy, /release tag current-main matching must use the checked release main verifier with control-free byte-capped `GITHUB_SHA`, a control-free minimal Git child environment that ignores global and system Git config and disables terminal prompts, ignored Git output, bidirectional ancestry checks/);
   assert.match(securityPolicy, /release main checks must signal timed-out Git subprocesses, arm a bounded `SIGKILL` fallback, and reject only after the child exits/);
-  assert.match(releaseWorkflow, /pnpm install --frozen-lockfile/);
+  assert.match(releaseWorkflow, /pnpm install --frozen-lockfile --ignore-scripts/);
   assert.match(packageJson.scripts?.["verify:release"] ?? "", /pnpm smoke:packed && pnpm test:e2e && pnpm test:browser && pnpm security:audit && pnpm security:signatures && node scripts\/write-release-notes\.mjs --check && pnpm smoke:release-artifact/);
   assert.equal(packageJson.scripts?.["verify:release:docker"], "pnpm verify:release && pnpm smoke:docker-policy");
   assert.match(releaseArtifactSmokeScript, /const pnpm = process\.platform === "win32" \? "pnpm\.cmd" : "pnpm"/);
@@ -925,6 +1025,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseArtifactSmokeScript, /return "release artifact smoke failed with path-sensitive evidence\."/);
   assert.match(releaseArtifactSmokeScript, /realpathSync\(process\.argv\[1\]\) === realpathSync\(fileURLToPath\(import\.meta\.url\)\)/);
   assert.match(releaseWorkflow, /stage docker image[\s\S]*needs:\n      - verify\n      - platform-smoke\n      - docker-validate[\s\S]*environment: npm[\s\S]*permissions:\n      contents: read\n      packages: write\n      id-token: write\n      attestations: write[\s\S]*outputs:\n      image: \$\{\{ steps\.docker_image\.outputs\.image \}\}\n      digest: \$\{\{ steps\.docker_image\.outputs\.digest \}\}/);
+  assert.match(releaseWorkflow, /verify public docker image[\s\S]*needs:\n      - docker-stage[\s\S]*permissions:\n      contents: read[\s\S]*Verify staged image is publicly pullable[\s\S]*DOCKER_STAGED_DIGEST: \$\{\{ needs\.docker-stage\.outputs\.digest \}\}[\s\S]*run: node scripts\/publish-docker-image\.mjs --assert-public/);
   assert.match(releaseWorkflow, /promote docker image[\s\S]*needs:\n      - publish\n      - docker-stage[\s\S]*environment: npm[\s\S]*permissions:\n      contents: read\n      packages: write/);
   assert.match(releaseWorkflow, /pre-publish docker validation[\s\S]*needs:\n      - verify\n      - platform-smoke[\s\S]*permissions:\n      contents: read[\s\S]*Validate release Docker image[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:release-gate node scripts\/smoke-docker-policy\.mjs/);
   assert.match(releaseWorkflow, /stage docker image[\s\S]*actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3[\s\S]*node scripts\/prepare-checked-pnpm\.mjs[\s\S]*Build, smoke, and stage image[\s\S]*run: node scripts\/publish-docker-image\.mjs/);
@@ -937,20 +1038,23 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(dockerPublishScript, /env: \{ DOCKER_SMOKE_TAG: stagedRef, DOCKER_SMOKE_VERSION: version, DOCKER_SMOKE_REVISION: revision \}/);
   assert.match(dockerPublishScript, /await run\("docker", \["push", stagedRef\]/);
   assert.match(dockerPublishScript, /if \(mode === "promote"\) \{[\s\S]*dockerDigest\(requiredEnvString\("DOCKER_STAGED_DIGEST"\)\)[\s\S]*await run\("docker", \["pull", `\$\{image\}@\$\{digest\}`\]/);
-  assert.match(dockerPublishScript, /await publishDockerReleaseTag\(\{ image, digest, ref: versionRef, label: "docker release image", dockerEnv \}\)/);
-  assert.match(dockerPublishScript, /await publishDockerReleaseTag\(\{ image, digest, ref: plainVersionRef, label: "docker release image alias", dockerEnv \}\)/);
-  assert.match(dockerPublishScript, /await assertAnonymousDockerPull\(\{ ref: versionRef, digest \}\)/);
-  assert.match(dockerPublishScript, /await assertAnonymousDockerPull\(\{ ref: plainVersionRef, digest \}\)/);
+  assert.match(dockerPublishScript, /const missingTags = await missingDockerReleaseTags\(\{ refs: releaseTags, digest, dockerEnv \}\)/);
+  assert.match(dockerPublishScript, /for \(const releaseTag of missingTags\) \{[\s\S]*await pushDockerReleaseTag\(\{ image, digest, ref: releaseTag\.ref, label: releaseTag\.label, dockerEnv \}\)/);
+  assert.match(dockerPublishScript, /for \(const releaseTag of releaseTags\) \{[\s\S]*await assertAnonymousDockerPull\(\{ ref: releaseTag\.ref, digest \}\)/);
+  assert.match(dockerPublishScript, /if \(mode === "assert-public"\) \{[\s\S]*await assertAnonymousDockerPull\(\{ ref: stagedRef, digest, label: "anonymous staged docker pull" \}\)/);
   assert.match(dockerPublishScript, /createIsolatedDockerConfig\("p2p-transfer-docker-anonymous-"\)/);
+  assert.match(dockerPublishScript, /function isolatedDockerEnv\(dockerConfigDir\) \{[\s\S]*DOCKER_CONFIG: dockerConfigDir[\s\S]*HOME: dockerConfigDir[\s\S]*USERPROFILE: dockerConfigDir[\s\S]*\}/);
+  assert.match(dockerPublishScript, /env: isolatedDockerEnv\(anonymousDockerConfigDir\)/);
   assert.match(dockerPublishScript, /async function existingDockerTagDigest\(ref, dockerEnv\)/);
-  assert.match(dockerPublishScript, /if \(existingDigest !== digest\) throw new Error\(`\$\{label\} already points to a different digest\.`\)/);
+  assert.match(dockerPublishScript, /throw new Error\(`\$\{candidate\.label\} already points to a different digest\.`\)/);
   assert.match(dockerPublishScript, /if \(dockerTagMissing\(output\)\) return undefined/);
   assert.match(dockerPublishScript, /writeGithubOutput\(\{ image, digest, tag: versionRef, alias: plainVersionRef \}\)/);
-  assert.match(dockerPublishScript, /import \{ createIsolatedDockerConfig \} from "\.\/docker-config\.mjs"/);
+  assert.match(dockerPublishScript, /import \{ assertNoUserDockerCliPlugins, createIsolatedDockerConfig \} from "\.\/docker-config\.mjs"/);
+  assert.match(dockerPublishScript, /assertNoUserDockerCliPlugins\(\);\n  const dockerConfigDir = createIsolatedDockerConfig\("p2p-transfer-docker-release-"\)/);
   assert.match(dockerPublishScript, /createIsolatedDockerConfig\("p2p-transfer-docker-release-"\)/);
   assert.match(securityPolicy, /release Docker publishing must read package metadata through no-follow regular-file opens with exact-size handle reads and pre\/post-read identity checks/);
   assert.match(securityPolicy, /emit the staged digest through checked `GITHUB_OUTPUT` no-follow regular-file appends with size and identity checks/);
-  assert.match(securityPolicy, /Docker promotion must inspect existing GHCR `vX\.Y\.Z` and `X\.Y\.Z` release tags before pushing them, treat already-published matching digests as idempotent success, verify anonymous pulls for both promoted release tags resolve to the attested digest, and fail closed instead of moving either release tag when an existing tag points to a different digest or either release tag is not publicly pullable/);
+  assert.match(securityPolicy, /Docker promotion must inspect existing GHCR `vX\.Y\.Z` and `X\.Y\.Z` release tags before pushing either of them, treat already-published matching digests as idempotent success, verify anonymous pulls for both promoted release tags resolve to the attested digest, and fail closed instead of moving either release tag when an existing tag points to a different digest or either release tag is not publicly pullable/);
   assert.match(dockerPublishScript, /const MAX_GITHUB_OUTPUT_BYTES = 1024 \* 1024/);
   assert.match(dockerPublishScript, /await open\(file, constants\.O_WRONLY \| constants\.O_APPEND \| \(constants\.O_NOFOLLOW \?\? 0\)\)/);
   assert.match(dockerPublishScript, /if \(!opened\.isFile\(\) \|\| !sameFile\(info, opened\)\) throw new Error\("GitHub output path is invalid\."\)/);
@@ -966,7 +1070,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(dockerPublishScript, /env: \{ \.\.\.safeChildEnv\(\), \.\.\.\(options\.env \?\? \{\}\) \}/);
   assert.doesNotMatch(dockerPublishScript, /env: \{ \.\.\.process\.env|DOCKER_HOST|DOCKER_CONTEXT|NPM_TOKEN|NODE_AUTH_TOKEN/);
   assert.doesNotMatch(releaseWorkflow, /corepack prepare pnpm@/);
-  assert.match(releaseWorkflow, /pnpm check:install-state[\s\S]*pnpm security:dependencies[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed[\s\S]*pnpm test:e2e[\s\S]*pnpm test:browser[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures[\s\S]*Verify release notes[\s\S]*pack release artifact/);
+  assert.match(releaseWorkflow, /pnpm check:install-state[\s\S]*pnpm security:build-toolchain[\s\S]*pnpm security:dependencies[\s\S]*pnpm rebuild @roamhq\/wrtc esbuild[\s\S]*pnpm security:build-toolchain[\s\S]*pnpm security:dependencies[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed[\s\S]*pnpm test:e2e[\s\S]*pnpm test:browser[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures[\s\S]*Verify release notes[\s\S]*pack release artifact/);
   assert.match(releaseWorkflow, /Verify release notes[\s\S]*node scripts\/write-release-notes\.mjs --check[\s\S]*pack release artifact[\s\S]*node scripts\/smoke-release-artifact\.mjs --keep-artifacts/);
   assert.doesNotMatch(releaseWorkflow, /pack release artifact[\s\S]*(rm -rf release-artifacts|mkdir -p release-artifacts|pnpm --config\.ignore-scripts=true pack --pack-destination release-artifacts|node scripts\/write-release-checksum\.mjs)/);
   assert.match(releaseSbomScript, /spawn\(pnpm, \["sbom", "--sbom-format", "cyclonedx", "--prod", "--sbom-type", "application"\]/);
@@ -994,7 +1098,9 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseChecksumScript, /async function readVerifiedHandleBytes\(handle, size, description\)[\s\S]*Buffer\.alloc\(size\)[\s\S]*await handle\.read\(buffer, offset, size - offset, offset\)[\s\S]*if \(offset !== size\)/);
   assert.doesNotMatch(releaseChecksumScript, /handle\.readFile\(/);
   assert.match(releaseChecksumScript, /Release checksum generation failed:/);
-  assert.match(releaseChecksumScript, /function releaseChecksumErrorMessage\(error\)[\s\S]*containsAbsolutePathText\(error\.message\)/);
+  assert.match(releaseChecksumScript, /function releaseChecksumErrorMessage\(error\)[\s\S]*const message = errorMessage\(error\)[\s\S]*containsSensitiveErrorText\(message\)/);
+  assert.match(releaseChecksumScript, /function errorMessage\(error\)[\s\S]*Object\.getOwnPropertyDescriptor\(error, "message"\)[\s\S]*"value" in descriptor/);
+  assert.doesNotMatch(releaseChecksumScript, /error\.message/);
   assert.doesNotMatch(releaseChecksumScript, /execFileSync|child_process|sha256sum|find release-artifacts/);
   assert.doesNotMatch(releaseWorkflow, /pack release artifact[\s\S]*(find release-artifacts|basename "\$tgz"|sha256sum)/);
   assert.match(releaseWorkflow, /verify downloaded release artifact[\s\S]*node scripts\/verify-release-artifact\.mjs/);
@@ -1035,7 +1141,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.doesNotMatch(releaseArtifactScript, /process\.cwd\(\)/);
   assert.match(releaseArtifactScript, /const MAX_PROJECT_PACKAGE_JSON_BYTES = 128 \* 1024/);
   assert.match(releaseArtifactScript, /if \(!sameFile\(info, opened\)\) throw new Error\(`\$\{path\.relative\(root, file\)\} changed before verification\.`\)/);
-  assert.match(releaseArtifactScript, /return await readHandleText\(handle, opened\.size, path\.relative\(root, file\)\)/);
+  assert.match(releaseArtifactScript, /return await readHandleText\(handle, opened, path\.relative\(root, file\)\)/);
   assert.doesNotMatch(releaseArtifactScript, /readFile\(file, "utf8"\)/);
   assert.match(releaseArtifactScript, /const MAX_PACKED_PACKAGE_JSON_BYTES = 64 \* 1024/);
   assert.match(releaseArtifactScript, /const MAX_TAR_SCAN_BYTES = 256 \* 1024 \* 1024/);
@@ -1094,8 +1200,11 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseArtifactScript, /info\.size < 1 \|\| info\.size > MAX_CHECKSUM_FILE_BYTES/);
   assert.match(releaseArtifactScript, /const handle = await open\(checksumFile, constants\.O_RDONLY \| \(constants\.O_NOFOLLOW \?\? 0\)\)/);
   assert.match(releaseArtifactScript, /if \(!sameFile\(info, opened\)\) throw new Error\("SHA256SUMS changed before verification\."\)/);
-  assert.match(releaseArtifactScript, /const checksumText = await readHandleText\(handle, opened\.size, "SHA256SUMS"\)/);
-  assert.match(releaseArtifactScript, /function readHandleText\(handle, size, label\)/);
+  assert.match(releaseArtifactScript, /const checksumText = await readHandleText\(handle, opened, "SHA256SUMS"\)/);
+  assert.match(releaseArtifactScript, /const document = parseJson\(await readHandleText\(sbom\.handle, sbom\.stat, "release SBOM"\), "release SBOM"\)/);
+  assert.match(releaseArtifactScript, /function readHandleText\(handle, opened, label\)/);
+  assert.match(releaseArtifactScript, /const afterRead = await handle\.stat\(\)/);
+  assert.match(releaseArtifactScript, /if \(!sameFile\(opened, afterRead\)\) throw new Error\(`\$\{label\} changed while being read\.`\)/);
   assert.match(releaseArtifactScript, /const buffer = Buffer\.alloc\(size\)/);
   assert.match(releaseArtifactScript, /handle\.read\(buffer, offset, size - offset, offset\)/);
   assert.match(releaseArtifactScript, /\$\{label\} changed while being read/);
@@ -1145,7 +1254,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(securityPolicy, /attest the verified `SHA256SUMS` subjects instead of a single tarball path/);
   assert.doesNotMatch(releaseWorkflow, /\n  attest:\n/);
   assert.match(releaseWorkflow, /publish npm package[\s\S]*environment: npm[\s\S]*node scripts\/verify-release-artifact\.mjs --github-output tarball[\s\S]*node scripts\/verify-live-release-ref\.mjs[\s\S]*uses: actions\/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4\.1\.0[\s\S]*subject-checksums: release-artifacts\/SHA256SUMS[\s\S]*node scripts\/publish-release-artifact\.mjs/);
-  assert.match(releaseWorkflow, /publish npm package[\s\S]*needs:\n      - verify\n      - platform-smoke\n      - docker-validate\n      - docker-stage/);
+  assert.match(releaseWorkflow, /publish npm package[\s\S]*needs:\n      - verify\n      - platform-smoke\n      - docker-validate\n      - docker-stage\n      - docker-public-read/);
   assert.match(releaseWorkflow, /github-release:[\s\S]*needs:\n      - publish\n      - docker-promote/);
   assert.match(releaseWorkflow, /environment: npm/);
   assert.match(releaseWorkflow, /id-token: write/);
@@ -1276,7 +1385,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(dockerPublishScript, /realpathSync\(process\.argv\[1\]\) === realpathSync\(fileURLToPath\(import\.meta\.url\)\)/);
   assert.match(dockerPublishScript, /const EXPECTED_GITHUB_REPOSITORY = "VictorHaine\/p2p-transfer"/);
   assert.match(dockerPublishScript, /GitHub repository must match the release repository/);
-  assert.match(dockerPublishScript, /const tag = releaseTag\(requiredEnvString\("GITHUB_REF_NAME"\)\);\n  assertReleaseTagRef\(tag\);\n  const repository = githubRepository\(requiredEnvString\("GITHUB_REPOSITORY"\)\);\n  const runId = requiredGitHubActionsContext\(\);\n  const revision = requiredCommitSha\(requiredEnvString\("GITHUB_SHA"\)\);\n  const actor = githubActor\(requiredEnvString\("GITHUB_ACTOR"\)\);\n  const token = requiredEnvString\("GITHUB_TOKEN", MAX_TOKEN_BYTES\);\n  const packageJson = await readPackageJson\(\);/);
+  assert.match(dockerPublishScript, /const tag = releaseTag\(requiredEnvString\("GITHUB_REF_NAME"\)\);\n  assertReleaseTagRef\(tag\);\n  const repository = githubRepository\(requiredEnvString\("GITHUB_REPOSITORY"\)\);\n  const runId = requiredGitHubActionsContext\(\);\n  const revision = requiredCommitSha\(requiredEnvString\("GITHUB_SHA"\)\);\n  const actor = mode === "assert-public" \? undefined : githubActor\(requiredEnvString\("GITHUB_ACTOR"\)\);\n  const token = requiredEnvString\("GITHUB_TOKEN", MAX_TOKEN_BYTES\);\n  const packageJson = await readPackageJson\(\);/);
   assert.match(dockerPublishScript, /import \{ safeChildEnv \} from "\.\/smoke-packed\.mjs"/);
   assert.match(dockerPublishScript, /env: \{ \.\.\.safeChildEnv\(\), \.\.\.\(options\.env \?\? \{\}\) \}/);
   assert.match(dockerPublishScript, /endChildStdin\(child, options\.input \?\? "", label/);
@@ -1295,9 +1404,13 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(liveReleaseRefScript, /githubTagSignatureVerified\(tagObject\.verification\)/);
   assert.match(liveReleaseRefScript, /GitHub release tag signature was not verified\./);
   assert.match(liveReleaseRefScript, /\/repos\/\$\{repository\}\/git\/ref\/heads\/main/);
-  assert.match(liveReleaseRefScript, /return error instanceof Error && error\.name === "AbortError"/);
+  assert.match(liveReleaseRefScript, /function isAbortError\(error\)[\s\S]*return errorName\(error\) === "AbortError"/);
+  assert.match(liveReleaseRefScript, /function errorName\(error\)[\s\S]*Object\.getOwnPropertyDescriptor\(error, "name"\)[\s\S]*"value" in descriptor/);
   assert.match(liveReleaseRefScript, /const EXPECTED_GITHUB_REPOSITORY = "VictorHaine\/p2p-transfer"/);
   assert.match(liveReleaseRefScript, /GITHUB_REPOSITORY must match the release repository/);
+  assert.match(liveReleaseRefScript, /function liveReleaseRefErrorMessage\(error\)[\s\S]*const message = errorMessage\(error\)[\s\S]*containsSensitiveErrorText\(message\)/);
+  assert.match(liveReleaseRefScript, /function errorMessage\(error\)[\s\S]*Object\.getOwnPropertyDescriptor\(error, "message"\)[\s\S]*"value" in descriptor/);
+  assert.doesNotMatch(liveReleaseRefScript, /error\.(?:message|name)/);
   assert.match(securityPolicy, /last-mile live release-ref verifier must reject ambiguous `GITHUB_TOKEN` plus `GH_TOKEN` input and wrong `GITHUB_REPOSITORY` values before network work, then reject lightweight tag refs, require a GitHub-verified signed annotated tag object, and re-check the GitHub tag object target plus GitHub `main` ref against `GITHUB_SHA` through bounded GitHub API calls immediately in the early release verification job, immediately before release artifact attestation, immediately before npm publish, before Docker smoke, immediately before GHCR staging push, immediately before GHCR promotion, immediately before GitHub Release draft creation, and immediately before GitHub Release final publish/);
   assert.match(securityPolicy, /push only that staging tag before provenance[\s\S]*make npm publish depend on that staged, attested digest[\s\S]*After npm publish succeeds[\s\S]*promote the attested digest to GHCR as both `vX\.Y\.Z` and `X\.Y\.Z`/);
   assert.match(securityPolicy, /Docker staging must scan the exact staged GHCR digest for OS and library vulnerabilities at every Trivy severity, including unknown, low, medium, high, critical, and unfixed advisories, before provenance attestation, must generate a CycloneDX image SBOM artifact from that same digest, must attest that SBOM to the staged digest before artifact upload or provenance attestation, and must use full-length pinned scanner and attestation actions/);
@@ -1353,6 +1466,55 @@ test("package install scripts are restricted to the required native tooling", ()
   assert.match(buildToolchainNativeReview, /The only allowed dependency build scripts are `@roamhq\/wrtc` and `esbuild`/);
   assert.match(buildToolchainNativeReview, /`esbuild` is allowed because its registry consumer install uses `postinstall: node install\.js`/);
   assert.match(buildToolchainNativeReview, /`rolldown` and `lightningcss` are not in `allowBuilds`/);
+});
+
+test("build-toolchain gate rejects extra dependency build-script entries", async () => {
+  const { allowedBuildNamesFromWorkspace, assertStrictDepBuildsPolicy } = await import(`../scripts/check-build-toolchain-dependencies.mjs?workspace-policy=${Date.now()}`);
+  const reviewed = [
+    "strictDepBuilds: true",
+    "",
+    "allowBuilds:",
+    '  "@roamhq/wrtc": true',
+    "  esbuild: true",
+    ""
+  ].join("\n");
+  assert.doesNotThrow(() => assertStrictDepBuildsPolicy(reviewed));
+  assert.deepEqual(allowedBuildNamesFromWorkspace(reviewed), ["@roamhq/wrtc", "esbuild"]);
+  assert.throws(
+    () =>
+      allowedBuildNamesFromWorkspace(
+        [
+          "strictDepBuilds: true",
+          "",
+          "allowBuilds:",
+          '  "@roamhq/wrtc": true',
+          "  esbuild: true",
+          "  attacker-package: true",
+          ""
+        ].join("\n")
+      ),
+    /pnpm allowed build-script surface changed/
+  );
+  assert.throws(
+    () =>
+      allowedBuildNamesFromWorkspace(
+        [
+          "strictDepBuilds: true",
+          "",
+          "allowBuilds:",
+          '  "@roamhq/wrtc": true',
+          "  esbuild: true",
+          "",
+          "allowBuilds:",
+          ""
+        ].join("\n")
+      ),
+    /pnpm allowed build-script surface changed/
+  );
+  assert.throws(
+    () => assertStrictDepBuildsPolicy(["strictDepBuilds: true", "strictDepBuilds: false"].join("\n")),
+    /pnpm strict dependency build policy changed/
+  );
 });
 
 test("build-time native toolchain identity and install surface stay reviewed", () => {

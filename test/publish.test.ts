@@ -21,6 +21,7 @@ import { SAFE_FILE_NAME_BYTES, safeFileName } from "../src/shared/limits.js";
 const PART_FILE_SUFFIX = ".part";
 const RANDOM_PART_SUFFIX = /^ff-[a-f0-9]{32}\.part$/;
 const SAFE_PART_CREATE_FLAGS_FOR_TEST = fsSync.constants.O_CREAT | fsSync.constants.O_EXCL | fsSync.constants.O_WRONLY | fsSync.constants.O_NOFOLLOW | fsSync.constants.O_NONBLOCK;
+const SAFE_SECRET_CREATE_FLAGS_FOR_TEST = fsSync.constants.O_CREAT | fsSync.constants.O_EXCL | fsSync.constants.O_WRONLY | fsSync.constants.O_NOFOLLOW | fsSync.constants.O_NONBLOCK;
 const sourceTransfer = fsSync.readFileSync(new URL("../src/cli/transfer.ts", import.meta.url), "utf8");
 const distTransfer = fsSync.readFileSync(new URL("../dist-node/cli/transfer.js", import.meta.url), "utf8");
 const sourceFiles = fsSync.readFileSync(new URL("../src/cli/files.ts", import.meta.url), "utf8");
@@ -635,8 +636,11 @@ test("CLI resume partial privacy policy is documented and enforced", () => {
   assert.match(securityPolicy, /resumable partial files must reject multiple hard links and non-private POSIX mode bits before hashing, truncation, restart truncation, or publish/);
   assert.match(securityPolicy, /Windows CLI `recv --resume` must fail closed until equivalent ACL privacy checks are implemented/);
   assert.match(securityPolicy, /partial and resume-secret creation must use exclusive no-follow creation flags/);
-  assert.match(securityPolicy, /newly created resume secrets must be verified as private, fixed-size, and single-link before keying resumable names/);
+  assert.match(securityPolicy, /newly created resume secrets must be verified as private, fixed-size, and single-link before keying resumable names, and must be identity-cleaned if verification fails/);
   assert.match(securityPolicy, /resume secret file must reject multiple hard links before keying resumable names/);
+  assert.match(securityPolicy, /resume secrets must be reverified after reading/);
+  assert.match(securityPolicy, /resumable partials must be reverified after local prefix hashing/);
+  assert.match(sourceFiles, /type FileMutationSnapshot/);
   for (const source of [sourceFiles, distFiles]) {
     assert.match(source, /function assertSingleLink\(stat/);
     assert.match(source, /function assertPrivatePartialStat\(stat/);
@@ -648,7 +652,14 @@ test("CLI resume partial privacy policy is documented and enforced", () => {
     assert.match(source, /fs\.promises\.open\(partPath, SAFE_PART_CREATE_FLAGS, 0o600\)/);
     assert.match(source, /fs\.promises\.open\(secretPath, SAFE_SECRET_CREATE_FLAGS, 0o600\)/);
     assert.match(source, /function assertResumeSecretStat\(stat/);
-    assert.match(source, /assertResumeSecretStat\(await handle\.stat\(\)\)/);
+    assert.match(source, /createdSecretIdentity = \{ dev: createdStat\.dev, ino: createdStat\.ino \}/);
+    assert.match(source, /removePathIfIdentity\(secretPath, createdSecretIdentity\)/);
+    assert.match(source, /Resume secret cleanup failed/);
+    assert.match(source, /assertResumeSecretStat\(verifiedStat\)/);
+    assert.match(source, /Resume secret changed while reading/);
+    assert.match(source, /handle\.stat\(\{ bigint: true \}\)/);
+    assert.match(source, /sameFileMutationSnapshot\(await fileMutationSnapshot\(handle\), beforeReadSnapshot\)/);
+    assert.match(source, /sameFileMutationSnapshot\(await fileMutationSnapshot\(handle\), expected\)/);
     assert.match(source, /Resume partial"\)/);
     assert.match(source, /Resume secret"\)/);
     assert.match(source, /multiple hard links/);
@@ -681,6 +692,37 @@ test("reserveOutputFile keeps the CLI resume secret private and fixed size", { s
   }
 });
 
+test("reserveOutputFile removes newly created CLI resume secrets if verification fails", { skip: process.platform === "win32" ? "CLI resume is disabled on Windows until ACL privacy checks exist." : false }, async () => {
+  for (const reserve of [reserveOutputFile, distReserveOutputFile]) {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-reserve-created-secret-"));
+    const secretPath = path.join(dir, ".ff-resume-key");
+    const originalOpen = fsSync.promises.open;
+    let patchedSecretCreate = false;
+    try {
+      fsSync.promises.open = (async (...args: Parameters<typeof fsSync.promises.open>) => {
+        const handle = await originalOpen(...args);
+        const [openedPath, openedFlags] = args;
+        if (!patchedSecretCreate && openedPath === secretPath && openedFlags === SAFE_SECRET_CREATE_FLAGS_FOR_TEST) {
+          patchedSecretCreate = true;
+          const originalWriteFile = handle.writeFile.bind(handle);
+          handle.writeFile = (async (data: Parameters<typeof handle.writeFile>[0], options?: Parameters<typeof handle.writeFile>[1]) => {
+            const result = await originalWriteFile(data, options);
+            await fs.chmod(secretPath, 0o644);
+            return result;
+          }) as typeof handle.writeFile;
+        }
+        return handle;
+      }) as typeof fsSync.promises.open;
+
+      await assert.rejects(() => reserve(dir, "file.txt", { resume: true, size: 1 }), /Resume secret is not private/);
+      assert.equal(patchedSecretCreate, true);
+      await assert.rejects(() => fs.stat(secretPath), { code: "ENOENT" });
+    } finally {
+      fsSync.promises.open = originalOpen;
+    }
+  }
+});
+
 test("reserveOutputFile rejects invalid or symlinked CLI resume secrets", { skip: process.platform === "win32" ? "symlink behavior differs on Windows." : false }, async () => {
   const invalidDir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-reserve-invalid-secret-"));
   await fs.writeFile(path.join(invalidDir, ".ff-resume-key"), "short", { mode: 0o600 });
@@ -704,6 +746,120 @@ test("reserveOutputFile rejects hardlinked CLI resume secrets", { skip: process.
   await fs.link(secretPath, linkedPath);
 
   await assert.rejects(() => reserveOutputFile(dir, "file.txt", { resume: true, size: 1 }), /Resume secret has multiple hard links/);
+});
+
+test("reserveOutputFile rejects CLI resume secrets that change while reading", { skip: process.platform === "win32" ? "CLI resume is disabled on Windows until ACL privacy checks exist." : false }, async () => {
+  for (const reserve of [reserveOutputFile, distReserveOutputFile]) {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-reserve-mutating-secret-"));
+    const secretPath = path.join(dir, ".ff-resume-key");
+    await fs.writeFile(secretPath, Buffer.alloc(32, 1), { mode: 0o600 });
+    const probe = await fs.open(secretPath, "r");
+    const fileHandlePrototype = Object.getPrototypeOf(probe) as { read(buffer: Uint8Array, offset?: number, length?: number, position?: number | null): Promise<{ bytesRead: number; buffer: Uint8Array }> };
+    await probe.close();
+    const originalRead = fileHandlePrototype.read;
+    let mutated = false;
+    try {
+      fileHandlePrototype.read = async function patchedRead(this: fs.FileHandle, buffer: Uint8Array, offset?: number, length?: number, position?: number | null) {
+        const result = await originalRead.call(this, buffer, offset, length, position);
+        if (!mutated) {
+          mutated = true;
+          fsSync.appendFileSync(secretPath, Buffer.from([2]));
+        }
+        return result;
+      };
+
+      await assert.rejects(() => reserve(dir, "file.txt", { resume: true, size: 1 }), /Resume secret changed while reading/);
+    } finally {
+      fileHandlePrototype.read = originalRead;
+    }
+  }
+});
+
+test("reserveOutputFile rejects CLI resume secrets rewritten to the same size while reading", { skip: process.platform === "win32" ? "CLI resume is disabled on Windows until ACL privacy checks exist." : false }, async () => {
+  for (const reserve of [reserveOutputFile, distReserveOutputFile]) {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-reserve-rewrite-secret-"));
+    const secretPath = path.join(dir, ".ff-resume-key");
+    await fs.writeFile(secretPath, Buffer.alloc(32, 1), { mode: 0o600 });
+    const probe = await fs.open(secretPath, "r");
+    const fileHandlePrototype = Object.getPrototypeOf(probe) as { read(buffer: Uint8Array, offset?: number, length?: number, position?: number | null): Promise<{ bytesRead: number; buffer: Uint8Array }> };
+    await probe.close();
+    const originalRead = fileHandlePrototype.read;
+    let mutated = false;
+    try {
+      fileHandlePrototype.read = async function patchedRead(this: fs.FileHandle, buffer: Uint8Array, offset?: number, length?: number, position?: number | null) {
+        const result = await originalRead.call(this, buffer, offset, length, position);
+        if (!mutated) {
+          mutated = true;
+          fsSync.writeFileSync(secretPath, Buffer.alloc(32, 2), { mode: 0o600 });
+        }
+        return result;
+      };
+
+      await assert.rejects(() => reserve(dir, "file.txt", { resume: true, size: 1 }), /Resume secret changed while reading/);
+    } finally {
+      fileHandlePrototype.read = originalRead;
+    }
+  }
+});
+
+test("reserveOutputFile rejects CLI resume partials that change while hashing", { skip: process.platform === "win32" ? "CLI resume is disabled on Windows until ACL privacy checks exist." : false }, async () => {
+  for (const reserve of [reserveOutputFile, distReserveOutputFile]) {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-reserve-mutating-part-"));
+    const first = await reserve(dir, "file.txt", { resume: true, size: 4 });
+    await first.handle.writeFile("safe");
+    await first.handle.close();
+    const probe = await fs.open(first.partPath, "r");
+    const fileHandlePrototype = Object.getPrototypeOf(probe) as { createReadStream(options?: unknown): NodeJS.ReadableStream };
+    await probe.close();
+    const originalCreateReadStream = fileHandlePrototype.createReadStream;
+    let mutated = false;
+    try {
+      fileHandlePrototype.createReadStream = function patchedCreateReadStream(this: fs.FileHandle, options?: unknown) {
+        const stream = originalCreateReadStream.call(this, options);
+        if (!mutated) {
+          stream.once("end", () => {
+            mutated = true;
+            fsSync.appendFileSync(first.partPath, "!");
+          });
+        }
+        return stream;
+      };
+
+      await assert.rejects(() => reserve(dir, "file.txt", { resume: true, size: 4 }), /Resume partial changed while hashing/);
+    } finally {
+      fileHandlePrototype.createReadStream = originalCreateReadStream;
+    }
+  }
+});
+
+test("reserveOutputFile rejects CLI resume partials rewritten to the same size while hashing", { skip: process.platform === "win32" ? "CLI resume is disabled on Windows until ACL privacy checks exist." : false }, async () => {
+  for (const reserve of [reserveOutputFile, distReserveOutputFile]) {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-reserve-rewrite-part-"));
+    const first = await reserve(dir, "file.txt", { resume: true, size: 4 });
+    await first.handle.writeFile("safe");
+    await first.handle.close();
+    const probe = await fs.open(first.partPath, "r");
+    const fileHandlePrototype = Object.getPrototypeOf(probe) as { createReadStream(options?: unknown): NodeJS.ReadableStream };
+    await probe.close();
+    const originalCreateReadStream = fileHandlePrototype.createReadStream;
+    let mutated = false;
+    try {
+      fileHandlePrototype.createReadStream = function patchedCreateReadStream(this: fs.FileHandle, options?: unknown) {
+        const stream = originalCreateReadStream.call(this, options);
+        if (!mutated) {
+          stream.once("end", () => {
+            mutated = true;
+            fsSync.writeFileSync(first.partPath, "evil", { mode: 0o600 });
+          });
+        }
+        return stream;
+      };
+
+      await assert.rejects(() => reserve(dir, "file.txt", { resume: true, size: 4 }), /Resume partial changed while hashing/);
+    } finally {
+      fileHandlePrototype.createReadStream = originalCreateReadStream;
+    }
+  }
 });
 
 test("reserveOutputFile treats dangling final-path symlinks as occupied", { skip: process.platform === "win32" ? "symlink behavior differs on Windows." : false }, async () => {

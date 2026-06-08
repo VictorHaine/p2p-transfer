@@ -34,7 +34,7 @@ This project releases only from protected `main` with a matching `v*.*.*` tag. D
 
 6. Add the repository secret `RELEASE_PREFLIGHT_TOKEN` with the repository-administration, ruleset, private vulnerability reporting, dependency alert, repository security-analysis, Dependabot security-update, and Actions workflow-run visibility needed by release preflight. Use a fine-grained PAT or an externally rotated GitHub App installation token; do not store a raw one-hour installation token as a static secret unless rotation updates it before every release.
 
-7. Plan GHCR visibility before the first public Docker release. GitHub Container Registry packages can be private on first publish; after the first workflow creates `ghcr.io/victorhaine/p2p-transfer`, set the package visibility to public. The release workflow verifies anonymous pulls for both `ghcr.io/victorhaine/p2p-transfer:vX.Y.Z` and `ghcr.io/victorhaine/p2p-transfer:X.Y.Z`, so a private package fails before the GitHub Release is created.
+7. Plan GHCR visibility before the first public Docker release. GitHub Container Registry packages can be private on first publish; after the first workflow creates `ghcr.io/victorhaine/p2p-transfer`, set the package visibility to public. The release workflow verifies an anonymous pull of the staged digest before npm publish, then verifies anonymous pulls for both `ghcr.io/victorhaine/p2p-transfer:vX.Y.Z` and `ghcr.io/victorhaine/p2p-transfer:X.Y.Z` after promotion, so a private package fails before the npm version is shipped.
 
 ## Per-release Checklist
 
@@ -42,14 +42,17 @@ This project releases only from protected `main` with a matching `v*.*.*` tag. D
 
    ```sh
    node scripts/prepare-checked-pnpm.mjs
-   pnpm install --frozen-lockfile
+   pnpm install --frozen-lockfile --ignore-scripts
    pnpm exec playwright install --with-deps chromium
    DOCKER_SMOKE_TAG=p2p-transfer:test pnpm verify:release:docker
    ```
 
+   The Docker gate intentionally fails before invoking Docker when user Docker CLI plugins exist under the active Docker config root. Disable or move those plugins before release validation; Docker can execute plugin metadata outside the isolated `DOCKER_CONFIG` used by the checked scripts.
+
 2. Rerun external preflight from the exact commit that will be tagged:
 
    ```sh
+   git config --local gpg.ssh.allowedSignersFile .github/allowed_signers
    git fetch origin main
    git checkout main
    git pull --ff-only origin main
@@ -67,7 +70,7 @@ This project releases only from protected `main` with a matching `v*.*.*` tag. D
 
    The checked tag creator revalidates signed `HEAD`, clean worktree state, package-version matching, freshly fetched `origin/main` equality, local and remote tag absence, tag target, and tag signature while suppressing signer subprocess output. If post-create verification fails, it deletes only the tag it just created before reporting a generic failure. When using SSH commit or tag signing, configure `user.signingkey` to the public key file or literal public key, not the private key path; some signing helpers echo invalid key material in errors.
 
-4. Let the GitHub release workflow publish npm, verify npm registry metadata, publish GHCR, provenance, checksums, SBOM, and the GitHub Release. Do not run `pnpm publish` manually; `prepublishOnly` blocks direct publishes by design.
+4. Let the GitHub release workflow verify GHCR public-read access, publish npm, verify npm registry metadata, publish GHCR, provenance, checksums, SBOM, and the GitHub Release. Do not run `pnpm publish` manually; `prepublishOnly` blocks direct publishes by design.
 
 ## Current External Blockers
 
@@ -79,4 +82,4 @@ As of this runbook, local `pnpm verify:release` passes. The remaining known firs
 - the npm package name must be bootstrapped with `pnpm bootstrap:npm --token-stdin --apply`
 - npm trusted publishing must be configured for `.github/workflows/release.yml` and environment `npm`
 - GHCR package visibility must be made public after first package creation before the anonymous Docker pull release gate can pass
-- Docker policy smoke requires a responsive local Docker daemon
+- Docker policy smoke requires a responsive local Docker daemon and no user Docker CLI plugins under the active Docker config root

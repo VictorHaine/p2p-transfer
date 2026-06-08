@@ -330,7 +330,7 @@ async function assertRemoteReleaseAssetsMatch(token, repository, releaseId, asse
     }
   } catch (error) {
     if (error instanceof GitHubApiError) throw error;
-    if (error instanceof Error && /^GitHub API /.test(error.message)) throw error;
+    if (/^GitHub API /.test(errorMessage(error) ?? "")) throw error;
     throw new Error("existing published GitHub release assets do not match verified release artifacts.");
   }
 }
@@ -413,8 +413,8 @@ async function githubFetchJson(url, options) {
     return parseJsonBody(UTF8.decode(body));
   } catch (error) {
     if (error instanceof GitHubApiError) throw error;
-    if (error instanceof Error && error.name === "AbortError") throw new Error("GitHub API request timed out.");
-    if (error instanceof Error && /^GitHub API response /.test(error.message)) throw error;
+    if (errorName(error) === "AbortError") throw new Error("GitHub API request timed out.");
+    if (/^GitHub API response /.test(errorMessage(error) ?? "")) throw error;
     throw new Error("GitHub API request failed.");
   } finally {
     clearTimeout(timer);
@@ -431,8 +431,8 @@ async function githubFetchBytes(url, options) {
     return body;
   } catch (error) {
     if (error instanceof GitHubApiError) throw error;
-    if (error instanceof Error && error.name === "AbortError") throw new Error("GitHub API request timed out.");
-    if (error instanceof Error && /^GitHub API response /.test(error.message)) throw error;
+    if (errorName(error) === "AbortError") throw new Error("GitHub API request timed out.");
+    if (/^GitHub API response /.test(errorMessage(error) ?? "")) throw error;
     throw new Error("GitHub API request failed.");
   } finally {
     clearTimeout(timer);
@@ -593,13 +593,43 @@ function childExitStatus(code, signal) {
 }
 
 function githubReleaseErrorMessage(error) {
-  if (!(error instanceof Error) || typeof error.message !== "string" || error.message.length < 1 || error.message.length > 200_000 || /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u.test(error.message)) {
+  const message = errorMessage(error);
+  if (typeof message !== "string" || message.length < 1 || message.length > 200_000 || /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u.test(message)) {
     return "GitHub Release creation failed with an internal error.";
   }
-  if (containsAbsolutePathText(error.message)) return "GitHub Release creation failed with path-sensitive evidence.";
-  return error.message;
+  if (containsSensitiveErrorText(message)) return "GitHub Release creation failed with path-sensitive evidence.";
+  return message;
+}
+
+function errorName(error) {
+  if (!(error instanceof Error)) return undefined;
+  const descriptor = Object.getOwnPropertyDescriptor(error, "name");
+  if (descriptor && "value" in descriptor) return descriptor.value;
+  return domExceptionName(error);
+}
+
+function domExceptionName(error) {
+  if (typeof DOMException !== "function" || !(error instanceof DOMException)) return undefined;
+  const descriptor = Object.getOwnPropertyDescriptor(DOMException.prototype, "name");
+  if (!descriptor || typeof descriptor.get !== "function") return undefined;
+  try {
+    const value = descriptor.get.call(error);
+    return typeof value === "string" ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function errorMessage(error) {
+  if (!(error instanceof Error)) return undefined;
+  const descriptor = Object.getOwnPropertyDescriptor(error, "message");
+  return descriptor && "value" in descriptor ? descriptor.value : undefined;
 }
 
 function containsAbsolutePathText(value) {
   return /(^|[\s("'=])(?:file:\/\/|\/|[A-Za-z]:[\\/]|\\\\(?:\?\\)?[^\\/\s]+[\\/])/i.test(value);
+}
+
+function containsSensitiveErrorText(value) {
+  return containsAbsolutePathText(value) || /(^|[\s("'=])(?:https?:\/\/|wss?:\/\/)/i.test(value) || /[?&][A-Za-z0-9_.-]+=/i.test(value) || /\b(?:github_pat_|gh[opsru]_|token-(?!stdin\b)[A-Za-z0-9._-]{12,})/i.test(value);
 }

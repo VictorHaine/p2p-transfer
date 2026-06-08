@@ -210,6 +210,33 @@ test("CLI sender preflight rejects files that grow while being hashed", async ()
   }
 });
 
+test("CLI sender preflight rejects same-size file mutations while being hashed", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-send-preflight-rewrite-"));
+  const filePath = path.join(dir, "x.txt");
+  await fs.writeFile(filePath, "safe");
+  const probe = await fs.open(filePath, "r");
+  const fileHandlePrototype = Object.getPrototypeOf(probe) as { createReadStream(options?: unknown): NodeJS.ReadableStream };
+  await probe.close();
+  const originalCreateReadStream = fileHandlePrototype.createReadStream;
+  let mutated = false;
+  try {
+    fileHandlePrototype.createReadStream = function patchedCreateReadStream(this: fs.FileHandle, options?: unknown) {
+      const stream = originalCreateReadStream.call(this, options);
+      if (!mutated) {
+        stream.once("end", () => {
+          mutated = true;
+          fsSync.writeFileSync(filePath, "evil");
+        });
+      }
+      return stream;
+    };
+
+    await assert.rejects(() => buildManifest([filePath]), /changed while preparing/);
+  } finally {
+    fileHandlePrototype.createReadStream = originalCreateReadStream;
+  }
+});
+
 test("CLI sender preflight rejects unsafe manifest file names before sending", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-send-unsafe-name-"));
   const filePath = path.join(dir, "zero\u200bwidth.txt");
@@ -484,6 +511,7 @@ test("CLI sender send-time stream chunks reject non-canonical runtime values bef
   }
   for (const source of [sourceFiles, distFiles]) {
     assert.match(source, /function hashFileHandle[\s\S]*const payload = fileStreamChunkBytes\(chunk\)/);
+    assert.match(source, /function hashFileHandle[\s\S]*sameFileMutationSnapshot\(await fileMutationSnapshot\(handle\), expectedMutation\)/);
     assert.doesNotMatch(source, /function hashFileHandle[\s\S]*Buffer\.from\(chunk\)/);
     assert.match(source, /function fileStreamChunkBytes/);
     assert.match(source, /function isCanonicalFileStreamBytes/);

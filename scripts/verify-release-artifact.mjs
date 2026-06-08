@@ -81,17 +81,28 @@ function isMain() {
 }
 
 function releaseArtifactErrorMessage(error) {
-  if (!(error instanceof Error) || typeof error.message !== "string" || error.message.length < 1 || error.message.length > 4096 || /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u.test(error.message)) {
+  const message = errorMessage(error);
+  if (typeof message !== "string" || message.length < 1 || message.length > 4096 || /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u.test(message)) {
     return "release artifact verification failed with an internal error.";
   }
-  if (containsAbsolutePathText(error.message)) {
+  if (containsSensitiveErrorText(message)) {
     return "release artifact verification failed with path-sensitive evidence.";
   }
-  return error.message;
+  return message;
+}
+
+function errorMessage(error) {
+  if (!(error instanceof Error)) return undefined;
+  const descriptor = Object.getOwnPropertyDescriptor(error, "message");
+  return descriptor && "value" in descriptor ? descriptor.value : undefined;
 }
 
 function containsAbsolutePathText(value) {
   return /(^|[\s("'=])(?:file:\/\/|\/|[A-Za-z]:[\\/]|\\\\(?:\?\\)?[^\\/\s]+[\\/])/i.test(value);
+}
+
+function containsSensitiveErrorText(value) {
+  return containsAbsolutePathText(value) || /(^|[\s("'=])(?:https?:\/\/|wss?:\/\/)/i.test(value) || /[?&][A-Za-z0-9_.-]+=/i.test(value) || /\b(?:github_pat_|gh[opsru]_|token-(?!stdin\b)[A-Za-z0-9._-]{12,})/i.test(value);
 }
 
 function envString(name, maxBytes = MAX_RELEASE_ENV_VALUE_BYTES) {
@@ -375,7 +386,7 @@ async function singleReleaseTarball(releaseArtifactDir, name, version) {
     if (!opened.isFile()) throw new Error(`release tarball is not a regular file: ${tarballs[0]}`);
     if (opened.size < 1 || opened.size > MAX_TARBALL_BYTES) throw new Error(`release tarball size is outside the allowed range: ${opened.size}`);
     if (!sameFile(info, opened)) throw new Error("release tarball changed before verification.");
-    return { path: tarball, basename: tarballs[0], handle, size: opened.size };
+    return { path: tarball, basename: tarballs[0], handle, size: opened.size, stat: opened };
   } catch (error) {
     await handle.close().catch(() => undefined);
     throw error;
@@ -443,7 +454,7 @@ async function releaseSbomFile(releaseArtifactDir) {
     if (!opened.isFile()) throw new Error("release SBOM is not a regular file.");
     if (opened.size < 1 || opened.size > MAX_SBOM_BYTES) throw new Error("release SBOM size is outside the allowed range.");
     if (!sameFile(info, opened)) throw new Error("release SBOM changed before verification.");
-    return { path: sbom, basename: SBOM_NAME, handle, size: opened.size, label: "release SBOM" };
+    return { path: sbom, basename: SBOM_NAME, handle, size: opened.size, stat: opened, label: "release SBOM" };
   } catch (error) {
     await handle.close().catch(() => undefined);
     throw error;
@@ -535,7 +546,7 @@ async function verifyChecksumFile(releaseArtifactDir, tarball, sbom) {
     if (!opened.isFile()) throw new Error("SHA256SUMS is not a regular file.");
     if (opened.size < 1 || opened.size > MAX_CHECKSUM_FILE_BYTES) throw new Error("SHA256SUMS size is outside the allowed range.");
     if (!sameFile(info, opened)) throw new Error("SHA256SUMS changed before verification.");
-    const checksumText = await readHandleText(handle, opened.size, "SHA256SUMS");
+    const checksumText = await readHandleText(handle, opened, "SHA256SUMS");
     const match = /^([a-f0-9]{64})  ([A-Za-z0-9._-]+\.tgz)\n([a-f0-9]{64})  (SBOM\.cdx\.json)\n$/.exec(checksumText);
     if (!match || match[2] !== tarball.basename || match[4] !== sbom.basename) throw new Error("SHA256SUMS must contain exactly one checksum for the release tarball and one checksum for the SBOM.");
     const actualTarball = await sha256File(tarball);
@@ -548,7 +559,7 @@ async function verifyChecksumFile(releaseArtifactDir, tarball, sbom) {
 }
 
 async function verifySbomFile(sbom, packageName, packageVersion, expectedSbom) {
-  const document = parseJson(await readHandleText(sbom.handle, sbom.size, "release SBOM"), "release SBOM");
+  const document = parseJson(await readHandleText(sbom.handle, sbom.stat, "release SBOM"), "release SBOM");
   if (!isPlainRecord(document)) throw new Error("release SBOM must be a plain JSON object.");
   if (ownValue(document, "bomFormat") !== "CycloneDX") throw new Error("release SBOM must be CycloneDX.");
   if (ownValue(document, "specVersion") !== "1.7") throw new Error("release SBOM must use CycloneDX 1.7.");
@@ -910,6 +921,8 @@ async function workspaceFileDigest(file, info) {
       offset += bytesRead;
     }
     if (offset !== opened.size) throw new Error("package file changed while being read.");
+    const afterRead = await handle.stat();
+    if (!sameFile(opened, afterRead)) throw new Error("package file changed while being read.");
     return sha256Bytes(buffer);
   } finally {
     await handle.close();
@@ -1109,12 +1122,13 @@ async function sha256File(tarball) {
     total += bytesRead;
   }
   if (total !== tarball.size) throw new Error(`${tarball.label ?? "release tarball"} changed while being read.`);
-  const opened = await tarball.handle.stat();
-  if (opened.size !== tarball.size) throw new Error(`${tarball.label ?? "release tarball"} changed while being read.`);
+  const afterRead = await tarball.handle.stat();
+  if (!sameFile(tarball.stat, afterRead)) throw new Error(`${tarball.label ?? "release tarball"} changed while being read.`);
   return hash.digest("hex");
 }
 
-async function readHandleText(handle, size, label) {
+async function readHandleText(handle, opened, label) {
+  const size = opened.size;
   const buffer = Buffer.alloc(size);
   let offset = 0;
   while (offset < size) {
@@ -1123,8 +1137,8 @@ async function readHandleText(handle, size, label) {
     offset += bytesRead;
   }
   if (offset !== size) throw new Error(`${label} changed while being read.`);
-  const opened = await handle.stat();
-  if (opened.size !== size) throw new Error(`${label} changed while being read.`);
+  const afterRead = await handle.stat();
+  if (!sameFile(opened, afterRead)) throw new Error(`${label} changed while being read.`);
   return decodeUtf8(buffer, label);
 }
 
@@ -1154,7 +1168,7 @@ async function readText(file, maxBytes) {
     if (!opened.isFile()) throw new Error(`${path.relative(root, file)} is not a regular file.`);
     if (opened.size < 1 || opened.size > maxBytes) throw new Error(`${path.relative(root, file)} size is outside the allowed range.`);
     if (!sameFile(info, opened)) throw new Error(`${path.relative(root, file)} changed before verification.`);
-    return await readHandleText(handle, opened.size, path.relative(root, file));
+    return await readHandleText(handle, opened, path.relative(root, file));
   } finally {
     await handle.close();
   }

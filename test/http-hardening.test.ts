@@ -157,11 +157,14 @@ test("unauthenticated server surfaces rate-limit connection churn and static HTT
   assert.match(distServerSource, /websocketConnectionRateLimits/);
 });
 
-test("production version endpoint exposes protocol compatibility only", () => {
-  assert.match(securityPolicy, /production `\/v1\/version` responses must expose only protocol compatibility/);
-  assert.match(serverSource, /return json\(res, 200, versionResponse\(\), cors\)/);
-  assert.match(serverSource, /function versionResponse\(\): \{ protocolVersion: number; name\?: string; version\?: string \} \{[\s\S]*if \(production\) return \{ protocolVersion: PROTOCOL_VERSION \};[\s\S]*return \{ protocolVersion: PROTOCOL_VERSION, name: PACKAGE_NAME, version: PACKAGE_VERSION \};[\s\S]*\}/);
-  assert.match(distServerSource, /function versionResponse\(\) \{[\s\S]*if \(production\)[\s\S]*return \{ protocolVersion: PROTOCOL_VERSION \};[\s\S]*return \{ protocolVersion: PROTOCOL_VERSION, name: PACKAGE_NAME, version: PACKAGE_VERSION \};[\s\S]*\}/);
+test("hardened version endpoint exposes protocol compatibility only", () => {
+  assert.match(securityPolicy, /public deployment `\/v1\/version` responses must expose only protocol compatibility/);
+  assert.match(securityPolicy, /loopback-bound default servers must redact `\/v1\/version` exact package fingerprints when the request `Host` is non-loopback or when forwarded-header evidence is present/);
+  assert.match(serverSource, /return json\(res, 200, versionResponse\(req\), cors\)/);
+  assert.match(serverSource, /function versionResponse\(req: http\.IncomingMessage\): \{ protocolVersion: number; name\?: string; version\?: string \} \{[\s\S]*if \(hardenedDeployment \|\| requestLooksPublic\(req\)\) return \{ protocolVersion: PROTOCOL_VERSION \};[\s\S]*return \{ protocolVersion: PROTOCOL_VERSION, name: PACKAGE_NAME, version: PACKAGE_VERSION \};[\s\S]*\}/);
+  assert.match(serverSource, /function requestLooksPublic\(req: http\.IncomingMessage\): boolean \{[\s\S]*requestHasForwardedHeaderEvidence\(req\)[\s\S]*const authority = requestHostAuthority\(req\);[\s\S]*return authority === null \|\| !isLoopbackAuthority\(authority\);[\s\S]*\}/);
+  assert.match(distServerSource, /function versionResponse\(req\) \{[\s\S]*if \(hardenedDeployment \|\| requestLooksPublic\(req\)\)[\s\S]*return \{ protocolVersion: PROTOCOL_VERSION \};[\s\S]*return \{ protocolVersion: PROTOCOL_VERSION, name: PACKAGE_NAME, version: PACKAGE_VERSION \};[\s\S]*\}/);
+  assert.match(distServerSource, /function requestLooksPublic\(req\) \{[\s\S]*requestHasForwardedHeaderEvidence\(req\)[\s\S]*const authority = requestHostAuthority\(req\);[\s\S]*return authority === null \|\| !isLoopbackAuthority\(authority\);[\s\S]*\}/);
 });
 
 test("server lifecycle intervals stop on shutdown and fatal errors", () => {

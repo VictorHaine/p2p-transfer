@@ -4,7 +4,7 @@ import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, realpat
 import { connect as connectTcp } from "node:net";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { createIsolatedDockerConfig } from "./docker-config.mjs";
+import { assertNoUserDockerCliPlugins, createIsolatedDockerConfig } from "./docker-config.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DEFAULT_IMAGE_TAG = "p2p-transfer:docker-policy";
@@ -58,8 +58,9 @@ async function main() {
   const imageVersion = dockerImageVersion(optionalEnvString("DOCKER_SMOKE_VERSION"));
   const imageRevision = dockerImageRevision(optionalEnvString("DOCKER_SMOKE_REVISION"));
   const containerName = `p2p-transfer-policy-${Date.now()}-${process.pid}`;
+  assertNoUserDockerCliPlugins();
   const dockerConfigDir = createIsolatedDockerConfig();
-  const dockerEnv = { DOCKER_CONFIG: dockerConfigDir };
+  const dockerEnv = isolatedDockerEnv(dockerConfigDir);
 
   try {
     await run("docker", ["info", "--format", "{{json .ServerVersion}}"], "docker daemon preflight", DOCKER_PREFLIGHT_TIMEOUT_MS, { env: dockerEnv });
@@ -75,13 +76,13 @@ async function main() {
     await expectDockerFailure(
       ["run", "--rm", ...HARDENED_DOCKER_RUN_FLAGS, "-e", "SIGNALING_TOPOLOGY=single-instance", imageTag],
       "container without ALLOWED_ORIGINS",
-      "Error: ALLOWED_ORIGINS is required in production.",
+      "Error: ALLOWED_ORIGINS is required for public deployments.",
       dockerEnv
     );
     await expectDockerFailure(
       ["run", "--rm", ...HARDENED_DOCKER_RUN_FLAGS, "-e", `ALLOWED_ORIGINS=${PRODUCTION_ORIGIN}`, imageTag],
       "container without SIGNALING_TOPOLOGY",
-      "Error: SIGNALING_TOPOLOGY must be single-instance or sticky-sessions for production or non-loopback deployments.",
+      "Error: SIGNALING_TOPOLOGY must be single-instance or sticky-sessions for public deployments.",
       dockerEnv
     );
 
@@ -350,7 +351,7 @@ function run(command, args, label, timeout, options = {}) {
     const child = spawn(command, args, {
       cwd: root,
       env: { ...safeChildEnv(), ...(options.env ?? {}) },
-      stdio: verbose ? "inherit" : ["ignore", "pipe", "pipe"]
+      stdio: ["ignore", "pipe", "pipe"]
     });
     let stdout = "";
     let stderr = "";
@@ -364,26 +365,28 @@ function run(command, args, label, timeout, options = {}) {
       killTimer = setTimeout(() => child.kill("SIGKILL"), CHILD_KILL_GRACE_MS);
     }, timeout);
 
-    if (!verbose) {
-      child.stdout.on("data", (chunk) => {
-        try {
-          stdout = appendBoundedOutput(stdout, chunk);
-        } catch (error) {
-          outputError = error instanceof Error ? error : new Error("docker policy smoke output capture failed.");
-          child.kill("SIGTERM");
-          killTimer ??= setTimeout(() => child.kill("SIGKILL"), CHILD_KILL_GRACE_MS);
-        }
-      });
-      child.stderr.on("data", (chunk) => {
-        try {
-          stderr = appendBoundedOutput(stderr, chunk);
-        } catch (error) {
-          outputError = error instanceof Error ? error : new Error("docker policy smoke output capture failed.");
-          child.kill("SIGTERM");
-          killTimer ??= setTimeout(() => child.kill("SIGKILL"), CHILD_KILL_GRACE_MS);
-        }
-      });
-    }
+    child.stdout.on("data", (chunk) => {
+      try {
+        const next = sanitizedOutputChunk(chunk);
+        stdout = appendBoundedOutputText(stdout, next);
+        if (verbose) process.stdout.write(next);
+      } catch (error) {
+        outputError = error instanceof Error ? error : new Error("docker policy smoke output capture failed.");
+        child.kill("SIGTERM");
+        killTimer ??= setTimeout(() => child.kill("SIGKILL"), CHILD_KILL_GRACE_MS);
+      }
+    });
+    child.stderr.on("data", (chunk) => {
+      try {
+        const next = sanitizedOutputChunk(chunk);
+        stderr = appendBoundedOutputText(stderr, next);
+        if (verbose) process.stderr.write(next);
+      } catch (error) {
+        outputError = error instanceof Error ? error : new Error("docker policy smoke output capture failed.");
+        child.kill("SIGTERM");
+        killTimer ??= setTimeout(() => child.kill("SIGKILL"), CHILD_KILL_GRACE_MS);
+      }
+    });
 
     child.on("error", rejectOnce);
     child.on("exit", (code, signal) => {
@@ -456,6 +459,10 @@ export function safeChildEnv() {
   return env;
 }
 
+function isolatedDockerEnv(dockerConfigDir) {
+  return { DOCKER_CONFIG: dockerConfigDir, HOME: dockerConfigDir, USERPROFILE: dockerConfigDir };
+}
+
 function isSafeChildEnvValue(value) {
   return typeof value === "string" && value.length > 0 && !/[\p{Cc}\p{Cf}]/u.test(value) && !utf8ByteLengthExceeds(value, MAX_CHILD_ENV_VALUE_BYTES);
 }
@@ -497,9 +504,25 @@ function boundedOutputText(value) {
 
 function appendBoundedOutput(current, chunk) {
   if (typeof current !== "string" || !Buffer.isBuffer(chunk)) throw new Error("docker policy smoke output capture failed.");
-  const next = current + chunk.toString("utf8").replace(/[\p{Cc}\p{Cf}]/gu, (character) => (character === "\n" || character === "\t" ? character : ""));
+  return appendBoundedOutputText(current, sanitizedOutputChunk(chunk));
+}
+
+function appendBoundedOutputText(current, chunk) {
+  if (typeof current !== "string" || typeof chunk !== "string") throw new Error("docker policy smoke output capture failed.");
+  const next = current + chunk;
   if (Buffer.byteLength(next, "utf8") <= MAX_COMMAND_OUTPUT_BYTES) return next;
   return truncateUtf8Tail(next, MAX_COMMAND_OUTPUT_BYTES);
+}
+
+function sanitizedOutputChunk(chunk) {
+  if (!Buffer.isBuffer(chunk)) throw new Error("docker policy smoke output capture failed.");
+  return redactSensitiveOutputText(chunk.toString("utf8").replace(/[\p{Cc}\p{Cf}]/gu, (character) => (character === "\n" || character === "\t" ? character : "")));
+}
+
+function redactSensitiveOutputText(value) {
+  return value
+    .replace(/(^|[\s("'=])(?:https?:\/\/[^\s"'()<>?]+\?[^\s"'()<>]+|wss?:\/\/[^\s"'()<>]+|file:\/\/[^\s"'()<>]+|\/[^\s"'()]+|[A-Za-z]:[\\/][^\s"'()]+|\\\\(?:\?\\)?[^\\/\s]+[\\/][^\s"'()]*)/gi, "$1[path]")
+    .replace(/\b(?:github_pat_|gh[opsru]_|token-(?!stdin\b)[A-Za-z0-9._-]{12,})[A-Za-z0-9._-]*/gi, "[redacted]");
 }
 
 function truncateUtf8Tail(value, maxBytes) {
@@ -531,21 +554,27 @@ function delay(ms) {
 }
 
 function smokeErrorMessage(error) {
+  const message = errorMessage(error);
   if (
-    !(error instanceof Error) ||
-    typeof error.message !== "string" ||
-    error.message.length < 1 ||
-    error.message.length > 4096 ||
-    /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u.test(error.message)
+    typeof message !== "string" ||
+    message.length < 1 ||
+    message.length > 4096 ||
+    /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u.test(message)
   ) {
     return "docker policy smoke failed with an internal error.";
   }
-  if (containsPathLikeText(error.message)) return "docker policy smoke failed with path-sensitive evidence.";
-  return error.message;
+  if (containsPathLikeText(message)) return "docker policy smoke failed with path-sensitive evidence.";
+  return message;
+}
+
+function errorMessage(error) {
+  if (!(error instanceof Error)) return undefined;
+  const descriptor = Object.getOwnPropertyDescriptor(error, "message");
+  return descriptor && "value" in descriptor ? descriptor.value : undefined;
 }
 
 function containsPathLikeText(value) {
-  return /(^|[\s("'=])(?:file:\/\/|\/|[A-Za-z]:[\\/]|\\\\(?:\?\\)?[^\\/\s]+[\\/])/i.test(value);
+  return /(^|[\s("'=])(?:https?:\/\/[^\s"'()<>?]+\?|wss?:\/\/|file:\/\/|\/|[A-Za-z]:[\\/]|\\\\(?:\?\\)?[^\\/\s]+[\\/])/i.test(value) || /[?&][A-Za-z0-9_.-]+=/i.test(value) || /\b(?:github_pat_|gh[opsru]_|token-(?!stdin\b)[A-Za-z0-9._-]{12,})/i.test(value);
 }
 
 function utf8ByteLengthExceeds(value, maxBytes) {

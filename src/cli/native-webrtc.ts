@@ -224,14 +224,15 @@ export function assertNoNativeFallbackSurfaces(packageRoot: string, triple: stri
     }
   }
   const nestedPrebuilt = path.join(packageRoot, "node_modules", `@roamhq/wrtc-${triple}`);
+  let nestedPrebuiltExists = false;
   try {
     lstatSync(nestedPrebuilt);
-    throw new Error("Native WebRTC package contains unreviewed nested prebuilt outputs.");
+    nestedPrebuiltExists = true;
   } catch (error) {
     if (isMissingPathError(error)) return;
-    if (error instanceof Error && error.message === "Native WebRTC package contains unreviewed nested prebuilt outputs.") throw error;
     throw new Error("Native WebRTC package contains unreviewed nested prebuilt outputs.");
   }
+  if (nestedPrebuiltExists) throw new Error("Native WebRTC package contains unreviewed nested prebuilt outputs.");
 }
 
 function resolveReviewedPrebuiltBinary(requireFromWrtc: NodeRequire, prebuiltName: string): string {

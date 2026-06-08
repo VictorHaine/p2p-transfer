@@ -24,14 +24,16 @@ test("browser asset integrity is wired into build and server policy", () => {
 
   assert.match(buildScript, /vite build && node scripts\/write-web-asset-manifest\.mjs/);
   assert.match(securityPolicy, /production browser builds must inject Subresource Integrity attributes/);
+  assert.match(securityPolicy, /public deployments must no-follow-open/);
   assert.match(securityPolicy, /then fail closed on missing or invalid asset manifests/);
   assert.match(securityPolicy, /exclusive no-follow creation/);
   assert.match(securityPolicy, /no-follow-open, exact-size read, fatal-UTF-8-decode, and pre\/post-read identity-check/);
   assert.match(securityPolicy, /verify every manifest-listed asset before startup completes/);
-  assert.match(readme, /Production builds inject SRI into the browser JS\/CSS tags, emit `dist-web\/asset-manifest\.json`/);
+  assert.match(readme, /Production builds inject SRI into the browser JS\/CSS tags and emit `dist-web\/asset-manifest\.json`/);
+  assert.match(readme, /Public deployment server runs refuse to serve HTML\/JS\/CSS bytes that do not match that manifest/);
   assert.match(readUtf8("scripts/write-web-asset-manifest.mjs"), /O_CREAT \| fsConstants\.O_EXCL \| fsConstants\.O_NOFOLLOW/);
   for (const candidate of [serverSource, distServerSource]) {
-    assert.match(candidate, /loadCheckedWebAssetManifest\(webRoot, production\)/);
+    assert.match(candidate, /loadCheckedWebAssetManifest\(webRoot, hardenedDeployment\)/);
     assert.match(candidate, /verifyWebAssetIntegrity\(webAssetManifest, root, realFilePath, staticFile\.body\)/);
   }
   for (const candidate of [readUtf8("src/server/web-asset-integrity.ts"), readUtf8("dist-node/server/web-asset-integrity.js")]) {
@@ -160,7 +162,7 @@ test("built production server refuses browser assets tampered after startup", as
   }
 });
 
-test("production server refuses web roots without the generated asset manifest", async () => {
+test("hardened server refuses web roots without the generated asset manifest", async () => {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-web-integrity-missing-"));
   try {
     await fs.writeFile(path.join(tmp, "index.html"), "<!doctype html><title>missing manifest</title>", "utf8");
@@ -171,12 +173,70 @@ test("production server refuses web roots without the generated asset manifest",
   }
 });
 
-test("production server refuses malformed UTF-8 asset manifests", async () => {
+test("hardened server refuses malformed UTF-8 asset manifests", async () => {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-web-integrity-utf8-"));
   try {
     await fs.writeFile(path.join(tmp, "index.html"), "<!doctype html><title>bad utf8 manifest</title>", "utf8");
     await fs.writeFile(path.join(tmp, "asset-manifest.json"), Buffer.from([0xff, 0xfe, 0xfd]));
     await assert.rejects(() => loadWebAssetManifest(tmp, true), /web asset manifest is invalid/);
+  } finally {
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
+});
+
+test("built non-loopback server refuses web roots without the generated asset manifest", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-web-integrity-public-missing-"));
+  const port = 33_000 + randomInt(1_000);
+  const origin = "https://files.example";
+
+  try {
+    await fs.writeFile(path.join(tmp, "index.html"), "<!doctype html><title>missing manifest</title>", "utf8");
+    const server = spawn(process.execPath, ["dist-node/server/index.js"], {
+      cwd: process.cwd(),
+      env: {
+        ...testChildEnv(tmp),
+        PORT: String(port),
+        HOST: "0.0.0.0",
+        ALLOWED_ORIGINS: origin,
+        SIGNALING_TOPOLOGY: "single-instance",
+        WEB_ROOT: tmp
+      }
+    });
+    const output = collectOutput(server);
+
+    assert.equal(await waitForProcessExit(server), 1);
+    await output.done;
+    assert.match(output.text(), /ff signaling server startup failed: web root/);
+    assert.doesNotMatch(output.text(), /Error:| at |stack|asset-manifest|missing manifest/);
+  } finally {
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
+});
+
+test("built loopback server with public origin refuses web roots without the generated asset manifest", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-web-integrity-proxy-missing-"));
+  const port = 34_000 + randomInt(1_000);
+  const origin = "https://files.example";
+
+  try {
+    await fs.writeFile(path.join(tmp, "index.html"), "<!doctype html><title>missing manifest</title>", "utf8");
+    const server = spawn(process.execPath, ["dist-node/server/index.js"], {
+      cwd: process.cwd(),
+      env: {
+        ...testChildEnv(tmp),
+        PORT: String(port),
+        HOST: "127.0.0.1",
+        ALLOWED_ORIGINS: origin,
+        SIGNALING_TOPOLOGY: "single-instance",
+        WEB_ROOT: tmp
+      }
+    });
+    const output = collectOutput(server);
+
+    assert.equal(await waitForProcessExit(server), 1);
+    await output.done;
+    assert.match(output.text(), /ff signaling server startup failed: web root/);
+    assert.doesNotMatch(output.text(), /Error:| at |stack|asset-manifest|missing manifest/);
   } finally {
     await fs.rm(tmp, { recursive: true, force: true });
   }

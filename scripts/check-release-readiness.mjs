@@ -46,6 +46,7 @@ const REQUIRED_CI_CHECKS = [
   "platform smoke / windows-2025 / node 24.x"
 ];
 const REQUIRED_SUCCESSFUL_MAIN_WORKFLOWS = [
+  { file: "ci.yml", name: "ci" },
   { file: "codeql.yml", name: "codeql" },
   { file: "scorecard.yml", name: "scorecard" },
   { file: "dependency-integrity.yml", name: "dependency-integrity" }
@@ -412,13 +413,14 @@ async function readText(file, maxBytes, label) {
     if (!opened.isFile()) throw new Error(`${label} is not a regular file.`);
     if (opened.size < 1 || opened.size > maxBytes) throw new Error(`${label} size is outside the allowed range.`);
     if (!sameFile(info, opened)) throw new Error(`${label} changed before verification.`);
-    return await readHandleText(handle, opened.size, label);
+    return await readHandleText(handle, opened, label);
   } finally {
     await handle.close();
   }
 }
 
-async function readHandleText(handle, size, label) {
+async function readHandleText(handle, opened, label) {
+  const size = opened.size;
   const buffer = Buffer.alloc(size);
   let offset = 0;
   while (offset < size) {
@@ -427,8 +429,8 @@ async function readHandleText(handle, size, label) {
     offset += bytesRead;
   }
   if (offset !== size) throw new Error(`${label} changed while being read.`);
-  const opened = await handle.stat();
-  if (opened.size !== size) throw new Error(`${label} changed while being read.`);
+  const afterRead = await handle.stat();
+  if (!sameFile(opened, afterRead)) throw new Error(`${label} changed while being read.`);
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(buffer);
   } catch {
@@ -834,7 +836,7 @@ async function githubWithHeaders(token, method, path, body) {
     });
   } catch (error) {
     if (isAbortError(error)) throw new Error("GitHub API request timed out.");
-    throw error;
+    throw new Error("GitHub API request failed.");
   } finally {
     clearTimeout(timer);
   }
@@ -928,7 +930,26 @@ async function boundedGithubResponseText(response) {
 }
 
 function isAbortError(error) {
-  return error instanceof Error && error.name === "AbortError";
+  return errorName(error) === "AbortError";
+}
+
+function errorName(error) {
+  if (!(error instanceof Error)) return undefined;
+  const descriptor = Object.getOwnPropertyDescriptor(error, "name");
+  if (descriptor && "value" in descriptor) return descriptor.value;
+  return domExceptionName(error);
+}
+
+function domExceptionName(error) {
+  if (typeof DOMException !== "function" || !(error instanceof DOMException)) return undefined;
+  const descriptor = Object.getOwnPropertyDescriptor(DOMException.prototype, "name");
+  if (!descriptor || typeof descriptor.get !== "function") return undefined;
+  try {
+    const value = descriptor.get.call(error);
+    return typeof value === "string" ? value : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function githubApiErrorMessage(status) {
@@ -1082,10 +1103,31 @@ function readinessErrorMessages(error) {
 }
 
 function readinessErrorMessage(error) {
-  if (!(error instanceof Error) || typeof error.message !== "string" || error.message.length < 1 || error.message.length > 4096 || /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u.test(error.message)) {
+  const message = errorMessage(error);
+  if (
+    typeof message !== "string" ||
+    message.length < 1 ||
+    message.length > 4096 ||
+    /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u.test(message)
+  ) {
     return "release readiness check failed with an internal error.";
   }
-  return error.message;
+  if (containsSensitiveErrorText(message)) return "release readiness check failed with sensitive evidence.";
+  return message;
+}
+
+function errorMessage(error) {
+  if (!(error instanceof Error)) return undefined;
+  const descriptor = Object.getOwnPropertyDescriptor(error, "message");
+  return descriptor && "value" in descriptor ? descriptor.value : undefined;
+}
+
+function containsAbsolutePathText(value) {
+  return /(^|[\s("'=])(?:file:\/\/|\/|[A-Za-z]:[\\/]|\\\\(?:\?\\)?[^\\/\s]+[\\/])/i.test(value);
+}
+
+function containsSensitiveErrorText(value) {
+  return containsAbsolutePathText(value) || /(^|[\s("'=])(?:https?:\/\/|wss?:\/\/)/i.test(value) || /[?&][A-Za-z0-9_.-]+=/i.test(value) || /\b(?:github_pat_|gh[opsru]_|token-(?!stdin\b)[A-Za-z0-9._-]{12,})/i.test(value);
 }
 
 function utf8ByteLengthExceeds(value, maxBytes) {

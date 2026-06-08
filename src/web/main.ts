@@ -109,6 +109,10 @@ type BrowserResumeClearResult = {
   cleanupFailed: boolean;
 };
 
+type BrowserResumeRegistryOptions = {
+  strict?: boolean;
+};
+
 type BrowserSendPlanFile = {
   id: number;
   name: string;
@@ -149,6 +153,7 @@ const BROWSER_RESUME_KEY_PREFIX = "ff.resume.v2:";
 const BROWSER_RESUME_STORAGE_ENTRY_KEY = /^ff\.resume\.v2:[a-f0-9]{64}$/;
 const MAX_BROWSER_RESUME_RECORDS = 200;
 const BROWSER_RESUME_RECORD_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const MAX_BROWSER_LEGACY_RESUME_STORAGE_BYTES = 64 * 1024;
 const browserResumeText = new TextEncoder();
 let browserResumeLookupKeyPromise: Promise<BrowserResumeLookupKey> | undefined;
 let browserResumeRegistryReady: Promise<void> | undefined;
@@ -1095,17 +1100,39 @@ async function receiveBrowserFiles(
     clearReceiveTimeout();
     detachChannels();
     let cleanupError: unknown;
+    let visibleCleanupError: unknown;
     for (const state of states.values()) {
+      if (state.done && state.publishedName && doneError && !completed) {
+        try {
+          await discardBrowserPartialFile(state, { strictPublished: true });
+        } catch (error) {
+          visibleCleanupError ??= error;
+          cleanupError ??= error;
+          // The receive failed after file publication but before terminal completion; visible output is rollback material.
+        }
+        try {
+          if (state.resumeKey) await forgetBrowserResumePartial(state.resumeKey, { strict: true });
+        } catch (error) {
+          cleanupError ??= error;
+          // Origin resume state cleanup must not hide a visible-output cleanup failure.
+        }
+      }
       if (!state.done) {
         wipeChunks(state.chunks);
         state.chunks = [];
         if (state.publishedName) {
           try {
-            await discardBrowserPartialFile(state);
-            if (state.resumeKey) await forgetBrowserResumePartial(state.resumeKey);
+            await discardBrowserPartialFile(state, { strictPublished: true });
           } catch (error) {
+            visibleCleanupError ??= error;
             cleanupError ??= error;
             // Final publication started but the peer acknowledgement failed; remove visible output if the browser still allows it.
+          }
+          try {
+              if (state.resumeKey) await forgetBrowserResumePartial(state.resumeKey, { strict: true });
+          } catch (error) {
+            cleanupError ??= error;
+            // Origin resume state cleanup must not hide a visible-output cleanup failure.
           }
         } else if (state.resume) {
           try {
@@ -1116,14 +1143,19 @@ async function receiveBrowserFiles(
           }
         } else {
           try {
-            await discardBrowserPartialFile(state);
-            if (state.resumeKey) await forgetBrowserResumePartial(state.resumeKey);
+            await discardBrowserPartialFile(state, { strictPartial: true });
+            if (state.resumeKey) await forgetBrowserResumePartial(state.resumeKey, { strict: true });
           } catch (error) {
+            visibleCleanupError ??= error;
             cleanupError ??= error;
-            // The browser may have already closed or discarded the partial file.
+            // Non-resume folder partials are plaintext rollback material; cleanup failure must be visible.
           }
         }
       }
+    }
+    if (visibleCleanupError) {
+      setLog(log, errorMessage(visibleCleanupError));
+      throw visibleCleanupError;
     }
     if (!doneError && cleanupError) throw cleanupError;
   }
@@ -1136,7 +1168,7 @@ async function maybeDownload(state: BrowserReceiveState, control: RTCDataChannel
     const actual = digestHex(state.hash);
     if (actual !== state.expectedSha256) {
       state.resume = false;
-      if (state.resumeKey) await forgetBrowserResumePartial(state.resumeKey);
+      if (state.resumeKey) await forgetBrowserResumePartial(state.resumeKey, { strict: true });
       throw new Error(`Hash mismatch for file ${state.id}.`);
     }
     if (state.writable) {
@@ -1151,7 +1183,7 @@ async function maybeDownload(state: BrowserReceiveState, control: RTCDataChannel
       state.name = publishedName;
       state.publishedName = publishedName;
       throwIfReceiveStopped();
-      if (state.resumeKey) await forgetBrowserResumePartial(state.resumeKey);
+      if (state.resumeKey) await forgetBrowserResumePartial(state.resumeKey, { strict: true });
       control.send(fileOk);
     } else {
       const fileOk = await sealControl(keys, { t: "file-ok", id: state.id });
@@ -1317,6 +1349,7 @@ function clearBrowserReceiveSecrets(): void {
   codeBox.textContent = "";
   codeBox.hidden = true;
   clearBrowserPairRequest();
+  recvLog.textContent = "";
 }
 
 function clearBrowserPairRequest(): void {
@@ -2292,7 +2325,13 @@ async function createBrowserReceiveFile(
     const resumed = await resumeBrowserPartialFile(directory, name, size, resumeKey, opaqueOutputNames);
     if (resumed) return resumed;
     const created = await createWritableFile(directory, name, opaqueOutputNames, resumeKey);
-    await rememberBrowserResumePartial(resumeKey, { partName: created.partName, updatedAt: Date.now() });
+    try {
+      await rememberBrowserResumePartial(resumeKey, { partName: created.partName, updatedAt: Date.now() });
+    } catch (error) {
+      await created.writable.abort().catch(() => {});
+      await removeBrowserEntry(directory, created.partName, true);
+      throw error;
+    }
     return { ...created, resumeKey };
   }
   return createWritableFile(directory, name, opaqueOutputNames);
@@ -2349,7 +2388,7 @@ async function createWritableFile(
   try {
     return { name: finalName, partName, writable: await handle.createWritable({ keepExistingData: false }), fileHandle: handle, directory };
   } catch (error) {
-    await directory.removeEntry(partName).catch(ignoreNotFoundError);
+    await removeBrowserEntry(directory, partName, true);
     throw error;
   }
 }
@@ -2420,7 +2459,13 @@ async function loadBrowserResumeLookupKey(): Promise<BrowserResumeLookupKey> {
       const created = await createBrowserResumeLookupKey();
       await storeBrowserResumeLookupKey(db, created);
       await browserResumeRegistryReady;
-      await clearBrowserResumeRegistry();
+      try {
+        await clearBrowserResumeRegistry({ strict: true });
+      } catch {
+        db.close();
+        await deleteBrowserResumeKeyDb();
+        return { key: await createBrowserResumeLookupKey(), persistent: false };
+      }
       return { key: created, persistent: true };
     } finally {
       db.close();
@@ -2491,6 +2536,10 @@ function readLegacyBrowserResumeRegistry(): Record<string, unknown> | undefined 
   try {
     const raw = window.localStorage.getItem(BROWSER_RESUME_STORAGE_KEY);
     if (!raw) return undefined;
+    if (utf8ByteLengthExceeds(raw, MAX_BROWSER_LEGACY_RESUME_STORAGE_BYTES)) {
+      clearLegacyBrowserResumeRegistry();
+      return undefined;
+    }
     const parsed = JSON.parse(raw) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       clearLegacyBrowserResumeRegistry();
@@ -2503,10 +2552,11 @@ function readLegacyBrowserResumeRegistry(): Record<string, unknown> | undefined 
   }
 }
 
-function clearLegacyBrowserResumeRegistry(): void {
+function clearLegacyBrowserResumeRegistry(options: BrowserResumeRegistryOptions = {}): void {
   try {
     window.localStorage.removeItem(BROWSER_RESUME_STORAGE_KEY);
   } catch {
+    if (options.strict) throw new Error("Browser legacy resume registry could not be cleared.");
     // Resume records are opportunistic; transfer integrity does not depend on storage.
   }
 }
@@ -2598,13 +2648,13 @@ async function rememberBrowserResumePartial(key: string, record: BrowserResumePa
     })
     .sort((a, b) => b[1].updatedAt - a[1].updatedAt)
     .slice(0, MAX_BROWSER_RESUME_RECORDS);
-  await writeBrowserResumeRegistry(Object.fromEntries(entries));
+  await writeBrowserResumeRegistry(Object.fromEntries(entries), { strict: true });
 }
 
-async function forgetBrowserResumePartial(key: string): Promise<void> {
+async function forgetBrowserResumePartial(key: string, options: BrowserResumeRegistryOptions = {}): Promise<void> {
   const registry = await readBrowserResumeRegistry();
   delete registry[key];
-  await writeBrowserResumeRegistry(registry);
+  await writeBrowserResumeRegistry(registry, options);
 }
 
 async function readBrowserResumeRegistry(): Promise<Record<string, unknown>> {
@@ -2620,10 +2670,10 @@ async function readBrowserResumeRegistry(): Promise<Record<string, unknown>> {
   }
 }
 
-async function writeBrowserResumeRegistry(registry: Record<string, unknown>): Promise<void> {
+async function writeBrowserResumeRegistry(registry: Record<string, unknown>, options: BrowserResumeRegistryOptions = {}): Promise<void> {
   try {
     if (Object.keys(registry).length === 0) {
-      await clearBrowserResumeRegistry();
+      await clearBrowserResumeRegistry(options);
       return;
     }
     const db = await openBrowserResumeRegistryDb();
@@ -2634,14 +2684,19 @@ async function writeBrowserResumeRegistry(registry: Record<string, unknown>): Pr
     } finally {
       db.close();
     }
-  } catch {
+  } catch (error) {
+    if (options.strict) throw error;
     // Resume records are opportunistic; transfer integrity does not depend on storage.
   }
 }
 
-async function clearBrowserResumeRegistry(): Promise<void> {
-  clearLegacyBrowserResumeRegistry();
-  await deleteBrowserResumeRegistryDb().catch(() => {});
+async function clearBrowserResumeRegistry(options: BrowserResumeRegistryOptions = {}): Promise<void> {
+  clearLegacyBrowserResumeRegistry(options);
+  try {
+    await deleteBrowserResumeRegistryDb();
+  } catch (error) {
+    if (options.strict) throw error;
+  }
 }
 
 async function clearBrowserResumeState(): Promise<BrowserResumeClearResult> {
@@ -2663,7 +2718,7 @@ async function clearBrowserResumeState(): Promise<BrowserResumeClearResult> {
       // Clearing origin state must still work if folder selection is cancelled.
     }
   }
-  await clearBrowserResumeRegistry();
+  await clearBrowserResumeRegistry({ strict: true });
   browserResumeLookupKeyPromise = undefined;
   await deleteBrowserResumeKeyDb();
   return { records: partNames.length, removed, folderSelected, cleanupFailed };
@@ -2790,16 +2845,48 @@ function browserResumePartialRecordInput(value: unknown): BrowserResumePartialRe
   return { partName, updatedAt };
 }
 
-async function discardBrowserPartialFile(state: BrowserReceiveState): Promise<void> {
+function utf8ByteLengthExceeds(value: string, maxBytes: number): boolean {
+  let bytes = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code < 0x80) bytes += 1;
+    else if (code < 0x800) bytes += 2;
+    else if (code >= 0xd800 && code <= 0xdbff && index + 1 < value.length) {
+      const next = value.charCodeAt(index + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        bytes += 4;
+        index += 1;
+      } else {
+        bytes += 3;
+      }
+    } else {
+      bytes += 3;
+    }
+    if (bytes > maxBytes) return true;
+  }
+  return false;
+}
+
+async function discardBrowserPartialFile(state: BrowserReceiveState, options: { strictPublished?: boolean; strictPartial?: boolean } = {}): Promise<void> {
   try {
     await state.writable?.abort();
   } catch {
     // Closed streams cannot always be aborted after a verification failure.
   }
   if (!state.directory) return;
-  if (state.publishedName) await state.directory.removeEntry(state.publishedName).catch(ignoreNotFoundError);
-  if (state.partName) await state.directory.removeEntry(state.partName).catch(ignoreNotFoundError);
+  if (state.publishedName) await removeBrowserEntry(state.directory, state.publishedName, Boolean(options.strictPublished));
+  if (state.partName) await removeBrowserEntry(state.directory, state.partName, Boolean(options.strictPartial || options.strictPublished));
   if (!state.publishedName && !state.partName) await state.directory.removeEntry(state.name).catch(ignoreNotFoundError);
+}
+
+async function removeBrowserEntry(directory: FileSystemDirectoryHandle, name: string, strict: boolean): Promise<void> {
+  try {
+    await directory.removeEntry(name);
+  } catch (error) {
+    if (isNotFoundError(error)) return;
+    if (strict) throw new Error("Browser folder cleanup incomplete.");
+    throw error;
+  }
 }
 
 async function preserveBrowserPartialFile(state: BrowserReceiveState): Promise<void> {
@@ -2824,16 +2911,24 @@ async function publishBrowserPartFile(state: BrowserReceiveState, expectedSha256
   let finalCreated = false;
   try {
     finalCreated = true;
+    state.publishedName = finalName;
     throwIfReceiveStopped();
     await copyWritableFile(state.fileHandle, created.handle, state.size);
     throwIfReceiveStopped();
     await verifyWritableFile(created.handle, finalName, state.size, expectedSha256);
     throwIfReceiveStopped();
-    await state.directory.removeEntry(state.partName);
+    await removeBrowserEntry(state.directory, state.partName, true);
     throwIfReceiveStopped();
     return finalName;
   } catch (error) {
-    if (finalCreated) await state.directory.removeEntry(finalName).catch(ignoreNotFoundError);
+    if (finalCreated) {
+      try {
+        await removeBrowserEntry(state.directory, finalName, true);
+        delete state.publishedName;
+      } catch (cleanupError) {
+        throw cleanupError;
+      }
+    }
     throw error;
   }
 }

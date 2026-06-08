@@ -120,13 +120,14 @@ async function readText(file, maxBytes) {
     if (!opened.isFile()) throw new Error(`${path.relative(root, file)} is not a regular file.`);
     if (opened.size < 1 || opened.size > maxBytes) throw new Error(`${path.relative(root, file)} size is outside the allowed range.`);
     if (!sameFile(info, opened)) throw new Error(`${path.relative(root, file)} changed before verification.`);
-    return await readHandleText(handle, opened.size, path.relative(root, file));
+    return await readHandleText(handle, opened, path.relative(root, file));
   } finally {
     await handle.close();
   }
 }
 
-async function readHandleText(handle, size, label) {
+async function readHandleText(handle, opened, label) {
+  const size = opened.size;
   const buffer = Buffer.alloc(size);
   let offset = 0;
   while (offset < size) {
@@ -135,8 +136,8 @@ async function readHandleText(handle, size, label) {
     offset += bytesRead;
   }
   if (offset !== size) throw new Error(`${label} changed while being read.`);
-  const opened = await handle.stat();
-  if (opened.size !== size) throw new Error(`${label} changed while being read.`);
+  const afterRead = await handle.stat();
+  if (!sameFile(opened, afterRead)) throw new Error(`${label} changed while being read.`);
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(buffer);
   } catch {
@@ -298,21 +299,31 @@ function safeChildEnv() {
 }
 
 function releaseTagCreateErrorMessage(error) {
+  const message = errorMessage(error);
   if (
-    error instanceof Error &&
-    typeof error.message === "string" &&
-    error.message.length > 0 &&
-    error.message.length <= 1024 &&
-    !/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u.test(error.message) &&
-    !containsAbsolutePathText(error.message)
+    typeof message === "string" &&
+    message.length > 0 &&
+    message.length <= 1024 &&
+    !/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u.test(message) &&
+    !containsSensitiveErrorText(message)
   ) {
-    return error.message;
+    return message;
   }
   return "release tag creation failed.";
 }
 
+function errorMessage(error) {
+  if (!(error instanceof Error)) return undefined;
+  const descriptor = Object.getOwnPropertyDescriptor(error, "message");
+  return descriptor && "value" in descriptor ? descriptor.value : undefined;
+}
+
 function containsAbsolutePathText(value) {
   return /(^|[\s("'=])(?:file:\/\/|\/|[A-Za-z]:[\\/]|\\\\(?:\?\\)?[^\\/\s]+[\\/])/i.test(value);
+}
+
+function containsSensitiveErrorText(value) {
+  return containsAbsolutePathText(value) || /(^|[\s("'=])(?:https?:\/\/|wss?:\/\/)/i.test(value) || /[?&][A-Za-z0-9_.-]+=/i.test(value) || /\b(?:github_pat_|gh[opsru]_|token-(?!stdin\b)[A-Za-z0-9._-]{12,})/i.test(value);
 }
 
 function sameFile(left, right) {

@@ -220,16 +220,18 @@ function readText(file, maxBytes) {
     if (!opened.isFile()) throw new Error(`${label} is not a regular file`);
     if (opened.size < 1 || opened.size > maxBytes) throw new Error(`${label} is outside the allowed size range`);
     if (!sameFile(info, opened)) throw new Error(`${label} changed before verification`);
-    return readHandleText(fd, opened.size, label);
+    return readHandleText(fd, opened, label);
   } catch (error) {
-    if (error instanceof Error && typeof error.message === "string" && error.message.startsWith(label)) throw error;
+    const message = errorMessage(error);
+    if (typeof message === "string" && message.startsWith(label)) throw error;
     throw new Error(`${label} could not be read`);
   } finally {
     closeSync(fd);
   }
 }
 
-function readHandleText(fd, size, label) {
+function readHandleText(fd, opened, label) {
+  const size = opened.size;
   const buffer = Buffer.alloc(size);
   let offset = 0;
   while (offset < size) {
@@ -238,8 +240,8 @@ function readHandleText(fd, size, label) {
     offset += bytesRead;
   }
   if (offset !== size) throw new Error(`${label} changed while being read`);
-  const opened = fstatSync(fd);
-  if (opened.size !== size) throw new Error(`${label} changed while being read`);
+  const afterRead = fstatSync(fd);
+  if (!sameFile(opened, afterRead)) throw new Error(`${label} changed while being read`);
   try {
     return fatalUtf8.decode(buffer);
   } catch {
@@ -260,21 +262,31 @@ function relativeEvidencePath(file) {
 }
 
 function installStateErrorMessage(error) {
+  const message = errorMessage(error);
   if (
-    !(error instanceof Error) ||
-    typeof error.message !== "string" ||
-    error.message.length < 1 ||
-    error.message.length > 4096 ||
-    /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u.test(error.message)
+    typeof message !== "string" ||
+    message.length < 1 ||
+    message.length > 4096 ||
+    /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u.test(message)
   ) {
     return "could not verify install-state evidence";
   }
-  if (containsAbsolutePathText(error.message)) {
+  if (containsSensitiveErrorText(message)) {
     return "could not verify install-state evidence";
   }
-  return error.message;
+  return message;
+}
+
+function errorMessage(error) {
+  if (!(error instanceof Error)) return undefined;
+  const descriptor = Object.getOwnPropertyDescriptor(error, "message");
+  return descriptor && "value" in descriptor ? descriptor.value : undefined;
 }
 
 function containsAbsolutePathText(value) {
   return /(^|[\s("'=])(?:file:\/\/|\/|[A-Za-z]:[\\/]|\\\\(?:\?\\)?[^\\/\s]+[\\/])/i.test(value);
+}
+
+function containsSensitiveErrorText(value) {
+  return containsAbsolutePathText(value) || /(^|[\s("'=])(?:https?:\/\/|wss?:\/\/)/i.test(value) || /[?&][A-Za-z0-9_.-]+=/i.test(value) || /\b(?:github_pat_|gh[opsru]_|token-(?!stdin\b)[A-Za-z0-9._-]{12,})/i.test(value);
 }

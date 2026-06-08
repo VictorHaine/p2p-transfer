@@ -99,7 +99,8 @@ These packages do not ship in the runtime npm package surface as application cod
 ## Monitoring And Update Process
 
 - Dependabot must keep Vite, esbuild, esbuild platform binaries, Rolldown, Rolldown native/wasm bindings, Lightning CSS, and Lightning CSS native packages in the dedicated `build-toolchain-dependencies` update group and excluded from the bulk development dependency group, so release build-toolchain changes cannot hide in unrelated dev dependency batches.
-- Release verification must run `pnpm check:install-state`, `pnpm build`, `pnpm smoke:release-artifact`, `pnpm security:audit`, and `pnpm security:signatures`.
+- Release verification must run `pnpm check:install-state`, `pnpm security:build-toolchain`, `pnpm build`, `pnpm smoke:release-artifact`, `pnpm security:audit`, and `pnpm security:signatures`.
+- Local, CI, dependency-integrity, Docker, and release verification must run `pnpm security:build-toolchain` before executing the reviewed `pnpm rebuild @roamhq/wrtc esbuild` lifecycle scripts and again after rebuild before `vite build` consumes the build-toolchain state.
 - Daily scheduled dependency integrity monitoring must keep running `pnpm security:audit` and `pnpm security:signatures` on unchanged `main`.
 - Build-toolchain updates must update this artifact in the same change as the package pin and lockfile, with changed package metadata, lifecycle hooks, optional native/wasm package set, advisories, and release-build impact reviewed explicitly.
 
@@ -117,4 +118,4 @@ Release must stop if any of these are true:
 - The `allowBuilds` list changes, `strictDepBuilds: true` is removed, or any build tool other than `@roamhq/wrtc` or `esbuild` requires dependency lifecycle execution.
 - The reviewed esbuild, Rolldown, or Lightning CSS optional native/wasm package set changes without explicit review.
 - Vite, esbuild, Rolldown, or Lightning CSS package name, license, repository, entrypoints, published files, lifecycle hooks, or native/wasm loader behavior changes without an updated review.
-- `pnpm check:install-state`, `pnpm build`, `pnpm smoke:release-artifact`, `pnpm audit --audit-level low`, `pnpm audit signatures`, dependency review, package-surface tests, or browser/e2e tests fail.
+- `pnpm check:install-state`, `pnpm security:build-toolchain`, `pnpm build`, `pnpm smoke:release-artifact`, `pnpm audit --audit-level low`, `pnpm audit signatures`, dependency review, package-surface tests, or browser/e2e tests fail.

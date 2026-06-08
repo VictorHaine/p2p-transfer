@@ -100,19 +100,24 @@ test("CLI receive validates supplied codes before filesystem or signaling side e
   assert.match(securityPolicy, /CLI send and receive commands must verify the reviewed runtime cryptographic dependency graph before importing CLI modules that load CPace, noble-hashes, or scure-bip39 wordlist code, parsing or generating transfer codes, opening local send files, creating receive output directories, or connecting to signaling/);
   assert.match(securityPolicy, /browser and CLI transfer entrypoints must run a one-time runtime crypto self-check before pairing or transfer work/);
   assert.match(securityPolicy, /receive flows must emit a generic no-values warning to stderr when `recv --code` or `recv --out` accepts a supplied receive code or output directory from argv unless quiet output is selected in human mode, including when stderr is not a TTY, and JSON mode must emit the same warning as a structured no-values event even when `--quiet` is set/);
+  assert.match(securityPolicy, /environment-sourced receive codes must be captured and cleared before signaling-server URL parsing, output-directory resolution, or reviewed runtime loading/);
   for (const source of [cliSource, distCliSource]) {
     const recvBody = extractFunctionBody(source, "recv");
     const outputDirCall = "ensureOutputDir(outputDirInput, { private: Boolean(options.localPrivateMode) })";
     assert.match(recvBody, /const outputDirInput = resolveRecvOutputDir\(options\)/);
+    assert.match(recvBody, /const suppliedCodeInput = await resolveRecvCodeInput\(options\)/);
     assert.match(recvBody, /const runtime = await reviewedCliRuntime\(\)/);
-    assert.match(recvBody, /const suppliedCode = await resolveRecvCode\(options, runtime\.wordlist\)/);
+    assert.match(recvBody, /const suppliedCode = parseResolvedRecvCode\(suppliedCodeInput, runtime\.wordlist\)/);
+    assert.equal(recvBody.indexOf("resolveRecvCodeInput(options)") < recvBody.indexOf("resolveServerUrl(options)"), true);
+    assert.equal(recvBody.indexOf("resolveRecvCodeInput(options)") < recvBody.indexOf("resolveRecvOutputDir(options)"), true);
+    assert.equal(recvBody.indexOf("resolveRecvCodeInput(options)") < recvBody.indexOf("reviewedCliRuntime()"), true);
     assert.equal(recvBody.indexOf("reviewedCliRuntime()") < recvBody.indexOf(outputDirCall), true);
-    assert.equal(recvBody.indexOf("reviewedCliRuntime()") < recvBody.indexOf("resolveRecvCode(options, runtime.wordlist)"), true);
-    assert.equal(recvBody.indexOf("resolveRecvCode(options, runtime.wordlist)") < recvBody.indexOf(outputDirCall), true);
+    assert.equal(recvBody.indexOf("reviewedCliRuntime()") < recvBody.indexOf("parseResolvedRecvCode(suppliedCodeInput, runtime.wordlist)"), true);
+    assert.equal(recvBody.indexOf("parseResolvedRecvCode(suppliedCodeInput, runtime.wordlist)") < recvBody.indexOf(outputDirCall), true);
     assert.match(recvBody, /ensureOutputDir\(outputDirInput, \{ private: Boolean\(options\.localPrivateMode\) \}\)/);
     assert.match(recvBody, /const serverUrl = resolveServerUrl\(options\)/);
     assert.equal(recvBody.indexOf("resolveServerUrl(options)") < recvBody.indexOf("openSignaling(serverUrl)"), true);
-    assert.equal(recvBody.indexOf("resolveRecvCode(options, runtime.wordlist)") < recvBody.indexOf("openSignaling(serverUrl)"), true);
+    assert.equal(recvBody.indexOf("parseResolvedRecvCode(suppliedCodeInput, runtime.wordlist)") < recvBody.indexOf("openSignaling(serverUrl)"), true);
     assert.equal(recvBody.indexOf("reviewedCliRuntime()") < recvBody.indexOf("openSignaling(serverUrl)"), true);
     assert.match(recvBody, /registerReceiver\(signaling, runtime\.wordlist, suppliedCode\)/);
     assert.match(source, /assertReviewedCryptoDependencies\(\);[\s\S]*reviewedCliRuntimePromise = Promise\.all\(\[import\("\.\.\/shared\/security\.js"\), import\("\.\/rtc\.js"\), import\("\.\/secure\.js"\), import\("\.\/transfer\.js"\), import\("\.\.\/shared\/wordlist\.js"\)\]\)[\s\S]*await security\.verifyCryptoRuntime\(\)/);
@@ -120,9 +125,10 @@ test("CLI receive validates supplied codes before filesystem or signaling side e
     assert.doesNotMatch(source, /import \{[^}]+(?:createPeer|handleSignal)[^}]+from "\.\/rtc\.js"/);
     assert.doesNotMatch(source, /import \{[^}]+(?:generateCode|normalizeCode|parseCode|codeInputUtf8ByteLengthExceeds)[^}]+from "\.\.\/shared\/wordlist\.js"/);
 
-    assert.match(source, /function resolveRecvCode/);
+    assert.match(source, /function resolveRecvCodeInput/);
+    assert.match(source, /function parseResolvedRecvCode/);
     assert.match(source, /if \(options\.code !== undefined\) \{[\s\S]*rejectSensitiveRecvArgv\(options\);[\s\S]*warnSensitiveRecvArgv\(options\);[\s\S]*\}/);
-    assert.match(source, /parseRequiredCode\(wordlist, wordlist\.normalizeCode\(code\)\)/);
+    assert.match(source, /parseRequiredCode\(wordlist, wordlist\.normalizeCode\(input\.code\)\)/);
     assert.match(source, /supplied: true/);
     assert.match(source, /function registerReceiver[\s\S]*const parsedCode = suppliedCode\?\.parsedCode \?\? parseRequiredCode\(wordlist, wordlist\.normalizeCode\(wordlist\.generateCode\(\)\)\)/);
     assert.match(source, /const attempts = suppliedCode \? 1 : RECEIVE_CODE_GENERATION_ATTEMPTS/);
@@ -533,6 +539,20 @@ test("CLI environment-sourced receive codes are cleared before later env reads",
   assert.notEqual(result.status, 0);
   assert.equal(result.stdout, "");
   assert.doesNotMatch(result.stderr, /12345678-apple-anchor|apple-anchor|WebSocket|signaling|mkdir/i);
+  const event = errorEvent(result.stderr);
+  assert.equal(event.event, "error");
+  assert.equal(event.message, "Environment variable FF_PRIVATE_SHARED_SECRET is not set.");
+});
+
+test("CLI environment-sourced receive codes are cleared before server-env reads", async () => {
+  const result = spawnSync(process.execPath, [cliEntrypoint, "--json", "--server-env", "FF_PRIVATE_SHARED_SECRET", "recv", "--code-env", "FF_PRIVATE_SHARED_SECRET"], {
+    encoding: "utf8",
+    env: { ...process.env, FF_PRIVATE_SHARED_SECRET: "12345678-apple-anchor" }
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.equal(result.stdout, "");
+  assert.doesNotMatch(result.stderr, /12345678-apple-anchor|apple-anchor|WebSocket|signaling/i);
   const event = errorEvent(result.stderr);
   assert.equal(event.event, "error");
   assert.equal(event.message, "Environment variable FF_PRIVATE_SHARED_SECRET is not set.");

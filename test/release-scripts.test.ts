@@ -1431,6 +1431,40 @@ globalThis.fetch = async () => {
   }
 });
 
+test("live release ref verifier classifies native DOMException aborts as timeouts", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-live-release-ref-dom-timeout-"));
+  const mock = path.join(tmp, "mock-live-release-ref-dom-timeout.mjs");
+  try {
+    await fs.writeFile(
+      mock,
+      `
+globalThis.fetch = async () => {
+  throw new DOMException("token-that-must-not-be-printed api.github.com slow path", "AbortError");
+};
+`,
+      "utf8"
+    );
+
+    const result = runScriptWithNodeArgs(
+      "scripts/verify-live-release-ref.mjs",
+      {
+        GITHUB_REPOSITORY: "VictorHaine/p2p-transfer",
+        GITHUB_TOKEN: "token-that-must-not-be-printed",
+        ...releaseTagEnv("v0.1.0")
+      },
+      [],
+      ["--import", mock]
+    );
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Live release ref verification failed:\n- GitHub API request timed out\./);
+    assert.doesNotMatch(result.stderr, /token-that-must-not-be-printed|api\.github|slow path|Error:/);
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
 test("live release ref verifier rejects ambiguous GitHub token sources before network work", async () => {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-live-release-ref-token-ambiguous-"));
   const mock = path.join(tmp, "mock-live-release-ref-token-ambiguous.mjs");
@@ -2001,6 +2035,33 @@ test("Docker publish script rejects non-Actions context before package, smoke, o
   assert.doesNotMatch(result.stderr, /package metadata|token-that-must-not-be-used|release docker policy smoke|docker release|api\.github|Error:/);
 });
 
+test("Docker publish script verifies staged GHCR visibility before npm publish can run", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-docker-public-read-"));
+  try {
+    const workspace = await fakeDockerPublishWorkspace(tmp);
+    const digest = `sha256:${"a".repeat(64)}`;
+    const result = runScriptWithNodeArgs(workspace.script, {
+      ...releaseTagEnv("v0.1.0"),
+      DOCKER_STAGED_DIGEST: digest,
+      FF_MOCK_DOCKER_DIGEST: digest,
+      FF_MOCK_DOCKER_ANONYMOUS_FAIL: "1",
+      FF_MOCK_DOCKER_LOG: workspace.log,
+      GITHUB_REPOSITORY: "VictorHaine/p2p-transfer",
+      GITHUB_TOKEN: "token-that-must-not-be-printed",
+      PATH: `${workspace.bin}${path.delimiter}${process.env.PATH ?? ""}`
+    }, ["--assert-public"]);
+    const log = await fs.readFile(workspace.log, "utf8");
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Docker image publish failed:\n- anonymous staged docker pull failed with exit code 1\./);
+    assert.doesNotMatch(result.stderr, /token-that-must-not-be-printed|sha256:|ghcr\.io|denied|Error:/);
+    assert.equal(log, "pull ghcr.io/victorhaine/p2p-transfer:attest-0.1.0-12345\n");
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
 test("Docker publish script accepts existing matching release tags on promote rerun", async () => {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-docker-publish-existing-"));
   try {
@@ -2024,6 +2085,38 @@ test("Docker publish script accepts existing matching release tags on promote re
     assert.doesNotMatch(result.stdout + result.stderr, /token-that-must-not-be-printed|Error:/);
     assert.match(log, /^login ghcr\.io -u VictorHaine --password-stdin\n/);
     assert.match(log, /pull ghcr\.io\/victorhaine\/p2p-transfer@sha256:/);
+    assert.match(log, /pull ghcr\.io\/victorhaine\/p2p-transfer:v0\.1\.0\n/);
+    assert.match(log, /pull ghcr\.io\/victorhaine\/p2p-transfer:0\.1\.0\n/);
+    assert.doesNotMatch(log, /^tag |^push /m);
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
+test("Docker publish script rejects alias drift before pushing any missing release tag", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-docker-publish-alias-drift-"));
+  try {
+    const workspace = await fakeDockerPublishWorkspace(tmp);
+    const digest = `sha256:${"a".repeat(64)}`;
+    const existingDigest = `sha256:${"b".repeat(64)}`;
+    const result = runScriptWithNodeArgs(workspace.script, {
+      ...releaseTagEnv("v0.1.0"),
+      DOCKER_STAGED_DIGEST: digest,
+      FF_MOCK_DOCKER_DIGEST: digest,
+      FF_MOCK_DOCKER_VERSION_EXISTING_DIGEST: "missing",
+      FF_MOCK_DOCKER_ALIAS_EXISTING_DIGEST: existingDigest,
+      FF_MOCK_DOCKER_LOG: workspace.log,
+      GITHUB_ACTOR: "VictorHaine",
+      GITHUB_REPOSITORY: "VictorHaine/p2p-transfer",
+      GITHUB_TOKEN: "token-that-must-not-be-printed",
+      PATH: `${workspace.bin}${path.delimiter}${process.env.PATH ?? ""}`
+    }, ["--promote"]);
+    const log = await fs.readFile(workspace.log, "utf8");
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Docker image publish failed:\n- docker release image alias already points to a different digest\./);
+    assert.doesNotMatch(result.stderr, /token-that-must-not-be-printed|sha256:|ghcr\.io|Error:/);
     assert.match(log, /pull ghcr\.io\/victorhaine\/p2p-transfer:v0\.1\.0\n/);
     assert.match(log, /pull ghcr\.io\/victorhaine\/p2p-transfer:0\.1\.0\n/);
     assert.doesNotMatch(log, /^tag |^push /m);
@@ -2571,6 +2664,8 @@ test("npm bootstrap top-level redactor catches URL and UNC path evidence", async
     "failed at /Users/victor/.npmrc",
     "failed at C:\\Users\\victor\\.npmrc",
     "failed at file:///Users/victor/.npmrc",
+    "failed at file://localhost/Users/victor/.npmrc",
+    "failed at file://server/share/secret/.npmrc",
     "failed at \\\\server\\share\\secret\\.npmrc",
     "failed at \\\\?\\C:\\Users\\victor\\.npmrc"
   ]) {
@@ -2836,6 +2931,38 @@ globalThis.fetch = async (url, init = {}) => {
     assert.doesNotMatch(result.stderr, /token-that-must-not-be-printed|read-only|Error:|api\.github/);
     assert.match(requests, /^GET \/user\nGET \/repos\/VictorHaine\/p2p-transfer\nGET \/repos\/VictorHaine\/p2p-transfer\/collaborators\/read-only\/permission\n$/);
     assert.doesNotMatch(requests, /environments\/npm|rulesets|\/users\/read-only/);
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
+test("GitHub release controls suppress sensitive fetch exception text", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-controls-fetch-"));
+  const mock = path.join(tmp, "mock-release-controls-fetch-throw.mjs");
+  try {
+    await fs.writeFile(
+      mock,
+      `
+globalThis.fetch = async () => {
+  throw new Error("token-that-must-not-be-printed file://server/share/secret ws://127.0.0.1:8787/v1/ws?token=secret");
+};
+`,
+      "utf8"
+    );
+
+    const result = runScriptWithNodeArgs(
+      "scripts/configure-github-release-controls.mjs",
+      {
+        GITHUB_TOKEN: "token-that-must-not-be-printed"
+      },
+      ["--dry-run", "--allow-missing-main", "--npm-reviewer", "release-operator"],
+      ["--import", mock]
+    );
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /GitHub release control setup failed:\n- GitHub API request failed\./);
+    assert.doesNotMatch(result.stderr, /token-that-must-not-be-printed|file:\/\/server|ws:\/\/127|secret|Error:/);
   } finally {
     await fs.rm(tmp, { force: true, recursive: true });
   }
@@ -3873,6 +4000,55 @@ globalThis.fetch = async (url, init = {}) => {
   }
 });
 
+test("release preflight suppresses sensitive GitHub fetch exception text", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-preflight-fetch-throw-"));
+  const mock = path.join(tmp, "mock-release-preflight-fetch-throw.mjs");
+  const log = path.join(tmp, "requests.log");
+  try {
+    const git = await fakeReleaseGit(tmp);
+    await fs.writeFile(
+      mock,
+      `
+import { appendFileSync } from "node:fs";
+
+const log = process.env.FF_MOCK_PREFLIGHT_LOG;
+
+globalThis.fetch = async (url, init = {}) => {
+  const parsed = new URL(url);
+  const method = init.method ?? "GET";
+  appendFileSync(log, method + " " + parsed.origin + parsed.pathname + parsed.search + "\\n", "utf8");
+  if (parsed.origin === "https://registry.npmjs.org") {
+    return new Response(JSON.stringify({ name: "@victorhaine/p2p-transfer", versions: {} }), { status: 200, headers: { "content-type": "application/json" } });
+  }
+  throw new Error("token-that-must-not-be-printed ws://127.0.0.1:9999/v1/ws?token=secret file://server/share/secret");
+};
+`,
+      "utf8"
+    );
+
+    const result = runScriptWithNodeArgs(
+      "scripts/check-release-readiness.mjs",
+      {
+        ...git.env,
+        FF_MOCK_PREFLIGHT_LOG: log,
+        GITHUB_TOKEN: "token-that-must-not-be-printed"
+      },
+      [],
+      ["--import", mock]
+    );
+    const requests = await fs.readFile(log, "utf8");
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Release readiness check failed:/);
+    assert.match(result.stderr, /GitHub API request failed\./);
+    assert.doesNotMatch(result.stderr, /token-that-must-not-be-printed|ws:\/\/127|file:\/\/server|secret|Error:/);
+    assert.match(requests, /^GET https:\/\/registry\.npmjs\.org\/%40victorhaine%2Fp2p-transfer\nGET https:\/\/api\.github\.com\/user\n/);
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
 test("release preflight rejects unsigned local release targets before package or network work", async () => {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-preflight-signature-"));
   const mock = path.join(tmp, "mock-release-preflight-signature-fetch.mjs");
@@ -4763,6 +4939,9 @@ globalThis.fetch = async (url, init = {}) => {
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/vulnerability-alerts") return new Response(null, { status: 204 });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/private-vulnerability-reporting") return json(200, { enabled: true });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/branches/main") return json(200, { name: "main", commit: { sha: mainSha } });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/actions/workflows/ci.yml/runs?branch=main&per_page=20") {
+    return json(200, { workflow_runs: [{ status: "completed", conclusion: "success", head_branch: "main", head_sha: mainSha }] });
+  }
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/actions/workflows/codeql.yml/runs?branch=main&per_page=20") {
     return json(200, { workflow_runs: [{ status: "completed", conclusion: "success", head_branch: "main", head_sha: mainSha }] });
   }
@@ -4892,6 +5071,9 @@ globalThis.fetch = async (url, init = {}) => {
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/vulnerability-alerts") return new Response(null, { status: 204 });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/private-vulnerability-reporting") return json(200, { enabled: true });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/branches/main") return json(200, { name: "main", commit: { sha: mainSha } });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/actions/workflows/ci.yml/runs?branch=main&per_page=20") {
+    return json(200, { workflow_runs: [{ status: "completed", conclusion: "success", head_branch: "main", head_sha: mainSha }] });
+  }
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/actions/workflows/codeql.yml/runs?branch=main&per_page=20") {
     return json(200, { workflow_runs: [{ status: "completed", conclusion: "success", head_branch: "main", head_sha: mainSha }] });
   }
@@ -5042,6 +5224,9 @@ globalThis.fetch = async (url, init = {}) => {
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/vulnerability-alerts") return new Response(null, { status: 204 });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/private-vulnerability-reporting") return json(200, { enabled: true });
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/branches/main") return json(200, { name: "main", commit: { sha: mainSha } });
+  if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/actions/workflows/ci.yml/runs?branch=main&per_page=20") {
+    return json(200, { workflow_runs: [{ status: "completed", conclusion: "success", head_branch: "main", head_sha: mainSha }] });
+  }
   if (method === "GET" && path === "/repos/VictorHaine/p2p-transfer/actions/workflows/codeql.yml/runs?branch=main&per_page=20") {
     const workflow_runs = [{ status: "completed", conclusion: codeqlRunConclusion, head_branch: "main", head_sha: codeqlRunSha }];
     if (codeqlRunNewerPending) workflow_runs.unshift({ status: "in_progress", conclusion: null, head_branch: "main", head_sha: mainSha });
@@ -5357,6 +5542,8 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+export function assertNoUserDockerCliPlugins() {}
+
 export function createIsolatedDockerConfig(prefix) {
   return mkdtempSync(path.join(tmpdir(), prefix));
 }
@@ -5371,6 +5558,8 @@ export function safeChildEnv() {
     PATH: process.env.PATH ?? "",
     FF_MOCK_DOCKER_DIGEST: process.env.FF_MOCK_DOCKER_DIGEST,
     FF_MOCK_DOCKER_EXISTING_DIGEST: process.env.FF_MOCK_DOCKER_EXISTING_DIGEST,
+    FF_MOCK_DOCKER_VERSION_EXISTING_DIGEST: process.env.FF_MOCK_DOCKER_VERSION_EXISTING_DIGEST,
+    FF_MOCK_DOCKER_ALIAS_EXISTING_DIGEST: process.env.FF_MOCK_DOCKER_ALIAS_EXISTING_DIGEST,
     FF_MOCK_DOCKER_ANONYMOUS_FAIL: process.env.FF_MOCK_DOCKER_ANONYMOUS_FAIL,
     FF_MOCK_DOCKER_LOG: process.env.FF_MOCK_DOCKER_LOG
   };
@@ -5392,6 +5581,11 @@ appendFileSync(log, args.join(" ") + "\\n", "utf8");
 const digest = process.env.FF_MOCK_DOCKER_DIGEST;
 const existingDigest = process.env.FF_MOCK_DOCKER_EXISTING_DIGEST;
 const isAnonymousPull = process.env.DOCKER_CONFIG?.includes("p2p-transfer-docker-anonymous-") ?? false;
+function existingDigestFor(ref) {
+  if (ref.endsWith(":v0.1.0") && process.env.FF_MOCK_DOCKER_VERSION_EXISTING_DIGEST) return process.env.FF_MOCK_DOCKER_VERSION_EXISTING_DIGEST;
+  if (ref.endsWith(":0.1.0") && process.env.FF_MOCK_DOCKER_ALIAS_EXISTING_DIGEST) return process.env.FF_MOCK_DOCKER_ALIAS_EXISTING_DIGEST;
+  return existingDigest;
+}
 
 if (args[0] === "login") {
   process.stdin.resume();
@@ -5407,11 +5601,12 @@ if (args[0] === "login") {
     console.log("Digest: " + digest);
     process.exit(0);
   }
-  if (existingDigest === "missing") {
+  const existing = existingDigestFor(args[1]);
+  if (existing === "missing") {
     console.error("manifest unknown");
     process.exit(1);
   }
-  console.log("Digest: " + existingDigest);
+  console.log("Digest: " + existing);
 } else if (args[0] === "tag") {
   process.exit(0);
 } else if (args[0] === "push") {

@@ -179,12 +179,16 @@ test("static file serving opens assets with no-follow nonblocking flags", () => 
     assert.match(candidate, /if \(!staticFileWithinLimit\(expectedBytes, maxBytes\)\)[\s\S]{0,120}throw new Error\("static asset exceeds maximum size"\)/);
     assert.match(candidate, /while \(position < expectedBytes\)/);
     assert.match(candidate, /const bytesRemaining = expectedBytes - position/);
-    assert.match(candidate, /handle\.read\(scratch, 0, Math\.min\(scratch\.length, bytesRemaining\), position\)/);
+    assert.match(candidate, /const body = Buffer\.alloc\(expectedBytes\)/);
+    assert.match(candidate, /handle\.read\(body, position, bytesRemaining, position\)/);
     assert.match(candidate, /if \(bytesRead === 0\)[\s\S]{0,120}throw new Error\("static asset changed while being read"\)/);
-    assert.match(candidate, /Buffer\.concat\(chunks, expectedBytes\)/);
+    assert.match(candidate, /if \(total !== expectedBytes\)[\s\S]{0,120}throw new Error\("static asset changed while being read"\)/);
+    assert.match(candidate, /return body/);
+    assert.doesNotMatch(candidate, /const chunks: Buffer\[\] = \[\]/);
+    assert.doesNotMatch(candidate, /Buffer\.from\(scratch\.subarray/);
+    assert.doesNotMatch(candidate, /Buffer\.concat\(chunks, expectedBytes\)/);
     assert.doesNotMatch(candidate, /readBoundedFile\(handle, STATIC_MAX_FILE_BYTES\)/);
     assert.doesNotMatch(candidate, /while \(true\) \{[\s\S]*handle\.read\(scratch, 0, scratch\.length, position\)/);
-    assert.match(candidate, /Buffer\.alloc\(64 \* 1024\)/);
     assert.doesNotMatch(candidate, /Buffer\.allocUnsafe/);
   }
 });

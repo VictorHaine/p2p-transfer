@@ -15,17 +15,23 @@ const scriptPath = fileURLToPath(import.meta.url);
 const projectRoot = path.resolve(path.dirname(scriptPath), "..");
 
 function releaseChecksumErrorMessage(error) {
+  const message = errorMessage(error);
   if (
-    error instanceof Error &&
-    typeof error.message === "string" &&
-    error.message.length > 0 &&
-    error.message.length <= MAX_ERROR_MESSAGE_CHARS &&
-    !/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u.test(error.message) &&
-    !containsAbsolutePathText(error.message)
+    typeof message === "string" &&
+    message.length > 0 &&
+    message.length <= MAX_ERROR_MESSAGE_CHARS &&
+    !/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u.test(message) &&
+    !containsSensitiveErrorText(message)
   ) {
-    return error.message;
+    return message;
   }
   return "release checksum generation failed.";
+}
+
+function errorMessage(error) {
+  if (!(error instanceof Error)) return undefined;
+  const descriptor = Object.getOwnPropertyDescriptor(error, "message");
+  return descriptor && "value" in descriptor ? descriptor.value : undefined;
 }
 
 function noFollowReadFlags() {
@@ -191,6 +197,10 @@ function isPathInside(parent, child) {
 
 function containsAbsolutePathText(value) {
   return /(^|[\s("'=])(?:file:\/\/|\/|[A-Za-z]:[\\/]|\\\\(?:\?\\)?[^\\/\s]+[\\/])/i.test(value);
+}
+
+function containsSensitiveErrorText(value) {
+  return containsAbsolutePathText(value) || /(^|[\s("'=])(?:https?:\/\/|wss?:\/\/)/i.test(value) || /[?&][A-Za-z0-9_.-]+=/i.test(value) || /\b(?:github_pat_|gh[opsru]_|token-(?!stdin\b)[A-Za-z0-9._-]{12,})/i.test(value);
 }
 
 function parsePackageMetadata(bytes) {

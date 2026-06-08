@@ -40,11 +40,19 @@ jobs:
         run: |
           node scripts/prepare-checked-pnpm.mjs
       - name: Install
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Check installed dependency tree
         run: pnpm check:install-state
+      - name: Reviewed build-toolchain attestation
+        run: pnpm security:build-toolchain
       - name: Reviewed dependency attestations
         run: pnpm security:dependencies
+      - name: Rebuild reviewed native dependencies
+        run: pnpm rebuild @roamhq/wrtc esbuild
+      - name: Verify rebuilt dependency attestations
+        run: |
+          pnpm security:build-toolchain
+          pnpm security:dependencies
       - name: Dependency audit
         run: pnpm security:audit
       - name: Registry signature audit

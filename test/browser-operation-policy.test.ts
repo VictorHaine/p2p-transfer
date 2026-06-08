@@ -134,7 +134,7 @@ test("browser interop tests fail closed unless browser skipping is explicit", ()
   assert.match(browserInteropTest, /async function removeTestTemp\(dir: string\): Promise<void>/);
   assert.match(browserInteropTest, /await fs\.rm\(dir, \{ recursive: true, force: true \}\);/);
   assert.doesNotMatch(browserInteropTest, /removeTestTemp[\s\S]*catch\(\(\) => undefined\)/);
-  assert.equal(browserInteropTest.match(/await removeTestTemp\(tmp\);/g)?.length, 15);
+  assert.equal(browserInteropTest.match(/await removeTestTemp\(tmp\);/g)?.length, 20);
   assert.doesNotMatch(browserInteropTest, /skip: chromiumPath \? false : "No Chromium executable found"/);
 });
 
@@ -311,11 +311,11 @@ test("browser receive resume is explicit and limited to saved opaque folder part
   assert.match(receiveBody, /message\.t === "restart"[\s\S]*await withLocalReceiveWork\(\(\) => restartBrowserReceiveState\(state\)\)[\s\S]*await sendControl\(control, keys, \{ t: "ready", id: message\.id \}, throwIfReceiveStopped\)/);
   assert.match(webSource, /async function restartBrowserReceiveState\(state: BrowserReceiveState\): Promise<void>/);
   assert.match(webSource, /state\.writable = await state\.fileHandle\.createWritable\(\{ keepExistingData: false \}\)/);
-  assert.match(receiveBody, /if \(state\.resume\) \{[\s\S]*await preserveBrowserPartialFile\(state\);[\s\S]*\} else \{[\s\S]*await discardBrowserPartialFile\(state\)/);
+  assert.match(receiveBody, /if \(state\.resume\) \{[\s\S]*await preserveBrowserPartialFile\(state\);[\s\S]*\} else \{[\s\S]*await discardBrowserPartialFile\(state, \{ strictPartial: true \}\)/);
   assert.match(webSource, /async function preserveBrowserPartialFile\(state: BrowserReceiveState\): Promise<void> \{[\s\S]*await state\.writable\.close\(\);[\s\S]*await state\.writable\.abort\(\);/);
-  assert.match(webSource, /if \(actual !== state\.expectedSha256\) \{[\s\S]*state\.resume = false;[\s\S]*await forgetBrowserResumePartial\(state\.resumeKey\);[\s\S]*Hash mismatch/);
+  assert.match(webSource, /if \(actual !== state\.expectedSha256\) \{[\s\S]*state\.resume = false;[\s\S]*await forgetBrowserResumePartial\(state\.resumeKey, \{ strict: true \}\);[\s\S]*Hash mismatch/);
   assert.match(fileFactoryBody, /if \(resume\) \{[\s\S]*if \(!resumeKey\) throw new Error\("Browser resume key is required\."\);[\s\S]*if \(!resumeKeyPersistent\) throw new Error\("Browser resume key store unavailable\."\);[\s\S]*const resumed = await resumeBrowserPartialFile\(directory, name, size, resumeKey, opaqueOutputNames\);[\s\S]*if \(resumed\) return resumed;/);
-  assert.match(fileFactoryBody, /await rememberBrowserResumePartial\(resumeKey, \{ partName: created\.partName, updatedAt: Date\.now\(\) \}\)/);
+  assert.match(fileFactoryBody, /try \{[\s\S]*await rememberBrowserResumePartial\(resumeKey, \{ partName: created\.partName, updatedAt: Date\.now\(\) \}\);[\s\S]*\} catch \(error\) \{[\s\S]*await created\.writable\.abort\(\)\.catch\(\(\) => \{\}\);[\s\S]*await removeBrowserEntry\(directory, created\.partName, true\);[\s\S]*throw error;[\s\S]*\}/);
   assert.match(resumeBody, /assertBrowserOpaquePartFileName\(record\.partName\);/);
   assert.match(resumeBody, /name: browserFinalOutputName\(name, opaqueOutputNames, resumeKey\)/);
   assert.match(resumeBody, /const bytes = browserResumeOffset\(file\.size, size\);/);
@@ -337,18 +337,21 @@ test("browser receive resume is explicit and limited to saved opaque folder part
   assert.doesNotMatch(resumeKeyBody, /return JSON\.stringify/);
   assert.match(webSource, /function canonicalBrowserResumeIdentity\(manifest: FileManifest, file: TransferManifest\["files"\]\[number\]\): string/);
   assert.match(securityPolicy, /browser receive resume registry keys must be HMAC identifiers over canonical manifest identity using a non-extractable browser-held HMAC-SHA-256 lookup key with 256-bit key material/);
-  assert.match(securityPolicy, /production browser deployments that use browser resume should run on a dedicated origin/);
+  assert.match(securityPolicy, /public browser deployments that use browser resume should run on a dedicated origin/);
   assert.match(readme, /Host the browser client on a dedicated origin/);
   assert.match(webSource, /type BrowserResumeLookupKey = \{[\s\S]*key: CryptoKey;[\s\S]*persistent: boolean;[\s\S]*\};/);
   assert.match(webSource, /type BrowserResumeKey = \{[\s\S]*key: string;[\s\S]*persistent: boolean;[\s\S]*\};/);
   assert.match(lookupKeyBody, /if \(stored\) return \{ key: stored, persistent: true \}/);
-  assert.match(lookupKeyBody, /return \{ key: created, persistent: true \}/);
+  assert.match(lookupKeyBody, /await clearBrowserResumeRegistry\(\{ strict: true \}\);[\s\S]*return \{ key: created, persistent: true \}/);
+  assert.match(lookupKeyBody, /catch \{[\s\S]*await deleteBrowserResumeKeyDb\(\);[\s\S]*return \{ key: await createBrowserResumeLookupKey\(\), persistent: false \};[\s\S]*\}/);
   assert.match(lookupKeyBody, /catch \{[\s\S]*await browserResumeRegistryReady;[\s\S]*await clearBrowserResumeRegistry\(\);[\s\S]*return \{ key: await createBrowserResumeLookupKey\(\), persistent: false \};[\s\S]*\}/);
   assert.match(securityPolicy, /missing or invalid persisted browser resume lookup keys must clear the resume registry before a fresh persisted key is used/);
+  assert.match(securityPolicy, /fresh persisted browser resume lookup keys must fail closed to a nonpersistent in-memory key if stale registry clearing fails/);
   assert.match(securityPolicy, /unavailable browser resume lookup key storage must clear the registry and disable resume persistence for that attempt instead of writing records keyed by ephemeral in-memory key material/);
   assert.match(securityPolicy, /browser receive must expose a user-visible clear action that snapshots registry-known opaque partial names, offers to remove matching `ff-\*\.part` entries from a freshly selected folder when File System Access is available/);
+  assert.match(securityPolicy, /explicit clearing must report blocked or failed browser storage deletion instead of claiming success/);
   assert.match(readme, /Use `Clear resume records` to remove browser origin resume records from IndexedDB, the browser-held resume lookup key, any legacy localStorage resume records, and matching saved `ff-\*\.part` files from a freshly selected folder when File System Access is available/);
-  assert.match(webSource, /async function clearBrowserResumeState\(\): Promise<BrowserResumeClearResult> \{[\s\S]*const partNames = await browserResumePartNames\(\);[\s\S]*removeBrowserResumePartFiles\(directory, partNames\)[\s\S]*await clearBrowserResumeRegistry\(\);[\s\S]*browserResumeLookupKeyPromise = undefined;[\s\S]*await deleteBrowserResumeKeyDb\(\);[\s\S]*\}/);
+  assert.match(webSource, /async function clearBrowserResumeState\(\): Promise<BrowserResumeClearResult> \{[\s\S]*const partNames = await browserResumePartNames\(\);[\s\S]*removeBrowserResumePartFiles\(directory, partNames\)[\s\S]*await clearBrowserResumeRegistry\(\{ strict: true \}\);[\s\S]*browserResumeLookupKeyPromise = undefined;[\s\S]*await deleteBrowserResumeKeyDb\(\);[\s\S]*\}/);
   assert.match(webSource, /function removeBrowserResumePartFiles\(directory: FileSystemDirectoryHandle, partNames: readonly string\[\]\): Promise<number>/);
   assert.match(webSource, /assertBrowserOpaquePartFileName\(partName\);[\s\S]*await directory\.removeEntry\(partName\);/);
   assert.match(webSource, /function browserResumeClearMessage\(result: BrowserResumeClearResult\): string \{[\s\S]*some saved partial files could not be removed/);
@@ -356,8 +359,9 @@ test("browser receive resume is explicit and limited to saved opaque folder part
   assert.match(webSource, /function deleteBrowserResumeRegistryDb\(\): Promise<void> \{[\s\S]*indexedDB\.deleteDatabase\(BROWSER_RESUME_REGISTRY_DB\)/);
   assert.doesNotMatch(lookupKeyBody, /return stored;|return created;|return createBrowserResumeLookupKey\(\)/);
   assert.match(securityPolicy, /browser receive resume registry values must not persist plaintext file names, MIME types, or sizes/);
-  assert.match(securityPolicy, /browser receive resume registry reads and startup migration must scrub invalid, noncanonical, expired, or legacy metadata-bearing entries, clear stale storage before writing sanitized IndexedDB replacements/);
+  assert.match(securityPolicy, /browser receive resume registry reads and startup migration must scrub invalid, noncanonical, expired, oversized, or legacy metadata-bearing entries, byte-cap legacy localStorage migration records before JSON parsing, clear stale storage before writing sanitized IndexedDB replacements/);
   assert.match(securityPolicy, /browser receive resume must be explicit, exposed only for single-file manifests until privacy-preserving completed-file tracking exists, and limited to same-browser saved opaque tokenized `.part` records/);
+  assert.match(securityPolicy, /explicit browser resume must fail closed if the opaque partial registry record cannot be persisted/);
   assert.match(webSource, /type BrowserResumePartialRecord = \{\n  partName: string;\n  updatedAt: number;\n\};/);
   assert.doesNotMatch(webSource, /type BrowserResumePartialRecord = \{(?:(?!\n\};)[\s\S])*finalName:/);
   assert.doesNotMatch(webSource, /type BrowserResumePartialRecord = \{(?:(?!\n\};)[\s\S])*size:/);
@@ -383,16 +387,21 @@ test("browser receive resume is explicit and limited to saved opaque folder part
   assert.match(webSource, /browserResumeRegistryReady = pruneBrowserResumeRegistry\(\);[\s\S]*const app = document\.querySelector/);
   assert.match(webSource, /function openBrowserResumeRegistryDb\(\): Promise<IDBDatabase>[\s\S]*indexedDB\.open\(BROWSER_RESUME_REGISTRY_DB, 1\)/);
   assert.match(webSource, /function readLegacyBrowserResumeRegistry\(\): Record<string, unknown> \| undefined \{[\s\S]*window\.localStorage\.getItem\(BROWSER_RESUME_STORAGE_KEY\)/);
+  assert.match(webSource, /const MAX_BROWSER_LEGACY_RESUME_STORAGE_BYTES = 64 \* 1024;/);
+  assert.match(webSource, /if \(utf8ByteLengthExceeds\(raw, MAX_BROWSER_LEGACY_RESUME_STORAGE_BYTES\)\) \{[\s\S]*clearLegacyBrowserResumeRegistry\(\);[\s\S]*return undefined;/);
   assert.match(webSource, /async function readBrowserResumeRegistry\(\): Promise<Record<string, unknown>> \{[\s\S]*await browserResumeRegistryReady;[\s\S]*const registry = await readStoredBrowserResumeRegistry\(\);/);
+  assert.match(webSource, /function utf8ByteLengthExceeds\(value: string, maxBytes: number\): boolean/);
   assert.match(webSource, /function sanitizeBrowserResumeRegistry\(registry: Record<string, unknown>\): \{ sanitized: Record<string, BrowserResumePartialRecord>; changed: boolean \}/);
   assert.match(webSource, /if \(!BROWSER_RESUME_STORAGE_ENTRY_KEY\.test\(entryKey\)\) \{[\s\S]*changed = true;[\s\S]*continue;/);
   assert.match(webSource, /if \(!browserResumePartialRecordIsFresh\(record\)\) \{[\s\S]*changed = true;[\s\S]*continue;/);
   assert.match(webSource, /function browserResumePartialRecordIsFresh\(record: BrowserResumePartialRecord, now = Date\.now\(\)\): boolean \{[\s\S]*record\.updatedAt <= now && now - record\.updatedAt <= BROWSER_RESUME_RECORD_TTL_MS/);
   assert.match(webSource, /if \(!browserResumePartialRecordIsCanonical\(entryValue, record\)\) changed = true;/);
   assert.match(webSource, /if \(legacy \|\| changed\) await replaceBrowserResumeRegistry\(sanitized\);/);
+  assert.match(securityPolicy, /byte-cap legacy localStorage migration records before JSON parsing/);
   assert.match(webSource, /async function replaceBrowserResumeRegistry\(registry: Record<string, unknown>\): Promise<void> \{[\s\S]*await clearBrowserResumeRegistry\(\);[\s\S]*await writeBrowserResumeRegistry\(registry\);[\s\S]*\}/);
-  assert.match(webSource, /async function writeBrowserResumeRegistry\(registry: Record<string, unknown>\): Promise<void> \{[\s\S]*transaction\.objectStore\(BROWSER_RESUME_REGISTRY_STORE\)\.put\(registry, BROWSER_RESUME_REGISTRY_ID\)/);
-  assert.match(webSource, /async function clearBrowserResumeRegistry\(\): Promise<void> \{[\s\S]*clearLegacyBrowserResumeRegistry\(\);[\s\S]*deleteBrowserResumeRegistryDb\(\)/);
+  assert.match(webSource, /async function writeBrowserResumeRegistry\(registry: Record<string, unknown>, options: BrowserResumeRegistryOptions = \{\}\): Promise<void> \{[\s\S]*transaction\.objectStore\(BROWSER_RESUME_REGISTRY_STORE\)\.put\(registry, BROWSER_RESUME_REGISTRY_ID\)[\s\S]*if \(options\.strict\) throw error;/);
+  assert.match(webSource, /async function clearBrowserResumeRegistry\(options: BrowserResumeRegistryOptions = \{\}\): Promise<void> \{[\s\S]*clearLegacyBrowserResumeRegistry\(options\);[\s\S]*await deleteBrowserResumeRegistryDb\(\);[\s\S]*if \(options\.strict\) throw error;/);
+  assert.match(webSource, /function clearLegacyBrowserResumeRegistry\(options: BrowserResumeRegistryOptions = \{\}\): void \{[\s\S]*if \(options\.strict\) throw new Error\("Browser legacy resume registry could not be cleared\."\);/);
   assert.match(webSource, /keys\.length !== 2 \|\| !keys\.includes\("partName"\) \|\| !keys\.includes\("updatedAt"\)/);
 });
 
@@ -431,6 +440,7 @@ test("browser receive local filesystem work does not trip the peer idle watchdog
   assert.match(securityPolicy, /browser receive local filesystem, hash, and publish work must not trip the peer-data idle watchdog/);
   assert.match(securityPolicy, /browser and CLI receive local filesystem, hash, decrypt, and publish work must re-check transfer failure before mutating transfer state, publishing final folder files, marking files done, or sending final acknowledgements/);
   assert.match(securityPolicy, /browser folder cleanup must remove any published final file if final acknowledgement fails/);
+  assert.match(securityPolicy, /must report a generic cleanup failure if that visible final-file removal fails/);
   assert.match(securityPolicy, /Blob fallback downloads cannot be recalled after the browser accepts the synthetic click, so sensitive browser receives must use Folder only/);
   assert.match(receiveBody, /const throwIfReceiveStopped = \(\) => \{[\s\S]*if \(failed\) throw new Error\("Transfer stopped during local browser receive work\."\);[\s\S]*if \(completed\) throw new Error\("Transfer completed during local browser receive work\."\);[\s\S]*\};/);
   assert.match(receiveBody, /let localReceiveWorkDepth = 0;/);
@@ -441,9 +451,12 @@ test("browser receive local filesystem work does not trip the peer idle watchdog
   assert.match(receiveBody, /withLocalReceiveWork\(\(\) => state\.writable!\.write\(writeCopy\)\)/);
   assert.equal(receiveBody.match(/withLocalReceiveWork\(\(\) => maybeDownload\(state, control, keys, throwIfReceiveStopped\)\)/g)?.length, 2);
   assert.match(webSource, /async function maybeDownload\(state: BrowserReceiveState, control: RTCDataChannel, keys: SessionKeys, throwIfReceiveStopped: \(\) => void\): Promise<void>/);
-  assert.match(maybeDownloadBody, /await state\.writable\.close\(\);[\s\S]*throwIfReceiveStopped\(\);[\s\S]*await verifyWritableFile\(state\.fileHandle, state\.partName, state\.size, actual\);[\s\S]*throwIfReceiveStopped\(\);[\s\S]*const fileOk = await sealControl\(keys, \{ t: "file-ok", id: state\.id \}\);[\s\S]*throwIfReceiveStopped\(\);[\s\S]*const publishedName = await publishBrowserPartFile\(state, actual, throwIfReceiveStopped\);[\s\S]*state\.name = publishedName;[\s\S]*state\.publishedName = publishedName;[\s\S]*throwIfReceiveStopped\(\);[\s\S]*control\.send\(fileOk\);/);
-  assert.match(receiveBody, /if \(state\.publishedName\) \{[\s\S]*await discardBrowserPartialFile\(state\);[\s\S]*if \(state\.resumeKey\) await forgetBrowserResumePartial\(state\.resumeKey\);[\s\S]*\} else if \(state\.resume\)/);
-  assert.match(webSource, /if \(state\.publishedName\) await state\.directory\.removeEntry\(state\.publishedName\)\.catch\(ignoreNotFoundError\);[\s\S]*if \(state\.partName\) await state\.directory\.removeEntry\(state\.partName\)\.catch\(ignoreNotFoundError\);/);
+  assert.match(maybeDownloadBody, /await state\.writable\.close\(\);[\s\S]*throwIfReceiveStopped\(\);[\s\S]*await verifyWritableFile\(state\.fileHandle, state\.partName, state\.size, actual\);[\s\S]*throwIfReceiveStopped\(\);[\s\S]*const fileOk = await sealControl\(keys, \{ t: "file-ok", id: state\.id \}\);[\s\S]*throwIfReceiveStopped\(\);[\s\S]*const publishedName = await publishBrowserPartFile\(state, actual, throwIfReceiveStopped\);[\s\S]*state\.name = publishedName;[\s\S]*throwIfReceiveStopped\(\);[\s\S]*control\.send\(fileOk\);/);
+  assert.match(receiveBody, /if \(state\.done && state\.publishedName && doneError && !completed\) \{[\s\S]*await discardBrowserPartialFile\(state, \{ strictPublished: true \}\);[\s\S]*visibleCleanupError \?\?= error;[\s\S]*if \(state\.resumeKey\) await forgetBrowserResumePartial\(state\.resumeKey, \{ strict: true \}\);[\s\S]*\}/);
+  assert.match(receiveBody, /let visibleCleanupError: unknown;[\s\S]*if \(state\.publishedName\) \{[\s\S]*await discardBrowserPartialFile\(state, \{ strictPublished: true \}\);[\s\S]*visibleCleanupError \?\?= error;[\s\S]*if \(visibleCleanupError\) \{[\s\S]*setLog\(log, errorMessage\(visibleCleanupError\)\);[\s\S]*throw visibleCleanupError;[\s\S]*\}/);
+  assert.match(webSource, /async function removeBrowserEntry\(directory: FileSystemDirectoryHandle, name: string, strict: boolean\): Promise<void> \{[\s\S]*if \(isNotFoundError\(error\)\) return;[\s\S]*if \(strict\) throw new Error\("Browser folder cleanup incomplete\."\);/);
+  assert.match(webSource, /if \(state\.publishedName\) await removeBrowserEntry\(state\.directory, state\.publishedName, Boolean\(options\.strictPublished\)\);[\s\S]*if \(state\.partName\) await removeBrowserEntry\(state\.directory, state\.partName, Boolean\(options\.strictPartial \|\| options\.strictPublished\)\);/);
+  assert.match(receiveBody, /await discardBrowserPartialFile\(state, \{ strictPartial: true \}\);[\s\S]*visibleCleanupError \?\?= error;[\s\S]*Non-resume folder partials are plaintext rollback material/);
   assert.match(maybeDownloadBody, /const fileOk = await sealControl\(keys, \{ t: "file-ok", id: state\.id \}\);[\s\S]*throwIfReceiveStopped\(\);[\s\S]*anchor\.click\(\);[\s\S]*setTimeout\(\(\) => URL\.revokeObjectURL\(url\), 30_000\);[\s\S]*throwIfReceiveStopped\(\);[\s\S]*control\.send\(fileOk\);[\s\S]*state\.done = true;/);
   assert.match(webSource, /async function publishBrowserPartFile\(state: BrowserReceiveState, expectedSha256: string, throwIfReceiveStopped: \(\) => void\): Promise<string>/);
 });
@@ -451,7 +464,7 @@ test("browser receive local filesystem work does not trip the peer idle watchdog
 test("browser folder receive removes a created partial if writable stream creation fails", () => {
   assert.match(
     webSource,
-    /const \{ name: partName, handle \} = await createAvailableBrowserFile\(directory, opaqueBrowserPartName\(\), browserPartCandidateName\);[\s\S]*try \{[\s\S]*writable: await handle\.createWritable\(\{ keepExistingData: false \}\)[\s\S]*\} catch \(error\) \{[\s\S]*await directory\.removeEntry\(partName\)\.catch\(ignoreNotFoundError\);[\s\S]*throw error;[\s\S]*\}/
+    /const \{ name: partName, handle \} = await createAvailableBrowserFile\(directory, opaqueBrowserPartName\(\), browserPartCandidateName\);[\s\S]*try \{[\s\S]*writable: await handle\.createWritable\(\{ keepExistingData: false \}\)[\s\S]*\} catch \(error\) \{[\s\S]*await removeBrowserEntry\(directory, partName, true\);[\s\S]*throw error;[\s\S]*\}/
   );
 });
 

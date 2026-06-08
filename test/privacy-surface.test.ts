@@ -144,7 +144,7 @@ test("CLI redacted error output does not render transfer exception metadata", ()
   const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
   assert.match(securityPolicy, /CLI `--redact-output` must remove transfer codes, rendezvous prefixes, SAS values, file names, MIME types, exact file counts, per-file placeholder counts, and byte counts from CLI JSON, human transfer output, and error output/);
   assert.match(securityPolicy, /only a local CLI output policy and must not be documented as protection from signaling\/server metadata, peer-visible metadata, endpoint telemetry, ICE candidates, timing, traffic shape, or other network observers/);
-  assert.match(securityPolicy, /CLI error output must redact quoted and unquoted absolute local filesystem paths/);
+  assert.match(securityPolicy, /CLI error output must redact quoted and unquoted absolute local filesystem paths, including POSIX paths, Windows drive-letter paths, Windows UNC or extended paths, and `file:\/\/` URLs with or without an authority/);
   assert.match(cliSource, /--redact-output", "redact transfer codes, SAS, file metadata, and byte counts from CLI output, JSON events, and error text"/);
   for (const source of [cliSource, distCliSource]) {
     const printErrorBody = extractFunctionBody(source, "printError");
@@ -171,7 +171,7 @@ test("browser clears sensitive DOM transfer metadata after operations", () => {
   assert.match(webSource, /function clearBrowserSendSecrets\(\): void \{[\s\S]*clearBrowserSendInputs\(\);\n\s+sendLog\.textContent = "";/);
   assert.match(webSource, /function clearBrowserSendInputs\(\): void \{[\s\S]*clearBrowserSendCode\(\);\n\s+fileInput\.value = "";/);
   assert.match(webSource, /function clearBrowserSendCode\(\): void \{[\s\S]*sendCode\.value = "";/);
-  assert.match(webSource, /function clearBrowserReceiveSecrets\(\): void \{[\s\S]*codeBox\.textContent = "";\n\s+codeBox\.hidden = true;\n\s+clearBrowserPairRequest\(\);/);
+  assert.match(webSource, /function clearBrowserReceiveSecrets\(\): void \{[\s\S]*codeBox\.textContent = "";\n\s+codeBox\.hidden = true;\n\s+clearBrowserPairRequest\(\);\n\s+recvLog\.textContent = "";/);
   assert.match(webSource, /function clearBrowserPairRequest\(\): void \{[\s\S]*requestBox\.replaceChildren\(\);\n\s+requestBox\.hidden = true;/);
   assert.match(webSource, /sendFromBrowser\(\)[\s\S]*\.finally\(\(\) => \{[\s\S]*clearBrowserSendInputs\(\);[\s\S]*sendBusy = false;/);
   assert.match(webSource, /sendFromBrowser\(\)[\s\S]*finally \{[\s\S]*clearBrowserSendSecrets\(\);[\s\S]*\}/);

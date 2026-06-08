@@ -345,11 +345,22 @@ function isMain() {
 }
 
 function safeErrorMessage(error) {
-  if (!(error instanceof Error) || typeof error.message !== "string" || error.message.length < 1 || error.message.length > MAX_OUTPUT_CHARS) {
+  const message = errorMessage(error);
+  if (typeof message !== "string" || message.length < 1 || message.length > MAX_OUTPUT_CHARS) {
     return "checked pnpm preparation failed with an internal error.";
   }
-  if (/(^|[\s("'=])(?:file:\/\/|\/|[A-Za-z]:[\\/]|\\\\(?:\?\\)?[^\\/\s]+[\\/])/i.test(error.message)) {
+  if (containsSensitiveErrorText(message)) {
     return "checked pnpm preparation failed with path-sensitive evidence.";
   }
-  return error.message;
+  return message;
+}
+
+function containsSensitiveErrorText(value) {
+  return /(^|[\s("'=])(?:https?:\/\/|wss?:\/\/|file:\/\/|\/|[A-Za-z]:[\\/]|\\\\(?:\?\\)?[^\\/\s]+[\\/])/i.test(value) || /[?&][A-Za-z0-9_.-]+=/i.test(value) || /\b(?:github_pat_|gh[opsru]_|token-(?!stdin\b)[A-Za-z0-9._-]{12,})/i.test(value);
+}
+
+function errorMessage(error) {
+  if (!(error instanceof Error)) return undefined;
+  const descriptor = Object.getOwnPropertyDescriptor(error, "message");
+  return descriptor && "value" in descriptor ? descriptor.value : undefined;
 }

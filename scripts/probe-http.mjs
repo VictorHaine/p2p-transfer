@@ -61,21 +61,27 @@ function isMain() {
 }
 
 export function probeErrorMessage(error) {
+  const message = errorMessage(error);
   if (
-    !(error instanceof Error) ||
-    typeof error.message !== "string" ||
-    error.message.length < 1 ||
-    error.message.length > MAX_ERROR_MESSAGE_CHARS ||
-    /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u.test(error.message) ||
-    containsUrlOrPathText(error.message)
+    typeof message !== "string" ||
+    message.length < 1 ||
+    message.length > MAX_ERROR_MESSAGE_CHARS ||
+    /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u.test(message) ||
+    containsUrlOrPathText(message)
   ) {
     return "HTTP probe failed with an internal error.";
   }
-  return error.message;
+  return message;
+}
+
+function errorMessage(error) {
+  if (!(error instanceof Error)) return undefined;
+  const descriptor = Object.getOwnPropertyDescriptor(error, "message");
+  return descriptor && "value" in descriptor ? descriptor.value : undefined;
 }
 
 function containsUrlOrPathText(value) {
-  return /(?:^|[\s("'=])(?:https?:\/\/|file:\/\/|\/|[A-Za-z]:[\\/]|\\\\(?:\?\\)?[^\\/\s]+[\\/])/i.test(value) || /[?&][A-Za-z0-9_.-]+=/.test(value);
+  return /(?:^|[\s("'=])(?:https?:\/\/|wss?:\/\/|file:\/\/|\/|[A-Za-z]:[\\/]|\\\\(?:\?\\)?[^\\/\s]+[\\/])/i.test(value) || /[?&][A-Za-z0-9_.-]+=/.test(value) || /\b(?:github_pat_|gh[opsru]_|token-(?!stdin\b)[A-Za-z0-9._-]{12,})/i.test(value);
 }
 
 function envString(name, required) {

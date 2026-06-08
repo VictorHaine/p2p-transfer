@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createIsolatedDockerConfig } from "../scripts/docker-config.mjs";
+import { assertNoUserDockerCliPlugins, createIsolatedDockerConfig } from "../scripts/docker-config.mjs";
 
 type DockerContextMetadata = {
   Name: string;
@@ -113,6 +113,21 @@ test("isolated Docker config refuses symlinked Docker config files", async (t) =
   } finally {
     await rm(source, { recursive: true, force: true });
     await rm(external, { recursive: true, force: true });
+  }
+});
+
+test("Docker release validation rejects user CLI plugins before invoking Docker", async () => {
+  const source = await mkdtemp(path.join(tmpdir(), "ff-docker-config-source-"));
+  try {
+    assertNoUserDockerCliPlugins(source);
+    await mkdir(path.join(source, "cli-plugins"), { recursive: true });
+    await writeFile(path.join(source, "cli-plugins", "docker-ai"), "#!/bin/sh\n", { mode: 0o700 });
+    assert.throws(
+      () => assertNoUserDockerCliPlugins(source),
+      /User Docker CLI plugins must be disabled before Docker release validation/
+    );
+  } finally {
+    await rm(source, { recursive: true, force: true });
   }
 });
 
