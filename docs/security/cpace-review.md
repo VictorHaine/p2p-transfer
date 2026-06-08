@@ -54,7 +54,7 @@ This package controls the untrusted-signaling trust boundary: if CPace is compro
 - Dependabot must keep `@cipherman/pake-js` in the `critical-pake-dependency` production group and keep `@noble/curves` in the direct crypto dependency group; both must be excluded from the bulk production dependency group.
 - GitHub dependency review must run on pull requests and fail vulnerable runtime or development dependency changes at low severity or higher.
 - Release verification must run `pnpm security:audit` and `pnpm security:signatures`.
-- Scheduled dependency integrity monitoring must run `pnpm security:audit` and `pnpm security:signatures` on unchanged `main` so new advisories or registry signature failures are surfaced before the next code change or release tag.
+- Daily scheduled dependency integrity monitoring must run `pnpm security:audit` and `pnpm security:signatures` on unchanged `main` so new advisories or registry signature failures are surfaced before the next code change or release tag.
 - Local, CI, Docker, and release verification must run `pnpm check:install-state` so the installed direct dependency tree matches exact `package.json` pins and `node_modules/.pnpm/lock.yaml` matches `pnpm-lock.yaml`.
 - CPace dependency updates must update this artifact in the same change as the package pin and lockfile, with the changed package metadata, exported API, lifecycle hooks, transitive dependency set, exact ESM runtime-file SHA-256 evidence, advisories, and protocol-test impact reviewed explicitly.
 - Emergency vulnerability bumps should pin the oldest reviewed patched version that satisfies the advisory while preserving the configured pnpm minimum-release-age policy unless the release owner records a security exception.

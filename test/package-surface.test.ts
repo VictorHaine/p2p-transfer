@@ -1624,7 +1624,7 @@ test("critical PAKE dependency identity and install surface stay reviewed", () =
   assert.match(cpaceReview, /This repo does not contain a formal independent audit certificate for `@cipherman\/pake-js`/);
   assert.match(cpaceReview, /Dependabot must keep `@cipherman\/pake-js` in the `critical-pake-dependency` production group and keep `@noble\/curves` in the direct crypto dependency group/);
   assert.match(cpaceReview, /Release verification must run `pnpm security:audit` and `pnpm security:signatures`/);
-  assert.match(cpaceReview, /Scheduled dependency integrity monitoring must run `pnpm security:audit` and `pnpm security:signatures` on unchanged `main`/);
+  assert.match(cpaceReview, /Daily scheduled dependency integrity monitoring must run `pnpm security:audit` and `pnpm security:signatures` on unchanged `main`/);
   assert.match(cpaceReview, /CPace dependency updates must update this artifact in the same change as the package pin and lockfile, with the changed package metadata, exported API, lifecycle hooks, transitive dependency set, exact ESM runtime-file SHA-256 evidence/);
   assert.match(cpaceReview, /Release must stop if any of these are true:/);
   assert.match(cpaceReview, /reviewed resolved-file SHA-256 evidence no longer agree/);
