@@ -67,6 +67,29 @@ test("server config rejects malformed production values instead of silently fall
   assert.throws(() => loadServerConfig({ TURN_REST_SECRET: strongTurnSecret, TURN_URLS: '"turn:user:pass@turn.example.test"' }), /must not embed credentials/);
   assert.throws(() => loadServerConfig({ TURN_REST_SECRET: strongTurnSecret, TURN_URLS: '["turns:user@turn.example.test"]' }), /must not embed credentials/);
   assert.throws(() => loadServerConfig({ TURN_REST_SECRET: strongTurnSecret, TURN_URLS: '"turn:turn.example.test"', TURN_TTL_SECONDS: "5" }), /TURN_TTL_SECONDS/);
+  assert.throws(() => loadServerConfig({ TURN_REST_SECRET: strongTurnSecret, TURN_URLS: '"turn:turn.example.test"', TURN_REST_ALLOW_UNVERIFIED_ACCEPT: "yes" }), /TURN_REST_ALLOW_UNVERIFIED_ACCEPT/);
+  assert.throws(
+    () =>
+      loadServerConfig({
+        NODE_ENV: "production",
+        ALLOWED_ORIGINS: "https://files.example",
+        SIGNALING_TOPOLOGY: "single-instance",
+        TURN_REST_SECRET: strongTurnSecret,
+        TURN_URLS: '"turn:turn.example.test"'
+      }),
+    /TURN_REST_ALLOW_UNVERIFIED_ACCEPT/
+  );
+  assert.throws(
+    () =>
+      loadServerConfig({
+        HOST: "0.0.0.0",
+        ALLOWED_ORIGINS: "https://files.example",
+        SIGNALING_TOPOLOGY: "single-instance",
+        TURN_REST_SECRET: strongTurnSecret,
+        TURN_URLS: '"turn:turn.example.test"'
+      }),
+    /TURN_REST_ALLOW_UNVERIFIED_ACCEPT/
+  );
   assert.throws(() => loadServerConfig({ BROWSER_ALLOW_ANY_WSS: "yes" }), /BROWSER_ALLOW_ANY_WSS/);
   assert.throws(() => loadServerConfig({ BROWSER_ALLOW_LOOPBACK_WS: "yes" }), /BROWSER_ALLOW_LOOPBACK_WS/);
   assert.throws(() => loadServerConfig({ SIGNALING_TOPOLOGY: "multi-replica" }), /SIGNALING_TOPOLOGY/);
@@ -100,6 +123,10 @@ test("server config byte-caps scalar environment values before string parsing", 
   assert.throws(() => loadServerConfig({ TRUSTED_PROXY_HOPS: "1", TRUSTED_PROXY_IPS: "1".repeat(16 * 1024 + 1) }), /TRUSTED_PROXY_IPS must be at most 16384 bytes/);
   assert.throws(() => loadServerConfig({ BROWSER_ALLOW_ANY_WSS: oversized }), /BROWSER_ALLOW_ANY_WSS must be at most 4096 bytes/);
   assert.throws(() => loadServerConfig({ BROWSER_ALLOW_LOOPBACK_WS: oversized }), /BROWSER_ALLOW_LOOPBACK_WS must be at most 4096 bytes/);
+  assert.throws(
+    () => loadServerConfig({ TURN_REST_SECRET: strongTurnSecret, TURN_URLS: '"turn:turn.example.test"', TURN_REST_ALLOW_UNVERIFIED_ACCEPT: oversized }),
+    /TURN_REST_ALLOW_UNVERIFIED_ACCEPT must be at most 4096 bytes/
+  );
   assert.throws(() => loadServerConfig({ WEB_ROOT: " ".repeat(4097) }), /WEB_ROOT must be at most 4096 bytes/);
   assert.throws(
     () => loadServerConfig({ TURN_REST_SECRET: strongTurnSecret, TURN_URLS: '"turn:turn.example.test"', TURN_TTL_SECONDS: oversized }),
@@ -138,6 +165,10 @@ test("server config rejects non-string env values before parsing or coercion", (
   assert.throws(() => loadServerConfig({ HOST: hostile as never }), /HOST must be a string/);
   assert.throws(() => loadServerConfig({ ALLOWED_ORIGINS: hostile as never }), /ALLOWED_ORIGINS must be a string/);
   assert.throws(() => loadServerConfig({ TURN_REST_SECRET: strongTurnSecret, TURN_URLS: hostile as never }), /TURN_URLS must be a string/);
+  assert.throws(
+    () => loadServerConfig({ TURN_REST_SECRET: strongTurnSecret, TURN_URLS: '"turn:turn.example.test"', TURN_REST_ALLOW_UNVERIFIED_ACCEPT: hostile as never }),
+    /TURN_REST_ALLOW_UNVERIFIED_ACCEPT must be a string/
+  );
   assert.throws(() => loadServerConfig({ BROWSER_ALLOW_ANY_WSS: hostile as never }), /BROWSER_ALLOW_ANY_WSS must be a string/);
   assert.throws(() => loadServerConfig({ BROWSER_ALLOW_LOOPBACK_WS: hostile as never }), /BROWSER_ALLOW_LOOPBACK_WS must be a string/);
   assert.throws(() => loadServerConfig({ SIGNALING_TOPOLOGY: hostile as never }), /SIGNALING_TOPOLOGY must be a string/);
@@ -174,6 +205,7 @@ test("server config reads environment values through own data descriptors", () =
     BROWSER_ALLOW_ANY_WSS: "false",
     BROWSER_ALLOW_LOOPBACK_WS: "false",
     SIGNALING_TOPOLOGY: "single-instance",
+    TURN_REST_ALLOW_UNVERIFIED_ACCEPT: "true",
     TURN_REST_SECRET: strongTurnSecret,
     TURN_URLS: '"turn:turn.example.test"',
     TURN_TTL_SECONDS: "600"
@@ -466,6 +498,7 @@ test("server config accepts explicit hostnames and IP bind addresses", () => {
 
 test("server config issues ephemeral TURN REST credentials without static secrets", () => {
   assert.match(securityPolicy, /`TURN_URLS` parsing must reject empty or over-cap JSON arrays before element validation/);
+  assert.match(securityPolicy, /production or non-loopback TURN REST deployments must require an explicit acknowledgement that the server cannot cryptographically verify receiver accept authenticity/);
   assert.equal(parseTurnUrls('"turn:turn.example.test:3478?transport=tcp"'), "turn:turn.example.test:3478?transport=tcp");
   assert.deepEqual(parseTurnUrls('["turn:turn.example.test","turns:turn.example.test:5349"]'), ["turn:turn.example.test", "turns:turn.example.test:5349"]);
   assert.throws(() => parseTurnUrls(JSON.stringify(new Array(9).fill("turn:turn.example.test"))), /TURN_URLS/);
@@ -500,6 +533,15 @@ test("server config issues ephemeral TURN REST credentials without static secret
     iceServersForUnauthenticatedRequest(loadServerConfig({ ICE_SERVERS: '[{"urls":"turn:turn.example.test","username":"u","credential":"p"}]' })),
     loadServerConfig({}).iceServers
   );
+  const productionConfig = loadServerConfig({
+    NODE_ENV: "production",
+    ALLOWED_ORIGINS: "https://files.example",
+    SIGNALING_TOPOLOGY: "single-instance",
+    TURN_REST_ALLOW_UNVERIFIED_ACCEPT: "true",
+    TURN_REST_SECRET: strongTurnSecret,
+    TURN_URLS: '"turn:turn.example.test"'
+  });
+  assert.equal(productionConfig.turnRest?.urls, "turn:turn.example.test");
 });
 
 test("server config parses strict browser origin allowlists", () => {

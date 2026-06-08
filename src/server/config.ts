@@ -64,7 +64,7 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
     browserAllowLoopbackWs: parseBrowserLoopbackWs(env, production),
     trustedProxyHops,
     trustedProxyIps,
-    turnRest: parseTurnRestConfig(env)
+    turnRest: parseTurnRestConfig(env, production, host)
   };
 }
 
@@ -397,7 +397,7 @@ function parseAllowedOriginList(raw: string): string[] {
   return origins;
 }
 
-function parseTurnRestConfig(env: NodeJS.ProcessEnv): TurnRestConfig | undefined {
+function parseTurnRestConfig(env: NodeJS.ProcessEnv, production: boolean, host: string): TurnRestConfig | undefined {
   const secret = optionalEnvString(envValue(env, "TURN_REST_SECRET"), "TURN_REST_SECRET");
   const rawUrls = optionalEnvString(envValue(env, "TURN_URLS"), "TURN_URLS");
   if (secret !== undefined) assertEnvStringByteLength(secret, "TURN_REST_SECRET", MAX_TURN_REST_SECRET_BYTES);
@@ -405,6 +405,7 @@ function parseTurnRestConfig(env: NodeJS.ProcessEnv): TurnRestConfig | undefined
   const trimmedUrls = rawUrls?.trim();
   if (!secret && !trimmedUrls) return undefined;
   if (!secret || !trimmedUrls) throw new Error("TURN_REST_SECRET and TURN_URLS must be set together.");
+  assertTurnRestPublicIssuanceAcknowledged(env, production, host);
   const secretBytes = Buffer.byteLength(secret, "utf8");
   if (secretBytes < TURN_REST_SECRET_MIN_BYTES) {
     throw new Error(`TURN_REST_SECRET must be at least ${TURN_REST_SECRET_MIN_BYTES} bytes.`);
@@ -416,6 +417,13 @@ function parseTurnRestConfig(env: NodeJS.ProcessEnv): TurnRestConfig | undefined
   const urls = parseTurnUrls(trimmedUrls);
   const ttlSeconds = parseTurnTtl(envValue(env, "TURN_TTL_SECONDS"));
   return { urls, secret, ttlSeconds };
+}
+
+function assertTurnRestPublicIssuanceAcknowledged(env: NodeJS.ProcessEnv, production: boolean, host: string): void {
+  const acknowledgement = parseBooleanEnv(envValue(env, "TURN_REST_ALLOW_UNVERIFIED_ACCEPT"), "TURN_REST_ALLOW_UNVERIFIED_ACCEPT");
+  if (acknowledgement) return;
+  if (!production && isLoopbackBindHost(host)) return;
+  throw new Error("TURN_REST_ALLOW_UNVERIFIED_ACCEPT=true is required before enabling TURN REST credentials in production or non-loopback deployments.");
 }
 
 export function parseTurnUrls(raw: string): string | string[] {
