@@ -26,7 +26,7 @@
     "SECURITY.md"
   ],
   "scripts": {
-    "build": "node --import tsx scripts/check-crypto-dependencies.mjs && node -e \"require('fs').rmSync('dist-node', { recursive: true, force: true }); require('fs').rmSync('dist-web', { recursive: true, force: true })\" && tsc -p tsconfig.node.json && node -e \"const fs = require('fs'); fs.chmodSync('dist-node/cli/index.js', 0o755); fs.chmodSync('dist-node/server/index.js', 0o755)\" && vite build",
+    "build": "node --import tsx scripts/check-crypto-dependencies.mjs && node -e \"require('fs').rmSync('dist-node', { recursive: true, force: true }); require('fs').rmSync('dist-web', { recursive: true, force: true })\" && tsc -p tsconfig.node.json && node -e \"const fs = require('fs'); fs.chmodSync('dist-node/cli/index.js', 0o755); fs.chmodSync('dist-node/server/index.js', 0o755)\" && vite build && node scripts/write-web-asset-manifest.mjs",
     "check:install-state": "node scripts/check-install-state.mjs",
     "check": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.test.json",
     "prepack": "pnpm build",

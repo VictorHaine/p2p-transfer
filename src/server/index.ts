@@ -59,6 +59,7 @@ import { securityHeaders } from "./security-headers.js";
 import { initialSessionExpiresAt, nextSessionExpiresAt, remainingExpirySeconds } from "./session-expiry.js";
 import { canServeIndexFallback, isMissingStaticPathError, isPathInsideRoot, staticUrlPathToRelative } from "./static-path.js";
 import { waitingCodeOwnedBy, waitingReceiverAvailable } from "./waiting.js";
+import { loadWebAssetManifest, verifyWebAssetIntegrity } from "./web-asset-integrity.js";
 import { signalingBackpressureExceeded } from "./ws-backpressure.js";
 
 type Peer = {
@@ -110,6 +111,7 @@ type Session = {
 const serverConfig = loadCheckedServerConfig();
 const { port, host, production, webRoot, allowedOrigins, browserAllowAnyWss, browserAllowLoopbackWs, trustedProxyHops, trustedProxyIps } = serverConfig;
 const realWebRoot = await checkedRealWebRoot(webRoot);
+const webAssetManifest = await loadCheckedWebAssetManifest(webRoot, production);
 const codes = new Map<string, WaitingCode>();
 const sessions = new Map<string, Session>();
 const rateLimits = new Map<string, number[]>();
@@ -263,6 +265,14 @@ async function checkedRealWebRoot(root: string): Promise<string> {
     const stat = await fs.stat(realRoot);
     if (!stat.isDirectory()) throw new Error("web root is not a directory");
     return realRoot;
+  } catch (error) {
+    startupFailure("web root", error);
+  }
+}
+
+async function loadCheckedWebAssetManifest(root: string, productionMode: boolean): Promise<Awaited<ReturnType<typeof loadWebAssetManifest>>> {
+  try {
+    return await loadWebAssetManifest(root, productionMode);
   } catch (error) {
     startupFailure("web root", error);
   }
@@ -934,6 +944,7 @@ async function serveStatic(urlPath: string, res: http.ServerResponse): Promise<v
   if (!isPathInsideRoot(root, realFilePath)) throw staticHttpError(404);
   const staticFile = await readStaticFile(realFilePath);
   try {
+    verifyWebAssetIntegrity(webAssetManifest, root, realFilePath, staticFile.body);
     const type = contentType(realFilePath);
     const isHtml = type.startsWith("text/html;");
     res.once("finish", staticFile.release);
