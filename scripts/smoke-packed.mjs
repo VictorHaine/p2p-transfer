@@ -2,7 +2,7 @@
 import { spawn } from "node:child_process";
 import { constants } from "node:fs";
 import { realpathSync } from "node:fs";
-import { lstat, mkdtemp, mkdir, open, readFile, readdir, rm, statfs, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, mkdir, open, readFile, readdir, rm, stat, statfs, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -23,6 +23,7 @@ const MAX_PACKED_SMOKE_TARBALL_PATH_BYTES = 4_096;
 const TARBALL_COPY_CHUNK_BYTES = 64 * 1024;
 const MIN_PACKED_SMOKE_TMP_FREE_BYTES = 1024 * 1024 * 1024;
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 const logTextDecoder = new TextDecoder("utf-8", { fatal: false });
 
 if (isMain()) {
@@ -58,6 +59,8 @@ async function main() {
     await mkdir(childEnv.XDG_CONFIG_HOME, { recursive: true, mode: 0o700 });
     await mkdir(childEnv.PNPM_HOME, { recursive: true, mode: 0o700 });
     await mkdir(childEnv.COREPACK_HOME, { recursive: true, mode: 0o700 });
+    await mkdir(childEnv.NPM_CONFIG_PREFIX, { recursive: true, mode: 0o700 });
+    await mkdir(childEnv.NPM_CONFIG_CACHE, { recursive: true, mode: 0o700 });
     await mkdir(childEnv.LOCALAPPDATA, { recursive: true, mode: 0o700 });
     await mkdir(childEnv.APPDATA, { recursive: true, mode: 0o700 });
     const tarball = providedTarball ?? (await packCurrentProject(packDir, childEnv, expectedTarballName));
@@ -86,6 +89,7 @@ async function main() {
     if (version.stdout.trimEnd() !== expectedVersion || version.stderr.length > 0) {
       throw new Error(`Packed ff --version did not report exactly "${expectedVersion}": ${version.stdout}${version.stderr}`);
     }
+    await smokeNpmGlobalInstall(installTarball, childEnv, tmp, expectedVersion);
 
     const port = await reserveLoopbackPort();
     const server = spawn(pnpm, ["exec", "ff-server"], {
@@ -118,6 +122,33 @@ async function main() {
   } finally {
     if (!keepTemp) await rm(tmp, { recursive: true, force: true });
   }
+}
+
+async function smokeNpmGlobalInstall(tarball, childEnv, cwd, expectedVersion) {
+  await run(npm, ["install", "--global", "--ignore-scripts=false", tarball], { cwd, timeoutMs: 180_000, env: childEnv });
+  const ff = npmGlobalBin(childEnv.NPM_CONFIG_PREFIX, "ff");
+  const server = npmGlobalBin(childEnv.NPM_CONFIG_PREFIX, "ff-server");
+  await assertGlobalBin(ff, "ff");
+  await assertGlobalBin(server, "ff-server");
+  const version = await run(ff, ["--version"], { cwd, timeoutMs: 30_000, env: childEnv });
+  if (version.stdout.trimEnd() !== expectedVersion || version.stderr.length > 0) {
+    throw new Error(`npm global ff --version did not report exactly "${expectedVersion}": ${version.stdout}${version.stderr}`);
+  }
+}
+
+async function assertGlobalBin(file, label) {
+  if (typeof file !== "string" || typeof label !== "string" || !/^(?:ff|ff-server)$/.test(label)) throw new Error("npm global bin check is invalid.");
+  const info = await lstat(file).catch(() => undefined);
+  if (!info || (!info.isFile() && !info.isSymbolicLink())) throw new Error(`npm global ${label} bin was not installed.`);
+  if (info.isSymbolicLink()) {
+    const target = await stat(file).catch(() => undefined);
+    if (!target?.isFile()) throw new Error(`npm global ${label} bin link target is invalid.`);
+  }
+}
+
+function npmGlobalBin(prefix, name) {
+  if (typeof prefix !== "string" || typeof name !== "string" || !/^(?:ff|ff-server)$/.test(name)) throw new Error("npm global bin path is invalid.");
+  return process.platform === "win32" ? path.join(prefix, `${name}.cmd`) : path.join(prefix, "bin", name);
 }
 
 function isMain() {
@@ -362,6 +393,10 @@ export function isolatedChildEnv(privateHome) {
     XDG_CONFIG_HOME: path.join(home, "xdg-config"),
     NPM_CONFIG_USERCONFIG: path.join(home, ".npmrc"),
     npm_config_userconfig: path.join(home, ".npmrc"),
+    NPM_CONFIG_PREFIX: path.join(home, "npm-prefix"),
+    npm_config_prefix: path.join(home, "npm-prefix"),
+    NPM_CONFIG_CACHE: path.join(home, "npm-cache"),
+    npm_config_cache: path.join(home, "npm-cache"),
     PNPM_HOME: path.join(home, "pnpm-home"),
     COREPACK_HOME: path.join(home, "corepack-home"),
     LOCALAPPDATA: path.join(home, "local-app-data"),

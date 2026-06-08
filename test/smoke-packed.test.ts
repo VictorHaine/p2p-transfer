@@ -210,6 +210,17 @@ test("packed smoke exercises private receive output input", () => {
   assert.doesNotMatch(packedSmokeSource, /"--local-private-mode", "recv", "--code-stdin", "--yes", "--out", out/);
 });
 
+test("packed smoke exercises npm global bin installation", () => {
+  assert.match(packedSmokeSource, /const npm = process\.platform === "win32" \? "npm\.cmd" : "npm"/);
+  assert.match(packedSmokeSource, /await smokeNpmGlobalInstall\(installTarball, childEnv, tmp, expectedVersion\)/);
+  assert.match(packedSmokeSource, /await run\(npm, \["install", "--global", "--ignore-scripts=false", tarball\]/);
+  assert.match(packedSmokeSource, /npmGlobalBin\(childEnv\.NPM_CONFIG_PREFIX, "ff"\)/);
+  assert.match(packedSmokeSource, /npmGlobalBin\(childEnv\.NPM_CONFIG_PREFIX, "ff-server"\)/);
+  assert.match(packedSmokeSource, /!info\.isFile\(\) && !info\.isSymbolicLink\(\)/);
+  assert.match(packedSmokeSource, /const target = await stat\(file\)/);
+  assert.match(packedSmokeSource, /npm global ff --version did not report exactly/);
+});
+
 test("packed smoke child environment rejects unsafe required inherited values", () => {
   const originalPath = process.env.PATH;
   try {
@@ -268,7 +279,21 @@ test("packed smoke temporary disk preflight fails without raw paths", async () =
 
 test("packed smoke child environment isolates host home and package-manager config", async () => {
   const original = new Map<string, string | undefined>();
-  const names = ["PATH", "HOME", "USERPROFILE", "PNPM_HOME", "COREPACK_HOME", "LOCALAPPDATA", "APPDATA", "NPM_CONFIG_USERCONFIG", "npm_config_userconfig"];
+  const names = [
+    "PATH",
+    "HOME",
+    "USERPROFILE",
+    "PNPM_HOME",
+    "COREPACK_HOME",
+    "LOCALAPPDATA",
+    "APPDATA",
+    "NPM_CONFIG_USERCONFIG",
+    "npm_config_userconfig",
+    "NPM_CONFIG_PREFIX",
+    "npm_config_prefix",
+    "NPM_CONFIG_CACHE",
+    "npm_config_cache"
+  ];
   const tmp = await mkdtemp(path.join(tmpdir(), "ff-smoke-env-"));
   const privateHome = path.join(tmp, "home");
   try {
@@ -282,6 +307,10 @@ test("packed smoke child environment isolates host home and package-manager conf
     process.env.APPDATA = "/host/appdata";
     process.env.NPM_CONFIG_USERCONFIG = "/host/.npmrc";
     process.env.npm_config_userconfig = "/host/.npmrc";
+    process.env.NPM_CONFIG_PREFIX = "/host/npm-prefix";
+    process.env.npm_config_prefix = "/host/npm-prefix";
+    process.env.NPM_CONFIG_CACHE = "/host/npm-cache";
+    process.env.npm_config_cache = "/host/npm-cache";
 
     const env = isolatedChildEnv(privateHome);
 
@@ -291,6 +320,10 @@ test("packed smoke child environment isolates host home and package-manager conf
     assert.equal(env.XDG_CONFIG_HOME, path.join(privateHome, "xdg-config"));
     assert.equal(env.NPM_CONFIG_USERCONFIG, path.join(privateHome, ".npmrc"));
     assert.equal(env.npm_config_userconfig, path.join(privateHome, ".npmrc"));
+    assert.equal(env.NPM_CONFIG_PREFIX, path.join(privateHome, "npm-prefix"));
+    assert.equal(env.npm_config_prefix, path.join(privateHome, "npm-prefix"));
+    assert.equal(env.NPM_CONFIG_CACHE, path.join(privateHome, "npm-cache"));
+    assert.equal(env.npm_config_cache, path.join(privateHome, "npm-cache"));
     assert.equal(env.PNPM_HOME, path.join(privateHome, "pnpm-home"));
     assert.equal(env.COREPACK_HOME, path.join(privateHome, "corepack-home"));
     assert.equal(env.LOCALAPPDATA, path.join(privateHome, "local-app-data"));
