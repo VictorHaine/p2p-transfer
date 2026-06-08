@@ -244,6 +244,39 @@ export function verifySignalAuthTag(key: Uint8Array, sid: string, fromRole: Pake
   }
 }
 
+export async function sealSignal(key: Uint8Array, sid: string, fromRole: PakeRole, signal: SignalPayload): Promise<string> {
+  assertSignalPayloadForVerify(signal);
+  const sealKey = await signalSealKey(key, sid, fromRole, ["encrypt"]);
+  return sealJson(sealKey, signal, signalAad(sid, fromRole));
+}
+
+export async function openSignal(key: Uint8Array, sid: string, fromRole: PakeRole, sealed: unknown): Promise<SignalPayload> {
+  const sealKey = await signalSealKey(key, sid, fromRole, ["decrypt"]);
+  const signal = await openJson<unknown>(sealKey, sealed, signalAad(sid, fromRole));
+  assertSignalPayloadForVerify(signal as SignalPayload);
+  return signal as SignalPayload;
+}
+
+async function signalSealKey(key: Uint8Array, sid: string, fromRole: PakeRole, usages: KeyUsage[]): Promise<CryptoKey> {
+  const authKey = authenticationKeyCopy(key);
+  let raw: Uint8Array | undefined;
+  try {
+    assertPakeSid(sid);
+    assertPakeRole(fromRole);
+    raw = hkdf(sha256, authKey, text.encode(`signal-seal:${sid}`), text.encode(`signal ${fromRole}`), 32);
+    return await importAesKey(raw, usages);
+  } finally {
+    authKey.fill(0);
+    raw?.fill(0);
+  }
+}
+
+function signalAad(sid: string, fromRole: PakeRole): Uint8Array {
+  assertPakeSid(sid);
+  assertPakeRole(fromRole);
+  return text.encode(`signal:${sid}:${fromRole}`);
+}
+
 function signalPayloadForAuth(signal: SignalPayload): SignalPayloadForAuth {
   assertSignalPayloadForVerify(signal);
   const kind = ownDataValue(signal, "kind");

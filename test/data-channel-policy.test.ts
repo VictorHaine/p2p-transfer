@@ -286,7 +286,7 @@ test("in-flight WebRTC signal handlers stop after disposal", () => {
     const wireSignals = extractFunctionBody(source, "wireSignals");
     assert.match(wireSignals, /let disposed = false/);
     assert.match(wireSignals, /const dispose = \(\) => \{[\s\S]*disposed = true;[\s\S]*queuedCandidates\.length = 0;[\s\S]*signaling\.off\("signal", onSignal\);[\s\S]*\};/);
-    assert.match(wireSignals, /if \(disposed\) return;[\s\S]*(?:runtime\.security\.)?verifySignalAuthTag/);
+    assert.match(wireSignals, /const openedSignal = await (?:runtime\.security\.)?openSignal\(keys\.signalAuthKey, sid, peerRole, message\.sealedSignal\);[\s\S]*if \(disposed\) return;[\s\S]*(?:runtime\.security\.)?verifySignalAuthTag/);
     assert.match(wireSignals, /await [\s\S]*(?:runtime\.rtc\.handleSignal|handleSignal|setRemoteDescription)[\s\S]*if \(disposed\) return;/);
     assert.match(wireSignals, /while \(!disposed && queuedCandidates\.length > 0\)/);
   }
@@ -298,7 +298,10 @@ test("WebRTC signal listeners revalidate emitted records before field reads", ()
     const wireSignals = extractFunctionBody(source, "wireSignals");
     assert.match(wireSignals, /const onSignal = async \(message: (?:unknown|BrowserSignalingEvent)\) => \{[\s\S]*if \(!isServerMessage\(message\)\) return;[\s\S]*message\.type !== "signal"/);
     assert.equal(wireSignals.indexOf("if (!isServerMessage(message)) return;") < wireSignals.indexOf('message.type !== "signal"'), true);
+    assert.equal(wireSignals.indexOf("if (!isServerMessage(message)) return;") < wireSignals.indexOf("message.sealedSignal"), true);
     assert.equal(wireSignals.indexOf("if (!isServerMessage(message)) return;") < wireSignals.indexOf("verifySignalAuthTag"), true);
+    assert.match(wireSignals, /const openedSignal = await (?:runtime\.security\.)?openSignal\(keys\.signalAuthKey, sid, peerRole, message\.sealedSignal\);/);
+    assert.match(wireSignals, /if \(openedSignal\.kind !== message\.kind\) \{[\s\S]*Authenticated WebRTC signal check failed/);
   }
   assert.match(distCliSource, /const onSignal = async \(message\) => \{[\s\S]*if \(!isServerMessage\(message\)\)[\s\S]*return;[\s\S]*message\.type !== "signal"/);
   assert.match(distWebBundle, /if\(\w+\|\|!\w+\(\w+\)\|\|\w+\.type!==`signal`\|\|\w+\.sid!==\w+\)return/);
@@ -309,7 +312,7 @@ test("WebRTC candidates are copied after authentication before native or delayed
   for (const source of [cliSource, webSource]) {
     const wireSignals = extractFunctionBody(source, "wireSignals");
     assert.match(wireSignals, /const queuedCandidates: Extract<SignalPayload, \{ kind: "candidate" \}>\[\] = \[\];/);
-    assert.match(wireSignals, /const signal = message\.signal\.kind === "candidate" \? copyCandidateSignal\(message\.signal\) : message\.signal;/);
+    assert.match(wireSignals, /const signal = openedSignal\.kind === "candidate" \? copyCandidateSignal\(openedSignal\) : openedSignal;/);
     assert.match(wireSignals, /queuedCandidates\.push\(signal\);/);
     assert.doesNotMatch(wireSignals, /queuedCandidates\.push\(message\.signal\);/);
     assert.doesNotMatch(wireSignals, /handleSignal\(pc, message\.signal\)|addIceCandidate\(message\.signal\.candidate\)/);
@@ -323,7 +326,7 @@ test("WebRTC candidates are copied after authentication before native or delayed
     assert.match(source, /if \(typeof usernameFragment === "string"\) candidate\.usernameFragment = usernameFragment;/);
     assert.match(source, /return \{ kind: "candidate", candidate, auth \};/);
   }
-  assert.match(distCliSource, /const signal = message\.signal\.kind === "candidate" \? copyCandidateSignal\(message\.signal\) : message\.signal;/);
+  assert.match(distCliSource, /const signal = openedSignal\.kind === "candidate" \? copyCandidateSignal\(openedSignal\) : openedSignal;/);
   assert.match(distCliSource, /queuedCandidates\.push\(signal\);/);
   assert.doesNotMatch(distCliSource, /queuedCandidates\.push\(message\.signal\);/);
   assert.doesNotMatch(distCliSource, /handleSignal\(pc, message\.signal\)/);
@@ -334,7 +337,7 @@ test("WebRTC candidates are copied after authentication before native or delayed
   assert.match(distCliSource, /const candidate = \{\};/);
   assert.match(distCliSource, /Object\.getOwnPropertyDescriptor\(value, key\)/);
   assert.doesNotMatch(distCliSource, /signal\.candidate\.candidate|signal\.candidate\.sdpMid|signal\.candidate\.sdpMLineIndex|signal\.candidate\.usernameFragment|auth: signal\.auth/);
-  assert.match(distWebBundle, /\.signal\.kind===`candidate`\?/);
+  assert.match(distWebBundle, /kind===`candidate`\?/);
   assert.match(distWebBundle, /\.push\(\w+\)/);
   assert.doesNotMatch(distWebBundle, /\.push\(\w+\.signal\)/);
   assert.doesNotMatch(distWebBundle, /addIceCandidate\(\w+\.signal\.candidate\)/);
@@ -379,11 +382,11 @@ test("local ICE candidate callbacks snapshot native candidates before auth and s
   assert.doesNotMatch(browserReceiveBody, /event\.candidate|candidate\.toJSON\(\)/);
   assert.doesNotMatch(browserSendBody, /sessionKeys\.signalAuthKey|pc\.onicecandidate =/);
   assert.doesNotMatch(browserReceiveBody, /sessionKeys\.signalAuthKey|pc\.onicecandidate =/);
-  assert.match(webSource, /function sendBrowserIceCandidate\(signaling: BrowserSignaling, sid: string, signalAuthKey: Uint8Array, role: PakeRole, event: RTCPeerConnectionIceEvent\): void \{/);
+  assert.match(webSource, /function sendBrowserIceCandidate\(signaling: BrowserSignaling, sid: string, signalAuthKey: Uint8Array, role: PakeRole, event: RTCPeerConnectionIceEvent, isDisposed: \(\) => boolean\): void \{/);
   assert.match(webSource, /function wireBrowserIceCandidates\(signaling: BrowserSignaling, pc: RTCPeerConnection, sid: string, signalAuthKey: Uint8Array, role: PakeRole\): \(\) => void \{/);
   const browserIceWireBody = extractFunctionBody(webSource, "wireBrowserIceCandidates");
   assert.match(browserIceWireBody, /const authKey = copySignalAuthKey\(signalAuthKey\);/);
-  assert.match(browserIceWireBody, /try \{[\s\S]*sendBrowserIceCandidate\(signaling, sid, authKey, role, event\);[\s\S]*\} catch \{/);
+  assert.match(browserIceWireBody, /try \{[\s\S]*sendBrowserIceCandidate\(signaling, sid, authKey, role, event, \(\) => disposed\);[\s\S]*\} catch \{/);
   assert.match(browserIceWireBody, /safeBrowserSend\(signaling, \{ type: "bye", sid, reason: "signal_error" \}\);/);
   assert.match(browserIceWireBody, /pc\.close\(\);/);
   assert.match(browserIceWireBody, /authKey\.fill\(0\);/);

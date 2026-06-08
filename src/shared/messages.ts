@@ -8,6 +8,7 @@ export type SignalPayload =
   | { kind: "offer"; sdp: string; auth: string }
   | { kind: "answer"; sdp: string; auth: string }
   | { kind: "candidate"; candidate: RTCIceCandidateInit; auth: string };
+export type SignalKind = SignalPayload["kind"];
 
 export type FileManifestEntry = {
   id?: number;
@@ -32,7 +33,7 @@ export type ClientMessage =
   | { type: "pair-request"; sid: string; manifest: FileManifest; sealedManifest: string }
   | { type: "pair-accept"; sid: string; auth: string }
   | { type: "pair-reject"; sid: string; auth: string; reason: PairRejectReason }
-  | { type: "signal"; sid: string; signal: SignalPayload }
+  | { type: "signal"; sid: string; kind: SignalKind; sealedSignal: string }
   | { type: "bye"; sid?: string; reason?: string };
 
 export type ServerMessage =
@@ -43,7 +44,7 @@ export type ServerMessage =
   | { type: "pair-request"; sid: string; manifest: FileManifest; sealedManifest: string }
   | { type: "pair-accept"; sid: string; auth: string }
   | { type: "pair-reject"; sid: string; auth: string; reason: PairRejectReason }
-  | { type: "signal"; sid: string; signal: SignalPayload }
+  | { type: "signal"; sid: string; kind: SignalKind; sealedSignal: string }
   | { type: "peer-left"; sid: string; reason?: string }
   | { type: "ice-config"; iceServers: RTCIceServer[] }
   | { type: "error"; code: ErrorCode; message: string };
@@ -99,6 +100,7 @@ const MAX_PAKE_BYTES = 4096;
 const MAX_REASON_CHARS = 1000;
 const PAIR_REJECT_REASON: PairRejectReason = "user_declined";
 const MAX_SEALED_MANIFEST_CHARS = ENCRYPTED_JSON_MAX_CHARS;
+const MAX_SEALED_SIGNAL_CHARS = ENCRYPTED_JSON_MAX_CHARS;
 const MAX_SDP_BYTES = 128 * 1024;
 const MAX_CANDIDATE_BYTES = 4096;
 const MAX_ICE_TOKEN_BYTES = 256;
@@ -195,7 +197,7 @@ export function isClientMessage(value: unknown): value is ClientMessage {
     case "pair-reject":
       return hasOnlyKeys(value, ["type", "sid", "reason", "auth"]) && isSessionId(ownDataValue(value, "sid")) && isBase64EncodedBytes(ownDataValue(value, "auth"), HMAC_SHA256_BYTES) && isPairRejectReason(ownDataValue(value, "reason"));
     case "signal":
-      return hasOnlyKeys(value, ["type", "sid", "signal"]) && isSessionId(ownDataValue(value, "sid")) && isSignalPayload(ownDataValue(value, "signal"));
+      return hasOnlyKeys(value, ["type", "sid", "kind", "sealedSignal"]) && isSessionId(ownDataValue(value, "sid")) && isSignalKind(ownDataValue(value, "kind")) && isBoundedCanonicalBase64(ownDataValue(value, "sealedSignal"), MIN_ENCRYPTED_JSON_BASE64_CHARS, MAX_SEALED_SIGNAL_CHARS);
     case "bye":
       return hasOnlyKeys(value, ["type", "sid", "reason"]) && optionalSessionId(ownDataValue(value, "sid")) && optionalSafeReason(ownDataValue(value, "reason"));
     default:
@@ -223,7 +225,7 @@ export function isServerMessage(value: unknown): value is ServerMessage {
     case "pair-reject":
       return hasOnlyKeys(value, ["type", "sid", "reason", "auth"]) && isSessionId(ownDataValue(value, "sid")) && isBase64EncodedBytes(ownDataValue(value, "auth"), HMAC_SHA256_BYTES) && isPairRejectReason(ownDataValue(value, "reason"));
     case "signal":
-      return hasOnlyKeys(value, ["type", "sid", "signal"]) && isSessionId(ownDataValue(value, "sid")) && isSignalPayload(ownDataValue(value, "signal"));
+      return hasOnlyKeys(value, ["type", "sid", "kind", "sealedSignal"]) && isSessionId(ownDataValue(value, "sid")) && isSignalKind(ownDataValue(value, "kind")) && isBoundedCanonicalBase64(ownDataValue(value, "sealedSignal"), MIN_ENCRYPTED_JSON_BASE64_CHARS, MAX_SEALED_SIGNAL_CHARS);
     case "peer-left":
       return hasOnlyKeys(value, ["type", "sid", "reason"]) && isSessionId(ownDataValue(value, "sid")) && optionalSafeReason(ownDataValue(value, "reason"));
     case "ice-config":
@@ -300,7 +302,7 @@ function isSafeManifestFileName(value: unknown): value is string {
   );
 }
 
-function isSignalPayload(value: unknown): value is SignalPayload {
+export function isSignalPayload(value: unknown): value is SignalPayload {
   if (!isObject(value)) return false;
   const kind = ownDataValue(value, "kind");
   if (kind === "offer" || kind === "answer") {
@@ -308,6 +310,10 @@ function isSignalPayload(value: unknown): value is SignalPayload {
   }
   if (kind === "candidate") return hasOnlyKeys(value, ["kind", "candidate", "auth"]) && isIceCandidateInit(ownDataValue(value, "candidate")) && isBase64EncodedBytes(ownDataValue(value, "auth"), HMAC_SHA256_BYTES);
   return false;
+}
+
+function isSignalKind(value: unknown): value is SignalKind {
+  return value === "offer" || value === "answer" || value === "candidate";
 }
 
 function isIceCandidateInit(value: unknown): value is RTCIceCandidateInit {

@@ -1562,8 +1562,8 @@ test("pull request template keeps production-sensitive verification explicit", (
 });
 
 test("README reports implemented release capabilities without stale MVP-gap language", () => {
-  assert.match(readme, /Privacy boundary: file contents and real manifests are end-to-end encrypted from the signaling server, but this is not network or endpoint opacity/);
-  assert.match(readme, /Signaling\/network observers can still see IPs, roles, timing, byte volume, traffic shape, and SDP\/ICE metadata/);
+  assert.match(readme, /Privacy boundary: file contents, real manifests, SDP contents, and ICE candidate contents are end-to-end encrypted from the signaling server, but this is not network or endpoint opacity/);
+  assert.match(readme, /Signaling\/network observers can still see IPs, roles, public WebRTC signal kinds, sealed frame sizes, timing, byte volume, and traffic shape/);
   assert.match(readme, /privileged local MDM\/EDR administrator can still observe selected files and plaintext at the endpoint before encryption or after decryption/);
   assert.doesNotMatch(readme, /## MVP gaps/);
   assert.match(readme, /## Known limitations/);
@@ -1574,7 +1574,7 @@ test("README reports implemented release capabilities without stale MVP-gap lang
   assert.match(readme, /scrub expired or legacy metadata-bearing resume records/);
   assert.match(readme, /Multi-file browser receives start fresh on retry/);
   assert.doesNotMatch(readme, /saved tokenized partial record/);
-  assert.match(readme, /The conformance fixture covers chunk framing, transfer control-message schemas used inside the encrypted channel including resume offsets, canonical signaling-message serialization, authenticated pair decisions with the fixed reject reason, fixed AES-GCM vectors for sealed manifest\/control\/bulk payloads, PAKE confirmation tags, SDP offer\/answer authentication, and ICE candidate authentication including username fragments/);
+  assert.match(readme, /The conformance fixture covers chunk framing, transfer control-message schemas used inside the encrypted channel including resume offsets, canonical signaling-message serialization, sealed WebRTC signal envelopes, authenticated pair decisions with the fixed reject reason, fixed AES-GCM vectors for sealed manifest\/control\/bulk payloads, PAKE confirmation tags, SDP offer\/answer authentication, and ICE candidate authentication including username fragments/);
 });
 
 test("interop tests run the signaling server behind an explicit origin policy", () => {

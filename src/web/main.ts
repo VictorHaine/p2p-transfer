@@ -44,6 +44,7 @@ import {
   sealBulk,
   sealControl,
   sealManifest,
+  sealSignal,
   sessionConfirmTag,
   signalAuthTag,
   startPake,
@@ -51,6 +52,7 @@ import {
   verifyPairDecisionAuthTag,
   verifySessionConfirmTag,
   verifySignalAuthTag,
+  openSignal,
   wipePakeState,
   wipeSessionKeys,
   type PakeRole,
@@ -336,7 +338,8 @@ async function sendFromBrowser(): Promise<void> {
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     const offerSdp = requireSdp(pc.localDescription?.sdp ?? offer.sdp);
-    signaling.send({ type: "signal", sid: joined.sid, signal: { kind: "offer", sdp: offerSdp, auth: sdpAuthTag(keys.signalAuthKey, joined.sid, "sender", "offer", offerSdp) } });
+    const signal = { kind: "offer" as const, sdp: offerSdp, auth: sdpAuthTag(keys.signalAuthKey, joined.sid, "sender", "offer", offerSdp) };
+    signaling.send({ type: "signal", sid: joined.sid, kind: "offer", sealedSignal: await sealSignal(keys.signalAuthKey, joined.sid, "sender", signal) });
     await Promise.race([Promise.all([waitOpen(control), waitOpen(bulk), waitPeerConnected(pc)]), signalWire.failure]);
     unwireIce();
     unwireIce = undefined;
@@ -1853,10 +1856,15 @@ function wireSignals(signaling: BrowserSignaling, pc: RTCPeerConnection, sid: st
       if (!isServerMessage(message)) return;
       if (message.type !== "signal" || message.sid !== sid) return;
       const peerRole = keys.role === "sender" ? "receiver" : "sender";
-      if (!verifySignalAuthTag(keys.signalAuthKey, sid, peerRole, message.signal)) {
+      const openedSignal = await openSignal(keys.signalAuthKey, sid, peerRole, message.sealedSignal);
+      if (disposed) return;
+      if (openedSignal.kind !== message.kind) {
         throw new Error("Authenticated WebRTC signal check failed. Wrong code or signaling MITM.");
       }
-      const signal = message.signal.kind === "candidate" ? copyCandidateSignal(message.signal) : message.signal;
+      if (!verifySignalAuthTag(keys.signalAuthKey, sid, peerRole, openedSignal)) {
+        throw new Error("Authenticated WebRTC signal check failed. Wrong code or signaling MITM.");
+      }
+      const signal = openedSignal.kind === "candidate" ? copyCandidateSignal(openedSignal) : openedSignal;
       replayGuard.accept(signal);
       if (signal.kind === "candidate" && !pc.remoteDescription) {
         if (queuedCandidates.length >= MAX_QUEUED_ICE_CANDIDATES) throw new Error("Too many queued ICE candidates before SDP.");
@@ -1874,7 +1882,10 @@ function wireSignals(signaling: BrowserSignaling, pc: RTCPeerConnection, sid: st
           await pc.setLocalDescription(answer);
           if (disposed) return;
           const answerSdp = requireSdp(pc.localDescription?.sdp ?? answer.sdp);
-          safeBrowserSend(signaling, { type: "signal", sid, signal: { kind: "answer", sdp: answerSdp, auth: sdpAuthTag(keys.signalAuthKey, sid, keys.role, "answer", answerSdp) } });
+          const answerSignal = { kind: "answer" as const, sdp: answerSdp, auth: sdpAuthTag(keys.signalAuthKey, sid, keys.role, "answer", answerSdp) };
+          const sealedSignal = await sealSignal(keys.signalAuthKey, sid, keys.role, answerSignal);
+          if (disposed) return;
+          safeBrowserSend(signaling, { type: "signal", sid, kind: "answer", sealedSignal });
         }
         while (!disposed && queuedCandidates.length > 0) {
           const candidate = queuedCandidates.shift()!;
@@ -1915,12 +1926,20 @@ function copyCandidateSignal(signal: Extract<SignalPayload, { kind: "candidate" 
   return { kind: "candidate", candidate, auth };
 }
 
-function sendBrowserIceCandidate(signaling: BrowserSignaling, sid: string, signalAuthKey: Uint8Array, role: PakeRole, event: RTCPeerConnectionIceEvent): void {
+function sendBrowserIceCandidate(signaling: BrowserSignaling, sid: string, signalAuthKey: Uint8Array, role: PakeRole, event: RTCPeerConnectionIceEvent, isDisposed: () => boolean): void {
   const localCandidate = localBrowserIceCandidateFromEvent(event);
   if (!localCandidate) return;
   const candidate = localBrowserIceCandidateInit(localCandidate);
   if (!candidate) return;
-  safeBrowserSend(signaling, { type: "signal", sid, signal: { kind: "candidate", candidate, auth: signalAuthTag(signalAuthKey, sid, role, { kind: "candidate", candidate }) } });
+  const signal = { kind: "candidate" as const, candidate, auth: signalAuthTag(signalAuthKey, sid, role, { kind: "candidate", candidate }) };
+  void sealSignal(signalAuthKey, sid, role, signal)
+    .then((sealedSignal) => {
+      if (isDisposed()) return;
+      safeBrowserSend(signaling, { type: "signal", sid, kind: "candidate", sealedSignal });
+    })
+    .catch(() => {
+      signaling.close();
+    });
 }
 
 function wireBrowserIceCandidates(signaling: BrowserSignaling, pc: RTCPeerConnection, sid: string, signalAuthKey: Uint8Array, role: PakeRole): () => void {
@@ -1929,7 +1948,7 @@ function wireBrowserIceCandidates(signaling: BrowserSignaling, pc: RTCPeerConnec
   const onIceCandidate = (event: RTCPeerConnectionIceEvent) => {
     if (disposed) return;
     try {
-      sendBrowserIceCandidate(signaling, sid, authKey, role, event);
+      sendBrowserIceCandidate(signaling, sid, authKey, role, event, () => disposed);
     } catch {
       dispose();
       safeBrowserSend(signaling, { type: "bye", sid, reason: "signal_error" });

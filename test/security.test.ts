@@ -52,7 +52,7 @@ import {
 } from "../dist-node/shared/messages.js";
 import type { PakeRole, SessionKeys } from "../src/shared/security.js";
 
-const vectors = JSON.parse(fs.readFileSync(new URL("../conformance/protocol-v8.json", import.meta.url), "utf8")) as {
+const vectors = JSON.parse(fs.readFileSync(new URL("../conformance/protocol-v9.json", import.meta.url), "utf8")) as {
   pairDecisionAuth: {
     keyHex: string;
     sid: string;
@@ -1434,9 +1434,9 @@ test("signaling schema rejects malformed signal and manifest fields", () => {
   assert.equal(isServerMessage(symbolAccessorRegistered), false);
   assert.equal(distIsServerMessage(symbolAccessorRegistered), false);
   assert.equal(symbolSchemaReads, 0);
-  const hiddenExtraCandidate = { candidate: "candidate:0 1 UDP 1 127.0.0.1 9 typ host", sdpMid: "0", sdpMLineIndex: 0 };
-  Object.defineProperty(hiddenExtraCandidate, "extra", { enumerable: false, value: true });
-  assert.equal(isClientMessage({ type: "signal", sid: "sid", signal: { kind: "candidate", candidate: hiddenExtraCandidate, auth: validTag } }), false);
+  const hiddenExtraSignal = { type: "signal", sid: "sid", kind: "candidate", sealedSignal: validSealed };
+  Object.defineProperty(hiddenExtraSignal, "extra", { enumerable: false, value: true });
+  assert.equal(isClientMessage(hiddenExtraSignal), false);
   assert.equal(isClientMessage({ type: "connect", role: "sender", code: "12345678", protocolVersion: PROTOCOL_VERSION }), true);
   assert.equal(isClientMessage({ type: "connect", role: "sender", code: "123456789012", protocolVersion: PROTOCOL_VERSION }), true);
   assert.equal(isClientMessage({ type: "register", role: "receiver", code: "", protocolVersion: 1 }), false);
@@ -1479,7 +1479,7 @@ test("signaling schema rejects malformed signal and manifest fields", () => {
   assert.equal(isClientMessage({ type: "pair-reject", sid: "sid", auth: validTag, reason: "user_declined" }), true);
   assert.equal(isClientMessage({ type: "pair-reject", sid: "sid", auth: validTag, reason: "peer_wrote_this" }), false);
   assert.equal(isClientMessage({ type: "pair-reject", sid: "sid", auth: validTag, reason: "\u001b[31mnope" }), false);
-  assert.equal(isClientMessage({ type: "signal", sid: "", signal: { kind: "offer", sdp: "v=0\r\n", auth: validTag } }), false);
+  assert.equal(isClientMessage({ type: "signal", sid: "", kind: "offer", sealedSignal: validSealed }), false);
   assert.equal(isClientMessage({ type: "bye", sid: "" }), false);
   assert.equal(isClientMessage({ type: "register", role: "receiver", code: "123456", protocolVersion: 1, extra: true }), false);
   assert.equal(isClientMessage({ type: "bye", sid: "sid", reason: "bad\nreason" }), false);
@@ -1488,48 +1488,18 @@ test("signaling schema rejects malformed signal and manifest fields", () => {
   assert.equal(isClientMessage({ type: "connect", role: "sender", code: "123456", protocolVersion: 1, pake: "legacy" }), false);
   assert.equal(isClientMessage({ type: "confirm", sid: "sid", tag: validTag }), true);
   assert.equal(isClientMessage({ type: "confirm", sid: "sid", tag: "x".repeat(300) }), false);
-  assert.equal(isClientMessage({ type: "signal", sid: "sid", signal: { kind: "offer" } }), false);
-  assert.equal(isClientMessage({ type: "signal", sid: "sid", signal: { kind: "bogus", sdp: "x" } }), false);
-  assert.equal(isClientMessage({ type: "signal", sid: "sid", signal: { kind: "offer", sdp: "", auth: validTag } }), false);
-  assert.equal(isClientMessage({ type: "signal", sid: "sid", signal: { kind: "offer", sdp: "v=0\r\n", auth: "" } }), false);
-  assert.equal(isClientMessage({ type: "signal", sid: "sid", signal: { kind: "offer", sdp: "v=0\r\n", auth: "auth" } }), false);
-  assert.equal(isClientMessage({ type: "signal", sid: "sid", signal: { kind: "offer", sdp: "v=0\r\n", auth: validTag } }), true);
-  assert.equal(isClientMessage({ type: "signal", sid: "sid", signal: { kind: "offer", sdp: "x".repeat(200_000) } }), false);
-  const oversizedByteSdp = "😀".repeat(32_769);
-  assert.equal(oversizedByteSdp.length < 128 * 1024, true);
-  assert.equal(isClientMessage({ type: "signal", sid: "sid", signal: { kind: "offer", sdp: oversizedByteSdp, auth: validTag } }), false);
-  assert.equal(distIsClientMessage({ type: "signal", sid: "sid", signal: { kind: "offer", sdp: oversizedByteSdp, auth: validTag } }), false);
-  assert.equal(isClientMessage({ type: "signal", sid: "sid", signal: { kind: "offer", sdp: "v=0\r\n", extra: true } }), false);
-  assert.equal(isClientMessage({ type: "signal", sid: "sid", signal: { kind: "candidate", candidate: { arbitrary: "object" } } }), false);
-  assert.equal(isClientMessage({ type: "signal", sid: "sid", signal: { kind: "candidate", candidate: { candidate: "candidate:0 1 UDP 1 127.0.0.1 9 typ host" } } }), false);
-  assert.equal(isClientMessage({ type: "signal", sid: "sid", signal: { kind: "candidate", candidate: { candidate: "candidate:0 1 UDP 1 127.0.0.1 9 typ host" }, auth: validTag } }), false);
-  assert.equal(isClientMessage({ type: "signal", sid: "sid", signal: { kind: "candidate", candidate: { candidate: "candidate:0 1 UDP 1 127.0.0.1 9 typ host", sdpMid: "", sdpMLineIndex: null }, auth: validTag } }), false);
-  assert.equal(isClientMessage({ type: "signal", sid: "sid", signal: { kind: "candidate", candidate: { candidate: "", sdpMid: "0", sdpMLineIndex: 0 }, auth: validTag } }), false);
-  const oversizedByteCandidate = "😀".repeat(1_025);
-  assert.equal(oversizedByteCandidate.length < 4096, true);
-  assert.equal(isClientMessage({ type: "signal", sid: "sid", signal: { kind: "candidate", candidate: { candidate: oversizedByteCandidate, sdpMid: "0", sdpMLineIndex: 0 }, auth: validTag } }), false);
-  assert.equal(distIsClientMessage({ type: "signal", sid: "sid", signal: { kind: "candidate", candidate: { candidate: oversizedByteCandidate, sdpMid: "0", sdpMLineIndex: 0 }, auth: validTag } }), false);
-  assert.equal(isClientMessage({ type: "signal", sid: "sid", signal: { kind: "candidate", candidate: { candidate: "candidate:0 1 UDP 1 127.0.0.1 9 typ host\nbad", sdpMid: "0", sdpMLineIndex: 0 }, auth: validTag } }), false);
-  assert.equal(isClientMessage({ type: "signal", sid: "sid", signal: { kind: "candidate", candidate: { candidate: "candidate:0 1 UDP 1 127.0.0.1 9 typ host", sdpMid: "\u202e0", sdpMLineIndex: 0 }, auth: validTag } }), false);
-  assert.equal(isClientMessage({ type: "signal", sid: "sid", signal: { kind: "candidate", candidate: { candidate: "candidate:0 1 UDP 1 127.0.0.1 9 typ host", sdpMid: "0\u200b", sdpMLineIndex: 0 }, auth: validTag } }), false);
-  assert.equal(isClientMessage({ type: "signal", sid: "sid", signal: { kind: "candidate", candidate: { candidate: "candidate:0 1 UDP 1 127.0.0.1 9 typ host", sdpMid: "audio mid", sdpMLineIndex: 0 }, auth: validTag } }), false);
-  assert.equal(isClientMessage({ type: "signal", sid: "sid", signal: { kind: "candidate", candidate: { candidate: "candidate:0 1 UDP 1 127.0.0.1 9 typ host", sdpMid: "m\u00edd", sdpMLineIndex: 0 }, auth: validTag } }), false);
-  assert.equal(isClientMessage({ type: "signal", sid: "sid", signal: { kind: "candidate", candidate: { candidate: "candidate:0 1 UDP 1 127.0.0.1 9 typ host", sdpMid: "0", sdpMLineIndex: 0, usernameFragment: "ufrag\nbad" }, auth: validTag } }), false);
-  assert.equal(isClientMessage({ type: "signal", sid: "sid", signal: { kind: "candidate", candidate: { candidate: "candidate:0 1 UDP 1 127.0.0.1 9 typ host", sdpMid: "0", sdpMLineIndex: 0, usernameFragment: "bad ufrag" }, auth: validTag } }), false);
-  assert.equal(isClientMessage({ type: "signal", sid: "sid", signal: { kind: "candidate", candidate: { candidate: "candidate:0 1 UDP 1 127.0.0.1 9 typ host", sdpMid: "0", sdpMLineIndex: 0, usernameFragment: "ufr\u00e1g" }, auth: validTag } }), false);
-  assert.equal(isClientMessage({ type: "signal", sid: "sid", signal: { kind: "candidate", candidate: { candidate: "candidate:0 1 UDP 1 127.0.0.1 9 typ host", sdpMid: "0", sdpMLineIndex: 0 }, auth: "" } }), false);
-  assert.equal(
-    isClientMessage({ type: "signal", sid: "sid", signal: { kind: "candidate", candidate: { candidate: "candidate:0 1 UDP 1 127.0.0.1 9 typ host", sdpMid: "0", sdpMLineIndex: 0 }, auth: validTag } }),
-    true
-  );
-  assert.equal(
-    isClientMessage({ type: "signal", sid: "sid", signal: { kind: "candidate", candidate: { candidate: "candidate:0 1 UDP 1 127.0.0.1 9 typ host", sdpMid: "0" }, auth: validTag } }),
-    true
-  );
-  assert.equal(
-    isClientMessage({ type: "signal", sid: "sid", signal: { kind: "candidate", candidate: { candidate: "candidate:0 1 UDP 1 127.0.0.1 9 typ host", sdpMLineIndex: 0 }, auth: validTag } }),
-    true
-  );
+  assert.equal(isClientMessage({ type: "signal", sid: "sid", sealedSignal: validSealed }), false);
+  assert.equal(isClientMessage({ type: "signal", sid: "sid", kind: "bogus", sealedSignal: validSealed }), false);
+  assert.equal(isClientMessage({ type: "signal", sid: "sid", kind: "offer", sealedSignal: "" }), false);
+  assert.equal(isClientMessage({ type: "signal", sid: "sid", kind: "offer", sealedSignal: "not-base64" }), false);
+  assert.equal(isClientMessage({ type: "signal", sid: "sid", kind: "offer", sealedSignal: "AAAA" }), false);
+  assert.equal(isClientMessage({ type: "signal", sid: "sid", kind: "offer", sealedSignal: `${"A".repeat(17)}AB=` }), false);
+  assert.equal(isClientMessage({ type: "signal", sid: "sid", kind: "offer", sealedSignal: validSealed }), true);
+  assert.equal(isClientMessage({ type: "signal", sid: "sid", kind: "answer", sealedSignal: validSealed }), true);
+  assert.equal(isClientMessage({ type: "signal", sid: "sid", kind: "candidate", sealedSignal: validSealed }), true);
+  assert.equal(distIsClientMessage({ type: "signal", sid: "sid", kind: "candidate", sealedSignal: validSealed }), true);
+  assert.equal(isClientMessage({ type: "signal", sid: "sid", kind: "offer", sealedSignal: validSealed, extra: true }), false);
+  assert.equal(isClientMessage({ type: "signal", sid: "sid", signal: { kind: "offer", sdp: "v=0\r\n", auth: validTag } }), false);
   assert.equal(isManifest({ fileCount: 1.1, totalBytes: 1, files: [{ name: "x", size: 1 }] }), false);
   assert.equal(isManifest({ fileCount: 2, totalBytes: 1, files: [{ name: "x", size: 1 }] }), false);
   assert.equal(isManifest({ fileCount: 1, totalBytes: -1, files: [{ name: "x", size: 1 }] }), false);
@@ -1590,6 +1560,7 @@ test("signaling schema rejects malformed signal and manifest fields", () => {
   assert.equal(isServerMessage({ type: "pair-reject", sid: "sid", auth: validTag, reason: "peer_wrote_this" }), false);
   assert.equal(isServerMessage({ type: "peer-left", sid: "" }), false);
   assert.equal(isServerMessage({ type: "peer-left", sid: "sid", reason: "\u202ereason" }), false);
+  assert.equal(isServerMessage({ type: "signal", sid: "sid", kind: "candidate", sealedSignal: validSealed }), true);
   assert.equal(isServerMessage({ type: "signal", sid: "sid", signal: { kind: "candidate", candidate: { candidate: "candidate:0 1 UDP 1 127.0.0.1 9 typ host" }, auth: validTag } }), false);
   assert.equal(isServerMessage({ type: "error", code: "bad_message", message: "" }), false);
   assert.equal(isServerMessage({ type: "error", code: "bad_message", message: "\u001b[31mnope" }), false);
@@ -1597,6 +1568,9 @@ test("signaling schema rejects malformed signal and manifest fields", () => {
   assert.equal(isServerMessage({ type: "peer-joined", sid: "sid", pake: "legacy" }), false);
   assert.equal(isServerMessage({ type: "confirm", sid: "sid", tag: validTag }), true);
   assert.equal(isServerMessage({ type: "error", code: "bogus", message: "no" }), false);
+  assert.equal(isServerMessage({ type: "signal", sid: "", kind: "answer", sealedSignal: validSealed }), false);
+  assert.equal(isServerMessage({ type: "signal", sid: "sid", kind: "answer", sealedSignal: "" }), false);
+  assert.equal(isServerMessage({ type: "signal", sid: "sid", kind: "answer", sealedSignal: validSealed, extra: true }), false);
   assert.equal(isServerMessage({ type: "signal", sid: "sid", signal: { kind: "answer" } }), false);
   assert.equal(isIceServers([]), false);
   const sparseIceServers = [] as unknown[];
@@ -1689,7 +1663,8 @@ test("signaling JSON parsing and serialization are size bounded", () => {
       serializeMessage({
         type: "signal",
         sid: "sid",
-        signal: { kind: "offer", sdp: "😀".repeat(Math.ceil(SIGNALING_MAX_PAYLOAD_BYTES / 4)), auth: "auth" }
+        kind: "offer",
+        sealedSignal: "A".repeat(SIGNALING_MAX_PAYLOAD_BYTES)
       }),
     /exceeds maximum/
   );

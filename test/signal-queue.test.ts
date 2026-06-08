@@ -7,16 +7,12 @@ import { SignalMessageQueue as DistSignalMessageQueue } from "../dist-node/share
 const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
 const source = fs.readFileSync(new URL("../src/shared/signal-queue.ts", import.meta.url), "utf8");
 const distSource = fs.readFileSync(new URL("../dist-node/shared/signal-queue.js", import.meta.url), "utf8");
-const validAuthTag = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+const validSealedSignal = "AAAAAAAAAAAAAAAAAAAA";
 
 test("signal message queue buffers and drains early WebRTC signals", () => {
   const queue = new SignalMessageQueue(2);
-  const offer = { type: "signal" as const, sid: "sid", signal: { kind: "offer" as const, sdp: "v=0\r\n", auth: validAuthTag } };
-  const candidate = {
-    type: "signal" as const,
-    sid: "sid",
-    signal: { kind: "candidate" as const, candidate: { candidate: "candidate:1 1 udp 1 127.0.0.1 1 typ host", sdpMid: "0" }, auth: validAuthTag }
-  };
+  const offer = { type: "signal" as const, sid: "sid", kind: "offer" as const, sealedSignal: validSealedSignal };
+  const candidate = { type: "signal" as const, sid: "sid", kind: "candidate" as const, sealedSignal: validSealedSignal };
 
   queue.push(offer);
   queue.push(candidate);
@@ -26,22 +22,22 @@ test("signal message queue buffers and drains early WebRTC signals", () => {
 
 test("signal message queue is bounded", () => {
   const queue = new SignalMessageQueue(1);
-  queue.push({ type: "signal", sid: "sid", signal: { kind: "answer", sdp: "v=0\r\n", auth: validAuthTag } });
+  queue.push({ type: "signal", sid: "sid", kind: "answer", sealedSignal: validSealedSignal });
   assert.throws(
-    () => queue.push({ type: "signal", sid: "sid", signal: { kind: "answer", sdp: "v=0\r\n", auth: validAuthTag } }),
+    () => queue.push({ type: "signal", sid: "sid", kind: "answer", sealedSignal: validSealedSignal }),
     /Too many buffered/
   );
 });
 
 test("signal message queue is byte bounded", () => {
   const queue = new SignalMessageQueue(10, 250);
-  queue.push({ type: "signal", sid: "sid", signal: { kind: "answer", sdp: "v=0\r\n", auth: validAuthTag } });
+  queue.push({ type: "signal", sid: "sid", kind: "answer", sealedSignal: validSealedSignal });
   assert.throws(
-    () => queue.push({ type: "signal", sid: "sid", signal: { kind: "answer", sdp: "v=0\r\n".repeat(80), auth: validAuthTag } }),
+    () => queue.push({ type: "signal", sid: "sid", kind: "answer", sealedSignal: validSealedSignal.repeat(80) }),
     /Too many buffered WebRTC signal bytes/
   );
   assert.equal(queue.drain().length, 1);
-  assert.doesNotThrow(() => queue.push({ type: "signal", sid: "sid", signal: { kind: "answer", sdp: "v=0\r\n", auth: validAuthTag } }));
+  assert.doesNotThrow(() => queue.push({ type: "signal", sid: "sid", kind: "answer", sealedSignal: validSealedSignal }));
 });
 
 test("signal message queue byte accounting uses safe signaling serialization", () => {
@@ -51,10 +47,10 @@ test("signal message queue byte accounting uses safe signaling serialization", (
     Object.defineProperty(Object.prototype, "toJSON", {
       configurable: true,
       value() {
-        return { type: "signal", sid: "sid", signal: { kind: "answer", sdp: "v=0\r\n".repeat(100), auth: validAuthTag } };
+        return { type: "signal", sid: "sid", kind: "answer", sealedSignal: validSealedSignal.repeat(100) };
       }
     });
-    queue.push({ type: "signal", sid: "sid", signal: { kind: "answer", sdp: "v=0\r\n", auth: validAuthTag } });
+    queue.push({ type: "signal", sid: "sid", kind: "answer", sealedSignal: validSealedSignal });
   } finally {
     if (original === undefined) {
       delete (Object.prototype as { toJSON?: unknown }).toJSON;
@@ -90,12 +86,12 @@ test("signal message queue validates limits and stores defensive message copies"
     assert.throws(() => new Queue(301), /message limit is invalid/);
     const queue = new Queue(2, 1000);
     assert.throws(() => queue.push(hostileSignal as never), /Buffered WebRTC signal message is invalid/);
-    const message = { type: "signal" as const, sid: "sid", signal: { kind: "answer" as const, sdp: "v=0\r\n", auth: validAuthTag } };
-    queue.push(message);
-    message.signal.sdp = "v=0\r\n".repeat(1000);
-    const drained = queue.drain();
-    assert.equal(drained[0]?.signal.kind, "answer");
-    assert.equal(drained[0]?.signal.kind === "answer" ? drained[0].signal.sdp : "", "v=0\r\n");
+    const message = { type: "signal" as const, sid: "sid", kind: "answer" as const, sealedSignal: validSealedSignal };
+    queue.push(message as never);
+    message.sealedSignal = validSealedSignal.repeat(1000);
+    const drained = queue.drain() as typeof message[];
+    assert.equal(drained[0]?.kind, "answer");
+    assert.equal(drained[0]?.sealedSignal, validSealedSignal);
     assert.equal(queue.drain()[0], undefined);
   }
   assert.equal(coerced, false);

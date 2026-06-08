@@ -218,8 +218,8 @@ test("relay policy helpers reject accessor-backed records without invoking gette
   assert.equal(relayAllowedForRole(makeSession(), { id: "sender" }, accessorMessage as Extract<ClientMessage, { sid: string }>), false);
   assert.equal(relayAllowedForPhase(makeSession(), { id: "sender" }, accessorMessage as Extract<ClientMessage, { sid: string }>), false);
 
-  const signalKindMessage = { type: "signal", sid: "sid", signal: {} };
-  Object.defineProperty(signalKindMessage.signal, "kind", { get: hostileGetter });
+  const signalKindMessage = { type: "signal", sid: "sid" };
+  Object.defineProperty(signalKindMessage, "kind", { get: hostileGetter });
   const signalSession = makeSession();
   signalSession.senderPakeSeen = true;
   signalSession.receiverPakeSeen = true;
@@ -467,23 +467,15 @@ function pairRequest(): Extract<ClientMessage, { type: "pair-request" }> {
 }
 
 function offer(): Extract<ClientMessage, { type: "signal" }> {
-  return { type: "signal", sid: "sid", signal: { kind: "offer", sdp: "v=0\r\n", auth: "auth" } };
+  return { type: "signal", sid: "sid", kind: "offer", sealedSignal: "AAAAAAAAAAAAAAAAAAAA" };
 }
 
 function answer(): Extract<ClientMessage, { type: "signal" }> {
-  return { type: "signal", sid: "sid", signal: { kind: "answer", sdp: "v=0\r\n", auth: "auth" } };
+  return { type: "signal", sid: "sid", kind: "answer", sealedSignal: "AAAAAAAAAAAAAAAAAAAA" };
 }
 
 function candidate(): Extract<ClientMessage, { type: "signal" }> {
-  return {
-    type: "signal",
-    sid: "sid",
-    signal: {
-      kind: "candidate",
-      candidate: { candidate: "candidate:0 1 UDP 1 127.0.0.1 9 typ host", sdpMid: "0", sdpMLineIndex: 0 },
-      auth: "auth"
-    }
-  };
+  return { type: "signal", sid: "sid", kind: "candidate", sealedSignal: "AAAAAAAAAAAAAAAAAAAA" };
 }
 
 function extractFunctionBody(source: string, name: string): string {

@@ -144,7 +144,7 @@ function messageType(message: unknown): unknown {
 }
 
 function signalKind(message: unknown): unknown {
-  return ownDataValue(ownDataValue(message, "signal"), "kind");
+  return ownDataValue(message, "kind");
 }
 
 function boolFlag(value: unknown, key: keyof RelayPolicySession): boolean {

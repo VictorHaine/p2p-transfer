@@ -1,7 +1,7 @@
 import { CONNECT_TIMEOUT_MS, DATA_CHANNEL_BUFFER_LOW, TRANSFER_CONTROL_TIMEOUT_MS } from "../shared/constants.js";
 import { cloneIceServers, hasRelayIceServer } from "../shared/ice.js";
-import { isServerMessage, type SignalPayload } from "../shared/messages.js";
-import { signalAuthTag, type PakeRole } from "../shared/security.js";
+import { isSignalPayload, type SignalPayload } from "../shared/messages.js";
+import { sealSignal, signalAuthTag, type PakeRole } from "../shared/security.js";
 import { nativeWebRtc } from "./native-webrtc.js";
 import type { SignalingClient } from "./signaling.js";
 import { unrefTimer } from "./timers.js";
@@ -55,18 +55,23 @@ export function createPeer(
     if (closed) return;
     const localCandidate = localIceCandidateFromEvent(event);
     if (!localCandidate) return;
+    void sendLocalIceCandidate(localCandidate).catch(() => {
+      close();
+    });
+  };
+
+  async function sendLocalIceCandidate(localCandidate: RTCIceCandidate): Promise<void> {
     try {
       const candidate = localIceCandidateInit(localCandidate);
       if (!candidate) return;
-      signalingSend.call(signalingTarget, {
-        type: "signal",
-        sid: safeSid,
-        signal: { kind: "candidate", candidate, auth: signalAuthTag(authKey, safeSid, safeRole, { kind: "candidate", candidate }) }
-      });
+      const signal = { kind: "candidate" as const, candidate, auth: signalAuthTag(authKey, safeSid, safeRole, { kind: "candidate", candidate }) };
+      const sealedSignal = await sealSignal(authKey, safeSid, safeRole, signal);
+      if (closed) return;
+      signalingSend.call(signalingTarget, { type: "signal", sid: safeSid, kind: "candidate", sealedSignal });
     } catch {
       close();
     }
-  };
+  }
 
   const connected = new Promise<void>((resolve, reject) => {
     let settled = false;
@@ -254,7 +259,7 @@ function assertNativePeerConnection(pc: RTCPeerConnection): void {
 }
 
 function assertSignalPayload(signal: SignalPayload): void {
-  if (!isServerMessage({ type: "signal", sid: "s", signal })) throw new Error("WebRTC signal is invalid.");
+  if (!isSignalPayload(signal)) throw new Error("WebRTC signal is invalid.");
 }
 
 function localIceCandidateFromEvent(event: unknown): RTCIceCandidate | undefined {

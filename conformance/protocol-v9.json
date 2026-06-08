@@ -1,5 +1,5 @@
 {
-  "protocolVersion": 8,
+  "protocolVersion": 9,
   "chunkFrames": [
     {
       "name": "basic bulk chunk frame",
@@ -112,9 +112,9 @@
         "type": "register",
         "role": "receiver",
         "code": "12345678",
-        "protocolVersion": 8
+        "protocolVersion": 9
       },
-      "json": "{\"type\":\"register\",\"role\":\"receiver\",\"code\":\"12345678\",\"protocolVersion\":8}"
+      "json": "{\"type\":\"register\",\"role\":\"receiver\",\"code\":\"12345678\",\"protocolVersion\":9}"
     },
     {
       "name": "receiver register 12-digit",
@@ -123,9 +123,9 @@
         "type": "register",
         "role": "receiver",
         "code": "123456789012",
-        "protocolVersion": 8
+        "protocolVersion": 9
       },
-      "json": "{\"type\":\"register\",\"role\":\"receiver\",\"code\":\"123456789012\",\"protocolVersion\":8}"
+      "json": "{\"type\":\"register\",\"role\":\"receiver\",\"code\":\"123456789012\",\"protocolVersion\":9}"
     },
     {
       "name": "sender connect 12-digit",
@@ -134,9 +134,9 @@
         "type": "connect",
         "role": "sender",
         "code": "123456789012",
-        "protocolVersion": 8
+        "protocolVersion": 9
       },
-      "json": "{\"type\":\"connect\",\"role\":\"sender\",\"code\":\"123456789012\",\"protocolVersion\":8}"
+      "json": "{\"type\":\"connect\",\"role\":\"sender\",\"code\":\"123456789012\",\"protocolVersion\":9}"
     },
     {
       "name": "sender pair request",
@@ -690,18 +690,10 @@
       "message": {
         "type": "signal",
         "sid": "sid-fixture",
-        "signal": {
-          "kind": "candidate",
-          "candidate": {
-            "candidate": "candidate:1 1 UDP 2122252543 2001:db8::1 54400 typ host",
-            "sdpMid": "data",
-            "sdpMLineIndex": 1,
-            "usernameFragment": "ufrag-123"
-          },
-          "auth": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
-        }
+        "kind": "candidate",
+        "sealedSignal": "AAAAAAAAAAAAAAAAAAAA"
       },
-      "json": "{\"type\":\"signal\",\"sid\":\"sid-fixture\",\"signal\":{\"kind\":\"candidate\",\"candidate\":{\"candidate\":\"candidate:1 1 UDP 2122252543 2001:db8::1 54400 typ host\",\"sdpMid\":\"data\",\"sdpMLineIndex\":1,\"usernameFragment\":\"ufrag-123\"},\"auth\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"}}"
+      "json": "{\"type\":\"signal\",\"sid\":\"sid-fixture\",\"kind\":\"candidate\",\"sealedSignal\":\"AAAAAAAAAAAAAAAAAAAA\"}"
     }
   ],
   "pairDecisionAuth": [
@@ -822,14 +814,14 @@
       "keyHex": "1111111111111111111111111111111111111111111111111111111111111111",
       "sid": "sid-fixture",
       "fromRole": "sender",
-      "tagBase64": "TpVla14+OpuW20sop9C94C0jVJDQh4zeSe5y7yZxXMk="
+      "tagBase64": "yknNN3T0i66alYPyjtYdDnupR/iy1SVoTIOLRuBw2p4="
     },
     {
       "name": "receiver session confirmation",
       "keyHex": "1111111111111111111111111111111111111111111111111111111111111111",
       "sid": "sid-fixture",
       "fromRole": "receiver",
-      "tagBase64": "socBD9qWir51WzMeGUcfbgDqnnkrOudAi1Wlib3Emgg="
+      "tagBase64": "GMHKdA42I+yELf9EEVbAH1OHzVlq2cGb3NQWsFGXh5I="
     }
   ]
 }

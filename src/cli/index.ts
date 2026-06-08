@@ -475,7 +475,8 @@ async function send(code: string, paths: string[], options: CommonOptions): Prom
           const offer = await peer.pc.createOffer();
           await peer.pc.setLocalDescription(offer);
           const offerSdp = requireSdp(peer.pc.localDescription?.sdp ?? offer.sdp);
-          signaling.send({ type: "signal", sid: joined.sid, signal: { kind: "offer", sdp: offerSdp, auth: runtime.security.sdpAuthTag(keys.signalAuthKey, joined.sid, "sender", "offer", offerSdp) } });
+          const signal = { kind: "offer" as const, sdp: offerSdp, auth: runtime.security.sdpAuthTag(keys.signalAuthKey, joined.sid, "sender", "offer", offerSdp) };
+          signaling.send({ type: "signal", sid: joined.sid, kind: "offer", sealedSignal: await runtime.security.sealSignal(keys.signalAuthKey, joined.sid, "sender", signal) });
 
           await Promise.race([Promise.all([runtime.rtc.waitForDataChannelOpen(control), runtime.rtc.waitForDataChannelOpen(bulk), peer.waitConnected()]), signalWire.failure]);
           signalWire.dispose();
@@ -921,10 +922,15 @@ function wireSignals(runtime: ReviewedCliRuntime, signaling: SignalingClient, pc
       if (!isServerMessage(message)) return;
       if (message.type !== "signal" || message.sid !== sid) return;
       const peerRole = keys.role === "sender" ? "receiver" : "sender";
-      if (!runtime.security.verifySignalAuthTag(keys.signalAuthKey, sid, peerRole, message.signal)) {
+      const openedSignal = await runtime.security.openSignal(keys.signalAuthKey, sid, peerRole, message.sealedSignal);
+      if (disposed) return;
+      if (openedSignal.kind !== message.kind) {
         throw new Error("Authenticated WebRTC signal check failed. Wrong code or signaling MITM.");
       }
-      const signal = message.signal.kind === "candidate" ? copyCandidateSignal(message.signal) : message.signal;
+      if (!runtime.security.verifySignalAuthTag(keys.signalAuthKey, sid, peerRole, openedSignal)) {
+        throw new Error("Authenticated WebRTC signal check failed. Wrong code or signaling MITM.");
+      }
+      const signal = openedSignal.kind === "candidate" ? copyCandidateSignal(openedSignal) : openedSignal;
       replayGuard.accept(signal);
       if (signal.kind === "candidate" && !pc.remoteDescription) {
         if (queuedCandidates.length >= MAX_QUEUED_ICE_CANDIDATES) throw new Error("Too many queued ICE candidates before SDP.");
@@ -939,7 +945,10 @@ function wireSignals(runtime: ReviewedCliRuntime, signaling: SignalingClient, pc
         await pc.setLocalDescription(answer);
         if (disposed) return;
         const answerSdp = requireSdp(pc.localDescription?.sdp ?? answer.sdp);
-        signaling.send({ type: "signal", sid, signal: { kind: "answer", sdp: answerSdp, auth: runtime.security.sdpAuthTag(keys.signalAuthKey, sid, keys.role, "answer", answerSdp) } });
+        const answerSignal = { kind: "answer" as const, sdp: answerSdp, auth: runtime.security.sdpAuthTag(keys.signalAuthKey, sid, keys.role, "answer", answerSdp) };
+        const sealedSignal = await runtime.security.sealSignal(keys.signalAuthKey, sid, keys.role, answerSignal);
+        if (disposed) return;
+        signaling.send({ type: "signal", sid, kind: "answer", sealedSignal });
       }
       if (pc.remoteDescription) {
         while (!disposed && queuedCandidates.length > 0) await runtime.rtc.handleSignal(pc, queuedCandidates.shift()!);
