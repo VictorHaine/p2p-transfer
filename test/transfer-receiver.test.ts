@@ -424,7 +424,7 @@ test("CLI receiver times out stalled transfers and removes partial files", async
   await control.emit(await seal(senderKeys, { t: "manifest", files: [{ id: 0, name: "stalled.txt", size: 1 }], totalBytes: 1 }));
   await control.emit(await seal(senderKeys, { t: "file-begin", id: 0, name: "stalled.txt", size: 1 }));
 
-  await assert.rejects(receive, /timed out/);
+  await keepEventLoopAliveUntil(assert.rejects(receive, /timed out/), "receiver idle timeout");
   assert.deepEqual(await findCliPartPaths(outDir, "stalled.txt"), []);
   assert.equal(control.closed, true);
   assert.equal(bulk.closed, true);
@@ -855,5 +855,17 @@ async function removeCreatedTempDirs(prefixes: readonly string[]): Promise<void>
     });
     if (!stat || (stat.birthtimeMs < cutoff && stat.ctimeMs < cutoff && stat.mtimeMs < cutoff)) continue;
     await fs.rm(fullPath, { recursive: true, force: true });
+  }
+}
+
+async function keepEventLoopAliveUntil<T>(promise: Promise<T>, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const guard = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} did not settle while the test kept the event loop alive.`)), 250);
+  });
+  try {
+    return await Promise.race([promise, guard]);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }

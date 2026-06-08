@@ -70,7 +70,6 @@ const releaseNotesScript = fs.readFileSync(new URL("../scripts/write-release-not
 const liveReleaseRefScript = fs.readFileSync(new URL("../scripts/verify-live-release-ref.mjs", import.meta.url), "utf8");
 const fileStabilityCheckedScripts = [
   installStateScript,
-  buildToolchainDependencyCheckScript,
   bootstrapNpmScript,
   releaseReadinessScript,
   packedSmokeScript,
@@ -439,6 +438,8 @@ test("package publishing config keeps provenance and reproducible dependency pin
   assert.match(buildToolchainDependencyCheckScript, /esbuild: \{[\s\S]*version: "0\.28\.0"/);
   assert.match(buildToolchainDependencyCheckScript, /rolldown: \{[\s\S]*version: "1\.0\.2"/);
   assert.match(buildToolchainDependencyCheckScript, /lightningcss: \{[\s\S]*version: "1\.32\.0"/);
+  assert.match(buildToolchainDependencyCheckScript, /left\.dev === right\.dev && left\.ino === right\.ino && left\.size === right\.size && left\.mtimeMs === right\.mtimeMs/);
+  assert.doesNotMatch(buildToolchainDependencyCheckScript, /left\.ctimeMs === right\.ctimeMs/);
   assert.match(cliDependencyMetadataSource, /const MAX_PACKAGE_JSON_BYTES = 128 \* 1024/);
   assert.match(cliDependencyMetadataSource, /lstatSync\(file\)/);
   assert.match(cliDependencyMetadataSource, /openSync\(file, constants\.O_RDONLY \| noFollowFlag\(\)\)/);
