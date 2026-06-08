@@ -312,6 +312,61 @@ test("CLI sender interoperates with browser folder-only receiver", browserTestOp
   }
 });
 
+test("browser folder receiver removes published output if final acknowledgement fails", browserTestOptions, async () => {
+  const root = process.cwd();
+  const port = 31_000 + randomInt(1_000);
+  const origin = `http://127.0.0.1:${port}`;
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-cli-browser-final-ack-cleanup-"));
+  const childEnv = testChildEnv(tmp);
+  const server = spawn(process.execPath, ["dist-node/server/index.js"], {
+    cwd: root,
+    env: { ...childEnv, PORT: String(port), HOST: "127.0.0.1", NODE_ENV: "production", ALLOWED_ORIGINS: origin, SIGNALING_TOPOLOGY: "single-instance", ALLOW_INSECURE_ORIGINS: "true" }
+  });
+
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  let sender: ChildProcessWithoutNullStreams | undefined;
+  let senderDone: Promise<{ code: number | null; stdout: string; stderr: string }> | undefined;
+  try {
+    await waitForOutput(server, /listening/);
+    const source = path.join(tmp, "final-ack.txt");
+    await fs.writeFile(source, "final acknowledgement cleanup\n");
+
+    const serverUrl = `ws://127.0.0.1:${port}/v1/ws`;
+    browser = await chromium.launch(chromiumLaunchOptions());
+    const page = await browser.newPage();
+    await installFolderPickerMock(page);
+    await installFolderFinalAckFailure(page);
+    await page.goto(`http://127.0.0.1:${port}/`);
+    await page.locator("#serverUrl").fill(serverUrl);
+    await page.locator("#folderOnly").check();
+    await page.locator("#receiveButton").click();
+    await page.locator("#codeBox").waitFor({ state: "visible", timeout: 30_000 });
+    const code = (await page.locator("#codeBox").textContent())?.trim();
+    assert.match(code ?? "", /^[0-9]{8}-[a-z]+-[a-z]+$/);
+
+    sender = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "send", code!, source], { cwd: root, env: childEnv });
+    senderDone = collectExit(sender);
+    await page.locator("#folderButton").waitFor({ state: "visible", timeout: 30_000 });
+    await page.locator("#folderButton").click();
+    await expectText(page.locator("#recvStatus"), "Failed");
+
+    const senderResult = await senderDone;
+    assert.notEqual(senderResult.code, 0);
+    const folder = await folderPickerSnapshot(page);
+    assert.deepEqual(folder.files, {});
+    assert.deepEqual(folder.partFiles, []);
+    assert.equal(folder.removed.some((name) => /^final-ack \(ff-[a-f0-9]{32}\)\.txt$/.test(name)), true);
+    assert.equal(folder.removed.some((name) => /\.part$/.test(name)), true);
+    assert.equal(folder.operations.some((operation) => /^remove:final-ack \(ff-[a-f0-9]{32}\)\.txt$/.test(operation)), true);
+  } finally {
+    terminateChild(sender);
+    await ignoreSettled(senderDone);
+    await browser?.close();
+    server.kill();
+    await removeTestTemp(tmp);
+  }
+});
+
 test("browser ordinary folder receiver does not create resume state", browserTestOptions, async () => {
   const root = process.cwd();
   const port = 30_000 + randomInt(1_000);
@@ -942,6 +997,7 @@ async function installFolderPickerMock(page: Page, options: { failCreateWritable
       },
       async removeEntry(name) {
         if (!files.delete(name)) throw new DOMException("Not found", "NotFoundError");
+        operations.push("remove:" + name);
         removed.push(name);
       }
     };
@@ -991,6 +1047,29 @@ type FolderSnapshot = { files: Record<string, string>; byteLengths: Record<strin
 
 function folderPickerSnapshot(page: Page): Promise<FolderSnapshot> {
   return page.evaluate(() => (window as unknown as { __ffTestFs: { snapshot: () => FolderSnapshot } }).__ffTestFs.snapshot());
+}
+
+async function installFolderFinalAckFailure(page: Page): Promise<void> {
+  await page.addInitScript({
+    content: `
+(() => {
+    const originalSend = RTCDataChannel.prototype.send;
+    let failed = false;
+    RTCDataChannel.prototype.send = function(data) {
+      const testFs = window.__ffTestFs;
+      const snapshot = typeof testFs?.snapshot === "function" ? testFs.snapshot() : undefined;
+      const names = snapshot ? Object.keys(snapshot.files) : [];
+      const hasPublishedOutput = names.some((name) => !name.endsWith(".part"));
+      const partWasRemoved = Boolean(snapshot?.removed?.some((name) => name.endsWith(".part")));
+      if (!failed && hasPublishedOutput && partWasRemoved && snapshot.partFiles.length === 0) {
+        failed = true;
+        throw new Error("mock control send failure after publish");
+      }
+      return originalSend.call(this, data);
+    };
+})();
+`
+  });
 }
 
 function setFolderMockFailure(page: Page, bytes: number | null): Promise<void> {

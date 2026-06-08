@@ -115,7 +115,7 @@ test("browser interop tests fail closed unless browser skipping is explicit", ()
   assert.match(browserInteropTest, /async function removeTestTemp\(dir: string\): Promise<void>/);
   assert.match(browserInteropTest, /await fs\.rm\(dir, \{ recursive: true, force: true \}\);/);
   assert.doesNotMatch(browserInteropTest, /removeTestTemp[\s\S]*catch\(\(\) => undefined\)/);
-  assert.equal(browserInteropTest.match(/await removeTestTemp\(tmp\);/g)?.length, 13);
+  assert.equal(browserInteropTest.match(/await removeTestTemp\(tmp\);/g)?.length, 14);
   assert.doesNotMatch(browserInteropTest, /skip: chromiumPath \? false : "No Chromium executable found"/);
 });
 
@@ -344,6 +344,7 @@ test("browser receive resume is explicit and limited to saved opaque folder part
   assert.match(browserInteropTest, /browserResumeLookupKeyAlgorithm\(page\), \{ name: "HMAC", hash: "SHA-1", length: 256 \}/);
   assert.match(browserInteropTest, /browserResumeLookupKeyAlgorithm\(page\), \{ name: "HMAC", hash: "SHA-256", length: 256 \}/);
   assert.match(browserInteropTest, /browser folder receiver restarts after a corrupted saved partial/);
+  assert.match(browserInteropTest, /browser folder receiver removes published output if final acknowledgement fails/);
   assert.match(browserInteropTest, /corruptFolderPartFile\(page, partial\.partFiles\[0\]!\)/);
   assert.match(browserInteropTest, /operation === `createWritable:\$\{partial\.partFiles\[0\]\}:reset`/);
   assert.match(browserInteropTest, /operation\.startsWith\(`write:\$\{partial\.partFiles\[0\]\}:0:`\)/);
