@@ -1149,7 +1149,8 @@ test("documented release gates require a hardened Docker runtime smoke, not just
   assert.match(dockerPolicySmokeScript, /"run",\n\s+"-d",\n\s+"--name",\n\s+containerName,\n\s+\.\.\.HARDENED_DOCKER_RUN_FLAGS,/);
   assert.match(securityPolicy, /local release setup and preflight must also accept bounded `--token-stdin` input, reject interactive terminal stdin, reject and clear ambiguous stdin-plus-environment token input, and reject malformed stdin tokens before package reads, npm registry requests, GitHub API requests, or repository mutation/);
   assert.match(securityPolicy, /CI, release, Docker, and documented source builds must prepare pnpm through `scripts\/prepare-checked-pnpm\.mjs`, which byte-caps and no-follow-opens `package\.json` with pre\/post-read identity and mutation-metadata checks/);
-  assert.match(securityPolicy, /runs Corepack and tar with a private package-manager home plus a minimal allowlisted child environment/);
+  assert.match(securityPolicy, /runs Corepack with a private package-manager home plus a minimal allowlisted child environment/);
+  assert.match(securityPolicy, /parses the packed pnpm `\.tgz` metadata in-process with gzip\/tar byte caps and tar checksum validation instead of trusting a local `tar` executable/);
   assert.match(readme, /Build from source:[\s\S]*node scripts\/prepare-checked-pnpm\.mjs\npnpm install --frozen-lockfile\npnpm build\npnpm test/);
   assert.doesNotMatch(readme, /Build from source:[\s\S]*```sh\npnpm install\n/);
   assert.match(contributing, /## Local Setup[\s\S]*node scripts\/prepare-checked-pnpm\.mjs\npnpm install --frozen-lockfile\npnpm exec playwright install --with-deps chromium\npnpm verify:local/);

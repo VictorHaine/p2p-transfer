@@ -5,14 +5,19 @@ import { lstat, mkdir, mkdtemp, open, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { gunzipSync } from "node:zlib";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const EXPECTED_PNPM_COREPACK_HASH = "sha512.c85357fe17ca12dd23dd7071822666dfd7e3cb76fe214e3370b5ea2fb34f2a231185509b63e717f3cd0acb38dd3f8d82bcd5e8172400ae678b70ea4fbed0896d";
 const MAX_OUTPUT_CHARS = 200_000;
 const MAX_PACKAGE_JSON_BYTES = 128 * 1024;
+const MAX_COREPACK_ARCHIVE_BYTES = 50 * 1024 * 1024;
+const MAX_COREPACK_TAR_BYTES = 200 * 1024 * 1024;
+const MAX_COREPACK_METADATA_BYTES = 16 * 1024;
 const MAX_CHILD_ENV_VALUE_BYTES = 8_192;
 const MAX_PRIVATE_HOME_BYTES = 4_096;
 const CHILD_KILL_GRACE_MS = 5_000;
+const TAR_BLOCK_BYTES = 512;
 
 if (isMain()) {
   try {
@@ -32,8 +37,7 @@ async function main() {
   const childEnv = await privateChildEnv(path.join(tmp, "home"));
   try {
     await run("corepack", ["pack", `pnpm@${version}`, "-o", archive], { cwd: root, env: childEnv, timeoutMs: 120_000 });
-    const metadataText = await run("tar", ["-xOzf", archive, `pnpm/${version}/.corepack`], { cwd: root, env: childEnv, timeoutMs: 30_000 });
-    assertCorepackMetadata(metadataText.stdout, version);
+    assertCorepackMetadata(await corepackMetadataFromArchive(archive, `pnpm/${version}/.corepack`), version);
     await run("corepack", ["enable"], { cwd: root, env: childEnv, timeoutMs: 30_000 });
     await run("corepack", ["install", "-g", "--cache-only", archive], { cwd: root, env: childEnv, timeoutMs: 60_000 });
     const prepared = await run("corepack", ["pnpm", "--version"], { cwd: root, env: childEnv, timeoutMs: 30_000 });
@@ -43,7 +47,99 @@ async function main() {
   }
 }
 
+async function corepackMetadataFromArchive(archive, entryName) {
+  const archiveBytes = await readCheckedBytes(archive, MAX_COREPACK_ARCHIVE_BYTES, "Corepack pnpm archive");
+  let tarBytes;
+  try {
+    tarBytes = gunzipSync(archiveBytes, { maxOutputLength: MAX_COREPACK_TAR_BYTES });
+  } catch {
+    throw new Error("Corepack pnpm archive is invalid.");
+  }
+  const metadata = extractTarEntry(tarBytes, entryName, MAX_COREPACK_METADATA_BYTES);
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(metadata);
+  } catch {
+    throw new Error("Corepack pnpm metadata is not valid UTF-8.");
+  }
+}
+
+function extractTarEntry(tarBytes, entryName, maxBytes) {
+  if (!Buffer.isBuffer(tarBytes)) throw new Error("Corepack pnpm archive is invalid.");
+  if (!isSafeTarEntryName(entryName)) throw new Error("Corepack pnpm metadata path is invalid.");
+  for (let offset = 0; offset + TAR_BLOCK_BYTES <= tarBytes.length;) {
+    const header = tarBytes.subarray(offset, offset + TAR_BLOCK_BYTES);
+    if (isZeroTarBlock(header)) break;
+    assertTarChecksum(header);
+    const name = tarString(header, 0, 100);
+    const prefix = tarString(header, 345, 155);
+    const fullName = prefix === "" ? name : `${prefix}/${name}`;
+    const size = tarOctal(header, 124, 12);
+    const type = header[156];
+    const dataOffset = offset + TAR_BLOCK_BYTES;
+    const nextOffset = dataOffset + Math.ceil(size / TAR_BLOCK_BYTES) * TAR_BLOCK_BYTES;
+    if (nextOffset > tarBytes.length) throw new Error("Corepack pnpm archive is truncated.");
+    if (fullName === entryName) {
+      if (type !== 0 && type !== 48) throw new Error("Corepack pnpm metadata is not a regular file.");
+      if (size < 1 || size > maxBytes) throw new Error("Corepack pnpm metadata size is invalid.");
+      return tarBytes.subarray(dataOffset, dataOffset + size);
+    }
+    offset = nextOffset;
+  }
+  throw new Error("Corepack pnpm metadata was missing from the archive.");
+}
+
+function isZeroTarBlock(block) {
+  for (let index = 0; index < block.length; index += 1) {
+    if (block[index] !== 0) return false;
+  }
+  return true;
+}
+
+function assertTarChecksum(header) {
+  const recorded = tarOctal(header, 148, 8);
+  let actual = 0;
+  for (let index = 0; index < TAR_BLOCK_BYTES; index += 1) {
+    actual += index >= 148 && index < 156 ? 32 : header[index];
+  }
+  if (recorded !== actual) throw new Error("Corepack pnpm archive checksum is invalid.");
+}
+
+function tarString(header, start, length) {
+  const bytes = header.subarray(start, start + length);
+  const end = bytes.indexOf(0);
+  const value = bytes.subarray(0, end < 0 ? bytes.length : end);
+  for (const byte of value) {
+    if (byte < 0x20 || byte > 0x7e) throw new Error("Corepack pnpm archive path is invalid.");
+  }
+  return value.toString("ascii");
+}
+
+function tarOctal(header, start, length) {
+  const bytes = header.subarray(start, start + length);
+  let end = bytes.length;
+  while (end > 0 && (bytes[end - 1] === 0 || bytes[end - 1] === 32)) end -= 1;
+  let begin = 0;
+  while (begin < end && bytes[begin] === 32) begin += 1;
+  if (begin === end) return 0;
+  let value = 0;
+  for (let index = begin; index < end; index += 1) {
+    const byte = bytes[index];
+    if (byte < 48 || byte > 55) throw new Error("Corepack pnpm archive number is invalid.");
+    value = value * 8 + (byte - 48);
+    if (!Number.isSafeInteger(value)) throw new Error("Corepack pnpm archive number is invalid.");
+  }
+  return value;
+}
+
+function isSafeTarEntryName(value) {
+  return typeof value === "string" && value.length > 0 && value.length <= 256 && !value.startsWith("/") && !value.includes("\\") && !value.split("/").some((part) => part === "" || part === "." || part === "..") && /^[A-Za-z0-9._/-]+$/.test(value);
+}
+
 async function readCheckedText(file, maxBytes, label) {
+  return new TextDecoder("utf-8", { fatal: true }).decode(await readCheckedBytes(file, maxBytes, label));
+}
+
+async function readCheckedBytes(file, maxBytes, label) {
   const info = await openCheckedFile(file, maxBytes, label);
   const handle = info.handle;
   try {
@@ -57,7 +153,7 @@ async function readCheckedText(file, maxBytes, label) {
     if (offset !== info.size) throw new Error(`${label} changed while being read.`);
     const afterRead = await handle.stat();
     if (!sameFile(info.stat, afterRead)) throw new Error(`${label} changed while being read.`);
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return bytes;
   } finally {
     await handle.close();
   }

@@ -637,6 +637,17 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.equal(packageJson.scripts?.["smoke:docker-policy"], "node scripts/smoke-docker-policy.mjs");
   assert.match(ciWorkflow, /DOCKER_SMOKE_TAG=p2p-transfer:test node scripts\/smoke-docker-policy\.mjs/);
   assert.match(checkedPnpmScript, /corepack", \["pack", `pnpm@\$\{version\}`, "-o", archive\]/);
+  assert.match(checkedPnpmScript, /import \{ gunzipSync \} from "node:zlib"/);
+  assert.match(checkedPnpmScript, /const MAX_COREPACK_ARCHIVE_BYTES = 50 \* 1024 \* 1024/);
+  assert.match(checkedPnpmScript, /const MAX_COREPACK_TAR_BYTES = 200 \* 1024 \* 1024/);
+  assert.match(checkedPnpmScript, /const MAX_COREPACK_METADATA_BYTES = 16 \* 1024/);
+  assert.match(checkedPnpmScript, /assertCorepackMetadata\(await corepackMetadataFromArchive\(archive, `pnpm\/\$\{version\}\/\.corepack`\), version\)/);
+  assert.match(checkedPnpmScript, /gunzipSync\(archiveBytes, \{ maxOutputLength: MAX_COREPACK_TAR_BYTES \}\)/);
+  assert.match(checkedPnpmScript, /function extractTarEntry\(tarBytes, entryName, maxBytes\)/);
+  assert.match(checkedPnpmScript, /assertTarChecksum\(header\)/);
+  assert.match(checkedPnpmScript, /if \(recorded !== actual\) throw new Error\("Corepack pnpm archive checksum is invalid\."\)/);
+  assert.match(checkedPnpmScript, /Corepack pnpm metadata was missing from the archive/);
+  assert.doesNotMatch(checkedPnpmScript, /"tar", \["-xOzf"|tar -xOzf/);
   assert.match(checkedPnpmScript, /Corepack pnpm package hash did not match the reviewed integrity/);
   assert.match(checkedPnpmScript, /if \(isMain\(\)\) \{[\s\S]*await main\(\)/);
   assert.match(checkedPnpmScript, /realpathSync\(process\.argv\[1\]\) === realpathSync\(fileURLToPath\(import\.meta\.url\)\)/);
