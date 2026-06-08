@@ -1435,7 +1435,7 @@ test("README reports implemented release capabilities without stale MVP-gap lang
 test("interop tests run the signaling server behind an explicit origin policy", () => {
   const e2eTest = fs.readFileSync(new URL("../test/e2e/cli-transfer.test.ts", import.meta.url), "utf8");
   const browserTest = fs.readFileSync(new URL("../test/browser/browser-cli-send.test.ts", import.meta.url), "utf8");
-  assert.match(readme, /browser sender to CLI receiver, browser sender resume into a CLI receiver partial, CLI sender to browser download receiver, CLI sender to browser opaque-name download receiver, CLI sender to browser folder-only receiver, native browser filesystem error redaction, multi-file browser folder receive without resume exposure, CLI sender to browser opaque-name folder receiver, ordinary folder receives without resume-key creation, valid single-file browser folder resume from a saved partial, invalid resume-key isolation, browser resume-registry metadata scrubbing, and browser folder restart after a corrupted saved partial/);
+  assert.match(readme, /browser sender to CLI receiver, browser sender resume into a CLI receiver partial, CLI sender to browser download receiver, CLI sender to browser opaque-name download receiver, CLI sender to browser folder-only receiver, browser folder cleanup after final acknowledgement failure, native browser filesystem error redaction, multi-file browser folder receive without resume exposure, CLI sender to browser opaque-name folder receiver, ordinary folder receives without resume-key creation, valid single-file browser folder resume from a saved partial, invalid resume-key isolation, browser resume-registry metadata scrubbing, and browser folder restart after a corrupted saved partial/);
   assert.match(browserTest, /CLI sender interoperates with browser opaque-name download receiver/);
   assert.match(browserTest, /browser sender resumes into CLI receiver partials/);
   assert.match(browserTest, /browser folder receiver redacts native filesystem error names/);
@@ -1444,6 +1444,7 @@ test("interop tests run the signaling server behind an explicit origin policy", 
   assert.match(browserTest, /assert\.equal\(await page\.locator\("#resumeButton"\)\.count\(\), 0\)/);
   assert.match(browserTest, /CLI sender interoperates with browser opaque-name folder receiver/);
   assert.match(browserTest, /browser folder receiver restarts after a corrupted saved partial/);
+  assert.match(browserTest, /browser folder receiver removes published output if final acknowledgement fails/);
   assert.match(browserTest, /browser folder receiver resumes from a valid saved partial/);
   assert.match(browserTest, /browser startup scrubs legacy resume registry metadata/);
   assert.match(browserTest, /installFolderPickerMock\(page\)/);
