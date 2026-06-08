@@ -248,6 +248,54 @@ test("GitHub release script rejects control-bearing tokens before artifact or Gi
   assert.doesNotMatch(result.stderr, /with-control|release artifact directory|api\.github|token-that-must-not-be-used|Error:/);
 });
 
+test("GitHub release script rejects ambiguous GitHub tokens before artifact or GitHub API work", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-github-release-token-ambiguous-"));
+  const mock = path.join(tmp, "mock-github-release-token-ambiguous.mjs");
+  const log = path.join(tmp, "requests.log");
+  try {
+    await fs.writeFile(
+      mock,
+      `
+import { appendFileSync } from "node:fs";
+
+const log = process.env.FF_MOCK_GITHUB_RELEASE_TOKEN_LOG;
+
+globalThis.fetch = async (url, init = {}) => {
+  const parsed = new URL(url);
+  appendFileSync(log, (init.method ?? "GET") + " " + parsed.origin + parsed.pathname + "\\n", "utf8");
+  return new Response(JSON.stringify({ message: "unexpected network" }), { status: 500, headers: { "content-type": "application/json" } });
+};
+`,
+      "utf8"
+    );
+
+    const result = runScriptWithNodeArgs(
+      "scripts/create-github-release.mjs",
+      {
+        FF_MOCK_GITHUB_RELEASE_TOKEN_LOG: log,
+        GITHUB_REPOSITORY: "VictorHaine/p2p-transfer",
+        GITHUB_TOKEN: "github-token-that-must-not-be-printed",
+        GH_TOKEN: "gh-token-that-must-not-be-printed",
+        ...releaseTagEnv("v0.1.0")
+      },
+      [],
+      ["--import", mock]
+    );
+    const requests = await fs.readFile(log, "utf8").catch((error: unknown) => {
+      if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return "";
+      throw error;
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /GitHub Release creation failed:\n- Set only one of GITHUB_TOKEN or GH_TOKEN for live release ref verification\./);
+    assert.doesNotMatch(result.stderr, /github-token-that-must-not-be-printed|gh-token-that-must-not-be-printed|release artifact directory|api\.github|unexpected network|Error:/);
+    assert.equal(requests, "");
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
 test("GitHub release script rejects non-Actions context before artifact or GitHub API work", () => {
   const result = runScript("scripts/create-github-release.mjs", {
     ...releaseTagEnv("v0.1.0"),
