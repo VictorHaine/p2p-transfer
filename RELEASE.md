@@ -61,11 +61,11 @@ This project releases only from protected `main` with a matching `v*.*.*` tag. D
 3. Create and push the matching release tag from that preflighted `HEAD` only after preflight is clean:
 
    ```sh
-   git tag -s -m v0.1.0 v0.1.0 HEAD
+   pnpm release:tag -- v0.1.0
    git push origin v0.1.0
    ```
 
-   When using SSH commit or tag signing, configure `user.signingkey` to the public key file or literal public key, not the private key path; some signing helpers echo invalid key material in errors.
+   The checked tag creator revalidates signed `HEAD`, clean worktree state, package-version matching, local tag absence, tag target, and tag signature while suppressing signer subprocess output. If post-create verification fails, it deletes only the tag it just created before reporting a generic failure. When using SSH commit or tag signing, configure `user.signingkey` to the public key file or literal public key, not the private key path; some signing helpers echo invalid key material in errors.
 
 4. Let the GitHub release workflow publish npm, verify npm registry metadata, publish GHCR, provenance, checksums, SBOM, and the GitHub Release. Do not run `pnpm publish` manually; `prepublishOnly` blocks direct publishes by design.
 

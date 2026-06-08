@@ -3773,6 +3773,137 @@ globalThis.fetch = async (url, init = {}) => {
   }
 });
 
+test("release tag creator rejects unsigned release targets before creating tags", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-tag-unsigned-"));
+  try {
+    const git = await fakeReleaseGit(tmp, 1);
+
+    const result = runScript("scripts/create-release-tag.mjs", git.env, ["v0.1.0"]);
+    const gitRequests = await fs.readFile(git.log, "utf8");
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Release tag creation failed:\n- Release target commit must have a valid Git commit signature before tagging\./);
+    assert.doesNotMatch(result.stderr, /verify-commit|0123456789abcdef|PRIVATE KEY|secret|Error:/);
+    assert.equal(gitRequests, `rev-parse --verify HEAD^{commit}\nverify-commit ${RELEASE_TEST_SHA}\n`);
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
+test("release tag creator rejects dirty worktrees before creating tags", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-tag-dirty-"));
+  try {
+    const git = await fakeReleaseGit(tmp, 0, RELEASE_TEST_SHA, " M package.json\\n?? local-secret.txt\\n");
+
+    const result = runScript("scripts/create-release-tag.mjs", git.env, ["v0.1.0"]);
+    const gitRequests = await fs.readFile(git.log, "utf8");
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Release tag creation failed:\n- Release tag creation must run from a clean worktree\./);
+    assert.doesNotMatch(result.stderr, /package\.json|local-secret|0123456789abcdef|Error:/);
+    assert.equal(gitRequests, `rev-parse --verify HEAD^{commit}\nverify-commit ${RELEASE_TEST_SHA}\nstatus --porcelain=v1 --untracked-files=normal\n`);
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
+test("release tag creator rejects malformed and mismatched tags without echoing arguments", async () => {
+  const malformed = runScript("scripts/create-release-tag.mjs", {}, ["v0.1.0\nsecret"]);
+  assert.notEqual(malformed.status, 0);
+  assert.equal(malformed.stdout, "");
+  assert.match(malformed.stderr, /Release tag creation failed:\n- release tag must be an exact v-prefixed semver release\./);
+  assert.doesNotMatch(malformed.stderr, /secret|Error:/);
+
+  const mismatched = runScript("scripts/create-release-tag.mjs", {}, ["v0.2.0"]);
+  assert.notEqual(mismatched.status, 0);
+  assert.equal(mismatched.stdout, "");
+  assert.match(mismatched.stderr, /Release tag creation failed:\n- release tag must match package version\./);
+  assert.doesNotMatch(mismatched.stderr, /0\.1\.0|0\.2\.0|Error:/);
+});
+
+test("release tag creator creates and verifies a signed tag from the preflighted commit", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-tag-create-"));
+  try {
+    const git = await fakeReleaseGit(tmp);
+
+    const result = runScript("scripts/create-release-tag.mjs", git.env, ["--", "v0.1.0"]);
+    const gitRequests = await fs.readFile(git.log, "utf8");
+
+    assert.equal(result.status, 0);
+    assert.deepEqual(JSON.parse(result.stdout), { ok: true, tag: "v0.1.0", commit: RELEASE_TEST_SHA });
+    assert.equal(result.stderr, "");
+    assert.equal(
+      gitRequests,
+      [
+        "rev-parse --verify HEAD^{commit}",
+        `verify-commit ${RELEASE_TEST_SHA}`,
+        "status --porcelain=v1 --untracked-files=normal",
+        "show-ref --verify --quiet refs/tags/v0.1.0",
+        `tag -s -m v0.1.0 v0.1.0 ${RELEASE_TEST_SHA}`,
+        "rev-parse --verify refs/tags/v0.1.0^{commit}",
+        "tag -v v0.1.0",
+        ""
+      ].join("\n")
+    );
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
+test("release tag creator rejects existing local tags before signing", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-tag-existing-"));
+  try {
+    const git = await fakeReleaseGit(tmp, 0, RELEASE_TEST_SHA, "", { existingTag: true });
+
+    const result = runScript("scripts/create-release-tag.mjs", git.env, ["v0.1.0"]);
+    const gitRequests = await fs.readFile(git.log, "utf8");
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Release tag creation failed:\n- Release tag already exists locally\./);
+    assert.doesNotMatch(result.stderr, /v0\.1\.0|0123456789abcdef|Error:/);
+    assert.equal(
+      gitRequests,
+      `rev-parse --verify HEAD^{commit}\nverify-commit ${RELEASE_TEST_SHA}\nstatus --porcelain=v1 --untracked-files=normal\nshow-ref --verify --quiet refs/tags/v0.1.0\n`
+    );
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
+test("release tag creator suppresses signer output and rolls back failed post-create verification", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-tag-rollback-"));
+  try {
+    const git = await fakeReleaseGit(tmp, 0, RELEASE_TEST_SHA, "", { tagVerifyStatus: 1, signerError: "PRIVATE KEY material must not be printed" });
+
+    const result = runScript("scripts/create-release-tag.mjs", git.env, ["v0.1.0"]);
+    const gitRequests = await fs.readFile(git.log, "utf8");
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Release tag creation failed:\n- release tag signature verification failed\./);
+    assert.doesNotMatch(result.stderr, /PRIVATE KEY|material|v0\.1\.0|0123456789abcdef|Error:/);
+    assert.equal(
+      gitRequests,
+      [
+        "rev-parse --verify HEAD^{commit}",
+        `verify-commit ${RELEASE_TEST_SHA}`,
+        "status --porcelain=v1 --untracked-files=normal",
+        "show-ref --verify --quiet refs/tags/v0.1.0",
+        `tag -s -m v0.1.0 v0.1.0 ${RELEASE_TEST_SHA}`,
+        "rev-parse --verify refs/tags/v0.1.0^{commit}",
+        "tag -v v0.1.0",
+        "tag -d v0.1.0",
+        ""
+      ].join("\n")
+    );
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
 test("release preflight rejects local release targets that differ from remote main", async () => {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-preflight-main-drift-"));
   const mock = path.join(tmp, "mock-release-preflight-main-drift-fetch.mjs");
@@ -5094,7 +5225,13 @@ function releaseTagEnv(tag: string): Record<string, string> {
   return { GITHUB_REF_NAME: tag, GITHUB_REF_TYPE: "tag", GITHUB_REF: `refs/tags/${tag}`, GITHUB_SHA: RELEASE_TEST_SHA, GITHUB_ACTIONS: "true", GITHUB_RUN_ID: "12345" };
 }
 
-async function fakeReleaseGit(tmp: string, status = 0, headSha = RELEASE_TEST_SHA, statusOutput = "") {
+async function fakeReleaseGit(
+  tmp: string,
+  status = 0,
+  headSha = RELEASE_TEST_SHA,
+  statusOutput = "",
+  options: { existingTag?: boolean; tagVerifyStatus?: number; signerError?: string } = {}
+) {
   const bin = path.join(tmp, "git-bin");
   const log = path.join(tmp, "git.log");
   await fs.mkdir(bin);
@@ -5110,12 +5247,23 @@ if (args.length === 3 && args[0] === "rev-parse" && args[1] === "--verify" && ar
   console.log(${JSON.stringify(headSha)});
   process.exit(0);
 }
+if (args.length === 3 && args[0] === "rev-parse" && args[1] === "--verify" && args[2] === "refs/tags/v0.1.0^{commit}") {
+  console.log(${JSON.stringify(headSha)});
+  process.exit(0);
+}
 if (args.length === 3 && args[0] === "status" && args[1] === "--porcelain=v1" && args[2] === "--untracked-files=normal") {
   process.stdout.write(${JSON.stringify(statusOutput)});
   process.exit(0);
 }
-if (args.length !== 2 || args[0] !== "verify-commit" || args[1] !== ${JSON.stringify(headSha)}) process.exit(2);
-process.exit(${Number(status)});
+if (args.length === 2 && args[0] === "verify-commit" && args[1] === ${JSON.stringify(headSha)}) process.exit(${Number(status)});
+if (args.length === 4 && args[0] === "show-ref" && args[1] === "--verify" && args[2] === "--quiet" && args[3] === "refs/tags/v0.1.0") process.exit(${options.existingTag ? 0 : 1});
+if (args.length === 6 && args[0] === "tag" && args[1] === "-s" && args[2] === "-m" && args[3] === "v0.1.0" && args[4] === "v0.1.0" && args[5] === ${JSON.stringify(headSha)}) {
+  if (${JSON.stringify(options.signerError ?? "")}) console.error(${JSON.stringify(options.signerError ?? "")});
+  process.exit(0);
+}
+if (args.length === 3 && args[0] === "tag" && args[1] === "-v" && args[2] === "v0.1.0") process.exit(${Number(options.tagVerifyStatus ?? 0)});
+if (args.length === 3 && args[0] === "tag" && args[1] === "-d" && args[2] === "v0.1.0") process.exit(0);
+process.exit(2);
 `,
     "utf8"
   );

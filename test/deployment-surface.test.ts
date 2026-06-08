@@ -30,6 +30,7 @@ const releaseNotesScript = fs.readFileSync(new URL("../scripts/write-release-not
 const liveReleaseRefScript = fs.readFileSync(new URL("../scripts/verify-live-release-ref.mjs", import.meta.url), "utf8");
 const githubReleaseControlsScript = fs.readFileSync(new URL("../scripts/configure-github-release-controls.mjs", import.meta.url), "utf8");
 const releaseReadinessScript = fs.readFileSync(new URL("../scripts/check-release-readiness.mjs", import.meta.url), "utf8");
+const releaseTagCreatorScript = fs.readFileSync(new URL("../scripts/create-release-tag.mjs", import.meta.url), "utf8");
 const npmBootstrapScript = fs.readFileSync(new URL("../scripts/bootstrap-npm-package.mjs", import.meta.url), "utf8");
 const checkedPnpmScript = fs.readFileSync(new URL("../scripts/prepare-checked-pnpm.mjs", import.meta.url), "utf8");
 const dockerPolicySmokeScript = fs.readFileSync(new URL("../scripts/smoke-docker-policy.mjs", import.meta.url), "utf8");
@@ -838,17 +839,20 @@ test("checked GitHub release controls setup matches the protected release surfac
 
 test("release preflight checks external GitHub release prerequisites", () => {
   assert.equal(packageJson.scripts?.["release:preflight"], "node scripts/check-release-readiness.mjs");
+  assert.equal(packageJson.scripts?.["release:tag"], "node scripts/create-release-tag.mjs");
   assert.equal(packageJson.scripts?.["bootstrap:npm"], "node scripts/bootstrap-npm-package.mjs");
   assert.equal(packageJson.scripts?.["verify:release:docker"], "pnpm verify:release && pnpm smoke:docker-policy");
   assert.match(readme, /gh auth refresh -h github\.com -s workflow/);
   assert.doesNotMatch(readme, /DOCKER_SMOKE_TAG=p2p-transfer:test pnpm verify:release:docker\nnode scripts\/write-release-notes\.mjs --check/);
   assert.match(readme, /First remote bootstrap:[\s\S]*gh auth refresh -h github\.com -s workflow\ngit push -u origin main/);
-  assert.match(readme, /git fetch origin main\ngit checkout main\ngit pull --ff-only origin main\ngh auth token \| pnpm release:preflight --token-stdin\ngit tag -s -m v0\.1\.0 v0\.1\.0 HEAD/);
+  assert.match(readme, /git fetch origin main\ngit checkout main\ngit pull --ff-only origin main\ngh auth token \| pnpm release:preflight --token-stdin\npnpm release:tag -- v0\.1\.0/);
+  assert.doesNotMatch(readme, /git tag -s -m v0\.1\.0 v0\.1\.0 HEAD/);
   assert.match(readme, /`main` must exist remotely before `pnpm release:preflight` can pass/);
   assert.match(readme, /The first push needs a GitHub token with `workflow` scope because this repository ships GitHub Actions workflow files/);
   assert.match(readme, /Once those controls are active, do not direct-push release changes to `main`/);
   assert.match(readme, /For normal releases, update local `main` to the exact current `origin\/main` commit after the protected pull request has merged, then run release preflight from that checked-out commit/);
   assert.match(readme, /Local preflight refuses unsigned `HEAD` and dirty worktrees before package or network work, and it refuses to pass if that local `HEAD` differs from GitHub's current `main` branch response/);
+  assert.match(readme, /The checked tag creator revalidates signed `HEAD`, clean worktree state, package-version matching, local tag absence, tag target, and tag signature while suppressing signer subprocess output/);
   assert.match(readme, /configure `user\.signingkey` to the public key file or literal public key, not the private key path/);
   assert.doesNotMatch(readme, /git push -u origin main\nGITHUB_TOKEN="\$\(gh auth token\)" pnpm release:preflight/);
   assert.match(readme, /the exact repository rulesets that release preflight requires for `main` and `v\*\.\*\.\*` release tags/);
@@ -867,6 +871,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(contributing, /node scripts\/prepare-checked-pnpm\.mjs\npnpm install --frozen-lockfile\npnpm exec playwright install --with-deps chromium\nDOCKER_SMOKE_TAG=p2p-transfer:test pnpm verify:release:docker\ngh auth refresh -h github\.com -s workflow\ngh auth token \| pnpm release:preflight --token-stdin/);
   assert.match(contributing, /make sure `main` already exists on\nGitHub, then run the full release gate/);
   assert.match(securityPolicy, /local release preflight must fail before tagging when local `HEAD` is unsigned, the local worktree is dirty, local `HEAD` differs from GitHub's current `main` branch response, the npm package is missing, the target npm version already exists, the bootstrap placeholder exists without the exact `bootstrap` dist-tag or with `latest` pointing to it, private vulnerability reporting is disabled, dependency vulnerability alerts are disabled or hidden from the release token/);
+  assert.match(securityPolicy, /local tag creation must use the checked tag creator after preflight, revalidate signed `HEAD`, clean worktree state, package-version matching, local tag absence, tag target, and tag signature with ignored Git signer output, and delete only the newly-created local tag if post-create verification fails/);
   assert.match(securityPolicy, /GitHub repository `security_and_analysis` is missing or reports disabled secret scanning, disabled secret scanning push protection, disabled Dependabot security updates, or paused Dependabot security updates from the dedicated `automated-security-fixes` endpoint/);
   assert.match(securityPolicy, /the GitHub token is missing or lacks `workflow` scope/);
   assert.match(securityPolicy, /current `main` commit lacks a successful CodeQL, Scorecard, or dependency-integrity workflow run/);
@@ -959,6 +964,13 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /Local release preflight must run from a clean worktree before tagging\./);
   assert.match(releaseReadinessScript, /mainSha && localHeadSha && mainSha !== localHeadSha/);
   assert.match(releaseReadinessScript, /Local release preflight must run from the current remote main commit before tagging\./);
+  assert.match(releaseTagCreatorScript, /runGit\(\["tag", "-s", "-m", tag, tag, headSha\], "release tag could not be signed\."\)/);
+  assert.match(releaseTagCreatorScript, /runGit\(\["tag", "-v", tag\], "release tag signature verification failed\."\)/);
+  assert.match(releaseTagCreatorScript, /await deleteCreatedTag\(tag\)/);
+  assert.match(releaseTagCreatorScript, /stdio: "ignore"/);
+  assert.match(releaseTagCreatorScript, /Release tag creation must run from a clean worktree\./);
+  assert.match(releaseTagCreatorScript, /Release tag already exists locally\./);
+  assert.doesNotMatch(releaseTagCreatorScript, /stdio: "inherit"|String\(error\)|error\.stack|console\.error\(error\)|process\.argv\.slice\(2\)\.join/);
   assert.match(releaseReadinessScript, /function githubActor\(\)/);
   assert.match(releaseReadinessScript, /GITHUB_ACTOR must be a GitHub username in the release workflow\./);
   assert.match(releaseReadinessScript, /await collectReadinessFailure\(failures, async \(\) => \{/);
@@ -1532,7 +1544,9 @@ test("server deployment policy requires an explicit in-memory signaling topology
   assert.match(releaseRunbook, /GitHub Container Registry packages can be private on first publish[\s\S]*set the package visibility to public[\s\S]*verifies anonymous pulls for both `ghcr\.io\/victorhaine\/p2p-transfer:vX\.Y\.Z` and `ghcr\.io\/victorhaine\/p2p-transfer:X\.Y\.Z`/);
   assert.match(releaseRunbook, /git fetch origin main\n   git checkout main\n   git pull --ff-only origin main\n   gh auth token \| pnpm release:preflight --token-stdin/);
   assert.match(releaseRunbook, /Local preflight refuses unsigned `HEAD` and dirty worktrees before package or network work, then compares that local `HEAD` with GitHub's current `main` branch response/);
-  assert.match(releaseRunbook, /git tag -s -m v0\.1\.0 v0\.1\.0 HEAD/);
+  assert.match(releaseRunbook, /pnpm release:tag -- v0\.1\.0/);
+  assert.doesNotMatch(releaseRunbook, /git tag -s -m v0\.1\.0 v0\.1\.0 HEAD/);
+  assert.match(releaseRunbook, /The checked tag creator revalidates signed `HEAD`, clean worktree state, package-version matching, local tag absence, tag target, and tag signature while suppressing signer subprocess output/);
   assert.match(releaseRunbook, /configure `user\.signingkey` to the public key file or literal public key, not the private key path/);
   assert.match(releaseRunbook, /publish npm, verify npm registry metadata, publish GHCR, provenance, checksums, SBOM, and the GitHub Release/);
   assert.match(readme, /Use the released package after the first npm publish:[\s\S]*pnpm add -g @victorhaine\/p2p-transfer[\s\S]*ff recv[\s\S]*ff send --code-stdin --files-stdin/);
