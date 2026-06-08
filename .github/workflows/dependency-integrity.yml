@@ -17,9 +17,18 @@ concurrency:
 
 jobs:
   dependency-integrity:
-    name: dependency integrity
-    runs-on: ubuntu-24.04
+    name: dependency integrity / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - ubuntu-24.04-arm
+          - macos-15
+          - macos-15-intel
+          - windows-2025
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:

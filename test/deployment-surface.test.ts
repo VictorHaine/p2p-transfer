@@ -1111,11 +1111,11 @@ test("dependency review blocks vulnerable dependency introductions", () => {
 });
 
 test("dependency integrity monitor catches new registry risk and gates releases", () => {
-  assert.match(securityPolicy, /dependency integrity monitoring must run from a pinned workflow on pushes to `main`, manual dispatch, and a weekly schedule on unchanged `main` with read-only permissions/);
+  assert.match(securityPolicy, /dependency integrity monitoring must run from a pinned workflow on pushes to `main`, manual dispatch, and a weekly schedule on unchanged `main` across the supported native WebRTC runner set with read-only permissions/);
   assert.match(securityPolicy, /release-evidence concurrency that does not cancel in-progress runs, checked pnpm bootstrap, frozen install, installed-state verification, `pnpm security:dependencies`, `pnpm security:audit`, and `pnpm security:signatures`/);
   assert.match(securityPolicy, /CPace\/native dependency drift, new advisories, or registry signature failures/);
   assert.match(securityPolicy, /release preflight must require a successful dependency-integrity run for the current `main` commit/);
-  assert.match(readme, /\.github\/workflows\/dependency-integrity\.yml` runs on pushes to `main`, manual dispatch, and weekly with read-only permissions without cancelling in-progress release-evidence runs/);
+  assert.match(readme, /\.github\/workflows\/dependency-integrity\.yml` runs on pushes to `main`, manual dispatch, and weekly across the supported native WebRTC runner set with read-only permissions without cancelling in-progress release-evidence runs/);
   assert.match(readme, /re-checks the frozen install, installed dependency tree, reviewed CPace\/native dependency attestations, npm advisory audit, and registry package signatures even when `main` has not changed/);
   assert.match(readme, /release preflight requires a successful dependency-integrity run for the exact current `main` commit before tagging/);
   assert.equal(packageJson.scripts?.["security:dependencies"], "node --import tsx --test test/crypto-dependencies.test.ts test/cpace-vectors.test.ts test/native-webrtc-dependencies.test.ts");
@@ -1123,7 +1123,8 @@ test("dependency integrity monitor catches new registry risk and gates releases"
   assert.match(dependencyIntegrityWorkflow, /^on:\n  push:\n    branches:\n      - main\n  schedule:\n    - cron: "41 5 \* \* 4"\n  workflow_dispatch:$/m);
   assert.match(dependencyIntegrityWorkflow, /^permissions:\n  contents: read$/m);
   assert.match(dependencyIntegrityWorkflow, /^concurrency:\n  group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}\n  cancel-in-progress: false$/m);
-  assert.match(workflowJob(dependencyIntegrityWorkflow, "dependency-integrity"), /name: dependency integrity[\s\S]*runs-on: ubuntu-24\.04[\s\S]*timeout-minutes: 15/);
+  assert.match(workflowJob(dependencyIntegrityWorkflow, "dependency-integrity"), /name: dependency integrity \/ \$\{\{ matrix\.os \}\}[\s\S]*runs-on: \$\{\{ matrix\.os \}\}[\s\S]*timeout-minutes: 15/);
+  assert.match(workflowJob(dependencyIntegrityWorkflow, "dependency-integrity"), /fail-fast: false[\s\S]*os:\n\s+- ubuntu-24\.04\n\s+- ubuntu-24\.04-arm\n\s+- macos-15\n\s+- macos-15-intel\n\s+- windows-2025/);
   assert.match(dependencyIntegrityWorkflow, /uses: actions\/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4\.2\.2[\s\S]*persist-credentials: false/);
   assert.match(dependencyIntegrityWorkflow, /uses: actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3/);
   assert.match(dependencyIntegrityWorkflow, /node scripts\/prepare-checked-pnpm\.mjs[\s\S]*pnpm install --frozen-lockfile[\s\S]*pnpm check:install-state[\s\S]*pnpm security:dependencies[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures/);
