@@ -402,6 +402,8 @@ test("package publishing config keeps provenance and reproducible dependency pin
   assert.equal(packageJson.scripts?.["smoke:native"], "node scripts/smoke-native.mjs");
   assert.equal(packageJson.scripts?.["smoke:packed"], "node scripts/smoke-packed.mjs");
   assert.equal(packageJson.scripts?.["smoke:release-artifact"], "node scripts/smoke-release-artifact.mjs");
+  assert.match(packageJson.scripts?.["test:platform"] ?? "", /^node --import tsx --test test\/authority\.test\.ts/);
+  assert.doesNotMatch(packageJson.scripts?.["test:platform"] ?? "", /test\/(?:package-surface|deployment-surface|release-|release-scripts)\.test\.ts/);
   assert.equal(packageJson.scripts?.["bootstrap:npm"], "node scripts/bootstrap-npm-package.mjs");
   assert.equal(packageJson.scripts?.["check:install-state"], "node scripts/check-install-state.mjs");
   assert.match(securityPolicy, /typecheck gates must explicitly run the shipping Node project config and the test project config/);
@@ -767,6 +769,7 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.match(ciWorkflow, /pnpm check/);
   assert.match(ciWorkflow, /pnpm build/);
   assert.match(ciWorkflow, /pnpm test:unit/);
+  assert.match(ciWorkflow, /pnpm test:platform/);
   assert.match(ciWorkflow, /pnpm smoke:native/);
   assert.match(ciWorkflow, /pnpm smoke:native[\s\S]*pnpm smoke:release-artifact[\s\S]*pnpm security:audit/);
   assert.match(ciWorkflow, /pnpm smoke:packed/);

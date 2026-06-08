@@ -343,14 +343,14 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(ciBrowserInteropJob, /timeout-minutes: 45/);
   assert.match(ciPlatformSmokeJob, /timeout-minutes: 25/);
   assert.match(ciDockerJob, /timeout-minutes: 30/);
-  assert.match(securityPolicy, /CI must enforce the same local typecheck, build, unit, native smoke, release-artifact smoke, packed-install, browser interop, and hardened Docker policy gates/);
+  assert.match(securityPolicy, /CI must enforce the same local typecheck, build, full Linux unit, platform runtime\/security, native smoke, release-artifact smoke, packed-install, browser interop, and hardened Docker policy gates/);
   assert.match(securityPolicy, /every CI and release workflow job must set an explicit `timeout-minutes` bound/);
   assert.doesNotMatch(ciVerifyJob, /pnpm test:unit[\s\S]*pnpm build[\s\S]*pnpm smoke:native/);
-  assert.match(ciPlatformSmokeJob, /pnpm install --frozen-lockfile --ignore-scripts[\s\S]*pnpm check:install-state[\s\S]*pnpm security:build-toolchain[\s\S]*pnpm security:dependencies[\s\S]*pnpm rebuild @roamhq\/wrtc esbuild[\s\S]*pnpm security:build-toolchain[\s\S]*pnpm security:dependencies[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed/);
+  assert.match(ciPlatformSmokeJob, /pnpm install --frozen-lockfile --ignore-scripts[\s\S]*pnpm check:install-state[\s\S]*pnpm security:build-toolchain[\s\S]*pnpm security:dependencies[\s\S]*pnpm rebuild @roamhq\/wrtc esbuild[\s\S]*pnpm security:build-toolchain[\s\S]*pnpm security:dependencies[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:platform[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed/);
   assert.doesNotMatch(ciPlatformSmokeJob, /pnpm test:unit[\s\S]*pnpm build[\s\S]*pnpm smoke:native/);
   assert.match(releasePlatformSmokeJob, /node:\n\s+- 22\.22\.3\n\s+- 24\.13\.1/);
   assert.match(releasePlatformSmokeJob, /os:\n\s+- ubuntu-24\.04\n\s+- ubuntu-24\.04-arm\n\s+- macos-15\n\s+- macos-15-intel\n\s+- windows-2025/);
-  assert.match(releasePlatformSmokeJob, /pnpm install --frozen-lockfile --ignore-scripts[\s\S]*pnpm check:install-state[\s\S]*pnpm security:build-toolchain[\s\S]*pnpm security:dependencies[\s\S]*pnpm rebuild @roamhq\/wrtc esbuild[\s\S]*pnpm security:build-toolchain[\s\S]*pnpm security:dependencies[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:unit[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed/);
+  assert.match(releasePlatformSmokeJob, /pnpm install --frozen-lockfile --ignore-scripts[\s\S]*pnpm check:install-state[\s\S]*pnpm security:build-toolchain[\s\S]*pnpm security:dependencies[\s\S]*pnpm rebuild @roamhq\/wrtc esbuild[\s\S]*pnpm security:build-toolchain[\s\S]*pnpm security:dependencies[\s\S]*pnpm build[\s\S]*pnpm check[\s\S]*pnpm test:platform[\s\S]*pnpm smoke:native[\s\S]*pnpm smoke:packed/);
   assert.doesNotMatch(releasePlatformSmokeJob, /pnpm test:unit[\s\S]*pnpm build[\s\S]*pnpm smoke:native/);
   assert.match(ciWorkflow, /pnpm smoke:packed/);
   assert.match(ciVerifyJob, /pnpm smoke:release-artifact[\s\S]*dependency audit[\s\S]*pnpm security:audit[\s\S]*pnpm security:signatures/);
@@ -1700,7 +1700,7 @@ test("README documents the auto-accept consent tradeoff", () => {
 });
 
 test("pull request template keeps production-sensitive verification explicit", () => {
-  assert.match(securityPolicy, /CI must enforce the same local typecheck, build, unit, native smoke, release-artifact smoke, packed-install, browser interop, and hardened Docker policy gates that release depends on/);
+  assert.match(securityPolicy, /CI must enforce the same local typecheck, build, full Linux unit, platform runtime\/security, native smoke, release-artifact smoke, packed-install, browser interop, and hardened Docker policy gates that release depends on/);
   assert.match(pullRequestTemplate, /`pnpm verify:local`/);
   assert.match(pullRequestTemplate, /`pnpm verify:release` for protocol, crypto, browser, dependency, release, or file-write changes/);
   assert.match(pullRequestTemplate, /`DOCKER_SMOKE_TAG=p2p-transfer:test pnpm verify:release:docker` for Docker, deployment, release, or server changes/);

@@ -140,8 +140,8 @@ jobs:
         run: pnpm build
       - name: Typecheck
         run: pnpm check
-      - name: Unit tests
-        run: pnpm test:unit
+      - name: Platform tests
+        run: pnpm test:platform
       - name: Native smoke
         run: pnpm smoke:native
       - name: Packed install smoke
