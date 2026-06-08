@@ -61,14 +61,8 @@ async function main() {
         input: `${token}\n`
       });
       await run("docker", ["pull", `${image}@${digest}`], "docker attested image pull", PUSH_TIMEOUT_MS, { env: dockerEnv });
-      await run("docker", ["tag", `${image}@${digest}`, versionRef], "docker release tag", COMMAND_TIMEOUT_MS, { env: dockerEnv });
-      await run("docker", ["tag", `${image}@${digest}`, plainVersionRef], "docker release tag alias", COMMAND_TIMEOUT_MS, { env: dockerEnv });
-      const pushed = await run("docker", ["push", versionRef], "docker release image push", PUSH_TIMEOUT_MS, { env: dockerEnv });
-      const pushedDigestValue = pushedDigest(`${pushed.stdout}\n${pushed.stderr}`);
-      if (pushedDigestValue !== digest) throw new Error("docker release tag resolved to a different digest.");
-      const aliasPushed = await run("docker", ["push", plainVersionRef], "docker release image alias push", PUSH_TIMEOUT_MS, { env: dockerEnv });
-      const aliasDigest = pushedDigest(`${aliasPushed.stdout}\n${aliasPushed.stderr}`);
-      if (aliasDigest !== digest) throw new Error("docker release tag aliases resolved to different digests.");
+      await publishDockerReleaseTag({ image, digest, ref: versionRef, label: "docker release image", dockerEnv });
+      await publishDockerReleaseTag({ image, digest, ref: plainVersionRef, label: "docker release image alias", dockerEnv });
       await writeGithubOutput({ image, digest, tag: versionRef, alias: plainVersionRef });
       console.log(`Promoted ${image}@${digest}`);
       return;
@@ -198,6 +192,36 @@ function pushedDigest(output) {
   return matches[0];
 }
 
+async function publishDockerReleaseTag({ image, digest, ref, label, dockerEnv }) {
+  const existingDigest = await existingDockerTagDigest(ref, dockerEnv);
+  if (existingDigest !== undefined) {
+    if (existingDigest !== digest) throw new Error(`${label} already points to a different digest.`);
+    return;
+  }
+  await run("docker", ["tag", `${image}@${digest}`, ref], `${label} tag`, COMMAND_TIMEOUT_MS, { env: dockerEnv });
+  const pushed = await run("docker", ["push", ref], `${label} push`, PUSH_TIMEOUT_MS, { env: dockerEnv });
+  const pushedDigestValue = pushedDigest(`${pushed.stdout}\n${pushed.stderr}`);
+  if (pushedDigestValue !== digest) throw new Error(`${label} resolved to a different digest.`);
+}
+
+async function existingDockerTagDigest(ref, dockerEnv) {
+  const pulled = await runAllowFailure("docker", ["pull", ref], "docker release tag lookup", PUSH_TIMEOUT_MS, { env: dockerEnv });
+  const output = `${pulled.stdout}\n${pulled.stderr}`;
+  if (pulled.status === 0) return pulledDigest(output);
+  if (dockerTagMissing(output)) return undefined;
+  throw new Error("docker release tag lookup failed.");
+}
+
+function pulledDigest(output) {
+  const matches = [...output.matchAll(/\bDigest:\s+(sha256:[a-f0-9]{64})\b/gu)].map((match) => match[1]);
+  if (matches.length !== 1) throw new Error("docker pull did not emit exactly one image digest.");
+  return matches[0];
+}
+
+function dockerTagMissing(output) {
+  return /\bmanifest unknown\b/iu.test(output);
+}
+
 async function writeGithubOutput(values) {
   const file = optionalEnvString("GITHUB_OUTPUT");
   if (file === undefined) return;
@@ -266,6 +290,71 @@ function run(command, args, label, timeoutMs, options = {}) {
         resolveOnce({ stdout, stderr });
       } else {
         rejectOnce(new Error(`${label} failed with ${childExitStatus(code, signal)}.`));
+      }
+    });
+    try {
+      endChildStdin(child, options.input ?? "", label, (error) => {
+        child.kill("SIGTERM");
+        killTimer = setTimeout(() => child.kill("SIGKILL"), CHILD_KILL_GRACE_MS);
+        rejectOnce(error, true);
+      });
+    } catch (error) {
+      child.kill("SIGTERM");
+      killTimer = setTimeout(() => child.kill("SIGKILL"), CHILD_KILL_GRACE_MS);
+      rejectOnce(error, true);
+    }
+
+    function resolveOnce(value) {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(value);
+    }
+
+    function rejectOnce(error, keepKillTimer = false) {
+      if (settled) return;
+      settled = true;
+      cleanup(keepKillTimer);
+      reject(error);
+    }
+
+    function cleanup(keepKillTimer = false) {
+      clearTimeout(timer);
+      if (!keepKillTimer && killTimer) clearTimeout(killTimer);
+    }
+  });
+}
+
+function runAllowFailure(command, args, label, timeoutMs, options = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: root,
+      env: { ...safeChildEnv(), ...(options.env ?? {}) },
+      stdio: ["pipe", "pipe", "pipe"]
+    });
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    let timeoutError;
+    let killTimer;
+    const timer = setTimeout(() => {
+      timeoutError = new Error(`${label} timed out.`);
+      child.kill("SIGTERM");
+      killTimer = setTimeout(() => child.kill("SIGKILL"), CHILD_KILL_GRACE_MS);
+    }, timeoutMs);
+    child.stdout.on("data", (chunk) => {
+      stdout = appendBoundedOutput(stdout, chunk);
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr = appendBoundedOutput(stderr, chunk);
+    });
+    child.on("error", rejectOnce);
+    child.on("exit", (code, signal) => {
+      if (killTimer) clearTimeout(killTimer);
+      if (timeoutError) {
+        rejectOnce(timeoutError);
+      } else {
+        resolveOnce({ status: typeof code === "number" ? code : undefined, signal, stdout, stderr });
       }
     });
     try {

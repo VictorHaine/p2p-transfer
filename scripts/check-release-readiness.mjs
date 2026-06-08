@@ -94,7 +94,7 @@ async function main() {
 
   await collectReadinessFailure(failures, async () => {
     const packageJson = await readPackageMetadata();
-    await assertNpmPackageReady(packageJson);
+    await assertNpmPackageReady(packageJson, options);
   });
 
   let authenticatedLogin;
@@ -278,12 +278,27 @@ function sameFile(left, right) {
   return left.dev === right.dev && left.ino === right.ino && left.size === right.size && left.mtimeMs === right.mtimeMs && left.ctimeMs === right.ctimeMs;
 }
 
-async function assertNpmPackageReady(packageJson) {
+async function assertNpmPackageReady(packageJson, options) {
   const metadata = await npmPackageMetadata(packageJson.name);
   const versions = metadata?.versions;
   if (!versions || typeof versions !== "object" || Array.isArray(versions)) throw new Error("npm package metadata is invalid.");
-  if (Object.hasOwn(versions, packageJson.version)) throw new Error("npm package version already exists; bump package.json before tagging.");
+  if (Object.hasOwn(versions, packageJson.version)) {
+    if (!options.allowExistingNpmVersion) throw new Error("npm package version already exists; bump package.json before tagging.");
+    assertReleaseWorkflowExistingVersionContext(packageJson.version);
+  }
   assertNpmBootstrapState(metadata, versions);
+}
+
+function assertReleaseWorkflowExistingVersionContext(version) {
+  const tag = `v${version}`;
+  if (
+    envString("GITHUB_ACTIONS") !== "true" ||
+    envString("GITHUB_REF_TYPE") !== "tag" ||
+    envString("GITHUB_REF_NAME") !== tag ||
+    envString("GITHUB_REF") !== `refs/tags/${tag}`
+  ) {
+    throw new Error("Existing npm versions may only be allowed during a matching GitHub release tag workflow rerun.");
+  }
 }
 
 function assertNpmBootstrapState(metadata, versions) {
@@ -751,7 +766,7 @@ function githubApiErrorMessage(status) {
 }
 
 function parseArgs(args) {
-  const options = { repository: repositoryInput(envString("GITHUB_REPOSITORY") || DEFAULT_REPOSITORY), tokenStdin: false };
+  const options = { repository: repositoryInput(envString("GITHUB_REPOSITORY") || DEFAULT_REPOSITORY), tokenStdin: false, allowExistingNpmVersion: false };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === "--repo") {
@@ -759,8 +774,10 @@ function parseArgs(args) {
       options.repository = repositoryInput(value);
     } else if (arg === "--token-stdin") {
       options.tokenStdin = true;
+    } else if (arg === "--allow-existing-npm-version") {
+      options.allowExistingNpmVersion = true;
     } else {
-      throw new Error("Usage: node scripts/check-release-readiness.mjs [--repo owner/name] [--token-stdin]");
+      throw new Error("Usage: node scripts/check-release-readiness.mjs [--repo owner/name] [--token-stdin] [--allow-existing-npm-version]");
     }
   }
   return options;

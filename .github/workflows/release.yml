@@ -35,7 +35,7 @@ jobs:
       - name: Release controls preflight
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PREFLIGHT_TOKEN }}
-        run: node scripts/check-release-readiness.mjs
+        run: node scripts/check-release-readiness.mjs --allow-existing-npm-version
       - name: Install
         run: pnpm install --frozen-lockfile
       - name: Check installed dependency tree

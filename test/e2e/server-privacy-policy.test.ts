@@ -117,6 +117,43 @@ test("built signaling server rate-limits unauthenticated static requests before 
   }
 });
 
+test("built signaling server rate-limits unauthenticated control endpoints", async () => {
+  const root = process.cwd();
+  const port = 30_000 + randomInt(1_000);
+  const origin = `http://127.0.0.1:${port}`;
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-server-control-rate-"));
+  const server = spawn(process.execPath, ["dist-node/server/index.js"], {
+    cwd: root,
+    env: {
+      ...testChildEnv(tmp),
+      PORT: String(port),
+      HOST: "127.0.0.1",
+      NODE_ENV: "production",
+      ALLOWED_ORIGINS: origin,
+      SIGNALING_TOPOLOGY: "single-instance",
+      ALLOW_INSECURE_ORIGINS: "true"
+    }
+  });
+  const serverOutput = collectOutput(server);
+
+  try {
+    await waitForOutput(server, /listening/);
+    for (let index = 0; index < STATIC_MAX_REQUESTS_PER_MINUTE; index += 1) {
+      const pathName = index % 2 === 0 ? "/healthz" : "/v1/version";
+      const response = await fetch(`http://127.0.0.1:${port}${pathName}`, { headers: { Origin: origin } });
+      assert.notEqual(response.status, 429);
+      await response.arrayBuffer();
+    }
+    const limited = await fetch(`http://127.0.0.1:${port}/healthz`, { headers: { Origin: origin } });
+    assert.equal(limited.status, 429);
+    assert.deepEqual(await limited.json(), { error: "rate_limited" });
+  } finally {
+    server.kill();
+    await serverOutput.done;
+    await removeTestTemp(tmp);
+  }
+});
+
 test("built signaling server rejects unredacted pair requests without forwarding or logging plaintext metadata", async () => {
   const root = process.cwd();
   const port = 20_000 + randomInt(1_000);

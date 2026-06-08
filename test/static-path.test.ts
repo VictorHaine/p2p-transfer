@@ -148,10 +148,12 @@ test("static file serving opens assets with no-follow nonblocking flags", () => 
     assert.match(securityPolicy, /static asset reads must use no-follow regular-file opens with pre-open and post-read identity and mutation-metadata checks plus bounded handle reads/);
     assert.match(securityPolicy, /static responses must reserve against a global in-flight byte budget until the HTTP response finishes or closes/);
     assert.match(securityPolicy, /synchronous static response setup failures after reservation must release that reservation/);
+    assert.match(securityPolicy, /late static failures after headers or the response body have started must not attempt to write a second JSON error response/);
     assert.match(candidate, /serveStatic\(url\.pathname, res\)\.catch\(\(error\) => staticFailure\(res, cors, error\)\)/);
     assert.match(candidate, /let staticInFlightBytes = 0/);
     assert.match(candidate, /function staticRelativePath/);
     assert.match(candidate, /function staticFailure/);
+    assert.match(candidate, /if \(res\.headersSent \|\| res\.writableEnded\) \{[\s\S]*if \(!res\.writableEnded\)\s*res\.destroy\(\);[\s\S]*return;[\s\S]*\}/);
     assert.match(candidate, /function staticHttpStatus/);
     assert.match(candidate, /Object\.getOwnPropertyDescriptor\(error, "staticHttpStatus"\)/);
     assert.match(candidate, /status === 404 \? "not_found" : "internal_error"/);

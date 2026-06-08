@@ -131,6 +131,9 @@ const server = http.createServer((req, res) => {
   const url = parseRequestUrl(req);
   if (!url) return json(res, 400, { error: "bad_request" }, cors);
   if (requestMethod(req) !== "GET") return methodNotAllowed(res, cors);
+  if ((url.pathname === "/healthz" || url.pathname === "/v1/version") && !hitStaticHttpRateLimit(req)) {
+    return json(res, 429, { error: "rate_limited" }, cors);
+  }
   if (url.pathname === "/healthz") return json(res, 200, { ok: true }, cors);
   if (url.pathname === "/v1/version") {
     return json(res, 200, versionResponse(), cors);
@@ -944,6 +947,10 @@ function staticRelativePath(urlPath: string): string {
 }
 
 function staticFailure(res: http.ServerResponse, extraHeaders: Record<string, string>, error: unknown): void {
+  if (res.headersSent || res.writableEnded) {
+    if (!res.writableEnded) res.destroy();
+    return;
+  }
   const status = staticHttpStatus(error);
   json(res, status, { error: status === 404 ? "not_found" : "internal_error" }, extraHeaders);
 }

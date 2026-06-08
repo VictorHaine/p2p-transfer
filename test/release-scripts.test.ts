@@ -1756,6 +1756,67 @@ test("Docker publish script rejects non-Actions context before package, smoke, o
   assert.doesNotMatch(result.stderr, /package metadata|token-that-must-not-be-used|release docker policy smoke|docker release|api\.github|Error:/);
 });
 
+test("Docker publish script accepts existing matching release tags on promote rerun", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-docker-publish-existing-"));
+  try {
+    const workspace = await fakeDockerPublishWorkspace(tmp);
+    const digest = `sha256:${"a".repeat(64)}`;
+    const result = runScriptWithNodeArgs(workspace.script, {
+      ...releaseTagEnv("v0.1.0"),
+      DOCKER_STAGED_DIGEST: digest,
+      FF_MOCK_DOCKER_DIGEST: digest,
+      FF_MOCK_DOCKER_EXISTING_DIGEST: digest,
+      FF_MOCK_DOCKER_LOG: workspace.log,
+      GITHUB_ACTOR: "VictorHaine",
+      GITHUB_REPOSITORY: "VictorHaine/p2p-transfer",
+      GITHUB_TOKEN: "token-that-must-not-be-printed",
+      PATH: `${workspace.bin}${path.delimiter}${process.env.PATH ?? ""}`
+    }, ["--promote"]);
+    const log = await fs.readFile(workspace.log, "utf8");
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /Promoted ghcr\.io\/victorhaine\/p2p-transfer@sha256:/);
+    assert.doesNotMatch(result.stdout + result.stderr, /token-that-must-not-be-printed|Error:/);
+    assert.match(log, /^login ghcr\.io -u VictorHaine --password-stdin\n/);
+    assert.match(log, /pull ghcr\.io\/victorhaine\/p2p-transfer@sha256:/);
+    assert.match(log, /pull ghcr\.io\/victorhaine\/p2p-transfer:v0\.1\.0\n/);
+    assert.match(log, /pull ghcr\.io\/victorhaine\/p2p-transfer:0\.1\.0\n/);
+    assert.doesNotMatch(log, /^tag |^push /m);
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
+test("Docker publish script rejects existing release tags that point at another digest", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-docker-publish-drift-"));
+  try {
+    const workspace = await fakeDockerPublishWorkspace(tmp);
+    const digest = `sha256:${"a".repeat(64)}`;
+    const existingDigest = `sha256:${"b".repeat(64)}`;
+    const result = runScriptWithNodeArgs(workspace.script, {
+      ...releaseTagEnv("v0.1.0"),
+      DOCKER_STAGED_DIGEST: digest,
+      FF_MOCK_DOCKER_DIGEST: digest,
+      FF_MOCK_DOCKER_EXISTING_DIGEST: existingDigest,
+      FF_MOCK_DOCKER_LOG: workspace.log,
+      GITHUB_ACTOR: "VictorHaine",
+      GITHUB_REPOSITORY: "VictorHaine/p2p-transfer",
+      GITHUB_TOKEN: "token-that-must-not-be-printed",
+      PATH: `${workspace.bin}${path.delimiter}${process.env.PATH ?? ""}`
+    }, ["--promote"]);
+    const log = await fs.readFile(workspace.log, "utf8");
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Docker image publish failed:\n- docker release image already points to a different digest\./);
+    assert.doesNotMatch(result.stderr, /token-that-must-not-be-printed|sha256:|ghcr\.io|Error:/);
+    assert.match(log, /pull ghcr\.io\/victorhaine\/p2p-transfer:v0\.1\.0\n/);
+    assert.doesNotMatch(log, /^tag |^push /m);
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
 test("release helper imports have no privileged side effects", () => {
   const result = spawnSync(
     process.execPath,
@@ -4263,6 +4324,7 @@ const mainSha = "0123456789abcdef0123456789abcdef01234567";
 const codeqlRunSha = process.env.FF_MOCK_CODEQL_STALE === "true" ? "ffffffffffffffffffffffffffffffffffffffff" : mainSha;
 const codeqlRunConclusion = process.env.FF_MOCK_CODEQL_FAILED === "true" ? "failure" : "success";
 const secretScanningStatus = process.env.FF_MOCK_SECRET_SCANNING_DISABLED === "true" ? "disabled" : "enabled";
+const targetVersionExists = process.env.FF_MOCK_TARGET_VERSION_EXISTS === "true";
 
 function record(method, origin, path) {
   appendFileSync(log, method + " " + origin + path + "\\n", "utf8");
@@ -4329,7 +4391,7 @@ globalThis.fetch = async (url, init = {}) => {
   const json = (status, body, headers = {}) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
   if (parsed.origin === "https://registry.npmjs.org" && method === "GET" && path === "/%40victorhaine%2Fp2p-transfer") {
     return json(200, {
-      versions: { "0.0.0-bootstrap.0": {} },
+      versions: targetVersionExists ? { "0.0.0-bootstrap.0": {}, "0.1.0": {} } : { "0.0.0-bootstrap.0": {} },
       "dist-tags": bootstrapLatest ? { bootstrap: "0.0.0-bootstrap.0", latest: "0.0.0-bootstrap.0" } : { bootstrap: "0.0.0-bootstrap.0" }
     });
   }
@@ -4468,6 +4530,60 @@ globalThis.fetch = async (url, init = {}) => {
     assert.match(disabledSecretScanningResult.stderr, /GitHub repository secret scanning must be enabled\./);
     assert.doesNotMatch(disabledSecretScanningResult.stderr, /token-that-must-not-be-printed|disabled|api\.github|registry\.npmjs|Error:/);
 
+    const existingTargetWithoutFlagResult = runScriptWithNodeArgs(
+      "scripts/check-release-readiness.mjs",
+      {
+        FF_MOCK_PREFLIGHT_LOG: log,
+        FF_MOCK_TARGET_VERSION_EXISTS: "true",
+        GITHUB_ACTIONS: "true",
+        GITHUB_ACTOR: "tagger",
+        GITHUB_TOKEN: "ghs_token-that-must-not-be-printed",
+        ...releaseTagEnv("v0.1.0")
+      },
+      [],
+      ["--import", mock]
+    );
+    assert.notEqual(existingTargetWithoutFlagResult.status, 0);
+    assert.equal(existingTargetWithoutFlagResult.stdout, "");
+    assert.match(existingTargetWithoutFlagResult.stderr, /npm package version already exists; bump package\.json before tagging\./);
+    assert.doesNotMatch(existingTargetWithoutFlagResult.stderr, /token-that-must-not-be-printed|0\.1\.0|api\.github|registry\.npmjs|Error:/);
+
+    const existingTargetWithFlagResult = runScriptWithNodeArgs(
+      "scripts/check-release-readiness.mjs",
+      {
+        FF_MOCK_PREFLIGHT_LOG: log,
+        FF_MOCK_TARGET_VERSION_EXISTS: "true",
+        GITHUB_ACTIONS: "true",
+        GITHUB_ACTOR: "tagger",
+        GITHUB_TOKEN: "ghs_token-that-must-not-be-printed",
+        ...releaseTagEnv("v0.1.0")
+      },
+      ["--allow-existing-npm-version"],
+      ["--import", mock]
+    );
+    assert.equal(existingTargetWithFlagResult.status, 0, existingTargetWithFlagResult.stderr);
+    assert.equal(existingTargetWithFlagResult.stderr, "");
+    assert.deepEqual(JSON.parse(existingTargetWithFlagResult.stdout), { repository: "VictorHaine/p2p-transfer", ok: true });
+    assert.doesNotMatch(existingTargetWithFlagResult.stdout, /token-that-must-not-be-printed|0\.1\.0|api\.github|registry\.npmjs/);
+
+    const existingTargetWrongContextResult = runScriptWithNodeArgs(
+      "scripts/check-release-readiness.mjs",
+      {
+        FF_MOCK_PREFLIGHT_LOG: log,
+        FF_MOCK_TARGET_VERSION_EXISTS: "true",
+        GITHUB_ACTIONS: "true",
+        GITHUB_ACTOR: "tagger",
+        GITHUB_TOKEN: "ghs_token-that-must-not-be-printed",
+        ...releaseTagEnv("v0.2.0")
+      },
+      ["--allow-existing-npm-version"],
+      ["--import", mock]
+    );
+    assert.notEqual(existingTargetWrongContextResult.status, 0);
+    assert.equal(existingTargetWrongContextResult.stdout, "");
+    assert.match(existingTargetWrongContextResult.stderr, /Existing npm versions may only be allowed during a matching GitHub release tag workflow rerun\./);
+    assert.doesNotMatch(existingTargetWrongContextResult.stderr, /token-that-must-not-be-printed|0\.1\.0|0\.2\.0|api\.github|registry\.npmjs|Error:/);
+
     const bootstrapLatestResult = runScriptWithNodeArgs(
       "scripts/check-release-readiness.mjs",
       {
@@ -4568,6 +4684,81 @@ if (process.env.FF_MOCK_NPM_PUBLISH_EXIT) process.exit(Number(process.env.FF_MOC
     script: path.join(scripts, "publish-release-artifact.mjs"),
     tarball
   };
+}
+
+async function fakeDockerPublishWorkspace(tmp: string) {
+  const scripts = path.join(tmp, "scripts");
+  const bin = path.join(tmp, "bin");
+  const log = path.join(tmp, "docker.log");
+  await fs.mkdir(scripts);
+  await fs.mkdir(bin);
+  await fs.copyFile(path.join(root, "scripts", "publish-docker-image.mjs"), path.join(scripts, "publish-docker-image.mjs"));
+  await fs.writeFile(
+    path.join(scripts, "docker-config.mjs"),
+    `
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+
+export function createIsolatedDockerConfig(prefix) {
+  return mkdtempSync(path.join(tmpdir(), prefix));
+}
+`,
+    "utf8"
+  );
+  await fs.writeFile(
+    path.join(scripts, "smoke-packed.mjs"),
+    `
+export function safeChildEnv() {
+  return {
+    PATH: process.env.PATH ?? "",
+    FF_MOCK_DOCKER_DIGEST: process.env.FF_MOCK_DOCKER_DIGEST,
+    FF_MOCK_DOCKER_EXISTING_DIGEST: process.env.FF_MOCK_DOCKER_EXISTING_DIGEST,
+    FF_MOCK_DOCKER_LOG: process.env.FF_MOCK_DOCKER_LOG
+  };
+}
+`,
+    "utf8"
+  );
+  await fs.writeFile(path.join(scripts, "verify-live-release-ref.mjs"), "export async function assertLiveReleaseRefFromEnv() {}\n", "utf8");
+  await fs.writeFile(path.join(tmp, "package.json"), JSON.stringify({ version: "0.1.0" }), "utf8");
+  const fakeDocker = path.join(bin, process.platform === "win32" ? "docker.cmd" : "docker");
+  await fs.writeFile(
+    fakeDocker,
+    `#!/usr/bin/env node
+import { appendFileSync } from "node:fs";
+
+const log = process.env.FF_MOCK_DOCKER_LOG;
+const args = process.argv.slice(2);
+appendFileSync(log, args.join(" ") + "\\n", "utf8");
+const digest = process.env.FF_MOCK_DOCKER_DIGEST;
+const existingDigest = process.env.FF_MOCK_DOCKER_EXISTING_DIGEST;
+
+if (args[0] === "login") {
+  process.stdin.resume();
+  process.stdin.on("end", () => process.exit(0));
+} else if (args[0] === "pull" && args[1].includes("@sha256:")) {
+  console.log("Digest: " + digest);
+} else if (args[0] === "pull") {
+  if (existingDigest === "missing") {
+    console.error("manifest unknown");
+    process.exit(1);
+  }
+  console.log("Digest: " + existingDigest);
+} else if (args[0] === "tag") {
+  process.exit(0);
+} else if (args[0] === "push") {
+  console.log("digest: " + digest);
+} else {
+  console.error("unexpected docker command");
+  process.exit(1);
+}
+`,
+    "utf8"
+  );
+  await fs.chmod(fakeDocker, 0o755);
+  await fs.writeFile(log, "", "utf8");
+  return { bin, log, script: path.join(scripts, "publish-docker-image.mjs") };
 }
 
 function exactNpmRegistryMock({ integrity, shasum }: { integrity: string; shasum: string }): string {
