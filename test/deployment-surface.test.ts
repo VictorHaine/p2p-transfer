@@ -68,6 +68,7 @@ const PINNED_ACTIONS = new Map([
   ["actions/setup-node", { sha: "49933ea5288caeca8642d1e84afbd3f7d6820020", version: "v4.4.0" }],
   ["actions/upload-artifact", { sha: "ea165f8d65b6e75b540449e92b4886f43607fa02", version: "v4.6.2" }],
   ["actions/download-artifact", { sha: "d3f86a106a0bac45b974a628896c90dbdf5c8093", version: "v4.3.0" }],
+  ["actions/attest", { sha: "59d89421af93a897026c735860bf21b6eb4f7b26", version: "v4.1.0" }],
   ["actions/attest-build-provenance", { sha: "a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32", version: "v4.1.0" }],
   ["actions/dependency-review-action", { sha: "a1d282b36b6f3519aa1f3fc636f609c47dddb294", version: "v5.0.0" }],
   ["aquasecurity/trivy-action", { sha: "a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8", version: "v0.36.0" }],
@@ -381,8 +382,9 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releaseDockerStageJob, /node scripts\/prepare-checked-pnpm\.mjs[\s\S]*Build, smoke, and stage image[\s\S]*id: docker_image[\s\S]*GITHUB_TOKEN: \$\{\{ github\.token \}\}[\s\S]*run: node scripts\/publish-docker-image\.mjs/);
   assert.match(releaseDockerStageJob, /Scan staged image for vulnerabilities[\s\S]*aquasecurity\/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0\.36\.0[\s\S]*image-ref: \$\{\{ steps\.docker_image\.outputs\.image \}\}@\$\{\{ steps\.docker_image\.outputs\.digest \}\}[\s\S]*exit-code: "1"[\s\S]*ignore-unfixed: true[\s\S]*vuln-type: os,library[\s\S]*severity: CRITICAL,HIGH[\s\S]*TRIVY_USERNAME: \$\{\{ github\.actor \}\}[\s\S]*TRIVY_PASSWORD: \$\{\{ github\.token \}\}/);
   assert.match(releaseDockerStageJob, /Generate staged image SBOM[\s\S]*aquasecurity\/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0\.36\.0[\s\S]*scan-type: image[\s\S]*format: cyclonedx[\s\S]*output: docker-image-sbom\.cdx\.json[\s\S]*scanners: vuln/);
+  assert.match(releaseDockerStageJob, /actions\/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4\.1\.0[\s\S]*subject-name: \$\{\{ steps\.docker_image\.outputs\.image \}\}[\s\S]*subject-digest: \$\{\{ steps\.docker_image\.outputs\.digest \}\}[\s\S]*sbom-path: docker-image-sbom\.cdx\.json[\s\S]*push-to-registry: true/);
   assert.match(releaseDockerStageJob, /actions\/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4\.6\.2[\s\S]*name: docker-image-sbom[\s\S]*path: docker-image-sbom\.cdx\.json[\s\S]*if-no-files-found: error/);
-  assert.match(releaseDockerStageJob, /run: node scripts\/publish-docker-image\.mjs[\s\S]*Scan staged image for vulnerabilities[\s\S]*Generate staged image SBOM[\s\S]*actions\/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4\.6\.2[\s\S]*actions\/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4\.1\.0/);
+  assert.match(releaseDockerStageJob, /run: node scripts\/publish-docker-image\.mjs[\s\S]*Scan staged image for vulnerabilities[\s\S]*Generate staged image SBOM[\s\S]*actions\/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4\.1\.0[\s\S]*actions\/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4\.6\.2[\s\S]*actions\/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4\.1\.0/);
   assert.match(releaseDockerStageJob, /actions\/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4\.1\.0[\s\S]*subject-name: \$\{\{ steps\.docker_image\.outputs\.image \}\}[\s\S]*subject-digest: \$\{\{ steps\.docker_image\.outputs\.digest \}\}[\s\S]*push-to-registry: true/);
   assert.doesNotMatch(releaseDockerStageJob, /Promote attested image|corepack prepare pnpm@/);
   assert.match(releaseDockerPromoteJob, /needs:\n      - publish\n      - docker-stage/);
@@ -1198,7 +1200,7 @@ test("documented release gates require a hardened Docker runtime smoke, not just
   assert.match(securityPolicy, /must not use static npm tokens/);
   assert.match(securityPolicy, /checked Docker policy smoke script that proves the production Docker image independently refuses to start without `ALLOWED_ORIGINS` and without `SIGNALING_TOPOLOGY`/);
   assert.match(securityPolicy, /verify `\/healthz`, origin policy, and the bundled web UI from that running container/);
-  assert.match(securityPolicy, /Docker staging must scan the exact staged GHCR digest for unfixed high or critical OS and library vulnerabilities before provenance attestation, must generate a CycloneDX image SBOM artifact from that same digest, and must use a full-length pinned scanner action/);
+  assert.match(securityPolicy, /Docker staging must scan the exact staged GHCR digest for unfixed high or critical OS and library vulnerabilities before provenance attestation, must generate a CycloneDX image SBOM artifact from that same digest, must attest that SBOM to the staged digest before artifact upload or provenance attestation, and must use full-length pinned scanner and attestation actions/);
   assert.match(securityPolicy, /accepts the configured production origin and rejects an untrusted origin on both the HTTP ICE endpoint and the WebSocket signaling upgrade path/);
   assert.match(securityPolicy, /explicit signaling topology/);
 });

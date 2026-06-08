@@ -127,6 +127,12 @@ jobs:
         env:
           TRIVY_USERNAME: ${{ github.actor }}
           TRIVY_PASSWORD: ${{ github.token }}
+      - uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        with:
+          subject-name: ${{ steps.docker_image.outputs.image }}
+          subject-digest: ${{ steps.docker_image.outputs.digest }}
+          sbom-path: docker-image-sbom.cdx.json
+          push-to-registry: true
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: docker-image-sbom
