@@ -22,7 +22,7 @@ const securityPolicy = fsSync.readFileSync(new URL("../SECURITY.md", import.meta
 const testStartedAt = Date.now();
 
 after(async () => {
-  await removeCreatedTempDirs(["ff-publish-", "ff-reserve-", "ff-out-realpath-", "ff-collision-long-", "ff-symlink-send-"]);
+  await removeCreatedTempDirs(["ff-publish-", "ff-reserve-", "ff-out-realpath-", "ff-out-private-", "ff-collision-long-", "ff-symlink-send-"]);
 });
 
 test("publishPartFile atomically refuses to overwrite an existing file", async () => {
@@ -718,6 +718,29 @@ test("ensureOutputDir returns the canonical directory path before receiving file
   assert.equal(await ensureOutputDir(link), await fs.realpath(target));
 });
 
+test("ensureOutputDir private mode creates private output directories", { skip: process.platform === "win32" ? "POSIX mode bits do not apply on Windows." : false }, async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ff-out-private-"));
+  const target = path.join(root, "private");
+
+  for (const outputDir of [ensureOutputDir, distEnsureOutputDir]) {
+    await fs.rm(target, { force: true, recursive: true });
+    const resolved = await outputDir(target, { private: true });
+    const stat = await fs.stat(resolved);
+    assert.equal((stat.mode & 0o777), 0o700);
+  }
+});
+
+test("ensureOutputDir private mode rejects existing public output directories", { skip: process.platform === "win32" ? "POSIX mode bits do not apply on Windows." : false }, async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ff-out-private-"));
+
+  for (const outputDir of [ensureOutputDir, distEnsureOutputDir]) {
+    const target = path.join(root, `public-${Math.random().toString(16).slice(2)}`);
+    await fs.mkdir(target, { mode: 0o700 });
+    await fs.chmod(target, 0o755);
+    await assert.rejects(() => outputDir(target, { private: true }), /Output directory is not private/);
+  }
+});
+
 test("ensureOutputDir rejects unsafe runtime values before path resolution", async () => {
   let coerced = false;
   const hostile = {
@@ -750,6 +773,9 @@ test("ensureOutputDir input policy is present in source and shipped artifacts", 
     assert.match(source, /MAX_OUTPUT_DIR_BYTES = 4096/);
     assert.match(source, /UNSAFE_OUTPUT_DIR_CHARS/);
     assert.match(source, /path\.resolve\(outputDirInput\(dir\)\)/);
+    assert.match(source, /mode: options\?\.private \? 0o700 : undefined/);
+    assert.match(source, /function assertPrivateOutputDirStat/);
+    assert.match(source, /\(stat\.mode & 0o077\) !== 0/);
     assert.match(source, /const outputDirIdentity = await directoryIdentity\(outputDir\)/);
     assert.match(source, /await assertDirectoryIdentity\(outputDir, outputDirIdentity\)/);
     assert.match(source, /dirDev: outputDirIdentity\.dev/);

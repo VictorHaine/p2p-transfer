@@ -71,7 +71,7 @@ test("CLI local-private-mode redacts transfer metadata during a real transfer", 
   const out = path.join(tmp, "out");
   const code = "12345684-apple-anchor";
   const source = path.join(tmp, "private-tax-form.pdf");
-  await fs.mkdir(out);
+  await fs.mkdir(out, { mode: 0o700 });
   await fs.writeFile(source, "redacted cli transfer\n");
   const childEnv = {
     ...testChildEnv(tmp),

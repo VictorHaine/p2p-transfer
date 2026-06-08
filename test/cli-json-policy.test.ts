@@ -100,11 +100,13 @@ test("CLI receive validates supplied codes before filesystem or signaling side e
   assert.match(securityPolicy, /interactive receive flows must emit a generic no-values warning to human stderr when `recv --code` or `recv --out` accepts a supplied receive code or output directory from argv unless quiet output is selected, and JSON mode must emit the same warning as a structured no-values event/);
   for (const source of [cliSource, distCliSource]) {
     const recvBody = extractFunctionBody(source, "recv");
+    const outputDirCall = "ensureOutputDir(outputDirInput, { private: Boolean(options.localPrivateMode) })";
     assert.match(recvBody, /const outputDirInput = resolveRecvOutputDir\(options\)/);
     assert.match(recvBody, /const suppliedCode = await resolveRecvCode\(options\)/);
     assert.match(recvBody, /const runtime = await reviewedCliRuntime\(\)/);
-    assert.equal(recvBody.indexOf("resolveRecvCode(options)") < recvBody.indexOf("ensureOutputDir(outputDirInput)"), true);
-    assert.equal(recvBody.indexOf("reviewedCliRuntime()") < recvBody.indexOf("ensureOutputDir(outputDirInput)"), true);
+    assert.equal(recvBody.indexOf("resolveRecvCode(options)") < recvBody.indexOf(outputDirCall), true);
+    assert.equal(recvBody.indexOf("reviewedCliRuntime()") < recvBody.indexOf(outputDirCall), true);
+    assert.match(recvBody, /ensureOutputDir\(outputDirInput, \{ private: Boolean\(options\.localPrivateMode\) \}\)/);
     assert.match(recvBody, /const serverUrl = resolveServerUrl\(options\)/);
     assert.equal(recvBody.indexOf("resolveServerUrl(options)") < recvBody.indexOf("openSignaling(serverUrl)"), true);
     assert.equal(recvBody.indexOf("resolveRecvCode(options)") < recvBody.indexOf("openSignaling(serverUrl)"), true);
@@ -266,8 +268,9 @@ test("CLI private receive-code inputs are not echoed back into local telemetry",
   assert.match(readme, /Use `--local-private-mode` when you want the local CLI privacy preset/);
   assert.match(securityPolicy, /`--require-private-input` must reject `--server`, `recv --code`, `recv --out`, `send <code>`, and send file paths supplied through argv before filesystem, signaling, or peer work/);
   assert.match(readme, /`recv --local-private-mode` requires `--code-stdin` or `--code-env`/);
+  assert.match(readme, /receive output directories used with `--local-private-mode` are created with mode `0700` when missing and rejected when an existing directory has group or other permission bits/);
   assert.match(readme, /`--code-env`, `--out-env`, and `--server-env` delete the variable after capture/);
-  assert.match(securityPolicy, /`--local-private-mode` must enable `--require-private-input` and `--redact-output` for send and receive commands, must additionally enable `recv --opaque-output-names`, and must reject `recv` without `--code-stdin` or `--code-env` before generating an unshareable redacted receive code/);
+  assert.match(securityPolicy, /`--local-private-mode` must enable `--require-private-input` and `--redact-output` for send and receive commands, must additionally enable `recv --opaque-output-names`, must create missing POSIX receive output directories with mode `0700`, must reject existing POSIX receive output directories with group or other permission bits, and must reject `recv` without `--code-stdin` or `--code-env` before generating an unshareable redacted receive code/);
   assert.match(readme, /The warnings never include the code, paths, or URL/);
   assert.match(securityPolicy, /CLI environment-sourced codes must be documented as protection from argv and shell-history capture only/);
   assert.doesNotMatch(readme, /printf '%s(?:\\n%s\\n)?' '<code>'/);

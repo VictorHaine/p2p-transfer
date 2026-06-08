@@ -462,6 +462,7 @@ test("packed package smoke installs and executes published bins", () => {
   assert.match(packedSmokeScript, /async function smokeInstalledTransfer\(consumerDir, childEnv, port, tmp\)/);
   assert.match(packedSmokeScript, /"exec", "ff", "--server-env", "FF_SIGNALING_SERVER", "--json", "--local-private-mode", "recv", "--code-stdin", "--yes", "--out-env", "FF_RECEIVE_OUT"/);
   assert.match(packedSmokeScript, /env: \{ \.\.\.childEnv, FF_RECEIVE_OUT: out, FF_SIGNALING_SERVER: serverUrl \}/);
+  assert.match(packedSmokeScript, /await mkdir\(out, \{ mode: 0o700 \}\)/);
   assert.match(packedSmokeScript, /endCheckedChildStdin\(receiver, `\$\{code\}\\n`, "packed ff recv"/);
   assert.match(packedSmokeScript, /let receiverStdinError/);
   assert.match(packedSmokeScript, /throw receiverStdinError \?\? error/);
@@ -485,7 +486,7 @@ test("packed package smoke installs and executes published bins", () => {
   assert.match(securityPolicy, /packed-install smoke HTTP probes must use an abort deadline that covers both headers and response body reads/);
   assert.match(securityPolicy, /packed-install smoke must fatal-UTF-8-decode project metadata and HTTP probe responses, parse project metadata and health response JSON with smoke-owned deterministic errors, and reject invalid health bodies without echoing response content/);
   assert.match(securityPolicy, /packed-install smoke must require exact `ff --version` stdout and empty stderr/);
-  assert.match(securityPolicy, /packed-install smoke must run an actual installed `ff recv` and `ff send` transfer through the installed `ff-server` using `--local-private-mode` plus private stdin receive-code input, environment-sourced receive-output input, and stdin file-list input, handle child stdin pipe errors with generic non-input-reporting failures, verify the receive path is opaque, then compare received bytes/);
+  assert.match(securityPolicy, /packed-install smoke must run an actual installed `ff recv` and `ff send` transfer through the installed `ff-server` using `--local-private-mode` plus private stdin receive-code input, private-mode-compatible environment-sourced receive-output input backed by a `0700` output directory on POSIX, and stdin file-list input, handle child stdin pipe errors with generic non-input-reporting failures, verify the receive path is opaque, then compare received bytes/);
   assert.match(securityPolicy, /packed-install smoke must validate the project package name and `version`, derive the exact expected npm tarball name from that metadata before installing a self-packed workspace, and reject any pack output that is not exactly that single tarball/);
   assert.match(securityPolicy, /packed-install smoke must validate the project `packageManager` is an exact hash-pinned `pnpm@\d+\.\d+\.\d+\+sha512\.[a-f0-9]+` pin/);
   assert.match(securityPolicy, /provided tarball paths must reject terminal control\/format characters and staging\/open failures must not echo raw tarball paths/);
@@ -1152,10 +1153,13 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(githubReleaseScript, /await assertRemoteReleaseAssetsMatch\(token, repository, id, assets\);\n\s+\} catch \(error\) \{/);
   assert.match(githubReleaseScript, /draft: true/);
   assert.match(githubReleaseScript, /await publishDraftRelease\(token, repository, id\)/);
+  assert.match(githubReleaseScript, /await assertPublishedReleaseMatches\(token, repository, id, tag, notes, assets\)/);
+  assert.match(githubReleaseScript, /async function assertPublishedReleaseMatches\(token, repository, id, tag, notes, assets\) \{[\s\S]*const release = await github\(token, "GET", `\/repos\/\$\{repository\}\/releases\/\$\{id\}`\);[\s\S]*await assertRemoteReleaseAssetsMatch\(token, repository, id, assets\);[\s\S]*\}/);
   assert.match(githubReleaseScript, /await reconcileDraftPublishFailure\(token, repository, id, tag, notes, assets\)\.catch\(\(\) => false\)/);
   assert.match(githubReleaseScript, /const state = releaseState\(release, id, tag, notes\)/);
   assert.match(githubReleaseScript, /if \(state === "published"\) \{[\s\S]*await assertRemoteReleaseAssetsMatch\(token, repository, id, assets\);[\s\S]*return true;[\s\S]*\}/);
   assert.match(githubReleaseScript, /await deleteDraftRelease\(token, repository, id\)\.catch\(\(\) => undefined\)/);
+  assert.match(securityPolicy, /re-read the release after a successful final publish and fail unless the published title, release notes, prerelease flag, and remote asset bytes still match the verified release metadata and artifacts/);
   assert.match(securityPolicy, /treat an already-published release as successful only after checking the same verified metadata and remote asset bytes/);
   assert.doesNotMatch(githubReleaseScript, /"gh"|gh release create|"--verify-tag"/);
   assert.match(githubReleaseScript, /requiredRepository\(requiredEnvString\("GITHUB_REPOSITORY"\)\)/);

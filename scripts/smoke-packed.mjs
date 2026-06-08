@@ -254,7 +254,7 @@ async function smokeInstalledTransfer(consumerDir, childEnv, port, tmp) {
   const source = path.join(tmp, "transfer-source.txt");
   const out = path.join(tmp, "received");
   const expected = Buffer.from("packed installed cli transfer\n", "utf8");
-  await mkdir(out);
+  await mkdir(out, { mode: 0o700 });
   await writeFile(source, expected);
   const serverUrl = `ws://127.0.0.1:${port}/v1/ws`;
   const code = "12345678-apple-anchor";

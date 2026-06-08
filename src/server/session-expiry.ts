@@ -1,4 +1,4 @@
-import { PAIR_TIMEOUT_MS, PAKE_TIMEOUT_MS, SESSION_TTL_MS } from "../shared/constants.js";
+import { PAIR_TIMEOUT_MS, PAKE_TIMEOUT_MS } from "../shared/constants.js";
 import type { ClientMessage } from "../shared/messages.js";
 
 export function initialSessionExpiresAt(now: number): number {
@@ -11,7 +11,7 @@ export function nextSessionExpiresAt(current: number, now: number, message: Extr
   assertFiniteTime(now);
   const type = ownDataValue(message, "type");
   if (type === "pair-request") return now + PAIR_TIMEOUT_MS;
-  return type === "pair-accept" ? now + SESSION_TTL_MS : current;
+  return type === "pair-accept" ? now + PAIR_TIMEOUT_MS : current;
 }
 
 export function remainingExpirySeconds(expiresAt: number, now: number): number {

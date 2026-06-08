@@ -166,6 +166,7 @@ export async function createGitHubRelease(token, repository, tag, expectedSha, n
   try {
     await liveRefCheck();
     await publishDraftRelease(token, repository, id);
+    await assertPublishedReleaseMatches(token, repository, id, tag, notes, assets);
   } catch (error) {
     if (await reconcileDraftPublishFailure(token, repository, id, tag, notes, assets).catch(() => false)) return;
     throw error;
@@ -289,6 +290,12 @@ async function deleteDraftRelease(token, repository, id) {
 
 async function publishDraftRelease(token, repository, id) {
   await github(token, "PATCH", `/repos/${repository}/releases/${id}`, { draft: false });
+}
+
+async function assertPublishedReleaseMatches(token, repository, id, tag, notes, assets) {
+  const release = await github(token, "GET", `/repos/${repository}/releases/${id}`);
+  if (releaseState(release, id, tag, notes) !== "published") throw new Error("GitHub release was not published.");
+  await assertRemoteReleaseAssetsMatch(token, repository, id, assets);
 }
 
 async function assertRemoteReleaseAssetsMatch(token, repository, releaseId, assets) {

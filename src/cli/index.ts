@@ -220,7 +220,7 @@ async function recv(options: RecvOptions): Promise<void> {
   const suppliedCode = await resolveRecvCode(options);
   const outputDirInput = resolveRecvOutputDir(options);
   const runtime = await reviewedCliRuntime();
-  const outDir = await ensureOutputDir(outputDirInput);
+  const outDir = await ensureOutputDir(outputDirInput, { private: Boolean(options.localPrivateMode) });
 
   const signaling = await openSignaling(serverUrl);
   let peer: CliPeer | undefined;

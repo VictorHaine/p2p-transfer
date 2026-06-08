@@ -41,6 +41,10 @@ export type ReservedOutputFile = {
   resumeHash?: Sha256;
 };
 
+type EnsureOutputDirOptions = {
+  private?: boolean;
+};
+
 type FileSnapshot = {
   dev: number;
   ino: number;
@@ -142,12 +146,17 @@ function sendFileCloseOperation(file: unknown): Promise<unknown> | undefined {
   return Promise.resolve().then(() => close.call(handle));
 }
 
-export async function ensureOutputDir(dir: string): Promise<string> {
+export async function ensureOutputDir(dir: string, options?: EnsureOutputDirOptions): Promise<string> {
   const resolved = path.resolve(outputDirInput(dir));
-  await fs.promises.mkdir(resolved, { recursive: true });
+  await fs.promises.mkdir(resolved, { recursive: true, mode: options?.private ? 0o700 : undefined });
   const stat = await fs.promises.stat(resolved);
   if (!stat.isDirectory()) throw new Error("Output path is not a directory.");
+  if (options?.private) assertPrivateOutputDirStat(stat);
   return fs.promises.realpath(resolved);
+}
+
+function assertPrivateOutputDirStat(stat: fs.Stats): void {
+  if (process.platform !== "win32" && (stat.mode & 0o077) !== 0) throw new Error("Output directory is not private.");
 }
 
 function outputDirInput(dir: unknown): string {

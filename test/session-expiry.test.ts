@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { PAIR_TIMEOUT_MS, PAKE_TIMEOUT_MS, SESSION_TTL_MS } from "../src/shared/constants.js";
+import { PAIR_TIMEOUT_MS, PAKE_TIMEOUT_MS } from "../src/shared/constants.js";
 import { initialSessionExpiresAt, nextSessionExpiresAt, remainingExpirySeconds } from "../src/server/session-expiry.js";
 
 const sessionExpirySource = fs.readFileSync(new URL("../src/server/session-expiry.ts", import.meta.url), "utf8");
@@ -14,12 +14,14 @@ test("new signaling sessions expire at the PAKE deadline until sender proves the
   assert.equal(initialSessionExpiresAt(now), now + PAKE_TIMEOUT_MS);
 });
 
-test("pair request and receiver acceptance extend session deadlines", () => {
+test("pair request and receiver acceptance use the bounded setup deadline", () => {
   const now = 1_000_000;
   const current = initialSessionExpiresAt(now);
   assert.equal(nextSessionExpiresAt(current, now + 10, { type: "pake", sid: "sid", data: "share" }), current);
   assert.equal(nextSessionExpiresAt(current, now + 20, { type: "pair-request", sid: "sid", manifest: { fileCount: 1, totalBytes: 1, files: [{ name: "x", size: 1 }] }, sealedManifest: "sealed" }), now + 20 + PAIR_TIMEOUT_MS);
-  assert.equal(nextSessionExpiresAt(current, now + 30, { type: "pair-accept", sid: "sid", auth: AUTH_TAG }), now + 30 + SESSION_TTL_MS);
+  assert.equal(nextSessionExpiresAt(current, now + 30, { type: "pair-accept", sid: "sid", auth: AUTH_TAG }), now + 30 + PAIR_TIMEOUT_MS);
+  assert.match(securityPolicy, /post-accept signaling sessions must keep only a bounded WebRTC setup window/);
+  assert.doesNotMatch(sessionExpirySource, /SESSION_TTL_MS/);
 });
 
 test("restored pre-pair registrations report remaining original code TTL", () => {
