@@ -290,6 +290,82 @@ test("built signaling server rejects public pair request MIME metadata without f
   assert.doesNotMatch(serverOutput.text(), /application\/pdf|sender-share|receiver-share|12345683/);
 });
 
+test("built signaling server mints TURN REST credentials only after pair acceptance", async () => {
+  const root = process.cwd();
+  const port = 31_000 + randomInt(1_000);
+  const origin = `http://127.0.0.1:${port}`;
+  const serverUrl = `ws://127.0.0.1:${port}/v1/ws`;
+  const code = "12345685";
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-server-turn-rest-"));
+  const server = spawn(process.execPath, ["dist-node/server/index.js"], {
+    cwd: root,
+    env: {
+      ...testChildEnv(tmp),
+      PORT: String(port),
+      HOST: "127.0.0.1",
+      NODE_ENV: "production",
+      ALLOWED_ORIGINS: origin,
+      SIGNALING_TOPOLOGY: "single-instance",
+      ALLOW_INSECURE_ORIGINS: "true",
+      ICE_SERVERS: '[{"urls":"stun:stun.example.test:3478"}]',
+      TURN_REST_SECRET: "s".repeat(32),
+      TURN_URLS: '"turn:turn.example.test:3478?transport=tcp"',
+      TURN_REST_ALLOW_UNVERIFIED_ACCEPT: "true"
+    }
+  });
+  const serverOutput = collectOutput(server);
+
+  let receiver: WebSocket | undefined;
+  let sender: WebSocket | undefined;
+  try {
+    await waitForOutput(server, /listening/);
+    const unauthenticatedIce = await fetch(`http://127.0.0.1:${port}/v1/ice`, { headers: { Origin: origin } });
+    assert.equal(unauthenticatedIce.status, 200);
+    assertPublicIceOnly(asIceServers((await unauthenticatedIce.json()) as ServerEvent));
+
+    receiver = await connectWs(serverUrl, origin);
+    sendJson(receiver, { type: "register", role: "receiver", code, protocolVersion: PROTOCOL_VERSION });
+    assert.equal((await waitForServerEvent(receiver, "registered")).code, code);
+
+    sender = await connectWs(serverUrl, origin);
+    sendJson(sender, { type: "connect", role: "sender", code, protocolVersion: PROTOCOL_VERSION });
+    const receiverJoined = await waitForServerEvent(receiver, "peer-joined");
+    const senderJoined = await waitForServerEvent(sender, "peer-joined");
+    assert.equal(senderJoined.sid, receiverJoined.sid);
+    const sid = String(senderJoined.sid);
+
+    sendJson(sender, { type: "pake", sid, data: "sender-share" });
+    assert.equal((await waitForServerEvent(receiver, "pake", sid)).type, "pake");
+    sendJson(receiver, { type: "pake", sid, data: "receiver-share" });
+    assert.equal((await waitForServerEvent(sender, "pake", sid)).type, "pake");
+    sendJson(sender, { type: "confirm", sid, tag: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" });
+    assert.equal((await waitForServerEvent(receiver, "confirm", sid)).type, "confirm");
+    sendJson(receiver, { type: "confirm", sid, tag: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" });
+    assert.equal((await waitForServerEvent(sender, "confirm", sid)).type, "confirm");
+
+    sendJson(sender, { type: "pair-request", sid, manifest: constantPublicManifest(), sealedManifest: Buffer.alloc(20).toString("base64") });
+    const forwardedRequest = await waitForServerEvent(receiver, "pair-request", sid);
+    assert.deepEqual(forwardedRequest.manifest, constantPublicManifest());
+    assert.equal(forwardedRequest.sealedManifest, Buffer.alloc(20).toString("base64"));
+
+    sendJson(receiver, { type: "pair-accept", sid, auth: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" });
+    const senderIce = await waitForServerEvent(sender, "ice-config");
+    const senderAccept = await waitForServerEvent(sender, "pair-accept", sid);
+    const receiverIce = await waitForServerEvent(receiver, "ice-config");
+    assert.equal(senderAccept.type, "pair-accept");
+    assertAcceptedTurnIce(asIceServers(senderIce));
+    assertAcceptedTurnIce(asIceServers(receiverIce));
+  } finally {
+    receiver?.terminate();
+    sender?.terminate();
+    server.kill();
+    await serverOutput.done;
+    await removeTestTemp(tmp);
+  }
+
+  assert.doesNotMatch(serverOutput.text(), /12345685|sender-share|receiver-share|ssss/);
+});
+
 test("built signaling server exhausts receive codes after invalid pre-pair sender attempts", async () => {
   const root = process.cwd();
   const port = 21_000 + randomInt(1_000);
@@ -761,6 +837,37 @@ function constantPublicManifest(): ServerEvent {
     totalBytes: MAX_FILE_BYTES * MAX_FILES_PER_SESSION,
     files: Array.from({ length: MAX_FILES_PER_SESSION }, (_, id) => ({ id, name: `encrypted-${id}`, size: MAX_FILE_BYTES }))
   };
+}
+
+function asIceServers(event: ServerEvent): Record<string, unknown>[] {
+  const iceServers = event.iceServers;
+  assert.ok(Array.isArray(iceServers), "iceServers must be an array");
+  return iceServers.map((entry) => {
+    assert.ok(entry && typeof entry === "object" && !Array.isArray(entry), "iceServers entries must be objects");
+    return entry as Record<string, unknown>;
+  });
+}
+
+function assertPublicIceOnly(iceServers: Record<string, unknown>[]): void {
+  assert.ok(iceServers.length >= 1);
+  assert.equal(iceServers.some(hasTurnUrl), false);
+  for (const server of iceServers) {
+    assert.equal(Object.hasOwn(server, "username"), false);
+    assert.equal(Object.hasOwn(server, "credential"), false);
+  }
+}
+
+function assertAcceptedTurnIce(iceServers: Record<string, unknown>[]): void {
+  const turn = iceServers.find(hasTurnUrl);
+  assert.ok(turn, "accepted session ICE must include TURN");
+  assert.match(String(turn.username), /^[0-9]+:[a-f0-9]{16}$/);
+  assert.match(String(turn.credential), /^[A-Za-z0-9+/]+={0,2}$/);
+}
+
+function hasTurnUrl(server: Record<string, unknown>): boolean {
+  const urls = server.urls;
+  const values = Array.isArray(urls) ? urls : [urls];
+  return values.some((url) => typeof url === "string" && /^(?:turn|turns):/i.test(url));
 }
 
 function waitForServerEvent(ws: WebSocket, type: string, sid?: string): Promise<ServerEvent> {

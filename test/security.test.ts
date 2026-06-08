@@ -54,6 +54,7 @@ import {
   parseJsonMessage as distParseJsonMessage,
   serializeMessage as distSerializeMessage
 } from "../dist-node/shared/messages.js";
+import type { SignalPayload } from "../src/shared/messages.js";
 import type { PakeRole, SessionKeys } from "../src/shared/security.js";
 
 const vectors = JSON.parse(fs.readFileSync(new URL("../conformance/protocol-v10.json", import.meta.url), "utf8")) as {
@@ -73,6 +74,14 @@ const vectors = JSON.parse(fs.readFileSync(new URL("../conformance/protocol-v10.
     kind: "manifest" | "control";
     sealedBase64: string;
     plaintext: unknown;
+  }[];
+  sealedSignalAead: {
+    name: string;
+    keyHex: string;
+    sid: string;
+    fromRole: PakeRole;
+    sealedBase64: string;
+    signal: SignalPayload;
   }[];
   bulkAead: {
     name: string;
@@ -1198,6 +1207,7 @@ test("pair decision authentication matches conformance vectors", () => {
 test("AEAD helpers match conformance vectors", async () => {
   assert.equal(vectors.encryptedJsonAead.some((vector) => vector.kind === "manifest"), true);
   assert.equal(vectors.encryptedJsonAead.some((vector) => vector.kind === "control"), true);
+  assert.equal(vectors.sealedSignalAead.some((vector) => vector.signal.kind === "candidate"), true);
   assert.equal(vectors.bulkAead.length >= 1, true);
 
   for (const vector of vectors.encryptedJsonAead) {
@@ -1209,6 +1219,16 @@ test("AEAD helpers match conformance vectors", async () => {
       assert.deepEqual(await openControl(keys, vector.sealedBase64), vector.plaintext, vector.name);
       assert.deepEqual(await distOpenControl(keys, vector.sealedBase64), vector.plaintext, vector.name);
     }
+  }
+
+  for (const vector of vectors.sealedSignalAead) {
+    const key = Buffer.from(vector.keyHex, "hex");
+    assert.deepEqual(await openSignal(key, vector.sid, vector.fromRole, vector.sealedBase64), vector.signal, vector.name);
+    assert.deepEqual(await distOpenSignal(key, vector.sid, vector.fromRole, vector.sealedBase64), vector.signal, vector.name);
+    const sealed = await withDeterministicGetRandomValues(() => sealSignal(key, vector.sid, vector.fromRole, vector.signal));
+    const distSealed = await withDeterministicGetRandomValues(() => distSealSignal(key, vector.sid, vector.fromRole, vector.signal));
+    assert.equal(sealed, vector.sealedBase64, vector.name);
+    assert.equal(distSealed, vector.sealedBase64, vector.name);
   }
 
   for (const vector of vectors.bulkAead) {
@@ -1922,6 +1942,20 @@ async function vectorSessionKeys(sid: string, keyHex: string, role: "encrypt" | 
 
 async function importAesVectorKey(raw: Uint8Array<ArrayBuffer>, usages: KeyUsage[]): Promise<CryptoKey> {
   return crypto.subtle.importKey("raw", raw, "AES-GCM", false, usages);
+}
+
+async function withDeterministicGetRandomValues<T>(fn: () => Promise<T>): Promise<T> {
+  const originalGetRandomValues = crypto.getRandomValues;
+  crypto.getRandomValues = ((array: ArrayBufferView | null) => {
+    if (!(array instanceof Uint8Array)) throw new Error("test RNG expects Uint8Array");
+    for (let index = 0; index < array.length; index += 1) array[index] = index;
+    return array;
+  }) as Crypto["getRandomValues"];
+  try {
+    return await fn();
+  } finally {
+    crypto.getRandomValues = originalGetRandomValues;
+  }
 }
 
 function readDistWebBundle(): string {

@@ -16,15 +16,15 @@ Status: required release-review artifact for the CPace PAKE dependency.
 ## Why It Is Used
 
 `@cipherman/pake-js` provides the CPace implementation used by `src/shared/security.ts`.
-The project calls `cpace.ristretto255.init` to create the local PAKE share and `cpace.ristretto255.deriveIskInitiatorResponder` to derive the shared PAKE output from the full transfer code and session id.
+The project imports the `@cipherman/pake-js/cpace` ESM subpath and calls `ristretto255.init` to create the local PAKE share and `ristretto255.deriveIskInitiatorResponder` to derive the shared PAKE output from the full transfer code and session id.
 That output is then expanded into signaling-authentication, manifest, control, and bulk-transfer keys.
 
 This package controls the untrusted-signaling trust boundary: if CPace is compromised, two peers may derive incorrect keys, accept a man-in-the-middle path, or fail to protect encrypted transfer metadata and payloads.
 
 ## Reviewed Install Surface
 
-- Import surface used by this project: package root import `@cipherman/pake-js`, using the exported `cpace` namespace and the `ristretto255` CPace API.
-- Package exports reviewed: `.`, `./spake2plus`, and `./cpace`; this project only depends on CPace behavior.
+- Import surface used by this project: ESM import `@cipherman/pake-js/cpace`, using the exported `ristretto255` CPace API.
+- Package exports reviewed: `.`, `./spake2plus`, and `./cpace`; this project depends on the `./cpace` ESM export for runtime PAKE behavior.
 - Entrypoints reviewed in installed metadata: `type` is `module`, `main` is `./dist/index.cjs`, and `types` is `./dist/index.d.ts`.
 - Published files reviewed in installed metadata: `dist`, `README.md`, `SECURITY.md`, `THREAT_MODEL.md`, `CHANGELOG.md`, and `LICENSE`.
 - Side-effect metadata reviewed: `sideEffects` is `false`.
@@ -33,8 +33,8 @@ This package controls the untrusted-signaling trust boundary: if CPace is compro
 - Direct runtime dependencies reviewed: `@cipherman/pake-js@0.1.1` and `@noble/curves@1.9.7`.
 - Package runtime dependency declaration reviewed: `@noble/curves` is declared as `^1.6.0` upstream.
 - Consumer resolution hardening reviewed: this package also declares `@noble/curves@1.9.7` as a direct exact production dependency so normal consumer installers resolve the reviewed CPace curve implementation instead of floating only through the upstream `^1.6.0` range.
-- Runtime consumer-install hardening reviewed: CLI send and receive fail closed unless the resolved package graph matches `@cipherman/pake-js@0.1.1`, `@noble/curves@1.9.7` as resolved from `@cipherman/pake-js`, `@noble/hashes@1.8.0` as resolved from `@noble/curves`, and direct `@noble/hashes@2.2.0` for this project's HKDF/HMAC code, including reviewed package metadata, dependency declarations, consumer lifecycle-hook policy, CPace/curve/hash import surfaces, and exact runtime-file SHA-256 evidence.
-- Runtime resolved-file hash hardening reviewed: CLI send and receive fail closed unless the resolved crypto runtime files match the reviewed relative paths and SHA-256 digests embedded in `src/cli/crypto-dependencies.ts`: `@cipherman/pake-js/dist/index.cjs`, `@cipherman/pake-js/dist/index.js`, `@cipherman/pake-js/dist/cpace/index.cjs`, and `@cipherman/pake-js/dist/cpace/index.js`; CPace-resolved `@noble/curves` runtime files including `ed25519.js`, `abstract/*.js`, `nist.js`, `p256.js`, `_shortw_utils.js`, and `utils.js`; CPace-resolved `@noble/hashes@1.8.0` runtime files including `sha2.js`, `hmac.js`, `_md.js`, `_u64.js`, `cryptoNode.js`, and `utils.js`; and direct `@noble/hashes@2.2.0` runtime files including `hkdf.js`, `hmac.js`, `sha2.js`, `_md.js`, `_u64.js`, `legacy.js`, and `utils.js`.
+- Runtime consumer-install hardening reviewed: CLI send and receive fail closed unless the resolved package graph matches `@cipherman/pake-js@0.1.1`, `@noble/curves@1.9.7` as resolved from `@cipherman/pake-js`, `@noble/hashes@1.8.0` as resolved from `@noble/curves`, and direct `@noble/hashes@2.2.0` for this project's HKDF/HMAC code, including reviewed package metadata, dependency declarations, consumer lifecycle-hook policy, CPace/curve/hash import surfaces, and exact ESM runtime-file SHA-256 evidence.
+- Runtime resolved-file hash hardening reviewed: CLI send and receive fail closed unless the resolved crypto runtime files match the reviewed relative paths and SHA-256 digests embedded in `src/cli/crypto-dependencies.ts`: the `@cipherman/pake-js/cpace` ESM entry `@cipherman/pake-js/dist/cpace/index.js`; CPace-resolved `@noble/curves` ESM runtime files including `esm/ed25519.js`, `esm/abstract/*.js`, `esm/_shortw_utils.js`, and `esm/utils.js`; CPace-resolved `@noble/hashes@1.8.0` ESM runtime files including `esm/sha2.js`, `esm/_md.js`, `esm/_u64.js`, `esm/cryptoNode.js`, and `esm/utils.js`; and direct `@noble/hashes@2.2.0` runtime files including `hkdf.js`, `hmac.js`, `sha2.js`, `_md.js`, `_u64.js`, `legacy.js`, and `utils.js`.
 - Locked crypto dependency reviewed: `@noble/curves@1.9.7`, with `@noble/hashes@1.8.0` in the resolved CPace dependency set.
 - Reviewed lockfile integrity for `@cipherman/pake-js@0.1.1`: `sha512-iutxMCmRXYacl3fc19SKFisk1sRD1FNQi7+GWPlnQnFit6l3sUagYOCU2IgRPD8MF3s1HwnkSpqARFUp04+GVQ==`.
 - Reviewed lockfile integrity for CPace transitives: `@noble/curves@1.9.7` is `sha512-gbKGcRUYIjA3/zCCNaWDciTMFI0dCkvou3TL8Zmy5Nc7sJ47a0jtOeZoTaMxkuqRo9cRhjOdZJXegxYE5FN/xw==`; `@noble/hashes@1.8.0` is `sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A==`.
@@ -56,7 +56,7 @@ This package controls the untrusted-signaling trust boundary: if CPace is compro
 - Release verification must run `pnpm security:audit` and `pnpm security:signatures`.
 - Scheduled dependency integrity monitoring must run `pnpm security:audit` and `pnpm security:signatures` on unchanged `main` so new advisories or registry signature failures are surfaced before the next code change or release tag.
 - Local, CI, Docker, and release verification must run `pnpm check:install-state` so the installed direct dependency tree matches exact `package.json` pins and `node_modules/.pnpm/lock.yaml` matches `pnpm-lock.yaml`.
-- CPace dependency updates must update this artifact in the same change as the package pin and lockfile, with the changed package metadata, exported API, lifecycle hooks, transitive dependency set, exact runtime-file SHA-256 evidence, advisories, and protocol-test impact reviewed explicitly.
+- CPace dependency updates must update this artifact in the same change as the package pin and lockfile, with the changed package metadata, exported API, lifecycle hooks, transitive dependency set, exact ESM runtime-file SHA-256 evidence, advisories, and protocol-test impact reviewed explicitly.
 - Emergency vulnerability bumps should pin the oldest reviewed patched version that satisfies the advisory while preserving the configured pnpm minimum-release-age policy unless the release owner records a security exception.
 
 ## Release Blockers

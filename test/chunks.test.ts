@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import ts from "typescript";
 import { CHUNK_SIZE, MAX_FILE_BYTES, MAX_FILE_NAME_CHARS, MAX_FILES_PER_SESSION, MAX_MIME_CHARS, MAX_OUTPUT_NAME_ATTEMPTS, PROTOCOL_VERSION } from "../src/shared/constants.js";
 import { decodeChunk, encodeChunk } from "../src/shared/chunks.js";
 import { assertManifestWithinLimits, assertTransferManifestWithinLimits, safeCollisionFileName, safeFileName, SAFE_FILE_NAME_BYTES } from "../src/shared/limits.js";
@@ -14,7 +15,8 @@ import { abortControlMessage, assertControlMessage, assertSenderControlMessage, 
 import { assertControlMessage as distAssertControlMessage, assertSenderControlMessage as distAssertSenderControlMessage, assertTransferManifestMatchesAccepted as distAssertTransferManifestMatchesAccepted } from "../dist-node/shared/transfer.js";
 import { generateCode, GENERATED_RENDEZVOUS_DIGITS, isValidCode, isValidRendezvous, MAX_CODE_INPUT_BYTES, normalizeCode, parseCode, RENDEZVOUS_DIGITS } from "../src/shared/wordlist.js";
 
-const vectors = JSON.parse(fs.readFileSync(new URL("../conformance/protocol-v10.json", import.meta.url), "utf8")) as {
+const vectorsSource = fs.readFileSync(new URL("../conformance/protocol-v10.json", import.meta.url), "utf8");
+const vectors = JSON.parse(vectorsSource) as {
   protocolVersion: number;
   chunkFrames: { fileId: number; chunkSeq: number; payloadHex: string; frameHex: string }[];
   controlMessages: { name: string; message: unknown; senderControl?: boolean }[];
@@ -34,6 +36,10 @@ const distWebBundle = readDistWebBundle();
 test("conformance fixture protocol version matches runtime", () => {
   assert.equal(vectors.protocolVersion, PROTOCOL_VERSION);
   assert.match(securityPolicy, /wire-incompatible changes must bump `PROTOCOL_VERSION`/);
+});
+
+test("conformance fixture does not contain duplicate JSON object keys", () => {
+  assertNoDuplicateJsonObjectKeys(vectorsSource, "conformance/protocol-v10.json");
 });
 
 test("chunk framing round-trips file id, sequence, and payload", () => {
@@ -984,4 +990,37 @@ function readDistWebBundle(): string {
   const bundleNames = fs.readdirSync(assetsDir).filter((name) => /^index-.*\.js$/.test(name));
   assert.equal(bundleNames.length, 1, "dist-web must contain exactly one browser JS bundle");
   return fs.readFileSync(new URL(bundleNames[0]!, assetsDir), "utf8");
+}
+
+function assertNoDuplicateJsonObjectKeys(source: string, label: string): void {
+  const file = ts.parseJsonText(label, source);
+  const parseDiagnostics = (file as ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] }).parseDiagnostics ?? [];
+  assert.deepEqual(
+    parseDiagnostics.map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")),
+    [],
+    `${label} must be valid JSON`
+  );
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isObjectLiteralExpression(node)) {
+      const keys = new Set<string>();
+      for (const property of node.properties) {
+        assert.ok(ts.isPropertyAssignment(property), `${label} must contain only JSON property assignments`);
+        const key = jsonPropertyName(property.name, label);
+        if (keys.has(key)) {
+          const position = file.getLineAndCharacterOfPosition(property.name.getStart(file));
+          assert.fail(`${label}:${position.line + 1}:${position.character + 1} duplicates JSON key ${JSON.stringify(key)}`);
+        }
+        keys.add(key);
+      }
+    }
+    node.forEachChild(visit);
+  };
+
+  visit(file);
+}
+
+function jsonPropertyName(name: ts.PropertyName, label: string): string {
+  if (ts.isStringLiteral(name) || ts.isNumericLiteral(name) || ts.isIdentifier(name)) return name.text;
+  throw new Error(`${label} contains an unsupported JSON property name.`);
 }

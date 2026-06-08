@@ -1,4 +1,4 @@
-import { cpace } from "@cipherman/pake-js";
+import { ristretto255 as cpaceRistretto255 } from "@cipherman/pake-js/cpace";
 import type { webcrypto } from "node:crypto";
 import { hkdf } from "@noble/hashes/hkdf.js";
 import { hmac } from "@noble/hashes/hmac.js";
@@ -88,7 +88,7 @@ export function startPake(role: PakeRole, code: string, sid: string, protocolVer
   assertPakeProtocolVersion(protocolVersion);
   const password = passwordBytes(code);
   try {
-    const started = cpace.ristretto255.init({
+    const started = cpaceRistretto255.init({
       PRS: password,
       sid: text.encode(sid),
       CI: protocolContext(CPACE_CONTEXT_PREFIX, protocolVersion)
@@ -108,7 +108,7 @@ export async function finishPake(state: PakeState, peerShareB64: string): Promis
     if (typeof peerShareB64 !== "string" || peerShareB64.length !== CPACE_SHARE_BASE64_CHARS) throw new Error("Peer sent an invalid PAKE share.");
     peerShare = base64ToBytes(peerShareB64);
     if (peerShare.byteLength !== CPACE_SHARE_BYTES) throw new Error("Peer sent an invalid PAKE share.");
-    isk = cpace.ristretto255.deriveIskInitiatorResponder({
+    isk = cpaceRistretto255.deriveIskInitiatorResponder({
       ephemeralSecret: stateParts.ephemeralSecret,
       ownShare: stateParts.share,
       peerShare,

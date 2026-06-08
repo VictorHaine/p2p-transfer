@@ -73,16 +73,22 @@ test("CLI local-private-mode redacts transfer metadata during a real transfer", 
   const source = path.join(tmp, "private-tax-form.pdf");
   await fs.mkdir(out, { mode: 0o700 });
   await fs.writeFile(source, "redacted cli transfer\n");
-  const childEnv = {
-    ...testChildEnv(tmp),
+  const baseEnv = testChildEnv(tmp);
+  const serverUrl = `ws://127.0.0.1:${port}/v1/ws`;
+  const receiverEnv = {
+    ...baseEnv,
     FF_PRIVATE_RECEIVE_CODE: code,
-    FF_PRIVATE_SEND_CODE: code,
     FF_PRIVATE_RECEIVE_OUT: out,
-    FF_PRIVATE_SIGNALING_SERVER: `ws://127.0.0.1:${port}/v1/ws`
+    FF_PRIVATE_SIGNALING_SERVER: serverUrl
+  };
+  const senderEnv = {
+    ...baseEnv,
+    FF_PRIVATE_SEND_CODE: code,
+    FF_PRIVATE_SIGNALING_SERVER: serverUrl
   };
   const server = spawn(process.execPath, ["dist-node/server/index.js"], {
     cwd: root,
-    env: { ...childEnv, PORT: String(port), HOST: "127.0.0.1", NODE_ENV: "production", ALLOWED_ORIGINS: origin, SIGNALING_TOPOLOGY: "single-instance", ALLOW_INSECURE_ORIGINS: "true" }
+    env: { ...baseEnv, PORT: String(port), HOST: "127.0.0.1", NODE_ENV: "production", ALLOWED_ORIGINS: origin, SIGNALING_TOPOLOGY: "single-instance", ALLOW_INSECURE_ORIGINS: "true" }
   });
   let receiver: ChildProcessWithoutNullStreams | undefined;
   let sender: ChildProcessWithoutNullStreams | undefined;
@@ -91,14 +97,14 @@ test("CLI local-private-mode redacts transfer metadata during a real transfer", 
     await waitForOutput(server, /listening/);
     receiver = spawn(process.execPath, ["dist-node/cli/index.js", "--server-env", "FF_PRIVATE_SIGNALING_SERVER", "--json", "--local-private-mode", "recv", "--code-env", "FF_PRIVATE_RECEIVE_CODE", "--out-env", "FF_PRIVATE_RECEIVE_OUT", "--yes"], {
       cwd: root,
-      env: childEnv
+      env: receiverEnv
     });
     const receiverDone = waitForExitWithOutput(receiver, "receiver", CHILD_EXIT_TIMEOUT_MS);
     await waitForOutput(receiver, /"registered"/);
 
     sender = spawn(process.execPath, ["dist-node/cli/index.js", "--server-env", "FF_PRIVATE_SIGNALING_SERVER", "--json", "--local-private-mode", "send", "--code-env", "FF_PRIVATE_SEND_CODE", "--files-stdin"], {
       cwd: root,
-      env: childEnv
+      env: senderEnv
     });
     sender.stdin.end(`${source}\n`);
     const [senderResult, receiverResult] = await Promise.all([waitForExitWithOutput(sender, "sender", CHILD_EXIT_TIMEOUT_MS), receiverDone]);
@@ -130,10 +136,11 @@ test("CLI supplied receive code is redacted from registered JSON output", async 
   const origin = `http://127.0.0.1:${port}`;
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-e2e-registered-redaction-"));
   const out = path.join(tmp, "out");
-  const childEnv = { ...testChildEnv(tmp), FF_PRIVATE_RECEIVE_CODE: "12345678-apple-anchor" };
+  const baseEnv = testChildEnv(tmp);
+  const receiverEnv = { ...baseEnv, FF_PRIVATE_RECEIVE_CODE: "12345678-apple-anchor" };
   const server = spawn(process.execPath, ["dist-node/server/index.js"], {
     cwd: root,
-    env: { ...childEnv, PORT: String(port), HOST: "127.0.0.1", NODE_ENV: "production", ALLOWED_ORIGINS: origin, SIGNALING_TOPOLOGY: "single-instance", ALLOW_INSECURE_ORIGINS: "true" }
+    env: { ...baseEnv, PORT: String(port), HOST: "127.0.0.1", NODE_ENV: "production", ALLOWED_ORIGINS: origin, SIGNALING_TOPOLOGY: "single-instance", ALLOW_INSECURE_ORIGINS: "true" }
   });
   let receiver: ChildProcessWithoutNullStreams | undefined;
 
@@ -141,7 +148,7 @@ test("CLI supplied receive code is redacted from registered JSON output", async 
     await fs.mkdir(out);
     await waitForOutput(server, /listening/);
     const serverUrl = `ws://127.0.0.1:${port}/v1/ws`;
-    receiver = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "recv", "--code-env", "FF_PRIVATE_RECEIVE_CODE", "--yes", "--out", out], { cwd: root, env: childEnv });
+    receiver = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "recv", "--code-env", "FF_PRIVATE_RECEIVE_CODE", "--yes", "--out", out], { cwd: root, env: receiverEnv });
     const receiverDone = waitForExitWithOutput(receiver, "receiver", CHILD_EXIT_TIMEOUT_MS);
     await waitForOutput(receiver, /"registered"/);
     terminateChild(receiver);

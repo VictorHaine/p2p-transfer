@@ -1,5 +1,6 @@
 import path from "node:path";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 import { packageEvidenceFromResolvedFile, sha256FileEvidenceFromResolvedFile, type DependencyEvidence } from "./dependency-metadata.js";
 
 const requireFromCli = createRequire(import.meta.url);
@@ -18,9 +19,6 @@ const REVIEWED_CRYPTO_DEPENDENCIES = {
     sideEffects: false,
     dependencies: { "@noble/curves": "^1.6.0" },
     resolvedFiles: {
-      "dist/index.cjs": "3acc7e2184b3f9cd7fe01797d15cfe4a6dc07ced0ea48312ae0389e5d519f94d",
-      "dist/index.js": "0342ac6eb86e98172b552392b645c1517dadd4728e668461e73ee6294fdef822",
-      "dist/cpace/index.cjs": "3fde8b5223b4cca19c932e2293ccf2467de5b1b4b34f49a678a54e174b826968",
       "dist/cpace/index.js": "6724ffbbd017b5a495eb4c4428c6e7bec0f9eab6029474bc0b1382fbfed6d679"
     },
     allowedScripts: {
@@ -43,17 +41,14 @@ const REVIEWED_CRYPTO_DEPENDENCIES = {
     sideEffects: false,
     dependencies: { "@noble/hashes": "1.8.0" },
     resolvedFiles: {
-      "_shortw_utils.js": "1a44701bd94ad867d6aa8db17e34419d658ed9ca523ca72caa855c9b653dffba",
-      "abstract/curve.js": "b2ef0dbeff436119e37a334664d963543a206113b3fd64751d569843b3bc8fbf",
-      "abstract/edwards.js": "e70868d1264a20c8f8d27d9a77d605311cfeee5f77320d5c1ab296dd1f3eb7e8",
-      "abstract/hash-to-curve.js": "ee7191cac74b34f790e9b2c8fc9f3db1fde5d2a23ceeb70e7c4eec97f9a36320",
-      "abstract/modular.js": "82be07e6154b3783e73df561c2bc3a0bf7ed6ea4424282da03dc94b4f20ee967",
-      "abstract/montgomery.js": "baa8963dee6aa4040e7595739d0c397cc3bf29bdef027148776115c436cbfd68",
-      "abstract/weierstrass.js": "149fd490c6871c20a538103ce711b9fc706dc217d889aeafb438572729b0f0dc",
-      "ed25519.js": "33df162c066fcaef63f82118d296dcbb49ab94dc729e76c9dc5dea67f6f1da09",
-      "nist.js": "8e5255870c92d027980735de232255e11e492affd421e205c386dfa6d74df01c",
-      "p256.js": "ceb26fc3b95ac670bfa789de5971065738b154073a84ea478d9a397a95f3d258",
-      "utils.js": "ada99f7eb2cc1a8ade552b5d980ea510678b3fc3bd00f7f1278af98824ccb89f"
+      "esm/_shortw_utils.js": "d682f22ec3ed2aafcfbf38082f57d8cc5bd96b1d9ea5e1083d1799b3db089fca",
+      "esm/abstract/curve.js": "3aa6e31b64ee99cfeaa4e64764e0d262d8736128ebd001a9e680bc9dcf66f01d",
+      "esm/abstract/edwards.js": "94004e8dc1a805c1d27f0d14af4c9655cdfd43cb9732b6404ba0211fa731c046",
+      "esm/abstract/hash-to-curve.js": "52d3315f4e9bf3ad9c901deaeb2fe861c6ea2f92ff8c9f792653b7751117413f",
+      "esm/abstract/modular.js": "5b42d5ff746ac099400e96c036572548d71822bc0826de506922d66202e7ce4c",
+      "esm/abstract/montgomery.js": "5ed0fbfba5a66691a187be5da5cd86177ec87352860cc28530742794a94d8bbf",
+      "esm/ed25519.js": "9d1ec0fa0ad8e6e8d097e4231dcd4e874975edf4410cfe6b4340dde371852b84",
+      "esm/utils.js": "f293043fc8020d5a928b4fd0c2b29b0d4aa23eca7b17f6b449484ba5e74ccdf3"
     },
     requiredExports: {
       "./ed25519": { import: "./esm/ed25519.js", require: "./ed25519.js" },
@@ -69,12 +64,11 @@ const REVIEWED_CRYPTO_DEPENDENCIES = {
     files: ["/*.js", "/*.js.map", "/*.d.ts", "/*.d.ts.map", "esm", "src/*.ts"],
     sideEffects: false,
     resolvedFiles: {
-      "_md.js": "4eaf0ae8f8191c50acdab7c3de7f335bf24845e4b562bdbc3e9f61cb7a873831",
-      "_u64.js": "9b109bb57c0d8852bda12136f0f588ffea2a1a3c0f4241bdbb3727cd449976ae",
-      "cryptoNode.js": "7d96258d2ff9da048ceb1fe88fb68172c5f952e461dda65fd08f30e20b5416ae",
-      "hmac.js": "1e0e4081a255691a1bae9148d9c5795e3439980d4ecb346a5e62a9c7fb3764a4",
-      "sha2.js": "53b6dc30db76a7c4e4b9370049e7a3c01bbb5507d058c084e97ccb3ee050faa4",
-      "utils.js": "7edf19720c345e1cb76e8d3a9306f3344457d4e03576bbb0b3e1ffd0a42d0d30"
+      "esm/_md.js": "cefb1557e7715cb2117c83f82ef3e3175c7e0391c80bd5795b2d4effc45fc582",
+      "esm/_u64.js": "e48c0cfc10810439a4807b46db136ce603a3fa09b62584f513ef2f3ca496af54",
+      "esm/cryptoNode.js": "26f80c6a85b6ef7bfd83b99d95b2b5ba8764397b9465feff32e81ba4e6416619",
+      "esm/sha2.js": "e729088b82e5450bff54c3a0013582aa42e1fe8f58dd31f5967f6ebe34c52299",
+      "esm/utils.js": "4cf4c1e05affedcb4fd584a43d76ae1a3711e34a36e2251b90c27e33ecc74fad"
     },
     requiredExports: {
       "./sha2": { import: "./esm/sha2.js", require: "./sha2.js" },
@@ -176,7 +170,7 @@ let verified = false;
 export function assertReviewedCryptoDependencies(): void {
   if (verified) return;
   try {
-    const pake = packageEvidenceFromResolvedFile(requireFromCli.resolve("@cipherman/pake-js"));
+    const pake = packageEvidenceFromResolvedFile(fileURLToPath(import.meta.resolve("@cipherman/pake-js/cpace")));
     assertReviewedDependencyEvidence(pake, REVIEWED_CRYPTO_DEPENDENCIES.pake);
     assertReviewedDependencyFileEvidence(pake, REVIEWED_CRYPTO_DEPENDENCIES.pake);
 
