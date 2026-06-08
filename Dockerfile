@@ -9,6 +9,14 @@ COPY . .
 RUN pnpm check:install-state
 RUN pnpm build
 RUN pnpm prune --prod
+RUN rm -rf \
+  node_modules/@roamhq \
+  node_modules/domexception \
+  node_modules/webidl-conversions \
+  node_modules/.pnpm/@roamhq+wrtc@* \
+  node_modules/.pnpm/@roamhq+wrtc-*@* \
+  node_modules/.pnpm/domexception@* \
+  node_modules/.pnpm/webidl-conversions@*
 
 FROM node:22.22.3-bookworm-slim@sha256:6ed70fbf60557fb3a2faea5657d4105bace34c93449c2571919a1589fae30153
 WORKDIR /app

@@ -1172,6 +1172,9 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(dockerPolicySmokeScript, /"--read-only"/);
   assert.match(dockerPolicySmokeScript, /"--cap-drop=ALL"/);
   assert.match(dockerPolicySmokeScript, /"no-new-privileges"/);
+  assert.match(dockerPolicySmokeScript, /const CLI_WEBRTC_RUNTIME_PATHS = \[[\s\S]*"node_modules\/@roamhq"[\s\S]*"node_modules\/\.pnpm\/@roamhq\+wrtc-linux-x64@0\.10\.0"[\s\S]*"node_modules\/\.pnpm\/webidl-conversions@7\.0\.0"/);
+  assert.match(dockerPolicySmokeScript, /await assertNoCliWebrtcRuntime\(imageTag, dockerEnv\)/);
+  assert.match(securityPolicy, /Docker policy smoke must prove the final server runtime image does not contain CLI-only native WebRTC packages/);
   assert.match(releaseWorkflow, /ubuntu-24\.04/);
   assert.match(releaseWorkflow, /ubuntu-24\.04-arm/);
   assert.match(releaseWorkflow, /macos-15/);
@@ -1441,7 +1444,7 @@ test("critical PAKE dependency identity and install surface stay reviewed", () =
   assert.match(cpaceReview, /Runtime consumer-install hardening reviewed: CLI send and receive fail closed unless the resolved package graph matches/);
   assert.match(cpaceReview, /including reviewed package metadata, dependency declarations, consumer lifecycle-hook policy, CPace\/curve\/hash import surfaces, and exact runtime-file SHA-256 evidence/);
   assert.match(cpaceReview, /Runtime resolved-file hash hardening reviewed: CLI send and receive fail closed unless the resolved crypto runtime files match the reviewed relative paths and SHA-256 digests embedded in `src\/cli\/crypto-dependencies\.ts`/);
-  assert.match(cpaceReview, /`@cipherman\/pake-js\/dist\/index\.cjs`/);
+  assert.match(cpaceReview, /`@cipherman\/pake-js\/dist\/index\.cjs`, `@cipherman\/pake-js\/dist\/index\.js`, `@cipherman\/pake-js\/dist\/cpace\/index\.cjs`, and `@cipherman\/pake-js\/dist\/cpace\/index\.js`/);
   assert.match(cpaceReview, /CPace-resolved `@noble\/curves` runtime files including `ed25519\.js`, `abstract\/\*\.js`, `nist\.js`, `p256\.js`, `_shortw_utils\.js`, and `utils\.js`/);
   assert.match(cpaceReview, /CPace-resolved `@noble\/hashes@1\.8\.0` runtime files including `sha2\.js`, `hmac\.js`, `_md\.js`, `_u64\.js`, `cryptoNode\.js`, and `utils\.js`/);
   assert.match(cpaceReview, /direct `@noble\/hashes@2\.2\.0` runtime files including `hkdf\.js`, `hmac\.js`, `sha2\.js`, `_md\.js`, `_u64\.js`, `legacy\.js`, and `utils\.js`/);
@@ -1458,6 +1461,9 @@ test("critical PAKE dependency identity and install surface stay reviewed", () =
   assert.match(cliCryptoDependenciesSource, /name: "@noble\/hashes",\n    version: "1\.8\.0"/);
   assert.match(cliCryptoDependenciesSource, /name: "@noble\/hashes",\n    version: "2\.2\.0"/);
   assert.match(cliCryptoDependenciesSource, /resolvedFiles: \{[\s\S]*"dist\/index\.cjs": "3acc7e2184b3f9cd7fe01797d15cfe4a6dc07ced0ea48312ae0389e5d519f94d"/);
+  assert.match(cliCryptoDependenciesSource, /"dist\/index\.js": "0342ac6eb86e98172b552392b645c1517dadd4728e668461e73ee6294fdef822"/);
+  assert.match(cliCryptoDependenciesSource, /"dist\/cpace\/index\.cjs": "3fde8b5223b4cca19c932e2293ccf2467de5b1b4b34f49a678a54e174b826968"/);
+  assert.match(cliCryptoDependenciesSource, /"dist\/cpace\/index\.js": "6724ffbbd017b5a495eb4c4428c6e7bec0f9eab6029474bc0b1382fbfed6d679"/);
   assert.match(cliCryptoDependenciesSource, /"ed25519\.js": "33df162c066fcaef63f82118d296dcbb49ab94dc729e76c9dc5dea67f6f1da09"/);
   assert.match(cliCryptoDependenciesSource, /"abstract\/weierstrass\.js": "149fd490c6871c20a538103ce711b9fc706dc217d889aeafb438572729b0f0dc"/);
   assert.match(cliCryptoDependenciesSource, /"cryptoNode\.js": "7d96258d2ff9da048ceb1fe88fb68172c5f952e461dda65fd08f30e20b5416ae"/);

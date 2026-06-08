@@ -61,7 +61,7 @@ test("CLI redacted JSON errors do not render local file metadata", () => {
   assert.notEqual(result.status, 0);
   assert.equal(result.stdout, "");
   assert.doesNotMatch(result.stderr, /private-name|ff-secret|12345678-apple-anchor|apple-anchor/);
-  const event = JSON.parse(result.stderr.trim()) as { event?: unknown; message?: unknown };
+  const event = errorEvent(result.stderr);
   assert.equal(event.event, "error");
   assert.equal(event.message, "Command failed. Re-run without --redact-output for details.");
 });
@@ -79,7 +79,7 @@ test("CLI exit handling does not truncate piped output with direct process.exit"
 test("CLI receive validates supplied codes before filesystem or signaling side effects", () => {
   assert.match(securityPolicy, /CLI receive codes supplied with `recv --code` must be validated before output-directory creation or signaling connection setup/);
   assert.match(securityPolicy, /CLI send and receive commands must verify the reviewed runtime cryptographic dependency graph before importing CLI modules that load CPace or noble-hashes code, opening local send files, creating receive output directories, or connecting to signaling/);
-  assert.match(securityPolicy, /interactive receive flows must emit a generic no-values warning to human stderr when `recv --code` or `recv --out` accepts a supplied receive code or output directory from argv unless JSON or quiet output is selected/);
+  assert.match(securityPolicy, /interactive receive flows must emit a generic no-values warning to human stderr when `recv --code` or `recv --out` accepts a supplied receive code or output directory from argv unless quiet output is selected, and JSON mode must emit the same warning as a structured no-values event/);
   for (const source of [cliSource, distCliSource]) {
     const recvBody = extractFunctionBody(source, "recv");
     assert.match(recvBody, /const outputDirInput = resolveRecvOutputDir\(options\)/);
@@ -107,8 +107,8 @@ test("CLI receive validates supplied codes before filesystem or signaling side e
 test("CLI send supports non-argv code and file path input", () => {
   assert.match(securityPolicy, /CLI senders must support piped stdin or environment-variable receive-code input and newline-delimited stdin file lists/);
   assert.match(securityPolicy, /resolved sender file lists from argv or `--files-stdin` must reject empty, oversized, or control\/format-character paths during input resolution before code normalization, cryptographic dependency loading, signaling, path resolution, or filesystem work/);
-  assert.match(securityPolicy, /interactive send flows must emit a generic no-values warning to human stderr whenever a receive code or local file path is still accepted from argv unless JSON or quiet output is selected/);
-  assert.match(securityPolicy, /interactive receive flows must emit a generic no-values warning to human stderr when `recv --code` or `recv --out` accepts a supplied receive code or output directory from argv unless JSON or quiet output is selected/);
+  assert.match(securityPolicy, /interactive send flows must emit a generic no-values warning to human stderr whenever a receive code or local file path is still accepted from argv unless quiet output is selected, and JSON mode must emit the same warning as a structured no-values event/);
+  assert.match(securityPolicy, /interactive receive flows must emit a generic no-values warning to human stderr when `recv --code` or `recv --out` accepts a supplied receive code or output directory from argv unless quiet output is selected, and JSON mode must emit the same warning as a structured no-values event/);
   for (const source of [cliSource, distCliSource]) {
     const sendBody = extractFunctionBody(source, "send");
     assert.match(sendBody, /const parsedCode = parseRequiredCode\(code\)/);
@@ -165,13 +165,16 @@ test("CLI send supports non-argv code and file path input", () => {
     assert.match(source, /const value = descriptor\.value;[\s\S]*clearEnvValue\(name\);/);
     assert.doesNotMatch(source, /delete process\.env\[name\]/);
     const warningBody = extractFunctionBody(source, "warnSensitiveSendArgv");
-    assert.match(warningBody, /options\.json \|\| options\.quiet \|\| stderr\.isTTY !== true/);
-    assert.match(warningBody, /console\.error\(sanitizeDisplayText\(SEND_ARGV_TELEMETRY_WARNING\)\)/);
+    assert.match(warningBody, /printArgvTelemetryWarning\(options, "send_argv_telemetry", SEND_ARGV_TELEMETRY_WARNING\)/);
     assert.doesNotMatch(warningBody, /\bcode\b|\bfiles\b|process\.argv|safeErrorMessage|formatBytes/);
     const recvWarningBody = extractFunctionBody(source, "warnSensitiveRecvArgv");
-    assert.match(recvWarningBody, /options\.json \|\| options\.quiet \|\| stderr\.isTTY !== true/);
-    assert.match(recvWarningBody, /console\.error\(sanitizeDisplayText\(RECV_ARGV_TELEMETRY_WARNING\)\)/);
+    assert.match(recvWarningBody, /printArgvTelemetryWarning\(options, "recv_argv_telemetry", RECV_ARGV_TELEMETRY_WARNING\)/);
     assert.doesNotMatch(recvWarningBody, /\bcode\b|\bfiles\b|process\.argv|safeErrorMessage|formatBytes/);
+    const telemetryWarningBody = extractFunctionBody(source, "printArgvTelemetryWarning");
+    assert.match(telemetryWarningBody, /if \(options\.quiet\)\s+return/);
+    assert.match(telemetryWarningBody, /if \(options\.json\) \{[\s\S]*JSON\.stringify\(sanitizeStructuredOutput\(\{ event: "warning", warning, message: safeMessage \}\)\)/);
+    assert.match(telemetryWarningBody, /stderr\.isTTY !== true/);
+    assert.doesNotMatch(telemetryWarningBody, /\bcode\b|\bfiles\b|process\.argv|safeErrorMessage|formatBytes/);
     assert.match(source, /function readCodeEnv/);
     assert.match(source, /function readBoundedStdin/);
     assert.match(cliErrorRedactionSource, /export function redactLocalPathEvidence/);
@@ -212,6 +215,8 @@ test("CLI private receive-code inputs are not echoed back into local telemetry",
   assert.match(readme, /`--code-env` and `--out-env` only avoid argv and shell-history exposure/);
   assert.match(readme, /Interactive send commands print a generic warning on stderr whenever the receive code or local file paths are still accepted from argv/);
   assert.match(readme, /`recv --code` and `recv --out` print the same kind of generic warning for supplied receive codes or output directories in argv/);
+  assert.match(readme, /In `--json` mode they are emitted as structured `warning` events/);
+  assert.match(readme, /human warning text is suppressed for `--quiet` and non-TTY stderr/);
   assert.match(readme, /Use `--require-private-input` in automation that must fail closed/);
   assert.match(readme, /Use `--local-private-mode` when you want the local CLI privacy preset/);
   assert.match(securityPolicy, /`--require-private-input` must reject `recv --code`, `recv --out`, `send <code>`, and send file paths supplied through argv before filesystem, signaling, or peer work/);
@@ -221,6 +226,31 @@ test("CLI private receive-code inputs are not echoed back into local telemetry",
   assert.match(readme, /The warnings never include the code or paths/);
   assert.match(securityPolicy, /CLI environment-sourced codes must be documented as protection from argv and shell-history capture only/);
   assert.doesNotMatch(readme, /printf '%s(?:\\n%s\\n)?' '<code>'/);
+});
+
+test("CLI JSON mode emits argv telemetry warnings without echoing values", () => {
+  const secretPath = "/tmp/ff-json-warning-secret.txt";
+  const sendArgv = spawnSync(process.execPath, [cliEntrypoint, "--json", "send", "12345678-apple-anchor", secretPath], {
+    encoding: "utf8"
+  });
+  assert.notEqual(sendArgv.status, 0);
+  assert.equal(sendArgv.stdout, "");
+  const sendEvents = jsonEvents(sendArgv.stderr);
+  assert.equal(sendEvents[0]?.event, "warning");
+  assert.equal(sendEvents[0]?.warning, "send_argv_telemetry");
+  assert.match(String(sendEvents[0]?.message ?? ""), /process lists, or endpoint telemetry/);
+  assert.doesNotMatch(sendArgv.stderr, /12345678-apple-anchor|apple-anchor|ff-json-warning-secret/);
+
+  const recvArgv = spawnSync(process.execPath, [cliEntrypoint, "--json", "recv", "--code", "12345678-apple-anchor"], {
+    encoding: "utf8"
+  });
+  assert.notEqual(recvArgv.status, 0);
+  assert.equal(recvArgv.stdout, "");
+  const recvEvents = jsonEvents(recvArgv.stderr);
+  assert.equal(recvEvents[0]?.event, "warning");
+  assert.equal(recvEvents[0]?.warning, "recv_argv_telemetry");
+  assert.match(String(recvEvents[0]?.message ?? ""), /process lists, or endpoint telemetry/);
+  assert.doesNotMatch(recvArgv.stderr, /12345678-apple-anchor|apple-anchor/);
 });
 
 test("CLI send rejects malformed stdin file lists before network work", () => {
@@ -349,7 +379,7 @@ test("CLI code-env rejects oversized receive codes without echoing them", async 
   assert.notEqual(result.status, 0);
   assert.equal(result.stdout, "");
   assert.doesNotMatch(result.stderr, /ééé/);
-  const event = JSON.parse(result.stderr.trim()) as { event?: unknown; message?: unknown };
+  const event = errorEvent(result.stderr);
   assert.equal(event.event, "error");
   assert.equal(event.message, "Environment variable FF_PRIVATE_RECEIVE_CODE is invalid.");
 });
@@ -363,7 +393,7 @@ test("CLI environment-sourced receive codes are cleared before later env reads",
   assert.notEqual(result.status, 0);
   assert.equal(result.stdout, "");
   assert.doesNotMatch(result.stderr, /12345678-apple-anchor|apple-anchor|WebSocket|signaling|mkdir/i);
-  const event = JSON.parse(result.stderr.trim()) as { event?: unknown; message?: unknown };
+  const event = errorEvent(result.stderr);
   assert.equal(event.event, "error");
   assert.equal(event.message, "Environment variable FF_PRIVATE_SHARED_SECRET is not set.");
 });
@@ -381,7 +411,7 @@ test("CLI out-env rejects unsafe output directories without echoing them", async
     assert.notEqual(result.status, 0, label);
     assert.equal(result.stdout, "");
     assert.doesNotMatch(result.stderr, /ééé|ff-private-out/);
-    const event = JSON.parse(result.stderr.trim()) as { event?: unknown; message?: unknown };
+    const event = errorEvent(result.stderr);
     assert.equal(event.event, "error");
     assert.equal(event.message, "Environment variable FF_PRIVATE_RECEIVE_OUT is invalid.");
   }
@@ -400,7 +430,7 @@ test("CLI recv code-env errors do not echo supplied receive codes", async () => 
     assert.notEqual(result.status, 0);
     assert.equal(result.stdout, "");
     assert.doesNotMatch(result.stderr, /12345678-apple-anchor|apple-anchor/);
-    const event = JSON.parse(result.stderr.trim()) as { event?: unknown; message?: unknown };
+    const event = errorEvent(result.stderr);
     assert.equal(event.event, "error");
     assert.equal(event.message, "EEXIST: file already exists, mkdir '[path]'");
   } finally {
@@ -418,6 +448,20 @@ test("CLI path setup errors do not echo raw local paths", () => {
     assert.match(source, /Output path is not a directory/);
   }
 });
+
+function jsonEvents(stderr: string): Array<{ event?: unknown; warning?: unknown; message?: unknown }> {
+  return stderr
+    .trim()
+    .split(/\n+/)
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as { event?: unknown; warning?: unknown; message?: unknown });
+}
+
+function errorEvent(stderr: string): { event?: unknown; warning?: unknown; message?: unknown } {
+  const event = jsonEvents(stderr).find((entry) => entry.event === "error");
+  assert.ok(event);
+  return event;
+}
 
 function extractFunctionBody(source: string, name: string): string {
   const signature = `function ${name}(`;

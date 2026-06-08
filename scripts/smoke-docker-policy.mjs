@@ -25,6 +25,19 @@ const PRODUCTION_ORIGIN = "https://files.example.com";
 const BAD_ORIGIN = "https://evil.example";
 const VERBOSE_ENV = "DOCKER_SMOKE_VERBOSE";
 const HARDENED_DOCKER_RUN_FLAGS = ["--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "--pids-limit", "128", "--memory", "512m", "--cpus", "1"];
+const CLI_WEBRTC_RUNTIME_PATHS = [
+  "node_modules/@roamhq",
+  "node_modules/domexception",
+  "node_modules/webidl-conversions",
+  "node_modules/.pnpm/@roamhq+wrtc@0.10.0",
+  "node_modules/.pnpm/@roamhq+wrtc-darwin-arm64@0.10.0",
+  "node_modules/.pnpm/@roamhq+wrtc-darwin-x64@0.10.0",
+  "node_modules/.pnpm/@roamhq+wrtc-linux-arm64@0.10.0",
+  "node_modules/.pnpm/@roamhq+wrtc-linux-x64@0.10.0",
+  "node_modules/.pnpm/@roamhq+wrtc-win32-x64@0.10.0",
+  "node_modules/.pnpm/domexception@4.0.0",
+  "node_modules/.pnpm/webidl-conversions@7.0.0"
+];
 
 if (isMain()) {
   try {
@@ -45,6 +58,7 @@ async function main() {
   try {
     await run("docker", ["info", "--format", "{{json .ServerVersion}}"], "docker daemon preflight", DOCKER_PREFLIGHT_TIMEOUT_MS, { env: dockerEnv });
     await run("docker", ["build", "-t", imageTag, "."], "docker image build", BUILD_TIMEOUT_MS, { env: dockerEnv });
+    await assertNoCliWebrtcRuntime(imageTag, dockerEnv);
     await expectDockerFailure(
       ["run", "--rm", ...HARDENED_DOCKER_RUN_FLAGS, "-e", "SIGNALING_TOPOLOGY=single-instance", imageTag],
       "container without ALLOWED_ORIGINS",
@@ -110,6 +124,11 @@ async function expectDockerFailure(args, label, requiredEvidence, env) {
   const result = await run("docker", args, label, COMMAND_TIMEOUT_MS, { allowFailure: true, env });
   if (result.status === 0) throw new Error(`${label} unexpectedly started.`);
   if (!hasExactOutputLine(result, requiredEvidence)) throw new Error(`${label} did not fail with the expected production policy evidence.`);
+}
+
+async function assertNoCliWebrtcRuntime(imageTag, env) {
+  const script = `const fs = require("node:fs"); const paths = ${JSON.stringify(CLI_WEBRTC_RUNTIME_PATHS)}; for (const path of paths) { if (fs.existsSync(path)) { console.error("cli-webrtc-runtime-present"); process.exit(1); } }`;
+  await run("docker", ["run", "--rm", ...HARDENED_DOCKER_RUN_FLAGS, "--entrypoint", "node", imageTag, "-e", script], "server-only Docker runtime check", COMMAND_TIMEOUT_MS, { env });
 }
 
 async function publishedPort(containerName, env) {

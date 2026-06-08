@@ -959,13 +959,22 @@ function human(options: CommonOptions, message: string): void {
 }
 
 function warnSensitiveSendArgv(options: CommonOptions): void {
-  if (options.json || options.quiet || stderr.isTTY !== true) return;
-  console.error(sanitizeDisplayText(SEND_ARGV_TELEMETRY_WARNING));
+  printArgvTelemetryWarning(options, "send_argv_telemetry", SEND_ARGV_TELEMETRY_WARNING);
 }
 
 function warnSensitiveRecvArgv(options: CommonOptions): void {
-  if (options.json || options.quiet || stderr.isTTY !== true) return;
-  console.error(sanitizeDisplayText(RECV_ARGV_TELEMETRY_WARNING));
+  printArgvTelemetryWarning(options, "recv_argv_telemetry", RECV_ARGV_TELEMETRY_WARNING);
+}
+
+function printArgvTelemetryWarning(options: CommonOptions, warning: string, message: string): void {
+  if (options.quiet) return;
+  const safeMessage = sanitizeDisplayText(message);
+  if (options.json) {
+    console.error(JSON.stringify(sanitizeStructuredOutput({ event: "warning", warning, message: safeMessage })));
+    return;
+  }
+  if (stderr.isTTY !== true) return;
+  console.error(safeMessage);
 }
 
 function rejectSensitiveSendArgv(options: CommonOptions, codeFromArgv: boolean, filesFromArgv: boolean): void {

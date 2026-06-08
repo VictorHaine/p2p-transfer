@@ -18,7 +18,10 @@ const REVIEWED_CRYPTO_DEPENDENCIES = {
     sideEffects: false,
     dependencies: { "@noble/curves": "^1.6.0" },
     resolvedFiles: {
-      "dist/index.cjs": "3acc7e2184b3f9cd7fe01797d15cfe4a6dc07ced0ea48312ae0389e5d519f94d"
+      "dist/index.cjs": "3acc7e2184b3f9cd7fe01797d15cfe4a6dc07ced0ea48312ae0389e5d519f94d",
+      "dist/index.js": "0342ac6eb86e98172b552392b645c1517dadd4728e668461e73ee6294fdef822",
+      "dist/cpace/index.cjs": "3fde8b5223b4cca19c932e2293ccf2467de5b1b4b34f49a678a54e174b826968",
+      "dist/cpace/index.js": "6724ffbbd017b5a495eb4c4428c6e7bec0f9eab6029474bc0b1382fbfed6d679"
     },
     allowedScripts: {
       prepublishOnly: "npm run clean && npm run typecheck && npm run lint && npm run test && npm run build"
