@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
-import fs from "node:fs/promises";
+import fs, { type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { STATIC_MAX_FILE_BYTES } from "../shared/constants.js";
 import { isPathInsideRoot } from "./static-path.js";
 
 const MANIFEST_FILE_NAME = "asset-manifest.json";
+const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 
 type WebAssetEntry = {
   bytes: number;
@@ -21,19 +22,76 @@ export async function loadWebAssetManifest(webRoot: string, production: boolean)
   const manifestPath = path.join(webRoot, MANIFEST_FILE_NAME);
   let body: string;
   try {
-    const handle = await fs.open(manifestPath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
-    try {
-      const stat = await handle.stat();
-      if (!stat.isFile() || stat.size < 1 || stat.size > STATIC_MAX_FILE_BYTES) throw new Error("web asset manifest is invalid");
-      body = await handle.readFile("utf8");
-    } finally {
-      await handle.close();
-    }
+    body = await readManifestText(manifestPath);
   } catch (error) {
     if (isMissingManifestError(error) && !production) return undefined;
     throw new Error("web asset manifest is invalid");
   }
-  return parseWebAssetManifest(body);
+  const manifest = parseWebAssetManifest(body);
+  await verifyManifestAssets(webRoot, manifest);
+  return manifest;
+}
+
+async function readManifestText(manifestPath: string): Promise<string> {
+  const info = await fs.lstat(manifestPath);
+  if (!info.isFile() || info.size < 1 || info.size > STATIC_MAX_FILE_BYTES) throw new Error("web asset manifest is invalid");
+  const handle = await fs.open(manifestPath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK);
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile() || stat.size < 1 || stat.size > STATIC_MAX_FILE_BYTES || !sameFile(info, stat)) throw new Error("web asset manifest is invalid");
+    const body = await readExactFile(handle, stat.size);
+    const afterRead = await handle.stat();
+    if (!sameFile(stat, afterRead)) throw new Error("web asset manifest is invalid");
+    return UTF8_DECODER.decode(body);
+  } finally {
+    await handle.close();
+  }
+}
+
+async function readExactFile(handle: FileHandle, size: number): Promise<Buffer> {
+  const body = Buffer.alloc(size);
+  let offset = 0;
+  while (offset < size) {
+    const { bytesRead } = await handle.read(body, offset, size - offset, offset);
+    if (bytesRead === 0) throw new Error("web asset manifest is invalid");
+    offset += bytesRead;
+  }
+  return body;
+}
+
+function sameFile(
+  left: { dev: number; ino: number; size: number; mtimeMs: number; ctimeMs: number },
+  right: { dev: number; ino: number; size: number; mtimeMs: number; ctimeMs: number }
+): boolean {
+  return left.dev === right.dev && left.ino === right.ino && left.size === right.size && left.mtimeMs === right.mtimeMs && left.ctimeMs === right.ctimeMs;
+}
+
+async function verifyManifestAssets(webRoot: string, manifest: WebAssetManifest): Promise<void> {
+  const realRoot = await fs.realpath(webRoot);
+  for (const assetPath of manifest.files.keys()) {
+    const candidate = path.resolve(realRoot, `.${assetPath}`);
+    if (!isPathInsideRoot(realRoot, candidate)) throw new Error("web asset manifest is invalid");
+    const realFilePath = await fs.realpath(candidate);
+    if (!isPathInsideRoot(realRoot, realFilePath)) throw new Error("web asset manifest is invalid");
+    const body = await readAssetBytes(realFilePath);
+    verifyWebAssetIntegrity(manifest, realRoot, realFilePath, body);
+  }
+}
+
+async function readAssetBytes(filePath: string): Promise<Buffer> {
+  const info = await fs.lstat(filePath);
+  if (!info.isFile() || info.size < 0 || info.size > STATIC_MAX_FILE_BYTES) throw new Error("web asset manifest is invalid");
+  const handle = await fs.open(filePath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK);
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile() || stat.size < 0 || stat.size > STATIC_MAX_FILE_BYTES || !sameFile(info, stat)) throw new Error("web asset manifest is invalid");
+    const body = await readExactFile(handle, stat.size);
+    const afterRead = await handle.stat();
+    if (!sameFile(stat, afterRead)) throw new Error("web asset manifest is invalid");
+    return body;
+  } finally {
+    await handle.close();
+  }
 }
 
 export function verifyWebAssetIntegrity(manifest: WebAssetManifest | undefined, realRoot: string, realFilePath: string, body: Buffer): void {

@@ -24,11 +24,23 @@ test("browser asset integrity is wired into build and server policy", () => {
 
   assert.match(buildScript, /vite build && node scripts\/write-web-asset-manifest\.mjs/);
   assert.match(securityPolicy, /production browser builds must inject Subresource Integrity attributes/);
-  assert.match(securityPolicy, /the production server must fail closed on missing or invalid asset manifests/);
+  assert.match(securityPolicy, /then fail closed on missing or invalid asset manifests/);
+  assert.match(securityPolicy, /exclusive no-follow creation/);
+  assert.match(securityPolicy, /no-follow-open, exact-size read, fatal-UTF-8-decode, and pre\/post-read identity-check/);
+  assert.match(securityPolicy, /verify every manifest-listed asset before startup completes/);
   assert.match(readme, /Production builds inject SRI into the browser JS\/CSS tags, emit `dist-web\/asset-manifest\.json`/);
+  assert.match(readUtf8("scripts/write-web-asset-manifest.mjs"), /O_CREAT \| fsConstants\.O_EXCL \| fsConstants\.O_NOFOLLOW/);
   for (const candidate of [serverSource, distServerSource]) {
     assert.match(candidate, /loadCheckedWebAssetManifest\(webRoot, production\)/);
     assert.match(candidate, /verifyWebAssetIntegrity\(webAssetManifest, root, realFilePath, staticFile\.body\)/);
+  }
+  for (const candidate of [readUtf8("src/server/web-asset-integrity.ts"), readUtf8("dist-node/server/web-asset-integrity.js")]) {
+    assert.match(candidate, /new TextDecoder\("utf-8", \{ fatal: true \}\)/);
+    assert.match(candidate, /fsConstants\.O_RDONLY \| fsConstants\.O_NOFOLLOW \| fsConstants\.O_NONBLOCK/);
+    assert.match(candidate, /const body = await readExactFile\(handle, stat\.size\)/);
+    assert.match(candidate, /if \(!sameFile\(stat, afterRead\)\)\s*throw new Error\("web asset manifest is invalid"\)/);
+    assert.match(candidate, /await verifyManifestAssets\(webRoot, manifest\)/);
+    assert.match(candidate, /for \(const assetPath of manifest\.files\.keys\(\)\)/);
   }
 });
 
@@ -69,10 +81,47 @@ test("server integrity verifier rejects modified browser assets", async () => {
   assert.throws(() => verifyWebAssetIntegrity(manifest, root, realFilePath, Buffer.concat([body, Buffer.from("\n// tampered\n")])), /static asset integrity check failed/);
 });
 
-test("built production server refuses tampered browser assets", async () => {
+test("built production server refuses browser assets tampered before startup", async () => {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-web-integrity-"));
   const copiedWebRoot = path.join(tmp, "dist-web");
   const port = 31_000 + randomInt(1_000);
+  const origin = `http://127.0.0.1:${port}`;
+
+  try {
+    await fs.cp(path.resolve("dist-web"), copiedWebRoot, { recursive: true });
+    const manifest = await readManifest(copiedWebRoot);
+    const assetPath = Object.keys(manifest.files).find((candidate) => candidate.endsWith(".js"));
+    assert(assetPath);
+    await fs.appendFile(path.join(copiedWebRoot, `.${assetPath}`), "\n// tampered\n");
+
+    const server = spawn(process.execPath, ["dist-node/server/index.js"], {
+      cwd: process.cwd(),
+      env: {
+        ...testChildEnv(tmp),
+        PORT: String(port),
+        HOST: "127.0.0.1",
+        NODE_ENV: "production",
+        ALLOWED_ORIGINS: origin,
+        SIGNALING_TOPOLOGY: "single-instance",
+        ALLOW_INSECURE_ORIGINS: "true",
+        WEB_ROOT: copiedWebRoot
+      }
+    });
+    const output = collectOutput(server);
+
+    assert.equal(await waitForProcessExit(server), 1);
+    await output.done;
+    assert.match(output.text(), /ff signaling server startup failed: web root/);
+    assert.doesNotMatch(output.text(), /assets\/index|tampered|Error:| at |stack|dist-web/);
+  } finally {
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
+});
+
+test("built production server refuses browser assets tampered after startup", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-web-integrity-live-"));
+  const copiedWebRoot = path.join(tmp, "dist-web");
+  const port = 32_000 + randomInt(1_000);
   const origin = `http://127.0.0.1:${port}`;
   let server: ChildProcessWithoutNullStreams | undefined;
 
@@ -81,7 +130,6 @@ test("built production server refuses tampered browser assets", async () => {
     const manifest = await readManifest(copiedWebRoot);
     const assetPath = Object.keys(manifest.files).find((candidate) => candidate.endsWith(".js"));
     assert(assetPath);
-    await fs.appendFile(path.join(copiedWebRoot, `.${assetPath}`), "\n// tampered\n");
 
     server = spawn(process.execPath, ["dist-node/server/index.js"], {
       cwd: process.cwd(),
@@ -99,6 +147,7 @@ test("built production server refuses tampered browser assets", async () => {
     const output = collectOutput(server);
 
     await waitForOutput(server, /listening/);
+    await fs.appendFile(path.join(copiedWebRoot, `.${assetPath}`), "\n// tampered\n");
     const response = await fetch(`http://127.0.0.1:${port}${assetPath}`, { headers: { Origin: origin } });
     assert.equal(response.status, 500);
     assert.deepEqual(await response.json(), { error: "internal_error" });
@@ -117,6 +166,17 @@ test("production server refuses web roots without the generated asset manifest",
     await fs.writeFile(path.join(tmp, "index.html"), "<!doctype html><title>missing manifest</title>", "utf8");
     await assert.rejects(() => loadWebAssetManifest(tmp, true), /web asset manifest is invalid/);
     assert.equal(await loadWebAssetManifest(tmp, false), undefined);
+  } finally {
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
+});
+
+test("production server refuses malformed UTF-8 asset manifests", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-web-integrity-utf8-"));
+  try {
+    await fs.writeFile(path.join(tmp, "index.html"), "<!doctype html><title>bad utf8 manifest</title>", "utf8");
+    await fs.writeFile(path.join(tmp, "asset-manifest.json"), Buffer.from([0xff, 0xfe, 0xfd]));
+    await assert.rejects(() => loadWebAssetManifest(tmp, true), /web asset manifest is invalid/);
   } finally {
     await fs.rm(tmp, { recursive: true, force: true });
   }
@@ -159,6 +219,11 @@ function collectOutput(child: ChildProcessWithoutNullStreams): { done: Promise<v
     done: new Promise((resolve) => child.on("close", () => resolve())),
     text: () => Buffer.concat(chunks).toString("utf8")
   };
+}
+
+async function waitForProcessExit(child: ChildProcessWithoutNullStreams): Promise<number | null> {
+  if (child.exitCode !== null) return child.exitCode;
+  return new Promise((resolve) => child.on("close", (code) => resolve(code)));
 }
 
 async function waitForOutput(child: ChildProcessWithoutNullStreams, pattern: RegExp): Promise<void> {

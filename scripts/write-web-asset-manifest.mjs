@@ -10,8 +10,9 @@ const webRoot = path.join(root, "dist-web");
 const indexPath = path.join(webRoot, "index.html");
 const manifestPath = path.join(webRoot, "asset-manifest.json");
 const MAX_ASSET_BYTES = 8 * 1024 * 1024;
+const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
 
-const indexHtml = (await readBoundedNoFollow(indexPath)).toString("utf8");
+const indexHtml = decodeUtf8(await readBoundedNoFollow(indexPath));
 const assetRefs = [...findAssetRefs(indexHtml)];
 if (assetRefs.length === 0) throw new Error("No browser assets found in dist-web/index.html.");
 
@@ -32,7 +33,7 @@ await writeNoFollow(indexPath, html);
 const finalIndex = await readBoundedNoFollow(indexPath);
 files["/index.html"] = digestBody(finalIndex);
 
-await fs.writeFile(
+await writeNewNoFollow(
   manifestPath,
   `${JSON.stringify(
     {
@@ -43,7 +44,6 @@ await fs.writeFile(
     null,
     2
   )}\n`,
-  { encoding: "utf8", flag: "w" }
 );
 
 function* findAssetRefs(html) {
@@ -76,10 +76,13 @@ function digestBody(body) {
 }
 
 async function readBoundedNoFollow(filePath) {
-  const handle = await fs.open(filePath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+  const info = await fs.lstat(filePath);
+  if (!info.isFile() || info.size < 0 || info.size > MAX_ASSET_BYTES) throw new Error("Browser asset exceeds maximum size.");
+  const handle = await fs.open(filePath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK);
   try {
     const stat = await handle.stat();
     if (!stat.isFile() || stat.size < 0 || stat.size > MAX_ASSET_BYTES) throw new Error("Browser asset exceeds maximum size.");
+    if (!sameFile(info, stat)) throw new Error("Browser asset changed before reading.");
     const body = Buffer.alloc(stat.size);
     let offset = 0;
     while (offset < stat.size) {
@@ -106,6 +109,25 @@ async function writeNoFollow(filePath, body) {
   } finally {
     await handle.close();
   }
+}
+
+async function writeNewNoFollow(filePath, body) {
+  const handle = await fs.open(filePath, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW, 0o644);
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile()) throw new Error("Browser manifest is not a regular file.");
+    await handle.writeFile(body, "utf8");
+  } finally {
+    await handle.close();
+  }
+}
+
+function decodeUtf8(body) {
+  return UTF8_DECODER.decode(body);
+}
+
+function sameFile(left, right) {
+  return left.dev === right.dev && left.ino === right.ino && left.size === right.size && left.mtimeMs === right.mtimeMs && left.ctimeMs === right.ctimeMs;
 }
 
 function isPathInsideRoot(rootPath, candidate) {
