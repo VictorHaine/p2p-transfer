@@ -1674,7 +1674,6 @@ function waitFor<T extends ServerMessage["type"]>(
       signaling.off(waitType, onType);
       signaling.off("error", onError);
       signaling.off("peer-left", onPeerLeft);
-      signaling.off("pair-reject", onPairReject);
       signaling.off("close", onClose);
       waitSignal?.removeEventListener("abort", onAbort);
     };
@@ -1705,12 +1704,6 @@ function waitFor<T extends ServerMessage["type"]>(
       if (waitSid === undefined || !("sid" in message) || message.sid !== waitSid) return;
       fail(new Error("Peer disconnected."));
     };
-    const onPairReject = (message: BrowserSignalingEvent) => {
-      if (!isServerMessage(message)) return;
-      if (message.type !== "pair-reject") return;
-      if (waitSid === undefined || message.sid !== waitSid) return;
-      fail(new Error(pairRejectMessage(message.reason)));
-    };
     const onClose = () => {
       fail(new Error("Signaling socket closed."));
     };
@@ -1729,13 +1722,16 @@ function waitFor<T extends ServerMessage["type"]>(
     signaling.on(waitType, onType);
     signaling.on("error", onError);
     signaling.on("peer-left", onPeerLeft);
-    signaling.on("pair-reject", onPairReject);
     signaling.on("close", onClose);
   });
 }
 
 function waitForAuthenticatedPairAccept(signaling: BrowserSignaling, sid: string, keys: SessionKeys, sealedManifest: string): Promise<void> {
   return new Promise((resolve, reject) => {
+    if (signaling.isClosed()) {
+      reject(new Error("Signaling socket closed."));
+      return;
+    }
     let settled = false;
     const cleanup = () => {
       clearTimeout(timer);
@@ -1833,6 +1829,8 @@ function wireSignals(signaling: BrowserSignaling, pc: RTCPeerConnection, sid: st
     disposed = true;
     queuedCandidates.length = 0;
     signaling.off("signal", onSignal);
+    signaling.off("error", onError);
+    signaling.off("close", onClose);
   };
   const fail = (error: Error) => {
     if (failed || disposed) return;
@@ -1841,6 +1839,13 @@ function wireSignals(signaling: BrowserSignaling, pc: RTCPeerConnection, sid: st
     safeBrowserSend(signaling, { type: "bye", sid, reason: "signal_error" });
     pc.close();
     dispose();
+  };
+  const onError = (message: BrowserSignalingEvent) => {
+    if (!isServerMessage(message)) return;
+    fail(message.type === "error" ? new BrowserSignalingError(message.code) : new Error("Signaling error"));
+  };
+  const onClose = () => {
+    fail(new Error("Signaling socket closed."));
   };
   const onSignal = async (message: BrowserSignalingEvent) => {
     try {
@@ -1880,7 +1885,13 @@ function wireSignals(signaling: BrowserSignaling, pc: RTCPeerConnection, sid: st
       fail(error instanceof Error ? error : new Error(safeErrorMessage(error)));
     }
   };
+  if (signaling.isClosed()) {
+    fail(new Error("Signaling socket closed."));
+    return { dispose, failure };
+  }
   signaling.on("signal", onSignal);
+  signaling.on("error", onError);
+  signaling.on("close", onClose);
   for (const message of signaling.drainSignalMessages()) {
     if (disposed) break;
     void onSignal(message);

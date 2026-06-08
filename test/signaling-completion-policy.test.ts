@@ -47,10 +47,17 @@ test("clients reject mismatched registered rendezvous acknowledgements", () => {
   assert.match(webSource, /assertRegisteredRendezvous\(await waitFor\(signaling, "registered", CONNECT_TIMEOUT_MS\), expectedRendezvous\)/);
 });
 
-test("browser senders treat pair rejection as a decision, not a socket failure", () => {
-  assert.match(webSource, /signaling\.off\("pair-reject", onPairReject\)/);
-  assert.match(webSource, /const onPairReject = \(message: BrowserSignalingEvent\) => \{[\s\S]*message\.type !== "pair-reject"[\s\S]*waitSid === undefined \|\| message\.sid !== waitSid[\s\S]*pairRejectMessage\(message\.reason\)[\s\S]*\};/);
-  assert.match(webSource, /signaling\.on\("pair-reject", onPairReject\)/);
+test("browser senders treat pair rejection only as an authenticated pair decision", () => {
+  assert.match(securityPolicy, /generic browser signaling waits must not treat unauthenticated `pair-reject` frames as user decisions/);
+  const waitForBody = extractFunctionBody(webSource, "waitFor");
+  const pairAcceptBody = extractFunctionBody(webSource, "waitForAuthenticatedPairAccept");
+  assert.doesNotMatch(waitForBody, /pairRejectMessage\(message\.reason\)/);
+  assert.doesNotMatch(waitForBody, /signaling\.on\("pair-reject", onPairReject\)/);
+  assert.match(securityPolicy, /authenticated pair-decision waiters must do the same before arming the pair timeout/);
+  assert.match(pairAcceptBody, /signaling\.isClosed\(\)[\s\S]*Signaling socket closed/);
+  assert.match(pairAcceptBody, /signaling\.off\("pair-reject", onPairReject\)/);
+  assert.match(pairAcceptBody, /const onPairReject = \(message: BrowserSignalingEvent\) => \{[\s\S]*message\.type !== "pair-reject"[\s\S]*verifyPairDecisionAuthTag[\s\S]*pairRejectMessage\(message\.reason\)[\s\S]*Authenticated pair decision check failed/);
+  assert.match(pairAcceptBody, /signaling\.on\("pair-reject", onPairReject\)/);
 });
 
 test("senders do not expose protocol-only pair rejection reasons as user messages", () => {
@@ -69,13 +76,20 @@ test("senders do not expose peer-left signaling reasons as user messages", () =>
 });
 
 test("authenticated WebRTC signal failures stay visible during connection setup", () => {
+  assert.match(securityPolicy, /WebRTC signal wiring must fail connection setup promptly when signaling closes or errors before WebRTC\/DataChannel connection completes/);
   for (const source of [cliSource, webSource]) {
     assert.match(source, /const signalWire = wireSignals\(/);
     assert.match(source, /Promise\.race\(\[Promise\.all\(\[[\s\S]*wait(?:ForDataChannelOpen|Open)[\s\S]*wait(?:Connected|PeerConnected)[\s\S]*\]\), signalWire\.failure\]\)/);
     assert.match(source, /const fail = \(error: Error\) => \{[\s\S]*if \(failed \|\| disposed\) return;[\s\S]*failSignal\(error\);[\s\S]*reason: "signal_error"[\s\S]*pc\.close\(\);[\s\S]*dispose\(\);[\s\S]*\};/);
+    assert.match(source, /if \(signaling\.isClosed\(\)\) \{[\s\S]*fail\(new Error\("Signaling socket closed\."\)\);[\s\S]*return \{ dispose, failure \};[\s\S]*\}/);
+    assert.match(source, /const onClose = \(\) => \{[\s\S]*fail\(new Error\("Signaling socket closed\."\)\);[\s\S]*\};/);
+    assert.match(source, /signaling\.on\("close", onClose\)/);
     assert.match(source, /fail\(error instanceof Error \? error : new Error\(safeErrorMessage\(error\)\)\)/);
     assert.match(source, /return \{ dispose, failure \};/);
   }
+  assert.match(cliSource, /signaling\.on\("socket-error", onSocketError\)/);
+  assert.match(cliSource, /signaling\.on\("protocol-error", onProtocolError\)/);
+  assert.match(webSource, /signaling\.on\("error", onError\)/);
   assert.match(cliSource, /const \{ control, bulk \} = await Promise\.race\(\[channels, signalWire\.failure\]\)/);
   assert.match(webSource, /const \{ control, bulk \} = await Promise\.race\(\[channels, signalWire\.failure\]\)/);
 });

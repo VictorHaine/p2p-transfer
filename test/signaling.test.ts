@@ -221,6 +221,8 @@ test("waitForMessage ignores malformed emitted messages without invoking getters
 test("browser signaling waits revalidate emitted messages before field reads", () => {
   assert.match(securityPolicy, /browser signaling wait helpers must reject invalid message types, malformed timeout values, malformed session ids, and malformed abort signals before timers\/listeners/);
   assert.match(securityPolicy, /browser and CLI signaling waiters must reject already closed or disposed signaling clients before installing listeners, timers, or fallback ICE waits/);
+  assert.match(securityPolicy, /generic browser signaling waits must not treat unauthenticated `pair-reject` frames as user decisions/);
+  const waitForBody = extractFunctionBody(webSource, "waitFor");
   assert.match(webSource, /const BROWSER_WAIT_MESSAGE_TYPES = new Set<ServerMessage\["type"\]>/);
   assert.match(webSource, /const BROWSER_WAIT_SESSION_ID = \/\^\[A-Za-z0-9_-\]\{1,128\}\$\//);
   assert.match(webSource, /const waitType = browserWaitMessageType\(type\);/);
@@ -238,7 +240,8 @@ test("browser signaling waits revalidate emitted messages before field reads", (
   assert.match(webSource, /const onIceConfig = \(message: BrowserSignalingEvent\) => \{\n      if \(!isServerMessage\(message\)\) return;/);
   assert.match(webSource, /const onType = \(message: BrowserSignalingEvent\) => \{\n      if \(!isServerMessage\(message\)\) return;/);
   assert.match(webSource, /const onPeerLeft = \(message: BrowserSignalingEvent\) => \{\n      if \(!isServerMessage\(message\)\) return;/);
-  assert.match(webSource, /const onPairReject = \(message: BrowserSignalingEvent\) => \{\n      if \(!isServerMessage\(message\)\) return;/);
+  assert.doesNotMatch(waitForBody, /pairRejectMessage\(message\.reason\)/);
+  assert.doesNotMatch(waitForBody, /signaling\.on\("pair-reject", onPairReject\)/);
   assert.match(distWebBundle, /new Set\(\[`registered`,`peer-joined`,`pake`,`confirm`,`pair-request`,`pair-accept`,`pair-reject`,`signal`,`peer-left`,`ice-config`,`error`\]\)/);
   assert.match(distWebBundle, /Browser signaling wait message type is invalid/);
   assert.match(distWebBundle, /Browser signaling wait timeout is invalid/);
@@ -542,8 +545,14 @@ function assertPakeWaitersBeforeSend(source: string, waitFunction: string): void
 }
 
 function extractFunctionBody(source: string, name: string): string {
-  const signature = name === "connect" ? `${name}(): Promise<void>` : name === "close" ? `${name}(): void` : `private ${name}(`;
-  const start = source.indexOf(signature);
+  const signatures = [
+    `function ${name}(`,
+    `function ${name}<`,
+    name === "connect" ? `${name}(): Promise<void>` : "",
+    name === "close" ? `${name}(): void` : "",
+    `private ${name}(`
+  ].filter(Boolean);
+  const start = signatures.reduce((found, signature) => (found === -1 ? source.indexOf(signature) : found), -1);
   assert.notEqual(start, -1);
   const bodyStart = source.indexOf("{", start);
   assert.notEqual(bodyStart, -1);

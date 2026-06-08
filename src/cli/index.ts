@@ -814,6 +814,10 @@ function isUnsetRetransmissionLimit(value: unknown): boolean {
 
 function waitForPairAccept(runtime: ReviewedCliRuntime, signaling: SignalingClient, sid: string, keys: SessionKeys, sealedManifest: string): Promise<void> {
   return new Promise((resolve, reject) => {
+    if (signaling.isClosed()) {
+      reject(new Error("Signaling socket closed."));
+      return;
+    }
     const timer = setTimeout(() => {
       cleanup();
       reject(new Error("Timed out waiting for pair decision"));
@@ -884,6 +888,9 @@ function wireSignals(runtime: ReviewedCliRuntime, signaling: SignalingClient, pc
     disposed = true;
     queuedCandidates.length = 0;
     signaling.off("signal", onSignal);
+    signaling.off("close", onClose);
+    signaling.off("socket-error", onSocketError);
+    signaling.off("protocol-error", onProtocolError);
   };
   const fail = (error: Error) => {
     if (failed || disposed) return;
@@ -892,6 +899,15 @@ function wireSignals(runtime: ReviewedCliRuntime, signaling: SignalingClient, pc
     safeSend(signaling, { type: "bye", sid, reason: "signal_error" });
     pc.close();
     dispose();
+  };
+  const onClose = () => {
+    fail(new Error("Signaling socket closed."));
+  };
+  const onSocketError = (error: Error) => {
+    fail(error);
+  };
+  const onProtocolError = (error: Error) => {
+    fail(error);
   };
   const onSignal = async (message: unknown) => {
     try {
@@ -926,7 +942,14 @@ function wireSignals(runtime: ReviewedCliRuntime, signaling: SignalingClient, pc
       fail(error instanceof Error ? error : new Error(safeErrorMessage(error)));
     }
   };
+  if (signaling.isClosed()) {
+    fail(new Error("Signaling socket closed."));
+    return { dispose, failure };
+  }
   signaling.on("signal", onSignal);
+  signaling.on("close", onClose);
+  signaling.on("socket-error", onSocketError);
+  signaling.on("protocol-error", onProtocolError);
   for (const message of signaling.drainSignalMessages()) {
     if (disposed) break;
     void onSignal(message);
