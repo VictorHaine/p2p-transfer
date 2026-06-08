@@ -57,7 +57,7 @@ gh auth token | pnpm release:preflight --token-stdin
 ## Security Rules
 
 - Preserve the invariants in `SECURITY.md`.
-- Bump `PROTOCOL_VERSION` and `conformance/protocol-v5.json` together for wire-incompatible changes.
+- Bump `PROTOCOL_VERSION` and the current `conformance/protocol-v*.json` fixture together for wire-incompatible changes.
 - Do not add install lifecycle scripts.
 - Do not loosen origin, TURN, Docker, package-surface, or release-artifact checks without adding a narrower replacement.
 - Do not log file names, file contents, PAKE secrets, DataChannel plaintext, raw local paths, or peer-controlled protocol text.

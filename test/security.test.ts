@@ -52,7 +52,7 @@ import {
 } from "../dist-node/shared/messages.js";
 import type { PakeRole, SessionKeys } from "../src/shared/security.js";
 
-const vectors = JSON.parse(fs.readFileSync(new URL("../conformance/protocol-v5.json", import.meta.url), "utf8")) as {
+const vectors = JSON.parse(fs.readFileSync(new URL("../conformance/protocol-v6.json", import.meta.url), "utf8")) as {
   pairDecisionAuth: {
     keyHex: string;
     sid: string;
@@ -456,6 +456,7 @@ test("PAKE and encrypted manifest wrappers do not read inherited wrapper fields"
     assert.match(source, /const shareValue = ownDataValue\(parsed, "share"\)/);
     assert.match(source, /const type = ownDataValue\(opened, "t"\)/);
     assert.match(source, /const manifest = ownDataValue\(opened, "manifest"\)/);
+    assert.match(source, /const pad = ownDataValue\(opened, "pad"\)/);
     assert.doesNotMatch(source, /parsed\.t/);
     assert.doesNotMatch(source, /parsed\.share/);
     assert.doesNotMatch(source, /opened\.t/);
@@ -734,6 +735,44 @@ test("encrypted manifest opener rejects malformed wrappers before manifest valid
   const sealed = await sealManifest(senderKeys, validManifest);
   assert.deepEqual(await openManifest(receiverKeys, sealed), validManifest);
   assert.deepEqual(await distOpenManifest(receiverKeys, sealed), validManifest);
+
+  const invalidPad = await sealRawManifestWrapperForTest(senderKeys, { t: "pair-manifest", manifest: validManifest, pad: 42 });
+  await assert.rejects(() => openManifest(receiverKeys, invalidPad), /wrapper is invalid/);
+  await assert.rejects(() => distOpenManifest(receiverKeys, invalidPad), /wrapper is invalid/);
+});
+
+test("sealed manifests are bucket padded so encrypted name length is not exact", async () => {
+  assert.match(securityPolicy, /encrypted manifest wrappers must be padded before AEAD sealing/);
+  for (const source of [securitySource, distSecuritySource]) {
+    assert.match(source, /const MANIFEST_PADDING_BUCKET_BYTES = 4096/);
+    assert.match(source, /function paddedManifestWrapper/);
+    assert.match(source, /function manifestPaddingTargetBytes/);
+    assert.match(source, /paddedManifestWrapper\(manifest\)/);
+  }
+
+  const sid = "manifest-padding-session";
+  const sender = startPake("sender", "123456-apple-anchor", sid);
+  const receiver = startPake("receiver", "123456-apple-anchor", sid);
+  const senderShare = ownPakeShareB64(sender);
+  const receiverShare = ownPakeShareB64(receiver);
+  const senderKeys = await finishPake(sender, receiverShare);
+  const receiverKeys = await finishPake(receiver, senderShare);
+  const shortManifest = {
+    fileCount: 1,
+    totalBytes: 5,
+    files: [{ id: 0, name: "a.txt", size: 5, mime: "text/plain" }]
+  };
+  const longManifest = {
+    fileCount: 1,
+    totalBytes: 5,
+    files: [{ id: 0, name: `${"very-long-private-name-".repeat(32)}.txt`, size: 5, mime: "application/x-private-transfer-test" }]
+  };
+
+  const shortSealed = await sealManifest(senderKeys, shortManifest);
+  const longSealed = await sealManifest(senderKeys, longManifest);
+  assert.equal(shortSealed.length, longSealed.length);
+  assert.deepEqual(await openManifest(receiverKeys, shortSealed), shortManifest);
+  assert.deepEqual(await openManifest(receiverKeys, longSealed), longManifest);
 });
 
 test("SDP authentication binds offer/answer bytes to the PAKE key", async () => {

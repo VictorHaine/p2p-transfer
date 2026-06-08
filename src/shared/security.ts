@@ -70,6 +70,7 @@ const PAIR_REJECT_REASON = "user_declined";
 const AES_GCM_TAG_BYTES = 16;
 const MAX_BULK_SEALED_BYTES = CHUNK_SIZE + AES_GCM_TAG_BYTES;
 const MAX_ENCRYPTED_JSON_PLAINTEXT_BYTES = Math.floor(ENCRYPTED_JSON_MAX_CHARS / 4) * 3 - 12 - AES_GCM_TAG_BYTES;
+const MANIFEST_PADDING_BUCKET_BYTES = 4096;
 const MAX_ENCRYPTED_JSON_DEPTH = 32;
 const MAX_ENCRYPTED_JSON_NODES = 10_000;
 const UNSAFE_TEXT_CHARS = /[\p{Cc}\p{Cf}]/u;
@@ -356,7 +357,7 @@ function assertPakeCode(code: unknown): asserts code is string {
 
 export async function sealManifest(keys: SessionKeys, manifest: unknown): Promise<string> {
   const activeKeys = activeSessionKeys(keys);
-  return sealJson(activeKeys.manifestKey, { t: "pair-manifest", manifest }, text.encode(`manifest:${activeKeys.sid}`));
+  return sealJson(activeKeys.manifestKey, paddedManifestWrapper(manifest), text.encode(`manifest:${activeKeys.sid}`));
 }
 
 export async function openManifest<T>(keys: SessionKeys, sealed: unknown): Promise<T> {
@@ -364,10 +365,32 @@ export async function openManifest<T>(keys: SessionKeys, sealed: unknown): Promi
   const opened = await openJson<unknown>(activeKeys.manifestKey, sealed, text.encode(`manifest:${activeKeys.sid}`));
   const type = ownDataValue(opened, "t");
   const manifest = ownDataValue(opened, "manifest");
-  if (!isPlainObject(opened) || !hasOnlyKeys(opened, ["t", "manifest"]) || type !== "pair-manifest" || !hasOwnKey(opened, "manifest")) {
+  const pad = ownDataValue(opened, "pad");
+  if (
+    !isPlainObject(opened) ||
+    !hasOnlyKeys(opened, ["t", "manifest", "pad"]) ||
+    type !== "pair-manifest" ||
+    !hasOwnKey(opened, "manifest") ||
+    (hasOwnKey(opened, "pad") && typeof pad !== "string")
+  ) {
     throw new Error("Encrypted manifest wrapper is invalid.");
   }
   return manifest as T;
+}
+
+function paddedManifestWrapper(manifest: unknown): Record<string, unknown> {
+  const wrapper: Record<string, unknown> = { t: "pair-manifest", manifest, pad: "" };
+  const base = stringifyJsonValue(wrapper);
+  const baseLength = text.encode(base).byteLength;
+  const targetLength = manifestPaddingTargetBytes(baseLength);
+  wrapper.pad = "A".repeat(targetLength - baseLength);
+  return wrapper;
+}
+
+function manifestPaddingTargetBytes(byteLength: number): number {
+  if (!Number.isSafeInteger(byteLength) || byteLength < 0 || byteLength > MAX_ENCRYPTED_JSON_PLAINTEXT_BYTES) throw new Error("Encrypted payload is too large.");
+  const bucketed = Math.ceil(byteLength / MANIFEST_PADDING_BUCKET_BYTES) * MANIFEST_PADDING_BUCKET_BYTES;
+  return Math.min(Math.max(bucketed, MANIFEST_PADDING_BUCKET_BYTES), MAX_ENCRYPTED_JSON_PLAINTEXT_BYTES);
 }
 
 export async function sealControl(keys: SessionKeys, message: unknown): Promise<string> {

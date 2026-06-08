@@ -43,6 +43,7 @@ The project is expected to preserve these invariants:
 - browser WebRTC ICE candidate callbacks must copy the signal-authentication key, clear their handler, and wipe that callback-owned copy before session-key wipe; callback failures must close the peer connection without retaining live session key objects
 - client public manifest redaction must walk manifest fields and file entries through own data descriptors so future local call-surface changes cannot invoke accessors or leak caller-owned ids, names, or MIME types
 - client public manifest redaction must use synthetic per-file sizes that sum to the true total, so the signaling server can validate a bounded manifest without seeing declared per-file sizes beyond what total transfer bytes and file count already reveal
+- encrypted manifest wrappers must be padded before AEAD sealing so signaling frame sizes reveal only a coarse encrypted-manifest bucket instead of exact private filename, MIME, and manifest JSON length
 - session ids in every signaling message schema must be restricted to the URL-safe nanoid alphabet, not arbitrary bounded or printable strings
 - PAKE confirmation must complete before pair requests and WebRTC signaling advance
 - PAKE confirmation and session key derivation must bind the protocol version, session id, and peer roles so future mixed-version or downgraded peers fail before pair request acceptance or WebRTC signaling
