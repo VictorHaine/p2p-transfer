@@ -440,13 +440,20 @@ async function assertPrivateOutputParent(dir: string): Promise<void> {
   const groupOrOtherWritable = (stat.mode & 0o022) !== 0;
   const sticky = (stat.mode & 0o1000) !== 0;
   if (groupOrOtherWritable && !sticky) throw new Error("Output directory parent is not private.");
-  if (!sticky) assertOwnedByCurrentUser(stat, "Output directory parent");
+  if (sticky) assertOwnedByCurrentUserOrRoot(stat, "Output directory parent");
+  else assertOwnedByCurrentUser(stat, "Output directory parent");
 }
 
 function assertOwnedByCurrentUser(stat: fs.Stats, label: string): void {
   if (process.platform === "win32" || typeof process.getuid !== "function") return;
   const uid = process.getuid();
   if (uid !== 0 && stat.uid !== uid) throw new Error(`${label} is not owned by the current user.`);
+}
+
+function assertOwnedByCurrentUserOrRoot(stat: fs.Stats, label: string): void {
+  if (process.platform === "win32" || typeof process.getuid !== "function") return;
+  const uid = process.getuid();
+  if (uid !== 0 && stat.uid !== uid && stat.uid !== 0) throw new Error(`${label} is not owned by a trusted user.`);
 }
 
 export function isMissingPathError(error: unknown): boolean {

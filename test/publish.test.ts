@@ -777,6 +777,24 @@ test("ensureOutputDir private mode rejects non-sticky writable output parents", 
   }
 });
 
+test("ensureOutputDir private mode accepts trusted sticky output parents", { skip: process.platform === "win32" ? "POSIX mode bits do not apply on Windows." : false }, async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ff-out-private-"));
+
+  for (const outputDir of [ensureOutputDir, distEnsureOutputDir]) {
+    const parent = path.join(root, `sticky-parent-${Math.random().toString(16).slice(2)}`);
+    const target = path.join(parent, "private");
+    await fs.mkdir(parent, { mode: 0o700 });
+    await fs.chmod(parent, 0o1777);
+    try {
+      const resolved = await outputDir(target, { private: true });
+      const stat = await fs.stat(resolved);
+      assert.equal((stat.mode & 0o777), 0o700);
+    } finally {
+      await fs.chmod(parent, 0o700).catch(() => undefined);
+    }
+  }
+});
+
 test("reserveOutputFile private output mode rejects public output directories", { skip: process.platform === "win32" ? "POSIX mode bits do not apply on Windows." : false }, async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ff-out-private-"));
 
@@ -834,7 +852,7 @@ test("ensureOutputDir input policy is present in source and shipped artifacts", 
   assert.match(securityPolicy, /CLI receiver output-directory and reservation helpers must reject non-string, empty, oversized, or control\/format-character paths before path resolution, mkdir, lstat, open, or path joining/);
   assert.match(securityPolicy, /reservations must carry the output directory identity through partial creation and final publish/);
   assert.match(securityPolicy, /private-mode reservations and publish checks must reject symlinked output directories/);
-  assert.match(securityPolicy, /require POSIX output parents to be either sticky or both current-user-owned and not group\/other-writable/);
+  assert.match(securityPolicy, /require POSIX output parents to be either root\/current-user-owned sticky or both current-user-owned and not group\/other-writable/);
   for (const source of [sourceFiles, distFiles]) {
     assert.match(source, /function outputDirInput/);
     assert.match(source, /typeof dir !== "string"/);
@@ -846,12 +864,15 @@ test("ensureOutputDir input policy is present in source and shipped artifacts", 
     assert.match(source, /function assertPrivateOutputDirStat/);
     assert.match(source, /function assertPrivateOutputParent/);
     assert.match(source, /function assertOwnedByCurrentUser/);
+    assert.match(source, /function assertOwnedByCurrentUserOrRoot/);
     assert.match(source, /lstat\(dir\)/);
     assert.match(source, /isSymbolicLink\(\)/);
     assert.match(source, /\(stat\.mode & 0o022\) !== 0/);
     assert.match(source, /\(stat\.mode & 0o1000\) !== 0/);
-    assert.match(source, /if \(!sticky\)[\s\S]*assertOwnedByCurrentUser\(stat, "Output directory parent"\)/);
+    assert.match(source, /if \(sticky\)[\s\S]*assertOwnedByCurrentUserOrRoot\(stat, "Output directory parent"\)/);
+    assert.match(source, /else\s*assertOwnedByCurrentUser\(stat, "Output directory parent"\)/);
     assert.match(source, /stat\.uid !== uid/);
+    assert.match(source, /stat\.uid !== uid && stat\.uid !== 0/);
     assert.match(source, /\(stat\.mode & 0o077\) !== 0/);
     assert.match(source, /const outputDirIdentity = await directoryIdentity\(outputDir, options\)/);
     assert.match(source, /await assertDirectoryIdentity\(outputDir, outputDirIdentity, options\)/);
