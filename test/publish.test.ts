@@ -4,8 +4,8 @@ import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { buildManifest, closeSendFiles, ensureOutputDir, isMissingPathError, reserveOutputFile } from "../src/cli/files.js";
-import { buildManifest as distBuildManifest, closeSendFiles as distCloseSendFiles, ensureOutputDir as distEnsureOutputDir, reserveOutputFile as distReserveOutputFile } from "../dist-node/cli/files.js";
+import { assertCliResumeSupported, buildManifest, closeSendFiles, ensureOutputDir, isMissingPathError, reserveOutputFile } from "../src/cli/files.js";
+import { assertCliResumeSupported as distAssertCliResumeSupported, buildManifest as distBuildManifest, closeSendFiles as distCloseSendFiles, ensureOutputDir as distEnsureOutputDir, reserveOutputFile as distReserveOutputFile } from "../dist-node/cli/files.js";
 import { publishPartFile, shouldFallbackToExclusiveCopy } from "../src/cli/transfer.js";
 import { publishPartFile as distPublishPartFile } from "../dist-node/cli/transfer.js";
 import { MAX_OUTPUT_NAME_ATTEMPTS } from "../src/shared/constants.js";
@@ -436,7 +436,7 @@ test("reserveOutputFile can publish received files under opaque final names", as
   }
 });
 
-test("reserveOutputFile uses stable opaque final names for CLI resume", async () => {
+test("reserveOutputFile uses stable opaque final names for CLI resume", { skip: process.platform === "win32" ? "CLI resume is disabled on Windows until ACL privacy checks exist." : false }, async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-reserve-opaque-resume-"));
   const first = await reserveOutputFile(dir, "private-name.txt", { resume: true, size: "partial".length, opaqueName: true });
   try {
@@ -458,7 +458,7 @@ test("reserveOutputFile uses stable opaque final names for CLI resume", async ()
   }
 });
 
-test("reserveOutputFile uses opaque deterministic CLI resume partial names", async () => {
+test("reserveOutputFile uses opaque deterministic CLI resume partial names", { skip: process.platform === "win32" ? "CLI resume is disabled on Windows until ACL privacy checks exist." : false }, async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-reserve-resume-"));
   const first = await reserveOutputFile(dir, "private-name.txt", { resume: true, size: "partial".length });
   try {
@@ -614,12 +614,16 @@ test("publishPartFile rejects non-private partial files", { skip: process.platfo
 
 test("CLI resume partial privacy policy is documented and enforced", () => {
   assert.match(securityPolicy, /resumable partial files must reject multiple hard links and non-private POSIX mode bits before hashing, truncation, restart truncation, or publish/);
+  assert.match(securityPolicy, /Windows CLI `recv --resume` must fail closed until equivalent ACL privacy checks are implemented/);
   assert.match(securityPolicy, /partial and resume-secret creation must use exclusive no-follow creation flags/);
   assert.match(securityPolicy, /newly created resume secrets must be verified as private, fixed-size, and single-link before keying resumable names/);
   assert.match(securityPolicy, /resume secret file must reject multiple hard links before keying resumable names/);
   for (const source of [sourceFiles, distFiles]) {
     assert.match(source, /function assertSingleLink\(stat/);
     assert.match(source, /function assertPrivatePartialStat\(stat/);
+    assert.match(source, /function assertCliResumeSupported\(platform/);
+    assert.match(source, /if \(platform === "win32"\)[\s\S]*throw new Error\("CLI resume is disabled on Windows until private ACL checks are implemented\."\)/);
+    assert.match(source, /if \(resume\)[\s\S]*assertCliResumeSupported\(process\.platform\)/);
     assert.match(source, /const SAFE_PART_CREATE_FLAGS = fs\.constants\.O_CREAT \| fs\.constants\.O_EXCL \| fs\.constants\.O_WRONLY \| fs\.constants\.O_NOFOLLOW \| fs\.constants\.O_NONBLOCK/);
     assert.match(source, /const SAFE_SECRET_CREATE_FLAGS = fs\.constants\.O_CREAT \| fs\.constants\.O_EXCL \| fs\.constants\.O_WRONLY \| fs\.constants\.O_NOFOLLOW \| fs\.constants\.O_NONBLOCK/);
     assert.match(source, /fs\.promises\.open\(partPath, SAFE_PART_CREATE_FLAGS, 0o600\)/);
@@ -636,7 +640,15 @@ test("CLI resume partial privacy policy is documented and enforced", () => {
   }
 });
 
-test("reserveOutputFile keeps the CLI resume secret private and fixed size", async () => {
+test("CLI resume fails closed on Windows until private ACL checks exist", () => {
+  for (const guard of [assertCliResumeSupported, distAssertCliResumeSupported]) {
+    assert.throws(() => guard("win32"), /CLI resume is disabled on Windows until private ACL checks are implemented/);
+    assert.doesNotThrow(() => guard("linux"));
+    assert.doesNotThrow(() => guard("darwin"));
+  }
+});
+
+test("reserveOutputFile keeps the CLI resume secret private and fixed size", { skip: process.platform === "win32" ? "CLI resume is disabled on Windows until ACL privacy checks exist." : false }, async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-reserve-secret-"));
   const reserved = await reserveOutputFile(dir, "secret-name.txt", { resume: true, size: 1 });
   try {

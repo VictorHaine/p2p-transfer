@@ -169,8 +169,8 @@ Useful CLI flags:
 - `recv --code <code>`: use a supplied code like `12345678-two-words` instead of generating one.
 - `recv --code-stdin` / `recv --code-env <name>`: provide that supplied receive code without putting it directly in argv. Supplied receive codes are not reprinted in the CLI registered event or human output.
 - `recv --out-env <name>`: read the output directory from an environment variable instead of argv. In private-input mode, use this or the current working directory instead of `recv --out`.
-- `recv --resume`: keep failed CLI partials and resume a later attempt from the last verified chunk boundary. The final SHA-256 still has to match before publish.
-- `recv --opaque-output-names`: publish received files as `ff-<token>` names instead of peer-supplied basenames. With `--resume`, the final name is a stable HMAC-derived opaque name in that output directory.
+- `recv --resume`: keep failed CLI partials and resume a later attempt from the last verified chunk boundary on macOS/Linux. The final SHA-256 still has to match before publish. Windows CLI resume fails closed until equivalent private ACL checks are implemented.
+- `recv --opaque-output-names`: publish received files as `ff-<token>` names instead of peer-supplied basenames. With `--resume` on macOS/Linux, the final name is a stable HMAC-derived opaque name in that output directory.
   CLI resume also keeps a private `.ff-resume-key` in the output directory so resumable `.part` file names stay opaque; delete that key together with stale `ff-resume-*.part` files to reset local resume state.
 
 The browser client has matching ICE controls in the header. `Relay only` sets WebRTC `iceTransportPolicy` to `relay`, requires a credentialed TURN server, and fails immediately if none is configured; it may reduce connectivity, but avoids exposing direct host/server-reflexive ICE candidates to the peer.

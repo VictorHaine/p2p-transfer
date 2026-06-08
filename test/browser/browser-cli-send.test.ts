@@ -13,6 +13,7 @@ const hasChromium = chromiumPath !== undefined || hasPlaywrightChromium();
 const allowMissingChromium = process.env.FF_ALLOW_BROWSER_TEST_SKIP === "true";
 const missingChromium = "No Chromium executable found. Run `pnpm exec playwright install --with-deps chromium`, set PLAYWRIGHT_CHROMIUM, or set FF_ALLOW_BROWSER_TEST_SKIP=true for an intentional non-release skip.";
 const browserTestOptions = { skip: hasChromium || !allowMissingChromium ? false : missingChromium };
+const browserCliResumeTestOptions = { skip: browserTestOptions.skip || (process.platform === "win32" ? "CLI resume is disabled on Windows until ACL privacy checks exist." : false) };
 const TEST_CHUNK_SIZE = 16 * 1024;
 
 test("browser Chromium executable is available", (context) => {
@@ -110,7 +111,7 @@ test("browser sender clears selected files after local validation failure", brow
   }
 });
 
-test("browser sender resumes into CLI receiver partials", browserTestOptions, async () => {
+test("browser sender resumes into CLI receiver partials", browserCliResumeTestOptions, async () => {
   const root = process.cwd();
   const port = 28_000 + randomInt(1_000);
   const origin = `http://127.0.0.1:${port}`;

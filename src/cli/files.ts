@@ -184,6 +184,7 @@ export async function reserveOutputFile(dir: string, name: string, options?: { r
   const outputDir = path.resolve(outputDirInput(dir));
   const outputDirIdentity = await directoryIdentity(outputDir);
   const resume = Boolean(options?.resume);
+  if (resume) assertCliResumeSupported(process.platform);
   const resumeSize = resume ? resumeFileSize(options?.size) : undefined;
   const safeName = options?.opaqueName ? await opaqueOutputFileName(outputDir, name, resumeSize) : safeFileName(name);
   for (let i = 0; i < MAX_OUTPUT_NAME_ATTEMPTS; i += 1) {
@@ -269,6 +270,10 @@ export function assertSingleLink(stat: fs.Stats, label: string): void {
 
 export function assertPrivatePartialStat(stat: fs.Stats): void {
   if (process.platform !== "win32" && (stat.mode & 0o077) !== 0) throw new Error("Resume partial is not private.");
+}
+
+export function assertCliResumeSupported(platform: NodeJS.Platform): void {
+  if (platform === "win32") throw new Error("CLI resume is disabled on Windows until private ACL checks are implemented.");
 }
 
 async function directoryIdentity(dir: string): Promise<FileIdentity> {

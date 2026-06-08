@@ -50,7 +50,7 @@ test("CLI receiver accepts a valid encrypted single-file transfer without WebRTC
   assert.equal(bulk.onclose, null);
 });
 
-test("CLI receiver resumes from a chunk-aligned partial when resume is enabled", async () => {
+test("CLI receiver resumes from a chunk-aligned partial when resume is enabled", { skip: process.platform === "win32" ? "CLI resume is disabled on Windows until ACL privacy checks exist." : false }, async () => {
   const { senderKeys, receiverKeys } = await makeKeys("resume-receive");
   const outDir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-recv-resume-"));
   const prefix = Buffer.alloc(CHUNK_SIZE, 1);
@@ -81,7 +81,7 @@ test("CLI receiver resumes from a chunk-aligned partial when resume is enabled",
   await assert.rejects(() => fs.stat(partial.partPath), { code: "ENOENT" });
 });
 
-test("CLI receiver truncates a stale resume partial when the sender requests restart", async () => {
+test("CLI receiver truncates a stale resume partial when the sender requests restart", { skip: process.platform === "win32" ? "CLI resume is disabled on Windows until ACL privacy checks exist." : false }, async () => {
   const { senderKeys, receiverKeys } = await makeKeys("resume-receive-restart");
   const outDir = await fs.mkdtemp(path.join(os.tmpdir(), "ff-recv-resume-restart-"));
   const stalePrefix = Buffer.alloc(CHUNK_SIZE, 1);
