@@ -6,9 +6,116 @@ import os from "node:os";
 import path from "node:path";
 import { randomInt } from "node:crypto";
 import WebSocket from "ws";
-import { PROTOCOL_VERSION, RECEIVER_MAX_PREPAIR_ATTEMPTS, SIGNALING_MAX_BAD_MESSAGES } from "../../src/shared/constants.js";
+import { PROTOCOL_VERSION, RECEIVER_MAX_PREPAIR_ATTEMPTS, SIGNALING_MAX_BAD_MESSAGES, SIGNALING_MAX_CONNECTION_ATTEMPTS_PER_MINUTE, STATIC_MAX_REQUESTS_PER_MINUTE } from "../../src/shared/constants.js";
+import { PACKAGE_NAME, PACKAGE_VERSION } from "../../src/shared/package-info.js";
 
 type ServerEvent = { type?: string; sid?: string; code?: string; message?: string; [key: string]: unknown };
+
+test("built production server version endpoint does not expose exact package fingerprint", async () => {
+  const root = process.cwd();
+  const port = 27_000 + randomInt(1_000);
+  const origin = `http://127.0.0.1:${port}`;
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-server-version-"));
+  const server = spawn(process.execPath, ["dist-node/server/index.js"], {
+    cwd: root,
+    env: {
+      ...testChildEnv(tmp),
+      PORT: String(port),
+      HOST: "127.0.0.1",
+      NODE_ENV: "production",
+      ALLOWED_ORIGINS: origin,
+      SIGNALING_TOPOLOGY: "single-instance",
+      ALLOW_INSECURE_ORIGINS: "true"
+    }
+  });
+  const serverOutput = collectOutput(server);
+
+  try {
+    await waitForOutput(server, /listening/);
+    const response = await fetch(`http://127.0.0.1:${port}/v1/version`, { headers: { Origin: origin } });
+    assert.equal(response.status, 200);
+    const bodyText = await response.text();
+    const body = JSON.parse(bodyText) as Record<string, unknown>;
+    assert.deepEqual(body, { protocolVersion: PROTOCOL_VERSION });
+    assert.equal(bodyText.includes(PACKAGE_NAME), false);
+    assert.equal(bodyText.includes(PACKAGE_VERSION), false);
+  } finally {
+    server.kill();
+    await serverOutput.done;
+    await removeTestTemp(tmp);
+  }
+});
+
+test("built signaling server rate-limits short-lived websocket upgrade churn", async () => {
+  const root = process.cwd();
+  const port = 28_000 + randomInt(1_000);
+  const origin = `http://127.0.0.1:${port}`;
+  const serverUrl = `ws://127.0.0.1:${port}/v1/ws`;
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-server-ws-churn-"));
+  const server = spawn(process.execPath, ["dist-node/server/index.js"], {
+    cwd: root,
+    env: {
+      ...testChildEnv(tmp),
+      PORT: String(port),
+      HOST: "127.0.0.1",
+      NODE_ENV: "production",
+      ALLOWED_ORIGINS: origin,
+      SIGNALING_TOPOLOGY: "single-instance",
+      ALLOW_INSECURE_ORIGINS: "true"
+    }
+  });
+  const serverOutput = collectOutput(server);
+
+  try {
+    await waitForOutput(server, /listening/);
+    for (let index = 0; index < SIGNALING_MAX_CONNECTION_ATTEMPTS_PER_MINUTE; index += 1) {
+      const ws = await connectWs(serverUrl, origin);
+      ws.close();
+      await waitForWsClose(ws);
+    }
+    await assert.rejects(() => connectWs(serverUrl, origin), /Unexpected server response|Server sent no subprotocol|Timed out connecting WebSocket/);
+  } finally {
+    server.kill();
+    await serverOutput.done;
+    await removeTestTemp(tmp);
+  }
+});
+
+test("built signaling server rate-limits unauthenticated static requests before disk work", async () => {
+  const root = process.cwd();
+  const port = 29_000 + randomInt(1_000);
+  const origin = `http://127.0.0.1:${port}`;
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-server-static-rate-"));
+  const server = spawn(process.execPath, ["dist-node/server/index.js"], {
+    cwd: root,
+    env: {
+      ...testChildEnv(tmp),
+      PORT: String(port),
+      HOST: "127.0.0.1",
+      NODE_ENV: "production",
+      ALLOWED_ORIGINS: origin,
+      SIGNALING_TOPOLOGY: "single-instance",
+      ALLOW_INSECURE_ORIGINS: "true"
+    }
+  });
+  const serverOutput = collectOutput(server);
+
+  try {
+    await waitForOutput(server, /listening/);
+    for (let index = 0; index < STATIC_MAX_REQUESTS_PER_MINUTE; index += 1) {
+      const response = await fetch(`http://127.0.0.1:${port}/static-rate-${index}`, { headers: { Origin: origin } });
+      assert.notEqual(response.status, 429);
+      await response.arrayBuffer();
+    }
+    const limited = await fetch(`http://127.0.0.1:${port}/static-rate-limited`, { headers: { Origin: origin } });
+    assert.equal(limited.status, 429);
+    assert.deepEqual(await limited.json(), { error: "rate_limited" });
+  } finally {
+    server.kill();
+    await serverOutput.done;
+    await removeTestTemp(tmp);
+  }
+});
 
 test("built signaling server rejects unredacted pair requests without forwarding or logging plaintext metadata", async () => {
   const root = process.cwd();

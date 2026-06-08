@@ -14,11 +14,13 @@ import {
   SIGNALING_IDLE_TIMEOUT_MS,
   SIGNALING_MAX_CONNECTIONS_PER_IP,
   SIGNALING_HEARTBEAT_INTERVAL_MS,
+  SIGNALING_MAX_CONNECTION_ATTEMPTS_PER_MINUTE,
   SIGNALING_MAX_MESSAGES_PER_MINUTE,
   SIGNALING_MAX_PAYLOAD_BYTES,
   SIGNALING_MAX_SESSIONS,
   SIGNALING_MAX_WAITING_CODES,
-  STATIC_MAX_FILE_BYTES
+  STATIC_MAX_FILE_BYTES,
+  STATIC_MAX_REQUESTS_PER_MINUTE
 } from "../shared/constants.js";
 import { assertManifestWithinLimits } from "../shared/limits.js";
 import {
@@ -105,12 +107,14 @@ type Session = {
 };
 
 const serverConfig = loadCheckedServerConfig();
-const { port, host, webRoot, allowedOrigins, browserAllowAnyWss, browserAllowLoopbackWs, trustedProxyHops, trustedProxyIps } = serverConfig;
+const { port, host, production, webRoot, allowedOrigins, browserAllowAnyWss, browserAllowLoopbackWs, trustedProxyHops, trustedProxyIps } = serverConfig;
 const realWebRoot = await checkedRealWebRoot(webRoot);
 const codes = new Map<string, WaitingCode>();
 const sessions = new Map<string, Session>();
 const rateLimits = new Map<string, number[]>();
 const iceHttpRateLimits = new Map<string, number[]>();
+const staticHttpRateLimits = new Map<string, number[]>();
+const websocketConnectionRateLimits = new Map<string, number[]>();
 const turnIssueRateLimits = new Map<string, number[]>();
 const activeConnections = new Map<string, number>();
 const peersBySocket = new Map<WebSocket, Peer>();
@@ -127,12 +131,13 @@ const server = http.createServer((req, res) => {
   if (requestMethod(req) !== "GET") return methodNotAllowed(res, cors);
   if (url.pathname === "/healthz") return json(res, 200, { ok: true }, cors);
   if (url.pathname === "/v1/version") {
-    return json(res, 200, { protocolVersion: PROTOCOL_VERSION, name: PACKAGE_NAME, version: PACKAGE_VERSION }, cors);
+    return json(res, 200, versionResponse(), cors);
   }
   if (url.pathname === "/v1/ice") {
     if (!hitIceConfigHttpRateLimit(req)) return json(res, 429, { error: "rate_limited" }, cors);
     return json(res, 200, { iceServers: iceServersForUnauthenticatedRequest(serverConfig) }, cors);
   }
+  if (!hitStaticHttpRateLimit(req)) return json(res, 429, { error: "rate_limited" }, cors);
   serveStatic(url.pathname, res).catch((error) => staticFailure(res, cors, error));
 });
 applyHttpServerHardening(server);
@@ -141,7 +146,7 @@ const verifyOrigin: VerifyClientCallbackSync = ({ req }) => {
   const authority = requestHostAuthority(req);
   if (authority === null || requestBaseUrl(req) === null) return false;
   const origin = requestOriginHeader(req);
-  return origin !== null && originAllowedForRequest(origin, allowedOrigins, authority);
+  return origin !== null && originAllowedForRequest(origin, allowedOrigins, authority) && hitWebSocketConnectionRateLimit(req);
 };
 
 const wss = new WebSocketServer({
@@ -229,6 +234,8 @@ const expiryInterval = setInterval(() => {
   }
   pruneFixedWindowRateLimits(rateLimits, now, 60_000);
   pruneFixedWindowRateLimits(iceHttpRateLimits, now, 60_000);
+  pruneFixedWindowRateLimits(staticHttpRateLimits, now, 60_000);
+  pruneFixedWindowRateLimits(websocketConnectionRateLimits, now, 60_000);
   pruneFixedWindowRateLimits(turnIssueRateLimits, now, 60_000);
 }, 15_000);
 expiryInterval.unref();
@@ -831,6 +838,19 @@ function hitRateLimit(peer: Peer): boolean {
 
 function hitIceConfigHttpRateLimit(req: http.IncomingMessage): boolean {
   return hitIceConfigRateLimit(iceHttpRateLimits, requestIp(req));
+}
+
+function hitStaticHttpRateLimit(req: http.IncomingMessage): boolean {
+  return hitFixedWindowRateLimit(staticHttpRateLimits, requestIp(req), Date.now(), 60_000, STATIC_MAX_REQUESTS_PER_MINUTE);
+}
+
+function hitWebSocketConnectionRateLimit(req: http.IncomingMessage): boolean {
+  return hitFixedWindowRateLimit(websocketConnectionRateLimits, requestIp(req), Date.now(), 60_000, SIGNALING_MAX_CONNECTION_ATTEMPTS_PER_MINUTE);
+}
+
+function versionResponse(): { protocolVersion: number; name?: string; version?: string } {
+  if (production) return { protocolVersion: PROTOCOL_VERSION };
+  return { protocolVersion: PROTOCOL_VERSION, name: PACKAGE_NAME, version: PACKAGE_VERSION };
 }
 
 function hitMessageLimit(peer: Peer): boolean {

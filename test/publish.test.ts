@@ -741,6 +741,34 @@ test("ensureOutputDir private mode rejects existing public output directories", 
   }
 });
 
+test("ensureOutputDir private mode rejects symlinked output directories", { skip: process.platform === "win32" ? "POSIX symlink policy differs on Windows." : false }, async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ff-out-private-"));
+
+  for (const outputDir of [ensureOutputDir, distEnsureOutputDir]) {
+    const target = path.join(root, `target-${Math.random().toString(16).slice(2)}`);
+    const link = path.join(root, `link-${Math.random().toString(16).slice(2)}`);
+    await fs.mkdir(target, { mode: 0o700 });
+    await fs.symlink(target, link, "dir");
+    await assert.rejects(() => outputDir(link, { private: true }), /Output directory must not be a symbolic link/);
+  }
+});
+
+test("ensureOutputDir private mode rejects non-sticky writable output parents", { skip: process.platform === "win32" ? "POSIX mode bits do not apply on Windows." : false }, async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ff-out-private-"));
+
+  for (const outputDir of [ensureOutputDir, distEnsureOutputDir]) {
+    const parent = path.join(root, `writable-parent-${Math.random().toString(16).slice(2)}`);
+    const target = path.join(parent, "private");
+    await fs.mkdir(parent, { mode: 0o700 });
+    await fs.chmod(parent, 0o777);
+    try {
+      await assert.rejects(() => outputDir(target, { private: true }), /Output directory parent is not private/);
+    } finally {
+      await fs.chmod(parent, 0o700).catch(() => undefined);
+    }
+  }
+});
+
 test("reserveOutputFile private output mode rejects public output directories", { skip: process.platform === "win32" ? "POSIX mode bits do not apply on Windows." : false }, async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ff-out-private-"));
 
@@ -749,6 +777,26 @@ test("reserveOutputFile private output mode rejects public output directories", 
     await fs.mkdir(target, { mode: 0o700 });
     await fs.chmod(target, 0o755);
     await assert.rejects(() => reserve(target, "file.txt", { privateOutputDir: true }), /Output directory is not private/);
+  }
+});
+
+test("publishPartFile private output mode rejects directories made public before publish", { skip: process.platform === "win32" ? "POSIX mode bits do not apply on Windows." : false }, async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ff-publish-private-"));
+
+  for (const publish of [publishPartFile, distPublishPartFile]) {
+    const dir = path.join(root, `out-${Math.random().toString(16).slice(2)}`);
+    await fs.mkdir(dir, { mode: 0o700 });
+    const reserved = await reserveOutputFile(dir, "file.txt", { privateOutputDir: true });
+    await reserved.handle.writeFile("trusted");
+    await reserved.handle.close();
+    await fs.chmod(dir, 0o755);
+    try {
+      await assert.rejects(() => publish(reserved.partPath, reserved.finalPath, reserved, 7, { dev: reserved.dirDev, ino: reserved.dirIno }, { privateOutputDir: true }), /Output directory is not private/);
+      await assert.rejects(() => fs.stat(reserved.finalPath), { code: "ENOENT" });
+      assert.equal(await fs.readFile(reserved.partPath, "utf8"), "trusted");
+    } finally {
+      await fs.chmod(dir, 0o700).catch(() => undefined);
+    }
   }
 });
 
@@ -777,7 +825,8 @@ test("ensureOutputDir rejects unsafe runtime values before path resolution", asy
 test("ensureOutputDir input policy is present in source and shipped artifacts", () => {
   assert.match(securityPolicy, /CLI receiver output-directory and reservation helpers must reject non-string, empty, oversized, or control\/format-character paths before path resolution, mkdir, lstat, open, or path joining/);
   assert.match(securityPolicy, /reservations must carry the output directory identity through partial creation and final publish/);
-  assert.match(securityPolicy, /private-mode reservations must re-check the output directory's POSIX private permission bits at the same identity checkpoints/);
+  assert.match(securityPolicy, /private-mode reservations and publish checks must reject symlinked output directories/);
+  assert.match(securityPolicy, /require POSIX output parents to be either sticky or both current-user-owned and not group\/other-writable/);
   for (const source of [sourceFiles, distFiles]) {
     assert.match(source, /function outputDirInput/);
     assert.match(source, /typeof dir !== "string"/);
@@ -787,6 +836,14 @@ test("ensureOutputDir input policy is present in source and shipped artifacts", 
     assert.match(source, /path\.resolve\(outputDirInput\(dir\)\)/);
     assert.match(source, /mode: options\?\.private \? 0o700 : undefined/);
     assert.match(source, /function assertPrivateOutputDirStat/);
+    assert.match(source, /function assertPrivateOutputParent/);
+    assert.match(source, /function assertOwnedByCurrentUser/);
+    assert.match(source, /lstat\(dir\)/);
+    assert.match(source, /isSymbolicLink\(\)/);
+    assert.match(source, /\(stat\.mode & 0o022\) !== 0/);
+    assert.match(source, /\(stat\.mode & 0o1000\) !== 0/);
+    assert.match(source, /if \(!sticky\)[\s\S]*assertOwnedByCurrentUser\(stat, "Output directory parent"\)/);
+    assert.match(source, /stat\.uid !== uid/);
     assert.match(source, /\(stat\.mode & 0o077\) !== 0/);
     assert.match(source, /const outputDirIdentity = await directoryIdentity\(outputDir, options\)/);
     assert.match(source, /await assertDirectoryIdentity\(outputDir, outputDirIdentity, options\)/);
@@ -798,7 +855,9 @@ test("ensureOutputDir input policy is present in source and shipped artifacts", 
   assert.match(sourceFiles, /privateOutputDir\?: boolean/);
   for (const source of [sourceTransfer, distTransfer]) {
     assert.match(source, /expectedDirectory/);
-    assert.match(source, /await assertDirectoryIdentity\(path\.dirname\(safeFinalPath\), safeExpectedDirectory\)/);
+    assert.match(source, /await assertDirectoryIdentity\(path\.dirname\(safeFinalPath\), safeExpectedDirectory, options\)/);
+    assert.match(source, /privateOutputDir/);
+    assert.match(source, /assertPrivateOutputParent/);
     assert.match(source, /Output directory changed before publish/);
   }
 });

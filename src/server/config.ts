@@ -19,6 +19,7 @@ const MAX_ORIGIN_HEADER_BYTES = 2048;
 export type ServerConfig = {
   port: number;
   host: string;
+  production: boolean;
   iceServers: RTCIceServer[];
   webRoot: string;
   allowedOrigins: string[] | undefined;
@@ -56,6 +57,7 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
   return {
     port: parsePort(envValue(env, "PORT")),
     host,
+    production,
     iceServers,
     webRoot: parseWebRoot(envValue(env, "WEB_ROOT")),
     allowedOrigins,

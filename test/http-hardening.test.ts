@@ -8,7 +8,9 @@ import {
   HTTP_HEADERS_TIMEOUT_MS,
   HTTP_KEEP_ALIVE_TIMEOUT_MS,
   HTTP_MAX_HEADERS_COUNT,
-  HTTP_REQUEST_TIMEOUT_MS
+  HTTP_REQUEST_TIMEOUT_MS,
+  SIGNALING_MAX_CONNECTION_ATTEMPTS_PER_MINUTE,
+  STATIC_MAX_REQUESTS_PER_MINUTE
 } from "../src/shared/constants.js";
 import { applyHttpServerHardening } from "../src/server/http-hardening.js";
 import { applyHttpServerHardening as distApplyHttpServerHardening } from "../dist-node/server/http-hardening.js";
@@ -123,6 +125,30 @@ test("websocket peers are heartbeat-terminated to release stale capacity", () =>
   assert.match(heartbeatBody, /peer\.ws\.terminate\(\)/);
   assert.match(heartbeatBody, /peer\.ws\.ping\(\)/);
   assert.match(heartbeatBody, /cleanupPeer\(peer, "heartbeat_error"\)/);
+});
+
+test("unauthenticated server surfaces rate-limit connection churn and static HTTP work", () => {
+  assert.equal(SIGNALING_MAX_CONNECTION_ATTEMPTS_PER_MINUTE, 120);
+  assert.equal(STATIC_MAX_REQUESTS_PER_MINUTE, 300);
+  assert.match(securityPolicy, /WebSocket upgrade attempts must hit a per-IP fixed-window limiter before connection state is accepted/);
+  assert.match(securityPolicy, /unauthenticated static HTTP requests must hit a per-IP fixed-window limiter before static path resolution or file reads/);
+  assert.match(serverSource, /const staticHttpRateLimits = new Map<string, number\[\]>\(\)/);
+  assert.match(serverSource, /const websocketConnectionRateLimits = new Map<string, number\[\]>\(\)/);
+  assert.match(serverSource, /if \(!hitStaticHttpRateLimit\(req\)\) return json\(res, 429, \{ error: "rate_limited" \}, cors\);[\s\S]*serveStatic\(url\.pathname, res\)/);
+  assert.match(serverSource, /originAllowedForRequest\(origin, allowedOrigins, authority\) && hitWebSocketConnectionRateLimit\(req\)/);
+  assert.match(serverSource, /hitFixedWindowRateLimit\(staticHttpRateLimits, requestIp\(req\), Date\.now\(\), 60_000, STATIC_MAX_REQUESTS_PER_MINUTE\)/);
+  assert.match(serverSource, /hitFixedWindowRateLimit\(websocketConnectionRateLimits, requestIp\(req\), Date\.now\(\), 60_000, SIGNALING_MAX_CONNECTION_ATTEMPTS_PER_MINUTE\)/);
+  assert.match(serverSource, /pruneFixedWindowRateLimits\(staticHttpRateLimits, now, 60_000\)/);
+  assert.match(serverSource, /pruneFixedWindowRateLimits\(websocketConnectionRateLimits, now, 60_000\)/);
+  assert.match(distServerSource, /staticHttpRateLimits/);
+  assert.match(distServerSource, /websocketConnectionRateLimits/);
+});
+
+test("production version endpoint exposes protocol compatibility only", () => {
+  assert.match(securityPolicy, /production `\/v1\/version` responses must expose only protocol compatibility/);
+  assert.match(serverSource, /return json\(res, 200, versionResponse\(\), cors\)/);
+  assert.match(serverSource, /function versionResponse\(\): \{ protocolVersion: number; name\?: string; version\?: string \} \{[\s\S]*if \(production\) return \{ protocolVersion: PROTOCOL_VERSION \};[\s\S]*return \{ protocolVersion: PROTOCOL_VERSION, name: PACKAGE_NAME, version: PACKAGE_VERSION \};[\s\S]*\}/);
+  assert.match(distServerSource, /function versionResponse\(\) \{[\s\S]*if \(production\)[\s\S]*return \{ protocolVersion: PROTOCOL_VERSION \};[\s\S]*return \{ protocolVersion: PROTOCOL_VERSION, name: PACKAGE_NAME, version: PACKAGE_VERSION \};[\s\S]*\}/);
 });
 
 test("server lifecycle intervals stop on shutdown and fatal errors", () => {

@@ -557,7 +557,7 @@ export async function receiveFiles(
         if (!state) throw new Error(`file-end for unknown file ${message.id}`);
         if (state.expectedSha256) throw new Error(`Duplicate file-end for file ${message.id}`);
         state.expectedSha256 = message.sha256;
-        await maybeFinalize(state, control, keys, throwIfReceiveStopped);
+        await maybeFinalize(state, control, keys, throwIfReceiveStopped, privateOutputDir);
         await maybeResolveDone();
       } else if (message.t === "all-done") {
         if (!manifest) throw new Error("all-done arrived before manifest.");
@@ -597,7 +597,7 @@ export async function receiveFiles(
         progress.transferredBytes += payload.byteLength;
         await writeStreamChunk(state.stream, payload);
         printProgress("received", state.name, progress);
-        await maybeFinalize(state, control, keys, throwIfReceiveStopped);
+        await maybeFinalize(state, control, keys, throwIfReceiveStopped, privateOutputDir);
         await maybeResolveDone();
       } finally {
         payload.fill(0);
@@ -668,7 +668,7 @@ async function restartReceiveState(state: ReceiveState): Promise<void> {
   }
 }
 
-async function maybeFinalize(state: ReceiveState, control: RTCDataChannel, keys: SessionKeys, throwIfReceiveStopped: () => void): Promise<void> {
+async function maybeFinalize(state: ReceiveState, control: RTCDataChannel, keys: SessionKeys, throwIfReceiveStopped: () => void, privateOutputDir = false): Promise<void> {
   if (state.done || state.finalizing || !state.expectedSha256 || state.bytes < state.size) return;
   state.finalizing = true;
   try {
@@ -687,7 +687,7 @@ async function maybeFinalize(state: ReceiveState, control: RTCDataChannel, keys:
     }
     const fileOk = await sealControl(keys, { t: "file-ok", id: state.id });
     throwIfReceiveStopped();
-    const publishedIdentity = await publishPartFile(state.partPath, state.finalPath, { dev: state.partDev, ino: state.partIno }, state.size, { dev: state.dirDev, ino: state.dirIno });
+    const publishedIdentity = await publishPartFile(state.partPath, state.finalPath, { dev: state.partDev, ino: state.partIno }, state.size, { dev: state.dirDev, ino: state.dirIno }, { privateOutputDir });
     try {
       throwIfReceiveStopped();
     } catch (error) {
@@ -780,7 +780,11 @@ type PathIdentity = FileIdentity & {
   mode: number;
 };
 
-export async function publishPartFile(partPath: string, finalPath: string, expectedPart?: FileIdentity, expectedSize?: number, expectedDirectory?: FileIdentity): Promise<FileIdentity> {
+type PublishOptions = {
+  privateOutputDir?: boolean;
+};
+
+export async function publishPartFile(partPath: string, finalPath: string, expectedPart?: FileIdentity, expectedSize?: number, expectedDirectory?: FileIdentity, options?: PublishOptions): Promise<FileIdentity> {
   const safePartPath = publishPathInput(partPath, "Partial");
   const safeFinalPath = publishPathInput(finalPath, "Final");
   const safeExpectedPart = expectedPart === undefined ? undefined : fileIdentityInput(expectedPart);
@@ -789,7 +793,7 @@ export async function publishPartFile(partPath: string, finalPath: string, expec
   const partIdentity = safeExpectedPart ?? (await fileIdentity(safePartPath));
   let finalIdentity: FileIdentity | undefined;
   try {
-    if (safeExpectedDirectory) await assertDirectoryIdentity(path.dirname(safeFinalPath), safeExpectedDirectory);
+    if (safeExpectedDirectory) await assertDirectoryIdentity(path.dirname(safeFinalPath), safeExpectedDirectory, options);
     await assertPartFileIdentity(safePartPath, partIdentity, safeExpectedSize);
     try {
       finalIdentity = await linkPartFileExclusive(safePartPath, safeFinalPath, partIdentity, safeExpectedSize);
@@ -797,7 +801,7 @@ export async function publishPartFile(partPath: string, finalPath: string, expec
       if (!shouldFallbackToExclusiveCopy(error)) throw error;
       finalIdentity = await copyPartFileExclusive(safePartPath, safeFinalPath, partIdentity, safeExpectedSize);
     }
-    if (safeExpectedDirectory) await assertDirectoryIdentity(path.dirname(safeFinalPath), safeExpectedDirectory);
+    if (safeExpectedDirectory) await assertDirectoryIdentity(path.dirname(safeFinalPath), safeExpectedDirectory, options);
     await assertPublishedFileIdentity(safeFinalPath, finalIdentity, safeExpectedSize);
     await removePathIfIdentity(safePartPath, partIdentity);
     return finalIdentity;
@@ -942,9 +946,41 @@ async function assertPublishedFileIdentity(finalPath: string, expected: FileIden
   }
 }
 
-async function assertDirectoryIdentity(dir: string, expected: FileIdentity): Promise<void> {
+async function assertDirectoryIdentity(dir: string, expected: FileIdentity, options?: PublishOptions): Promise<void> {
+  if (options?.privateOutputDir) {
+    const linkStat = await fs.promises.lstat(dir);
+    if (linkStat.isSymbolicLink()) throw new Error("Output directory must not be a symbolic link in private mode.");
+  }
   const stat = await fs.promises.stat(dir);
   if (!stat.isDirectory() || !sameIdentity(stat, expected)) throw new Error("Output directory changed before publish.");
+  if (options?.privateOutputDir) {
+    assertPrivateOutputDirStat(stat);
+    await assertPrivateOutputParent(dir);
+  }
+}
+
+function assertPrivateOutputDirStat(stat: fs.Stats): void {
+  if (process.platform === "win32") return;
+  assertOwnedByCurrentUser(stat, "Output directory");
+  if ((stat.mode & 0o077) !== 0) throw new Error("Output directory is not private.");
+}
+
+async function assertPrivateOutputParent(dir: string): Promise<void> {
+  if (process.platform === "win32") return;
+  const parent = path.dirname(dir);
+  if (parent === dir) return;
+  const stat = await fs.promises.stat(parent);
+  if (!stat.isDirectory()) throw new Error("Output directory parent is invalid.");
+  const groupOrOtherWritable = (stat.mode & 0o022) !== 0;
+  const sticky = (stat.mode & 0o1000) !== 0;
+  if (groupOrOtherWritable && !sticky) throw new Error("Output directory parent is not private.");
+  if (!sticky) assertOwnedByCurrentUser(stat, "Output directory parent");
+}
+
+function assertOwnedByCurrentUser(stat: fs.Stats, label: string): void {
+  if (process.platform === "win32" || typeof process.getuid !== "function") return;
+  const uid = process.getuid();
+  if (uid !== 0 && stat.uid !== uid) throw new Error(`${label} is not owned by the current user.`);
 }
 
 async function openPartFileNoFollow(partPath: string): Promise<fs.promises.FileHandle> {

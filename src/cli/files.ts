@@ -156,14 +156,15 @@ function sendFileCloseOperation(file: unknown): Promise<unknown> | undefined {
 export async function ensureOutputDir(dir: string, options?: EnsureOutputDirOptions): Promise<string> {
   const resolved = path.resolve(outputDirInput(dir));
   await fs.promises.mkdir(resolved, { recursive: true, mode: options?.private ? 0o700 : undefined });
-  const stat = await fs.promises.stat(resolved);
+  const stat = await outputDirectoryStat(resolved, options?.private ? { privateOutputDir: true } : undefined);
   if (!stat.isDirectory()) throw new Error("Output path is not a directory.");
-  if (options?.private) assertPrivateOutputDirStat(stat);
   return fs.promises.realpath(resolved);
 }
 
 function assertPrivateOutputDirStat(stat: fs.Stats): void {
-  if (process.platform !== "win32" && (stat.mode & 0o077) !== 0) throw new Error("Output directory is not private.");
+  if (process.platform === "win32") return;
+  assertOwnedByCurrentUser(stat, "Output directory");
+  if ((stat.mode & 0o077) !== 0) throw new Error("Output directory is not private.");
 }
 
 function outputDirInput(dir: unknown): string {
@@ -285,7 +286,9 @@ export function assertSingleLink(stat: fs.Stats, label: string): void {
 }
 
 export function assertPrivatePartialStat(stat: fs.Stats): void {
-  if (process.platform !== "win32" && (stat.mode & 0o077) !== 0) throw new Error("Resume partial is not private.");
+  if (process.platform === "win32") return;
+  assertOwnedByCurrentUser(stat, "Resume partial");
+  if ((stat.mode & 0o077) !== 0) throw new Error("Resume partial is not private.");
 }
 
 export function assertCliResumeSupported(platform: NodeJS.Platform): void {
@@ -293,16 +296,14 @@ export function assertCliResumeSupported(platform: NodeJS.Platform): void {
 }
 
 async function directoryIdentity(dir: string, options?: ReserveOutputFileOptions): Promise<FileIdentity> {
-  const stat = await fs.promises.stat(dir);
+  const stat = await outputDirectoryStat(dir, options);
   if (!stat.isDirectory()) throw new Error("Output path is not a directory.");
-  if (options?.privateOutputDir) assertPrivateOutputDirStat(stat);
   return { dev: stat.dev, ino: stat.ino };
 }
 
 async function assertDirectoryIdentity(dir: string, expected: FileIdentity, options?: ReserveOutputFileOptions): Promise<void> {
-  const stat = await fs.promises.stat(dir);
+  const stat = await outputDirectoryStat(dir, options);
   if (!stat.isDirectory() || stat.dev !== expected.dev || stat.ino !== expected.ino) throw new Error("Output directory changed during reservation.");
-  if (options?.privateOutputDir) assertPrivateOutputDirStat(stat);
 }
 
 async function removePathIfIdentity(filePath: string, expected: FileIdentity): Promise<void> {
@@ -405,7 +406,41 @@ async function readResumeSecret(secretPath: string): Promise<Buffer> {
 function assertResumeSecretStat(stat: fs.Stats): void {
   if (!stat.isFile() || stat.size !== RESUME_SECRET_BYTES) throw new Error("Resume secret is invalid.");
   assertSingleLink(stat, "Resume secret");
-  if (process.platform !== "win32" && (stat.mode & 0o077) !== 0) throw new Error("Resume secret is not private.");
+  if (process.platform !== "win32") {
+    assertOwnedByCurrentUser(stat, "Resume secret");
+    if ((stat.mode & 0o077) !== 0) throw new Error("Resume secret is not private.");
+  }
+}
+
+async function outputDirectoryStat(dir: string, options?: ReserveOutputFileOptions): Promise<fs.Stats> {
+  if (options?.privateOutputDir) {
+    const linkStat = await fs.promises.lstat(dir);
+    if (linkStat.isSymbolicLink()) throw new Error("Output directory must not be a symbolic link in private mode.");
+  }
+  const stat = await fs.promises.stat(dir);
+  if (options?.privateOutputDir) {
+    assertPrivateOutputDirStat(stat);
+    await assertPrivateOutputParent(dir);
+  }
+  return stat;
+}
+
+async function assertPrivateOutputParent(dir: string): Promise<void> {
+  if (process.platform === "win32") return;
+  const parent = path.dirname(dir);
+  if (parent === dir) return;
+  const stat = await fs.promises.stat(parent);
+  if (!stat.isDirectory()) throw new Error("Output directory parent is invalid.");
+  const groupOrOtherWritable = (stat.mode & 0o022) !== 0;
+  const sticky = (stat.mode & 0o1000) !== 0;
+  if (groupOrOtherWritable && !sticky) throw new Error("Output directory parent is not private.");
+  if (!sticky) assertOwnedByCurrentUser(stat, "Output directory parent");
+}
+
+function assertOwnedByCurrentUser(stat: fs.Stats, label: string): void {
+  if (process.platform === "win32" || typeof process.getuid !== "function") return;
+  const uid = process.getuid();
+  if (uid !== 0 && stat.uid !== uid) throw new Error(`${label} is not owned by the current user.`);
 }
 
 export function isMissingPathError(error: unknown): boolean {
