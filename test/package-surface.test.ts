@@ -735,7 +735,11 @@ test("packed package smoke installs and executes published bins", () => {
   assert.match(packedSmokeScript, /\["PATH", true\]/);
   assert.match(packedSmokeScript, /HOME: home/);
   assert.match(packedSmokeScript, /USERPROFILE: home/);
+  assert.match(packedSmokeScript, /const packageManagerEnv = packageManagerConfigEnv\(home\)/);
+  assert.match(packedSmokeScript, /function packageManagerConfigEnv\(home\)/);
   assert.match(packedSmokeScript, /NPM_CONFIG_USERCONFIG: path\.join\(home, "\.npmrc"\)/);
+  assert.match(packedSmokeScript, /if \(process\.platform === "win32"\) return upper/);
+  assert.match(packedSmokeScript, /npm_config_userconfig: upper\.NPM_CONFIG_USERCONFIG/);
   assert.match(packedSmokeScript, /PNPM_HOME: path\.join\(home, "pnpm-home"\)/);
   assert.match(packedSmokeScript, /COREPACK_HOME: path\.join\(home, "corepack-home"\)/);
   assert.match(packedSmokeScript, /throw new Error\(`\$\{name\} must be a non-empty control-free child environment value under \$\{MAX_CHILD_ENV_VALUE_BYTES\} UTF-8 bytes\.`\)/);

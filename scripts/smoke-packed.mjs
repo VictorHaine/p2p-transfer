@@ -261,7 +261,7 @@ function run(command, args, options) {
 
 function childProcessOptions(options, stdio) {
   const base = { cwd: options.cwd, env: options.env ?? safeChildEnv(), stdio, windowsHide: true };
-  return process.platform === "win32" ? { ...base, shell: true } : base;
+  return base;
 }
 
 async function smokeInstalledTransfer(consumerDir, childEnv, port, tmp) {
@@ -404,21 +404,32 @@ export function isolatedChildEnv(privateHome) {
   }
   const home = path.resolve(privateHome);
   const env = safeChildEnv();
+  const packageManagerEnv = packageManagerConfigEnv(home);
   return {
     ...env,
     HOME: home,
     USERPROFILE: home,
     XDG_CONFIG_HOME: path.join(home, "xdg-config"),
-    NPM_CONFIG_USERCONFIG: path.join(home, ".npmrc"),
-    npm_config_userconfig: path.join(home, ".npmrc"),
-    NPM_CONFIG_PREFIX: path.join(home, "npm-prefix"),
-    npm_config_prefix: path.join(home, "npm-prefix"),
-    NPM_CONFIG_CACHE: path.join(home, "npm-cache"),
-    npm_config_cache: path.join(home, "npm-cache"),
+    ...packageManagerEnv,
     PNPM_HOME: path.join(home, "pnpm-home"),
     COREPACK_HOME: path.join(home, "corepack-home"),
     LOCALAPPDATA: path.join(home, "local-app-data"),
     APPDATA: path.join(home, "app-data")
+  };
+}
+
+function packageManagerConfigEnv(home) {
+  const upper = {
+    NPM_CONFIG_USERCONFIG: path.join(home, ".npmrc"),
+    NPM_CONFIG_PREFIX: path.join(home, "npm-prefix"),
+    NPM_CONFIG_CACHE: path.join(home, "npm-cache")
+  };
+  if (process.platform === "win32") return upper;
+  return {
+    ...upper,
+    npm_config_userconfig: upper.NPM_CONFIG_USERCONFIG,
+    npm_config_prefix: upper.NPM_CONFIG_PREFIX,
+    npm_config_cache: upper.NPM_CONFIG_CACHE
   };
 }
 
