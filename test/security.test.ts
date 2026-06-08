@@ -24,6 +24,7 @@ import {
   verifyPairDecisionAuthTag,
   verifySdpAuthTag,
   verifySignalAuthTag,
+  verifyCryptoRuntime,
   wipePakeState,
   wipeSessionKeys
 } from "../src/shared/security.js";
@@ -143,6 +144,23 @@ test("CPace derives matching directional session keys for the same code", async 
   const payload = new TextEncoder().encode("hello");
   const sealedPayload = await sealBulk(senderKeys, 0, 7, payload);
   assert.deepEqual(await openBulk(receiverKeys, 0, 7, sealedPayload), payload);
+});
+
+test("runtime crypto self-check exercises PAKE and AEAD before transfer work", async () => {
+  assert.match(securityPolicy, /browser and CLI transfer entrypoints must run a one-time runtime crypto self-check before pairing or transfer work/);
+  assert.match(securitySource, /export function verifyCryptoRuntime\(\): Promise<void>/);
+  assert.match(securitySource, /async function runCryptoRuntimeSelfCheck\(\): Promise<void>/);
+  assert.match(securitySource, /startPake\("sender", code, sid\)/);
+  assert.match(securitySource, /startPake\("receiver", code, sid\)/);
+  assert.match(securitySource, /sealManifest\(senderKeys, manifest\)/);
+  assert.match(securitySource, /sealControl\(senderKeys/);
+  assert.match(securitySource, /sealBulk\(senderKeys/);
+  assert.match(securitySource, /openSignal\(receiverKeys\.signalAuthKey/);
+  assert.match(securitySource, /wrongReceiverKeys = await finishPake\(wrongReceiverState, senderShare\)/);
+  assert.match(securitySource, /Crypto runtime self-check failed/);
+  assert.match(distWebBundle, /Crypto runtime self-check failed/);
+  await verifyCryptoRuntime();
+  await verifyCryptoRuntime();
 });
 
 test("wrong code cannot decrypt PAKE-derived payloads", async () => {

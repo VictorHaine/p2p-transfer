@@ -53,6 +53,7 @@ import {
   verifySessionConfirmTag,
   verifySignalAuthTag,
   openSignal,
+  verifyCryptoRuntime,
   wipePakeState,
   wipeSessionKeys,
   type PakeRole,
@@ -308,6 +309,8 @@ async function sendFromBrowser(): Promise<void> {
   const files = Array.from(fileInput.files ?? []);
   if (files.length === 0) throw new Error("Choose at least one file.");
 
+  setStatus(sendStatus, "Checking");
+  await verifyCryptoRuntime();
   setStatus(sendStatus, "Preparing");
   const sendPlan = await buildBrowserSendPlan(files);
   const manifest = browserSendPlanManifest(sendPlan);
@@ -367,6 +370,8 @@ async function sendFromBrowser(): Promise<void> {
 }
 
 async function receiveInBrowser(): Promise<void> {
+  setStatus(recvStatus, "Checking");
+  await verifyCryptoRuntime();
   setStatus(recvStatus, "Registering");
   const requireFolderReceive = shouldRequireBrowserFolderReceive();
   const opaqueOutputNames = shouldUseBrowserOpaqueNames();

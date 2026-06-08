@@ -21,6 +21,7 @@ Privacy boundary: file contents, real manifests, SDP contents, and ICE candidate
 This build implements the required untrusted-signaling security layer:
 
 - CPace PAKE derives a per-session key from the full handle.
+- CLI and browser transfer entrypoints run a one-time runtime crypto self-check before pairing, covering CPace agreement, PAKE confirmation, authenticated signal sealing/opening, manifest/control/bulk AEAD, and wrong-code decrypt failure in the actual runtime.
 - Both peers exchange a PAKE-derived confirmation tag before any pair request is accepted into the receive flow.
 - The sender encrypts the real pair-request manifest before it crosses the signaling server.
 - WebRTC signaling frames, including SDP offers/answers and ICE candidates, are sealed and HMAC-authenticated with the PAKE-derived key, so the signaling server cannot read them and a signaling-server MITM cannot silently swap WebRTC DTLS fingerprints or inject routing candidates.

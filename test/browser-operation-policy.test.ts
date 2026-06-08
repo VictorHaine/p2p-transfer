@@ -39,6 +39,18 @@ test("browser top-level transfer failures update visible status", () => {
   assert.match(webSource, /return operation === "send" \? "Browser send failed\." : "Browser receive failed\."/);
 });
 
+test("browser transfer flows run the runtime crypto self-check before pairing", () => {
+  const sendBody = extractFunctionBody(webSource, "sendFromBrowser");
+  const receiveBody = extractFunctionBody(webSource, "receiveInBrowser");
+  assert.match(securityPolicy, /browser and CLI transfer entrypoints must run a one-time runtime crypto self-check before pairing or transfer work/);
+  assert.match(webSource, /verifyCryptoRuntime/);
+  assert.equal(sendBody.indexOf("await verifyCryptoRuntime()") < sendBody.indexOf('setStatus(sendStatus, "Preparing")'), true);
+  assert.equal(sendBody.indexOf("await verifyCryptoRuntime()") < sendBody.indexOf("openSignaling()"), true);
+  assert.equal(receiveBody.indexOf("await verifyCryptoRuntime()") < receiveBody.indexOf('setStatus(recvStatus, "Registering")'), true);
+  assert.equal(receiveBody.indexOf("await verifyCryptoRuntime()") < receiveBody.indexOf("openSignaling()"), true);
+  assert.match(distWebBundle, /Crypto runtime self-check failed/);
+});
+
 test("browser exposes relay-only ICE parity with the CLI", () => {
   assert.match(securityPolicy, /CLI and browser docs must describe relay-only ICE as the TURN-backed mitigation for direct ICE candidate endpoint exposure/);
   assert.match(securityPolicy, /browser send and receive flows must pass `iceTransportPolicy: "relay"` when the browser relay-only control is selected/);

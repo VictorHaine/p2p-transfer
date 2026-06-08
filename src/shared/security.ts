@@ -34,6 +34,8 @@ export type SessionKeys = {
   bulkRecvKey?: CryptoKey;
 };
 
+let cryptoRuntimeSelfCheckPromise: Promise<void> | undefined;
+
 type ActiveAeadSessionKeys = {
   sid: string;
   manifestKey: CryptoKey;
@@ -170,6 +172,11 @@ export function wipeSessionKeys(keys: SessionKeys | undefined): void {
   defineOwnData(keys, "destroyed", true);
 }
 
+export function verifyCryptoRuntime(): Promise<void> {
+  if (!cryptoRuntimeSelfCheckPromise) cryptoRuntimeSelfCheckPromise = runCryptoRuntimeSelfCheck();
+  return cryptoRuntimeSelfCheckPromise;
+}
+
 export function parsePakeShareMessage(data: string): string {
   if (typeof data !== "string" || data.length === 0 || utf8ByteLengthExceeds(data, MAX_PAKE_MESSAGE_BYTES)) {
     throw new Error("Peer sent an invalid PAKE message.");
@@ -205,6 +212,67 @@ export function parsePakeShareMessage(data: string): string {
     share.fill(0);
   }
   return shareValue;
+}
+
+async function runCryptoRuntimeSelfCheck(): Promise<void> {
+  const sid = "crypto-self-check";
+  const code = "123456789012-apple-anchor";
+  let senderState: PakeState | undefined;
+  let receiverState: PakeState | undefined;
+  let wrongReceiverState: PakeState | undefined;
+  let senderKeys: SessionKeys | undefined;
+  let receiverKeys: SessionKeys | undefined;
+  let wrongReceiverKeys: SessionKeys | undefined;
+  try {
+    senderState = startPake("sender", code, sid);
+    receiverState = startPake("receiver", code, sid);
+    const senderShare = ownPakeShareB64(senderState);
+    const receiverShare = ownPakeShareB64(receiverState);
+    senderKeys = await finishPake(senderState, receiverShare);
+    receiverKeys = await finishPake(receiverState, senderShare);
+    if (senderKeys.sas !== receiverKeys.sas) throw new Error("SAS mismatch.");
+
+    const receiverConfirm = sessionConfirmTag(receiverKeys.signalAuthKey, sid, "receiver", receiverKeys.protocolVersion);
+    if (!verifySessionConfirmTag(senderKeys.signalAuthKey, sid, "receiver", receiverConfirm, senderKeys.protocolVersion)) {
+      throw new Error("confirmation mismatch.");
+    }
+
+    const offer = { kind: "offer" as const, sdp: "v=0\r\n", auth: sdpAuthTag(senderKeys.signalAuthKey, sid, "sender", "offer", "v=0\r\n") };
+    if (!verifySignalAuthTag(receiverKeys.signalAuthKey, sid, "sender", offer)) throw new Error("signal auth mismatch.");
+    const openedSignal = await openSignal(receiverKeys.signalAuthKey, sid, "sender", await sealSignal(senderKeys.signalAuthKey, sid, "sender", offer));
+    if (openedSignal.kind !== "offer" || openedSignal.sdp !== offer.sdp || openedSignal.auth !== offer.auth) throw new Error("signal AEAD mismatch.");
+
+    const manifest = { fileCount: 1, totalBytes: 4, files: [{ id: 0, name: "self.txt", size: 4 }] };
+    const sealedManifest = await sealManifest(senderKeys, manifest);
+    const openedManifest = await openManifest<typeof manifest>(receiverKeys, sealedManifest);
+    if (openedManifest.fileCount !== 1 || openedManifest.totalBytes !== 4 || openedManifest.files[0]?.name !== "self.txt") throw new Error("manifest AEAD mismatch.");
+
+    const sealedControl = await sealControl(senderKeys, { t: "file-begin", id: 0, name: "self.txt", size: 4 });
+    const openedControl = await openControl<Record<string, unknown>>(receiverKeys, sealedControl);
+    if (openedControl.t !== "file-begin" || openedControl.id !== 0) throw new Error("control AEAD mismatch.");
+
+    const payload = text.encode("test");
+    const openedBulk = await openBulk(receiverKeys, 0, 0, await sealBulk(senderKeys, 0, 0, payload));
+    if (!sameBytes(openedBulk, payload)) throw new Error("bulk AEAD mismatch.");
+
+    wrongReceiverState = startPake("receiver", "123456789012-apple-artist", sid);
+    wrongReceiverKeys = await finishPake(wrongReceiverState, senderShare);
+    await openManifest(wrongReceiverKeys, sealedManifest).then(
+      () => {
+        throw new Error("wrong code decrypted manifest.");
+      },
+      () => undefined
+    );
+  } catch {
+    throw new Error("Crypto runtime self-check failed.");
+  } finally {
+    wipePakeState(senderState as PakeState);
+    wipePakeState(receiverState as PakeState);
+    wipePakeState(wrongReceiverState as PakeState);
+    wipeSessionKeys(senderKeys);
+    wipeSessionKeys(receiverKeys);
+    wipeSessionKeys(wrongReceiverKeys);
+  }
 }
 
 export function sdpAuthTag(key: Uint8Array, sid: string, fromRole: PakeRole, kind: "offer" | "answer", sdp: string): string {
@@ -926,6 +994,13 @@ function concat(...parts: Uint8Array[]): Uint8Array {
     offset += part.byteLength;
   }
   return out;
+}
+
+function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.byteLength !== right.byteLength) return false;
+  let diff = 0;
+  for (let index = 0; index < left.byteLength; index += 1) diff |= (left[index] ?? 0) ^ (right[index] ?? 0);
+  return diff === 0;
 }
 
 function webBytes(bytes: Uint8Array): Uint8Array<ArrayBuffer> {

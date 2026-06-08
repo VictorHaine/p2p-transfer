@@ -214,13 +214,18 @@ function parseEarlyOutputOptions(argv: readonly string[]): CommonOptions {
 async function reviewedCliRuntime(): Promise<ReviewedCliRuntime> {
   if (!reviewedCliRuntimePromise) {
     assertReviewedCryptoDependencies();
-    reviewedCliRuntimePromise = Promise.all([import("../shared/security.js"), import("./rtc.js"), import("./secure.js"), import("./transfer.js"), import("../shared/wordlist.js")]).then(([security, rtc, secure, transfer, wordlist]) => ({
-      security,
-      rtc,
-      secure,
-      transfer,
-      wordlist
-    }));
+    reviewedCliRuntimePromise = Promise.all([import("../shared/security.js"), import("./rtc.js"), import("./secure.js"), import("./transfer.js"), import("../shared/wordlist.js")]).then(
+      async ([security, rtc, secure, transfer, wordlist]) => {
+        await security.verifyCryptoRuntime();
+        return {
+          security,
+          rtc,
+          secure,
+          transfer,
+          wordlist
+        };
+      }
+    );
   }
   return reviewedCliRuntimePromise;
 }

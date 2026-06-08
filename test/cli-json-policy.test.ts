@@ -98,6 +98,7 @@ test("CLI exit handling does not truncate piped output with direct process.exit"
 test("CLI receive validates supplied codes before filesystem or signaling side effects", () => {
   assert.match(securityPolicy, /CLI receive codes supplied with `recv --code` must be validated before output-directory creation or signaling connection setup/);
   assert.match(securityPolicy, /CLI send and receive commands must verify the reviewed runtime cryptographic dependency graph before importing CLI modules that load CPace, noble-hashes, or scure-bip39 wordlist code, parsing or generating transfer codes, opening local send files, creating receive output directories, or connecting to signaling/);
+  assert.match(securityPolicy, /browser and CLI transfer entrypoints must run a one-time runtime crypto self-check before pairing or transfer work/);
   assert.match(securityPolicy, /interactive receive flows must emit a generic no-values warning to human stderr when `recv --code` or `recv --out` accepts a supplied receive code or output directory from argv unless quiet output is selected, and JSON mode must emit the same warning as a structured no-values event/);
   for (const source of [cliSource, distCliSource]) {
     const recvBody = extractFunctionBody(source, "recv");
@@ -114,7 +115,7 @@ test("CLI receive validates supplied codes before filesystem or signaling side e
     assert.equal(recvBody.indexOf("resolveRecvCode(options, runtime.wordlist)") < recvBody.indexOf("openSignaling(serverUrl)"), true);
     assert.equal(recvBody.indexOf("reviewedCliRuntime()") < recvBody.indexOf("openSignaling(serverUrl)"), true);
     assert.match(recvBody, /registerReceiver\(signaling, runtime\.wordlist, suppliedCode\)/);
-    assert.match(source, /assertReviewedCryptoDependencies\(\);\s*reviewedCliRuntimePromise = Promise\.all\(\[import\("\.\.\/shared\/security\.js"\), import\("\.\/rtc\.js"\), import\("\.\/secure\.js"\), import\("\.\/transfer\.js"\), import\("\.\.\/shared\/wordlist\.js"\)\]\)/);
+    assert.match(source, /assertReviewedCryptoDependencies\(\);[\s\S]*reviewedCliRuntimePromise = Promise\.all\(\[import\("\.\.\/shared\/security\.js"\), import\("\.\/rtc\.js"\), import\("\.\/secure\.js"\), import\("\.\/transfer\.js"\), import\("\.\.\/shared\/wordlist\.js"\)\]\)[\s\S]*await security\.verifyCryptoRuntime\(\)/);
     assert.doesNotMatch(source, /import \{[^}]+(?:openManifest|sealManifest|wipeSessionKeys)[^}]+from "\.\.\/shared\/security\.js"/);
     assert.doesNotMatch(source, /import \{[^}]+(?:createPeer|handleSignal)[^}]+from "\.\/rtc\.js"/);
     assert.doesNotMatch(source, /import \{[^}]+(?:generateCode|normalizeCode|parseCode|codeInputUtf8ByteLengthExceeds)[^}]+from "\.\.\/shared\/wordlist\.js"/);
