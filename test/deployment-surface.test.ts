@@ -1008,7 +1008,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
 });
 
 test("security-sensitive surfaces require code owner review", () => {
-  assert.match(securityPolicy, /security-sensitive crypto, protocol, release, dependency, dependency-review artifacts, Docker, server, CLI input\/privacy, browser file-write, and file-publish surfaces must be covered by `\.github\/CODEOWNERS`/);
+  assert.match(securityPolicy, /security-sensitive crypto, shared protocol\/security helper directories, release, dependency, dependency-review artifacts, Docker, server, CLI input\/privacy, browser file-write, and file-publish surfaces must be covered by `\.github\/CODEOWNERS`/);
   assert.match(readme, /exact repository rulesets that release preflight requires for `main` and `v\*\.\*\.\*` release tags/);
   for (const path of [
     "/.github/",
@@ -1023,6 +1023,7 @@ test("security-sensitive surfaces require code owner review", () => {
     "/docs/security/",
     "/conformance/",
     "/scripts/",
+    "/src/shared/",
     "/src/shared/security.ts",
     "/src/shared/messages.ts",
     "/src/shared/chunks.ts",

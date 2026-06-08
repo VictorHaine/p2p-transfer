@@ -11,6 +11,7 @@
 /docs/security/ @VictorHaine
 /conformance/ @VictorHaine
 /scripts/ @VictorHaine
+/src/shared/ @VictorHaine
 /src/shared/security.ts @VictorHaine
 /src/shared/messages.ts @VictorHaine
 /src/shared/chunks.ts @VictorHaine
