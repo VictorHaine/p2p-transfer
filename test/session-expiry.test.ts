@@ -66,7 +66,7 @@ test("sender lookups of expired waiting codes notify and clear the stale receive
 
   assert.match(
     connectBody,
-    /if \(!waitingReceiverAvailable\(waiting\.expiresAt, Date\.now\(\), waiting\.receiver\.ws\.readyState, waiting\.receiver\.ws\.OPEN\)\) \{[\s\S]*codes\.delete\(code\);[\s\S]*clearPeerSessionState\(waiting\.receiver\);[\s\S]*fail\(waiting\.receiver, "expired", "Code expired before a sender connected\."\);[\s\S]*closePeer\(waiting\.receiver, "expired"\);[\s\S]*return fail\(peer, "code_not_found", "No receiver is waiting for that code\."\);[\s\S]*\}/
+    /if \(!waitingReceiverAvailable\(waiting\.expiresAt, Date\.now\(\), waiting\.receiver\.ws\.readyState, waiting\.receiver\.ws\.OPEN\)\) \{[\s\S]*codes\.delete\(code\);[\s\S]*clearPeerSessionState\(waiting\.receiver\);[\s\S]*fail\(waiting\.receiver, "expired", "Code expired before a sender connected\."\);[\s\S]*closePeerAndRelease\(waiting\.receiver, "expired"\);[\s\S]*return fail\(peer, "code_not_found", "No receiver is waiting for that code\."\);[\s\S]*\}/
   );
 });
 
@@ -76,11 +76,11 @@ test("all waiting-code expiry paths clear receiver state before closing", () => 
 
   assert.match(
     serverSource,
-    /if \(entry\.expiresAt <= now\) \{[\s\S]*send\(entry\.receiver, \{ type: "error", code: "expired", message: "Code expired before a sender connected\." \}\);[\s\S]*clearPeerSessionState\(entry\.receiver\);[\s\S]*closePeer\(entry\.receiver, "expired"\);[\s\S]*codes\.delete\(code\);[\s\S]*\}/
+    /if \(entry\.expiresAt <= now\) \{[\s\S]*send\(entry\.receiver, \{ type: "error", code: "expired", message: "Code expired before a sender connected\." \}\);[\s\S]*clearPeerSessionState\(entry\.receiver\);[\s\S]*closePeerAndRelease\(entry\.receiver, "expired"\);[\s\S]*codes\.delete\(code\);[\s\S]*\}/
   );
   assert.match(
     connectBody,
-    /if \(!canRestorePrePairCode\(waiting\.remainingPrePairAttempts\)\) \{[\s\S]*codes\.delete\(code\);[\s\S]*clearPeerSessionState\(waiting\.receiver\);[\s\S]*fail\(waiting\.receiver, "expired", "Receive code expired after too many invalid pairing attempts\."\);[\s\S]*closePeer\(waiting\.receiver, "too many invalid pairing attempts"\);[\s\S]*return fail\(peer, "code_not_found", "No receiver is waiting for that code\."\);[\s\S]*\}/
+    /if \(!canRestorePrePairCode\(waiting\.remainingPrePairAttempts\)\) \{[\s\S]*codes\.delete\(code\);[\s\S]*clearPeerSessionState\(waiting\.receiver\);[\s\S]*fail\(waiting\.receiver, "expired", "Receive code expired after too many invalid pairing attempts\."\);[\s\S]*closePeerAndRelease\(waiting\.receiver, "too many invalid pairing attempts"\);[\s\S]*return fail\(peer, "code_not_found", "No receiver is waiting for that code\."\);[\s\S]*\}/
   );
 });
 

@@ -56,7 +56,7 @@ test("server signaling send cleans up peers when outbound buffering exceeds the 
     assert.match(sendBody, /signalingBackpressureExceeded\(peer\.ws, SIGNALING_MAX_BUFFERED_BYTES\)[\s\S]*closePeerForSendFailure\(peer, "signaling backpressure"\)[\s\S]*return false/);
     assert.match(afterSend, /signalingBackpressureExceeded\(peer\.ws, SIGNALING_MAX_BUFFERED_BYTES\)[\s\S]*closePeerForSendFailure\(peer, "signaling backpressure"\)[\s\S]*return false/);
     assert.match(sendBody, /catch \{[\s\S]*closePeerForSendFailure\(peer, "send_error"\)[\s\S]*return false/);
-    assert.match(cleanupBody, /cleanupPeer\(peer, reason\);[\s\S]*closePeer\(peer, reason\)/);
+    assert.match(cleanupBody, /cleanupPeer\(peer, reason\);[\s\S]*closePeerAndRelease\(peer, reason\)/);
   }
 });
 

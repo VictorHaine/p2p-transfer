@@ -401,6 +401,8 @@ test("invalid sender relay messages before pair acceptance restore the receiver 
   assert.match(malformedRejectBody, /fail\(peer, "bad_message", message\)/);
   assert.match(malformedRejectBody, /restoreWaitingReceiver\(session, "invalid sender pre-pair message", true\)/);
   assert.match(malformedRejectBody, /return true/);
+  const restoreBody = extractFunctionBody(serverSource, "restoreWaitingReceiver");
+  assert.match(restoreBody, /closePeerAndRelease\(session\.sender, reason\)/);
 });
 
 test("relay delivery failures clean up session state immediately", () => {
@@ -421,7 +423,10 @@ test("session end cleanup clears each peer state exactly once before closing the
   const endBody = extractFunctionBody(serverSource, "endSession");
   assert.equal(countMatches(endBody, /clearPeerSessionState\(session\.sender\)/g), 1);
   assert.equal(countMatches(endBody, /clearPeerSessionState\(session\.receiver\)/g), 1);
-  assert.match(endBody, /clearPeerSessionState\(session\.sender\);[\s\S]*clearPeerSessionState\(session\.receiver\);[\s\S]*if \(remaining\) closePeer\(remaining, reason\)/);
+  assert.match(endBody, /clearPeerSessionState\(session\.sender\);[\s\S]*clearPeerSessionState\(session\.receiver\);[\s\S]*if \(remaining\) closePeerAndRelease\(remaining, reason\)/);
+  const closeSessionPeersBody = extractFunctionBody(serverSource, "closeSessionPeers");
+  assert.match(closeSessionPeersBody, /closePeerAndRelease\(session\.sender, reason\)/);
+  assert.match(closeSessionPeersBody, /closePeerAndRelease\(session\.receiver, reason\)/);
 });
 
 test("server ignores late client frames after a close decision", () => {

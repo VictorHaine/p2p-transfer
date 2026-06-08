@@ -47,7 +47,7 @@ test("restored receiver registrations fail closed when the receiver cannot be no
   assert.match(sendRestoredBody, /codes\.get\(session\.code\)/);
   assert.match(sendRestoredBody, /codes\.delete\(session\.code\)/);
   assert.match(sendRestoredBody, /clearPeerSessionState\(session\.receiver\)/);
-  assert.match(sendRestoredBody, /closePeer\(session\.receiver, "receiver unavailable"\)/);
+  assert.match(sendRestoredBody, /closePeerAndRelease\(session\.receiver, "receiver unavailable"\)/);
 });
 
 test("receiver join send failure clears stale receiver rendezvous state", () => {
@@ -57,7 +57,7 @@ test("receiver join send failure clears stale receiver rendezvous state", () => 
   assert.match(failedJoin, /sessions\.delete\(sid\)/);
   assert.match(failedJoin, /clearPeerSessionState\(peer\)/);
   assert.match(failedJoin, /clearPeerSessionState\(waiting\.receiver\)/);
-  assert.match(failedJoin, /closePeer\(waiting\.receiver, "receiver unavailable"\)/);
+  assert.match(failedJoin, /closePeerAndRelease\(waiting\.receiver, "receiver unavailable"\)/);
   assert.match(failedJoin, /fail\(peer, "peer_unavailable", "Receiver is no longer connected\."\)/);
   assert.doesNotMatch(failedJoin, /delete waiting\.receiver\.sid/);
 });
@@ -70,7 +70,7 @@ test("receiver retry does not re-acknowledge expired waiting codes", () => {
   assert.match(retryBody, /codes\.delete\(code\)/);
   assert.match(retryBody, /clearPeerSessionState\(peer\)/);
   assert.match(retryBody, /fail\(peer, "expired", "Code expired before a sender connected\."\)/);
-  assert.match(retryBody, /closePeer\(peer, "expired"\)/);
+  assert.match(retryBody, /closePeerAndRelease\(peer, "expired"\)/);
   assert.match(retryBody, /send\(peer, \{ type: "registered", code, expiresInSec: remainingExpirySeconds\(waiting\.expiresAt, Date\.now\(\)\) \}\)/);
 });
 

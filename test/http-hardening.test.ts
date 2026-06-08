@@ -187,10 +187,18 @@ test("server lifecycle intervals stop on shutdown and fatal errors", () => {
 
 test("server-initiated websocket closes are bounded by forced termination", () => {
   assert.equal(SIGNALING_CLOSE_GRACE_MS, 5_000);
-  assert.match(securityPolicy, /every server-initiated signaling WebSocket close handshake must go through the bounded close helper/);
+  assert.match(securityPolicy, /every server-initiated signaling WebSocket close handshake must go through the bounded close helper with a short termination grace period and must release active-connection accounting immediately without cancelling forced termination/);
   assert.match(serverSource, /closeTimer\?: ReturnType<typeof setTimeout>/);
+  assert.match(serverSource, /type ReleaseActiveConnectionOptions = \{[\s\S]*keepCloseTimer\?: boolean;[\s\S]*\}/);
+  assert.match(serverSource, /function releaseActiveConnection\(peer: Peer, options\?: ReleaseActiveConnectionOptions\)/);
   const releaseBody = extractFunctionBody(serverSource, "releaseActiveConnection");
-  assert.match(releaseBody, /clearCloseTimer\(peer\)/);
+  assert.match(releaseBody, /if \(!options\?\.keepCloseTimer\) clearCloseTimer\(peer\)/);
+  const closeAndReleaseBody = extractFunctionBody(serverSource, "closePeerAndRelease");
+  assert.match(closeAndReleaseBody, /closePeer\(peer, reason\)/);
+  assert.match(closeAndReleaseBody, /releaseActiveConnection\(peer, \{ keepCloseTimer: true \}\)/);
+  const closeWithCodeAndReleaseBody = extractFunctionBody(serverSource, "closePeerWithCodeAndRelease");
+  assert.match(closeWithCodeAndReleaseBody, /closePeerWithCode\(peer, code, reason\)/);
+  assert.match(closeWithCodeAndReleaseBody, /releaseActiveConnection\(peer, \{ keepCloseTimer: true \}\)/);
   const closeBody = extractFunctionBody(serverSource, "closePeer");
   assert.match(closeBody, /closePeerWithCode\(peer, 1000, reason\)/);
   const closeWithCodeBody = extractFunctionBody(serverSource, "closePeerWithCode");
@@ -211,11 +219,11 @@ test("server-initiated websocket closes are bounded by forced termination", () =
   assert.match(standaloneScheduleBody, /timer\.unref\(\)/);
   const directServerInitiatedCloseCalls = [...serverSource.matchAll(/(?:peer\.ws|entry\.receiver\.ws|ws)\.close\(/g)].map((match) => match[0]);
   assert.deepEqual(directServerInitiatedCloseCalls, ["peer.ws.close("]);
-  assert.match(serverSource, /closePeerWithCode\(peer, 1008, "connection limit"\)/);
-  assert.match(serverSource, /closePeerWithCode\(peer, 1008, "idle signaling connection"\)/);
-  assert.match(serverSource, /closePeer\(entry\.receiver, "expired"\)/);
-  assert.match(serverSource, /closePeerWithCode\(peer, 1008, "too many malformed messages"\)/);
-  assert.match(serverSource, /closePeerWithCode\(peer, 1008, "signaling message rate limit"\)/);
+  assert.match(serverSource, /closePeerWithCodeAndRelease\(peer, 1008, "connection limit"\)/);
+  assert.match(serverSource, /closePeerWithCodeAndRelease\(peer, 1008, "idle signaling connection"\)/);
+  assert.match(serverSource, /closePeerAndRelease\(entry\.receiver, "expired"\)/);
+  assert.match(serverSource, /closePeerWithCodeAndRelease\(peer, 1008, "too many malformed messages"\)/);
+  assert.match(serverSource, /closePeerWithCodeAndRelease\(peer, 1008, "signaling message rate limit"\)/);
   const scheduleBody = extractFunctionBody(serverSource, "scheduleCloseTermination");
   assert.match(scheduleBody, /if \(peer\.closeTimer\) return/);
   assert.match(scheduleBody, /setTimeout\(\(\) => \{[\s\S]*if \(peer\.ws\.readyState !== peer\.ws\.CLOSED\) peer\.ws\.terminate\(\)/);
@@ -223,7 +231,14 @@ test("server-initiated websocket closes are bounded by forced termination", () =
   assert.match(scheduleBody, /peer\.closeTimer\.unref\(\)/);
 
   const distReleaseBody = extractFunctionBody(distServerSource, "releaseActiveConnection");
+  assert.match(distReleaseBody, /keepCloseTimer/);
   assert.match(distReleaseBody, /clearCloseTimer\(peer\)/);
+  const distCloseAndReleaseBody = extractFunctionBody(distServerSource, "closePeerAndRelease");
+  assert.match(distCloseAndReleaseBody, /closePeer\(peer, reason\)/);
+  assert.match(distCloseAndReleaseBody, /releaseActiveConnection\(peer, \{ keepCloseTimer: true \}\)/);
+  const distCloseWithCodeAndReleaseBody = extractFunctionBody(distServerSource, "closePeerWithCodeAndRelease");
+  assert.match(distCloseWithCodeAndReleaseBody, /closePeerWithCode\(peer, code, reason\)/);
+  assert.match(distCloseWithCodeAndReleaseBody, /releaseActiveConnection\(peer, \{ keepCloseTimer: true \}\)/);
   const distCloseWithCodeBody = extractFunctionBody(distServerSource, "closePeerWithCode");
   assert.match(distCloseWithCodeBody, /peer\.ws\.readyState === peer\.ws\.CLOSING/);
   assert.match(distCloseWithCodeBody, /peer\.ws\.close\(code, websocketCloseReason\(wireCloseReason\(code, reason\)\)\)/);

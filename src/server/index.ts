@@ -73,6 +73,10 @@ type Peer = {
   connectionReleased: boolean;
 };
 
+type ReleaseActiveConnectionOptions = {
+  keepCloseTimer?: boolean;
+};
+
 type WaitingCode = {
   code: string;
   receiver: Peer;
@@ -179,11 +183,11 @@ wss.on("connection", (ws, req) => {
   });
   if ((activeConnections.get(peer.ip) ?? 0) > SIGNALING_MAX_CONNECTIONS_PER_IP) {
     fail(peer, "rate_limited", "Too many concurrent signaling connections.");
-    closePeerWithCode(peer, 1008, "connection limit");
+    closePeerWithCodeAndRelease(peer, 1008, "connection limit");
     return;
   }
   peer.idleTimer = setTimeout(() => {
-    if (!peer.role && !peer.sid && !peer.code) closePeerWithCode(peer, 1008, "idle signaling connection");
+    if (!peer.role && !peer.sid && !peer.code) closePeerWithCodeAndRelease(peer, 1008, "idle signaling connection");
   }, SIGNALING_IDLE_TIMEOUT_MS);
   peer.idleTimer.unref();
 
@@ -208,7 +212,7 @@ const expiryInterval = setInterval(() => {
     if (entry.expiresAt <= now) {
       send(entry.receiver, { type: "error", code: "expired", message: "Code expired before a sender connected." });
       clearPeerSessionState(entry.receiver);
-      closePeer(entry.receiver, "expired");
+      closePeerAndRelease(entry.receiver, "expired");
       codes.delete(code);
     }
   }
@@ -358,7 +362,7 @@ function handleMessage(peer: Peer, message: ClientMessage): void {
     case "bye":
       if (message.reason === "prepair_retry" && retryReceiver(peer)) return;
       cleanupPeer(peer, peerVisibleByeReason(message.reason));
-      return closePeer(peer, "bye");
+      return closePeerAndRelease(peer, "bye");
   }
 }
 
@@ -385,7 +389,7 @@ function register(peer: Peer, message: Extract<ClientMessage, { type: "register"
       codes.delete(code);
       clearPeerSessionState(peer);
       fail(peer, "expired", "Code expired before a sender connected.");
-      closePeer(peer, "expired");
+      closePeerAndRelease(peer, "expired");
       return;
     }
     peer.role = "receiver";
@@ -424,14 +428,14 @@ function connect(peer: Peer, message: Extract<ClientMessage, { type: "connect" }
     codes.delete(code);
     clearPeerSessionState(waiting.receiver);
     fail(waiting.receiver, "expired", "Code expired before a sender connected.");
-    closePeer(waiting.receiver, "expired");
+    closePeerAndRelease(waiting.receiver, "expired");
     return fail(peer, "code_not_found", "No receiver is waiting for that code.");
   }
   if (!canRestorePrePairCode(waiting.remainingPrePairAttempts)) {
     codes.delete(code);
     clearPeerSessionState(waiting.receiver);
     fail(waiting.receiver, "expired", "Receive code expired after too many invalid pairing attempts.");
-    closePeer(waiting.receiver, "too many invalid pairing attempts");
+    closePeerAndRelease(waiting.receiver, "too many invalid pairing attempts");
     return fail(peer, "code_not_found", "No receiver is waiting for that code.");
   }
   if (waiting.receiver.id === peer.id) return badMessage(peer, "Cannot connect to your own receiver code.");
@@ -472,7 +476,7 @@ function connect(peer: Peer, message: Extract<ClientMessage, { type: "connect" }
     sessions.delete(sid);
     clearPeerSessionState(peer);
     clearPeerSessionState(waiting.receiver);
-    closePeer(waiting.receiver, "receiver unavailable");
+    closePeerAndRelease(waiting.receiver, "receiver unavailable");
     fail(peer, "peer_unavailable", "Receiver is no longer connected.");
     return;
   }
@@ -567,7 +571,7 @@ function retryReceiver(peer: Peer): boolean {
         codes.delete(code);
         clearPeerSessionState(peer);
         fail(peer, "expired", "Code expired before a sender connected.");
-        closePeer(peer, "expired");
+        closePeerAndRelease(peer, "expired");
         return true;
       }
       send(peer, { type: "registered", code, expiresInSec: remainingExpirySeconds(waiting.expiresAt, Date.now()) });
@@ -596,7 +600,7 @@ function restoreWaitingReceiver(session: Session, reason: string, notifyReceiver
         return;
       }
       if (notifyReceiver) notifyPeerLeft(session, session.sender, reason);
-      closePeer(session.sender, reason);
+      closePeerAndRelease(session.sender, reason);
       sendRestoredRegistration(session, existing.expiresAt);
       return;
     }
@@ -615,7 +619,7 @@ function restoreWaitingReceiver(session: Session, reason: string, notifyReceiver
   }
   codes.set(session.code, { code: session.code, receiver: session.receiver, expiresAt: session.codeExpiresAt, remainingPrePairAttempts: session.remainingPrePairAttempts });
   if (notifyReceiver) notifyPeerLeft(session, session.sender, reason);
-  closePeer(session.sender, reason);
+  closePeerAndRelease(session.sender, reason);
   sendRestoredRegistration(session, session.codeExpiresAt);
 }
 
@@ -625,8 +629,8 @@ function expireReceiverAfterPrePairAttempts(session: Session, existing?: Waiting
   clearPeerSessionState(session.sender);
   clearPeerSessionState(session.receiver);
   fail(session.receiver, "expired", "Receive code expired after too many invalid pairing attempts.");
-  closePeer(session.sender, "too many invalid pairing attempts");
-  closePeer(session.receiver, "too many invalid pairing attempts");
+  closePeerAndRelease(session.sender, "too many invalid pairing attempts");
+  closePeerAndRelease(session.receiver, "too many invalid pairing attempts");
 }
 
 function sendRestoredRegistration(session: Session, expiresAt: number): void {
@@ -634,19 +638,19 @@ function sendRestoredRegistration(session: Session, expiresAt: number): void {
   const waiting = codes.get(session.code);
   if (waiting?.receiver.id === session.receiver.id) codes.delete(session.code);
   clearPeerSessionState(session.receiver);
-  closePeer(session.receiver, "receiver unavailable");
+  closePeerAndRelease(session.receiver, "receiver unavailable");
 }
 
 function addActiveConnection(peer: Peer): void {
   activeConnections.set(peer.ip, (activeConnections.get(peer.ip) ?? 0) + 1);
 }
 
-function releaseActiveConnection(peer: Peer): void {
+function releaseActiveConnection(peer: Peer, options?: ReleaseActiveConnectionOptions): void {
   if (peer.connectionReleased) return;
   peer.connectionReleased = true;
   peersBySocket.delete(peer.ws);
   clearIdleTimer(peer);
-  clearCloseTimer(peer);
+  if (!options?.keepCloseTimer) clearCloseTimer(peer);
   const count = activeConnections.get(peer.ip) ?? 0;
   count <= 1 ? activeConnections.delete(peer.ip) : activeConnections.set(peer.ip, count - 1);
 }
@@ -684,15 +688,15 @@ function endSession(session: Session, reason: string, leavingPeerId?: SessionPee
   notifyPeerLeft(session, leaving, reason);
   clearPeerSessionState(session.sender);
   clearPeerSessionState(session.receiver);
-  if (remaining) closePeer(remaining, reason);
+  if (remaining) closePeerAndRelease(remaining, reason);
 }
 
 function closeSessionPeers(session: Session, reason: string): void {
   sessions.delete(session.sid);
   clearPeerSessionState(session.sender);
   clearPeerSessionState(session.receiver);
-  closePeer(session.sender, reason);
-  closePeer(session.receiver, reason);
+  closePeerAndRelease(session.sender, reason);
+  closePeerAndRelease(session.receiver, reason);
 }
 
 function clearPeerSessionState(peer: Peer): void {
@@ -705,6 +709,11 @@ function closePeer(peer: Peer, reason: string): void {
   closePeerWithCode(peer, 1000, reason);
 }
 
+function closePeerAndRelease(peer: Peer, reason: string): void {
+  closePeer(peer, reason);
+  releaseActiveConnection(peer, { keepCloseTimer: true });
+}
+
 function closePeerWithCode(peer: Peer, code: number, reason: string): void {
   if (peer.ws.readyState === peer.ws.OPEN || peer.ws.readyState === peer.ws.CONNECTING || peer.ws.readyState === peer.ws.CLOSING) {
     try {
@@ -714,6 +723,11 @@ function closePeerWithCode(peer: Peer, code: number, reason: string): void {
       peer.ws.terminate();
     }
   }
+}
+
+function closePeerWithCodeAndRelease(peer: Peer, code: number, reason: string): void {
+  closePeerWithCode(peer, code, reason);
+  releaseActiveConnection(peer, { keepCloseTimer: true });
 }
 
 function wireCloseReason(code: number, _reason: string): string {
@@ -781,7 +795,7 @@ function send(peer: Peer, message: ServerMessage): boolean {
 
 function closePeerForSendFailure(peer: Peer, reason: string): void {
   cleanupPeer(peer, reason);
-  closePeer(peer, reason);
+  closePeerAndRelease(peer, reason);
 }
 
 function fail(peer: Peer, code: ErrorCode, message: string): void {
@@ -797,7 +811,7 @@ function badMessage(peer: Peer, message: string): void {
   if (rejectMalformedPrePairSenderMessage(peer, message)) return;
   peer.badMessages += 1;
   fail(peer, "bad_message", message);
-  if (peer.badMessages >= SIGNALING_MAX_BAD_MESSAGES) closePeerWithCode(peer, 1008, "too many malformed messages");
+  if (peer.badMessages >= SIGNALING_MAX_BAD_MESSAGES) closePeerWithCodeAndRelease(peer, 1008, "too many malformed messages");
 }
 
 function rejectMalformedPrePairSenderMessage(peer: Peer, message: string): boolean {
@@ -825,7 +839,7 @@ function hitMessageLimit(peer: Peer): boolean {
   peer.messageTimes = result.hits;
   if (result.allowed) return true;
   fail(peer, "rate_limited", "Too many signaling messages. Try again shortly.");
-  closePeerWithCode(peer, 1008, "signaling message rate limit");
+  closePeerWithCodeAndRelease(peer, 1008, "signaling message rate limit");
   return false;
 }
 

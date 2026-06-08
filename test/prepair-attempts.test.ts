@@ -97,8 +97,8 @@ test("pre-pair expiry clears both peer session states before closing sockets", (
   const expireBody = extractFunctionBody(serverSource, "expireReceiverAfterPrePairAttempts");
   const senderClear = expireBody.indexOf("clearPeerSessionState(session.sender)");
   const receiverClear = expireBody.indexOf("clearPeerSessionState(session.receiver)");
-  const senderClose = expireBody.indexOf('closePeer(session.sender, "too many invalid pairing attempts")');
-  const receiverClose = expireBody.indexOf('closePeer(session.receiver, "too many invalid pairing attempts")');
+  const senderClose = expireBody.indexOf('closePeerAndRelease(session.sender, "too many invalid pairing attempts")');
+  const receiverClose = expireBody.indexOf('closePeerAndRelease(session.receiver, "too many invalid pairing attempts")');
   assert.equal(senderClear >= 0, true);
   assert.equal(receiverClear >= 0, true);
   assert.equal(senderClose > senderClear, true);
