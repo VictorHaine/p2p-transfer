@@ -341,7 +341,19 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(ciDockerJob, /actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3/);
   assert.match(ciDockerJob, /node scripts\/prepare-checked-pnpm\.mjs[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:test node scripts\/smoke-docker-policy\.mjs/);
   assert.doesNotMatch(ciDockerJob, /corepack prepare pnpm@/);
-  assert.match(dockerPolicySmokeScript, /\["build", "-t", imageTag, "\."\]/);
+  assert.match(dockerfile, /ARG VERSION=0\.0\.0-dev\nARG REVISION=unknown\nLABEL org\.opencontainers\.image\.title="p2p-transfer"/);
+  assert.match(dockerfile, /org\.opencontainers\.image\.licenses="MIT"/);
+  assert.match(dockerfile, /org\.opencontainers\.image\.version=\$VERSION/);
+  assert.match(dockerfile, /org\.opencontainers\.image\.revision=\$REVISION/);
+  assert.match(dockerfile, /COPY --chown=node:node --from=build \/app\/LICENSE \/app\/README\.md \/app\/SECURITY\.md \.\//);
+  assert.match(dockerPolicySmokeScript, /\["build", "--build-arg", `VERSION=\$\{imageVersion\}`, "--build-arg", `REVISION=\$\{imageRevision\}`, "-t", imageTag, "\."\]/);
+  assert.match(dockerPolicySmokeScript, /await assertImageMetadata\(imageTag, dockerEnv, imageVersion, imageRevision\)/);
+  assert.match(dockerPolicySmokeScript, /function assertImageMetadata\(imageTag, env, version, revision\)/);
+  assert.match(dockerPolicySmokeScript, /"docker image metadata inspect"/);
+  assert.match(dockerPolicySmokeScript, /"org\.opencontainers\.image\.licenses": "MIT"/);
+  assert.match(dockerPolicySmokeScript, /"org\.opencontainers\.image\.revision": revision/);
+  assert.match(dockerPolicySmokeScript, /const SERVER_DISTRIBUTION_REQUIRED_PATHS = \["LICENSE", "README\.md", "SECURITY\.md"\]/);
+  assert.match(dockerPolicySmokeScript, /distribution-doc-missing/);
   assert.match(dockerPolicySmokeScript, /\["run", "--rm", \.\.\.HARDENED_DOCKER_RUN_FLAGS, "-e", "SIGNALING_TOPOLOGY=single-instance", imageTag\]/);
   assert.match(dockerPolicySmokeScript, /\["run", "--rm", \.\.\.HARDENED_DOCKER_RUN_FLAGS, "-e", `ALLOWED_ORIGINS=\$\{PRODUCTION_ORIGIN\}`, imageTag\]/);
   assert.match(dockerPolicySmokeScript, /"Error: ALLOWED_ORIGINS is required in production\."/);
@@ -431,8 +443,8 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releaseDockerPromoteJob, /node scripts\/prepare-checked-pnpm\.mjs[\s\S]*Promote attested image[\s\S]*DOCKER_STAGED_DIGEST: \$\{\{ needs\.docker-stage\.outputs\.digest \}\}[\s\S]*run: node scripts\/publish-docker-image\.mjs --promote/);
   assert.doesNotMatch(releaseDockerPromoteJob, /corepack prepare pnpm@/);
   assert.match(dockerPublishScript, /import \{ assertLiveReleaseRefFromEnv \} from "\.\/verify-live-release-ref\.mjs"/);
-  assert.match(dockerPublishScript, /const runId = requiredGitHubActionsContext\(\);\n  requiredCommitSha\(requiredEnvString\("GITHUB_SHA"\)\);\n  const actor = githubActor\(requiredEnvString\("GITHUB_ACTOR"\)\);\n  const token = requiredEnvString\("GITHUB_TOKEN", MAX_TOKEN_BYTES\);\n  const packageJson = await readPackageJson\(\);[\s\S]*if \(tag !== `v\$\{version\}`\) throw new Error\("release tag does not match package version\."\);\n\n  await assertLiveReleaseRefFromEnv\(\);/);
-  assert.match(dockerPublishScript, /env: \{ DOCKER_SMOKE_TAG: stagedRef \}/);
+  assert.match(dockerPublishScript, /const runId = requiredGitHubActionsContext\(\);\n  const revision = requiredCommitSha\(requiredEnvString\("GITHUB_SHA"\)\);\n  const actor = githubActor\(requiredEnvString\("GITHUB_ACTOR"\)\);\n  const token = requiredEnvString\("GITHUB_TOKEN", MAX_TOKEN_BYTES\);\n  const packageJson = await readPackageJson\(\);[\s\S]*if \(tag !== `v\$\{version\}`\) throw new Error\("release tag does not match package version\."\);\n\n  await assertLiveReleaseRefFromEnv\(\);/);
+  assert.match(dockerPublishScript, /env: \{ DOCKER_SMOKE_TAG: stagedRef, DOCKER_SMOKE_VERSION: version, DOCKER_SMOKE_REVISION: revision \}/);
   assert.match(dockerPublishScript, /await run\("docker", \["push", stagedRef\]/);
   assert.match(dockerPublishScript, /if \(mode === "promote"\) \{[\s\S]*dockerDigest\(requiredEnvString\("DOCKER_STAGED_DIGEST"\)\)[\s\S]*await publishDockerReleaseTag\(\{ image, digest, ref: versionRef, label: "docker release image", dockerEnv \}\)[\s\S]*await publishDockerReleaseTag\(\{ image, digest, ref: plainVersionRef, label: "docker release image alias", dockerEnv \}\)/);
   assert.match(dockerPublishScript, /async function existingDockerTagDigest\(ref, dockerEnv\)/);
@@ -530,7 +542,7 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(dockerPublishScript, /new Error\(`\$\{label\} stdin pipe failed\.`\)/);
   assert.match(dockerPublishScript, /const EXPECTED_GITHUB_REPOSITORY = "VictorHaine\/p2p-transfer"/);
   assert.match(dockerPublishScript, /GitHub repository must match the release repository/);
-  assert.match(dockerPublishScript, /const tag = releaseTag\(requiredEnvString\("GITHUB_REF_NAME"\)\);\n  assertReleaseTagRef\(tag\);\n  const repository = githubRepository\(requiredEnvString\("GITHUB_REPOSITORY"\)\);\n  const runId = requiredGitHubActionsContext\(\);\n  requiredCommitSha\(requiredEnvString\("GITHUB_SHA"\)\);\n  const actor = githubActor\(requiredEnvString\("GITHUB_ACTOR"\)\);\n  const token = requiredEnvString\("GITHUB_TOKEN", MAX_TOKEN_BYTES\);\n  const packageJson = await readPackageJson\(\);/);
+  assert.match(dockerPublishScript, /const tag = releaseTag\(requiredEnvString\("GITHUB_REF_NAME"\)\);\n  assertReleaseTagRef\(tag\);\n  const repository = githubRepository\(requiredEnvString\("GITHUB_REPOSITORY"\)\);\n  const runId = requiredGitHubActionsContext\(\);\n  const revision = requiredCommitSha\(requiredEnvString\("GITHUB_SHA"\)\);\n  const actor = githubActor\(requiredEnvString\("GITHUB_ACTOR"\)\);\n  const token = requiredEnvString\("GITHUB_TOKEN", MAX_TOKEN_BYTES\);\n  const packageJson = await readPackageJson\(\);/);
   assert.match(githubReleaseScript, /\/repos\/\$\{repository\}\/releases/);
   assert.match(githubReleaseScript, /uploadReleaseAsset\(token, uploadUrl, asset\)/);
   assert.match(githubReleaseScript, /draft: true/);
@@ -1184,7 +1196,7 @@ test("OpenSSF Scorecard scanning is pinned and uploads SARIF", () => {
 });
 
 test("dependency review blocks vulnerable dependency introductions", () => {
-  assert.match(securityPolicy, /GitHub dependency review must run from a pinned workflow on pull requests with read-only permissions, an explicit job timeout, and fail on vulnerable runtime or development dependency changes at low severity or higher/);
+  assert.match(securityPolicy, /GitHub dependency review must run from a pinned workflow on pull requests with read-only permissions, an explicit job timeout, vulnerability checks, license checks, denied GPL\/AGPL\/LGPL license introductions, and fail on vulnerable runtime or development dependency changes at low severity or higher/);
   assert.match(readme, /\.github\/workflows\/dependency-review\.yml` runs the pinned GitHub dependency review action on pull requests/);
   assert.match(dependencyReviewWorkflow, /^name: dependency-review$/m);
   assert.match(dependencyReviewWorkflow, /^on:\n  pull_request:$/m);
@@ -1192,7 +1204,7 @@ test("dependency review blocks vulnerable dependency introductions", () => {
   assert.match(dependencyReviewWorkflow, /^concurrency:\n  group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}\n  cancel-in-progress: true$/m);
   assert.match(workflowJob(dependencyReviewWorkflow, "dependency-review"), /timeout-minutes: 10/);
   assert.match(dependencyReviewWorkflow, /uses: actions\/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4\.2\.2[\s\S]*persist-credentials: false/);
-  assert.match(dependencyReviewWorkflow, /uses: actions\/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5\.0\.0[\s\S]*vulnerability-check: true[\s\S]*license-check: false[\s\S]*fail-on-severity: low[\s\S]*fail-on-scopes: runtime, development[\s\S]*comment-summary-in-pr: never[\s\S]*show-patched-versions: true/);
+  assert.match(dependencyReviewWorkflow, /uses: actions\/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5\.0\.0[\s\S]*vulnerability-check: true[\s\S]*license-check: true[\s\S]*deny-licenses: GPL-2\.0, GPL-3\.0, AGPL-1\.0, AGPL-3\.0, LGPL-2\.0, LGPL-2\.1, LGPL-3\.0[\s\S]*fail-on-severity: low[\s\S]*fail-on-scopes: runtime, development[\s\S]*comment-summary-in-pr: never[\s\S]*show-patched-versions: true/);
   assert.doesNotMatch(dependencyReviewWorkflow, /pull_request_target|workflow_run|contents:\s*write|pull-requests:\s*write|id-token:\s*write|actions:\s*write|packages:\s*write/);
 });
 
@@ -1231,9 +1243,11 @@ test("documented release gates require a hardened Docker runtime smoke, not just
   assert.match(dockerPolicySmokeScript, /const HARDENED_DOCKER_RUN_FLAGS = \["--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "--pids-limit", "128", "--memory", "512m", "--cpus", "1"\]/);
   assert.match(dockerPolicySmokeScript, /const CLI_WEBRTC_RUNTIME_PATHS = \[[\s\S]*"node_modules\/@roamhq"[\s\S]*"node_modules\/\.pnpm\/@roamhq\+wrtc-linux-x64@0\.10\.0"[\s\S]*"node_modules\/\.pnpm\/webidl-conversions@7\.0\.0"/);
   assert.match(dockerPolicySmokeScript, /const SERVER_ONLY_FORBIDDEN_PATHS = \["dist-node\/cli", \.\.\.CLI_WEBRTC_RUNTIME_PATHS\]/);
+  assert.match(dockerPolicySmokeScript, /const SERVER_DISTRIBUTION_REQUIRED_PATHS = \["LICENSE", "README\.md", "SECURITY\.md"\]/);
   assert.match(dockerPolicySmokeScript, /await assertServerOnlyRuntime\(imageTag, dockerEnv\)/);
   assert.match(dockerPolicySmokeScript, /function assertServerOnlyRuntime\(imageTag, env\)/);
   assert.match(dockerPolicySmokeScript, /cli-runtime-present/);
+  assert.match(dockerPolicySmokeScript, /distribution-doc-missing/);
   assert.match(dockerPolicySmokeScript, /"--entrypoint", "node", imageTag, "-e", script/);
   assert.match(dockerPolicySmokeScript, /\["run", "--rm", \.\.\.HARDENED_DOCKER_RUN_FLAGS, "-e", "SIGNALING_TOPOLOGY=single-instance", imageTag\]/);
   assert.match(dockerPolicySmokeScript, /\["run", "--rm", \.\.\.HARDENED_DOCKER_RUN_FLAGS, "-e", `ALLOWED_ORIGINS=\$\{PRODUCTION_ORIGIN\}`, imageTag\]/);

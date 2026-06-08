@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { realpathSync, rmSync } from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, realpathSync, rmSync } from "node:fs";
 import { connect as connectTcp } from "node:net";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -18,6 +18,7 @@ const MAX_CHILD_ENV_VALUE_BYTES = 8_192;
 const MAX_COMMAND_OUTPUT_BYTES = 1024 * 1024;
 const MAX_DOCKER_FAILURE_EVIDENCE_CHARS = 128 * 1024;
 const MAX_EXPECTED_EVIDENCE_CHARS = 512;
+const MAX_PACKAGE_JSON_BYTES = 128 * 1024;
 const WEBSOCKET_PROBE_TIMEOUT_MS = 10_000;
 const MAX_WEBSOCKET_HANDSHAKE_BYTES = 8_192;
 const CHILD_KILL_GRACE_MS = 5_000;
@@ -39,6 +40,8 @@ const CLI_WEBRTC_RUNTIME_PATHS = [
   "node_modules/.pnpm/webidl-conversions@7.0.0"
 ];
 const SERVER_ONLY_FORBIDDEN_PATHS = ["dist-node/cli", ...CLI_WEBRTC_RUNTIME_PATHS];
+const SERVER_DISTRIBUTION_REQUIRED_PATHS = ["LICENSE", "README.md", "SECURITY.md"];
+const DOCKER_IMAGE_REVISION_FALLBACK = "0000000000000000000000000000000000000000";
 
 if (isMain()) {
   try {
@@ -52,14 +55,23 @@ if (isMain()) {
 
 async function main() {
   const imageTag = imageTagFromEnv(optionalEnvString("DOCKER_SMOKE_TAG"));
+  const imageVersion = dockerImageVersion(optionalEnvString("DOCKER_SMOKE_VERSION"));
+  const imageRevision = dockerImageRevision(optionalEnvString("DOCKER_SMOKE_REVISION"));
   const containerName = `p2p-transfer-policy-${Date.now()}-${process.pid}`;
   const dockerConfigDir = createIsolatedDockerConfig();
   const dockerEnv = { DOCKER_CONFIG: dockerConfigDir };
 
   try {
     await run("docker", ["info", "--format", "{{json .ServerVersion}}"], "docker daemon preflight", DOCKER_PREFLIGHT_TIMEOUT_MS, { env: dockerEnv });
-    await run("docker", ["build", "-t", imageTag, "."], "docker image build", BUILD_TIMEOUT_MS, { env: dockerEnv });
+    await run(
+      "docker",
+      ["build", "--build-arg", `VERSION=${imageVersion}`, "--build-arg", `REVISION=${imageRevision}`, "-t", imageTag, "."],
+      "docker image build",
+      BUILD_TIMEOUT_MS,
+      { env: dockerEnv }
+    );
     await assertServerOnlyRuntime(imageTag, dockerEnv);
+    await assertImageMetadata(imageTag, dockerEnv, imageVersion, imageRevision);
     await expectDockerFailure(
       ["run", "--rm", ...HARDENED_DOCKER_RUN_FLAGS, "-e", "SIGNALING_TOPOLOGY=single-instance", imageTag],
       "container without ALLOWED_ORIGINS",
@@ -116,6 +128,75 @@ function imageTagFromEnv(value) {
   return value;
 }
 
+function dockerImageVersion(value) {
+  const version = value ?? packageVersionFromMetadata();
+  if (!/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u.test(version)) throw new Error("DOCKER_SMOKE_VERSION must be an exact semver.");
+  return version;
+}
+
+function dockerImageRevision(value) {
+  const revision = value ?? DOCKER_IMAGE_REVISION_FALLBACK;
+  if (!/^[a-f0-9]{40}$/u.test(revision)) throw new Error("DOCKER_SMOKE_REVISION must be a full lowercase git SHA.");
+  return revision;
+}
+
+function packageVersionFromMetadata() {
+  const bytes = readPackageMetadataBytes();
+  if (bytes.byteLength < 1 || bytes.byteLength > MAX_PACKAGE_JSON_BYTES) {
+    throw new Error("package metadata size is invalid for docker image metadata.");
+  }
+  let encoded;
+  try {
+    encoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    throw new Error("package metadata is not valid UTF-8 for docker image metadata.");
+  }
+  let decoded;
+  try {
+    decoded = JSON.parse(encoded);
+  } catch {
+    throw new Error("package metadata is not valid JSON for docker image metadata.");
+  }
+  if (typeof decoded?.version !== "string") throw new Error("package metadata version is missing for docker image metadata.");
+  return decoded.version;
+}
+
+function readPackageMetadataBytes() {
+  const file = path.join(root, "package.json");
+  let info;
+  try {
+    info = lstatSync(file);
+  } catch {
+    throw new Error("package metadata could not be read for docker image metadata.");
+  }
+  if (!info.isFile() || info.size < 1 || info.size > MAX_PACKAGE_JSON_BYTES) {
+    throw new Error("package metadata size is invalid for docker image metadata.");
+  }
+  const fd = openSync(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  try {
+    const opened = fstatSync(fd);
+    if (!opened.isFile() || opened.size < 1 || opened.size > MAX_PACKAGE_JSON_BYTES || !sameFile(info, opened)) {
+      throw new Error("package metadata changed before docker image metadata verification.");
+    }
+    const bytes = Buffer.alloc(opened.size);
+    let offset = 0;
+    while (offset < opened.size) {
+      const bytesRead = readSync(fd, bytes, offset, opened.size - offset, offset);
+      if (bytesRead === 0) break;
+      offset += bytesRead;
+    }
+    if (offset !== opened.size) throw new Error("package metadata changed while reading docker image metadata.");
+    if (!sameFile(opened, fstatSync(fd))) throw new Error("package metadata changed while reading docker image metadata.");
+    return bytes;
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function sameFile(left, right) {
+  return left.dev === right.dev && left.ino === right.ino && left.size === right.size && left.mtimeMs === right.mtimeMs && left.ctimeMs === right.ctimeMs;
+}
+
 function assertContainerName(value) {
   if (!CONTAINER_NAME_RE.test(value)) throw new Error("generated docker container name is invalid.");
 }
@@ -128,8 +209,37 @@ async function expectDockerFailure(args, label, requiredEvidence, env) {
 }
 
 async function assertServerOnlyRuntime(imageTag, env) {
-  const script = `const fs = require("node:fs"); const paths = ${JSON.stringify(SERVER_ONLY_FORBIDDEN_PATHS)}; for (const path of paths) { if (fs.existsSync(path)) { console.error("cli-runtime-present"); process.exit(1); } }`;
+  const script = `const fs = require("node:fs"); const forbidden = ${JSON.stringify(SERVER_ONLY_FORBIDDEN_PATHS)}; const required = ${JSON.stringify(SERVER_DISTRIBUTION_REQUIRED_PATHS)}; for (const path of forbidden) { if (fs.existsSync(path)) { console.error("cli-runtime-present"); process.exit(1); } } for (const path of required) { if (!fs.existsSync(path)) { console.error("distribution-doc-missing"); process.exit(1); } }`;
   await run("docker", ["run", "--rm", ...HARDENED_DOCKER_RUN_FLAGS, "--entrypoint", "node", imageTag, "-e", script], "server-only Docker runtime check", COMMAND_TIMEOUT_MS, { env });
+}
+
+async function assertImageMetadata(imageTag, env, version, revision) {
+  const result = await run(
+    "docker",
+    ["image", "inspect", imageTag, "--format", "{{json .Config.Labels}}"],
+    "docker image metadata inspect",
+    COMMAND_TIMEOUT_MS,
+    { env }
+  );
+  let labels;
+  try {
+    labels = JSON.parse(result.stdout.trim());
+  } catch {
+    throw new Error("docker image metadata labels are invalid JSON.");
+  }
+  const expected = {
+    "org.opencontainers.image.title": "p2p-transfer",
+    "org.opencontainers.image.description": "End-to-end encrypted WebRTC file transfer signaling server",
+    "org.opencontainers.image.source": "https://github.com/VictorHaine/p2p-transfer",
+    "org.opencontainers.image.url": "https://github.com/VictorHaine/p2p-transfer",
+    "org.opencontainers.image.documentation": "https://github.com/VictorHaine/p2p-transfer#readme",
+    "org.opencontainers.image.licenses": "MIT",
+    "org.opencontainers.image.version": version,
+    "org.opencontainers.image.revision": revision
+  };
+  for (const [key, value] of Object.entries(expected)) {
+    if (labels?.[key] !== value) throw new Error("docker image metadata labels are invalid.");
+  }
 }
 
 async function publishedPort(containerName, env) {

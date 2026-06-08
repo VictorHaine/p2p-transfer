@@ -37,7 +37,7 @@ async function main() {
   assertReleaseTagRef(tag);
   const repository = githubRepository(requiredEnvString("GITHUB_REPOSITORY"));
   const runId = requiredGitHubActionsContext();
-  requiredCommitSha(requiredEnvString("GITHUB_SHA"));
+  const revision = requiredCommitSha(requiredEnvString("GITHUB_SHA"));
   const actor = githubActor(requiredEnvString("GITHUB_ACTOR"));
   const token = requiredEnvString("GITHUB_TOKEN", MAX_TOKEN_BYTES);
   const packageJson = await readPackageJson();
@@ -69,7 +69,7 @@ async function main() {
     }
 
     await run(process.execPath, ["scripts/smoke-docker-policy.mjs"], "release docker policy smoke", SMOKE_TIMEOUT_MS, {
-      env: { DOCKER_SMOKE_TAG: stagedRef }
+      env: { DOCKER_SMOKE_TAG: stagedRef, DOCKER_SMOKE_VERSION: version, DOCKER_SMOKE_REVISION: revision }
     });
     await assertLiveReleaseRefFromEnv();
     await run("docker", ["login", REGISTRY, "-u", actor, "--password-stdin"], "docker registry login", COMMAND_TIMEOUT_MS, {

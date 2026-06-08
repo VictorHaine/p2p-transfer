@@ -686,7 +686,14 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.doesNotMatch(checkedPnpmScript, /readFile\(path\.join\(root, "package\.json"\)|readFileSync\(path\.join\(root, "package\.json"\)/);
   assert.match(ciWorkflow, /production docker policy[\s\S]*actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3[\s\S]*node scripts\/prepare-checked-pnpm\.mjs[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:test node scripts\/smoke-docker-policy\.mjs/);
   assert.doesNotMatch(ciWorkflow, /corepack prepare pnpm@/);
-  assert.match(dockerPolicySmokeScript, /\["build", "-t", imageTag, "\."\]/);
+  assert.match(dockerPolicySmokeScript, /\["build", "--build-arg", `VERSION=\$\{imageVersion\}`, "--build-arg", `REVISION=\$\{imageRevision\}`, "-t", imageTag, "\."\]/);
+  assert.match(dockerPolicySmokeScript, /await assertImageMetadata\(imageTag, dockerEnv, imageVersion, imageRevision\)/);
+  assert.match(dockerPolicySmokeScript, /function assertImageMetadata\(imageTag, env, version, revision\)/);
+  assert.match(dockerPolicySmokeScript, /"docker image metadata inspect"/);
+  assert.match(dockerPolicySmokeScript, /"org\.opencontainers\.image\.licenses": "MIT"/);
+  assert.match(dockerPolicySmokeScript, /"org\.opencontainers\.image\.revision": revision/);
+  assert.match(dockerPolicySmokeScript, /const SERVER_DISTRIBUTION_REQUIRED_PATHS = \["LICENSE", "README\.md", "SECURITY\.md"\]/);
+  assert.match(dockerPolicySmokeScript, /distribution-doc-missing/);
   assert.match(dockerPolicySmokeScript, /const HARDENED_DOCKER_RUN_FLAGS = \["--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "--pids-limit", "128", "--memory", "512m", "--cpus", "1"\]/);
   assert.match(dockerPolicySmokeScript, /\["run", "--rm", \.\.\.HARDENED_DOCKER_RUN_FLAGS, "-e", "SIGNALING_TOPOLOGY=single-instance", imageTag\]/);
   assert.match(dockerPolicySmokeScript, /\["run", "--rm", \.\.\.HARDENED_DOCKER_RUN_FLAGS, "-e", `ALLOWED_ORIGINS=\$\{PRODUCTION_ORIGIN\}`, imageTag\]/);
@@ -893,7 +900,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseWorkflow, /run: node scripts\/publish-docker-image\.mjs[\s\S]*Scan staged image for vulnerabilities[\s\S]*Generate staged image SBOM[\s\S]*actions\/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4\.1\.0[\s\S]*actions\/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4\.1\.0/);
   assert.match(releaseWorkflow, /stage docker image[\s\S]*subject-name: \$\{\{ steps\.docker_image\.outputs\.image \}\}[\s\S]*subject-digest: \$\{\{ steps\.docker_image\.outputs\.digest \}\}[\s\S]*push-to-registry: true/);
   assert.match(releaseWorkflow, /promote docker image[\s\S]*Promote attested image[\s\S]*DOCKER_STAGED_DIGEST: \$\{\{ needs\.docker-stage\.outputs\.digest \}\}[\s\S]*run: node scripts\/publish-docker-image\.mjs --promote/);
-  assert.match(dockerPublishScript, /env: \{ DOCKER_SMOKE_TAG: stagedRef \}/);
+  assert.match(dockerPublishScript, /env: \{ DOCKER_SMOKE_TAG: stagedRef, DOCKER_SMOKE_VERSION: version, DOCKER_SMOKE_REVISION: revision \}/);
   assert.match(dockerPublishScript, /await run\("docker", \["push", stagedRef\]/);
   assert.match(dockerPublishScript, /if \(mode === "promote"\) \{[\s\S]*dockerDigest\(requiredEnvString\("DOCKER_STAGED_DIGEST"\)\)[\s\S]*await run\("docker", \["pull", `\$\{image\}@\$\{digest\}`\]/);
   assert.match(dockerPublishScript, /await publishDockerReleaseTag\(\{ image, digest, ref: versionRef, label: "docker release image", dockerEnv \}\)/);
@@ -1219,7 +1226,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(dockerPublishScript, /realpathSync\(process\.argv\[1\]\) === realpathSync\(fileURLToPath\(import\.meta\.url\)\)/);
   assert.match(dockerPublishScript, /const EXPECTED_GITHUB_REPOSITORY = "VictorHaine\/p2p-transfer"/);
   assert.match(dockerPublishScript, /GitHub repository must match the release repository/);
-  assert.match(dockerPublishScript, /const tag = releaseTag\(requiredEnvString\("GITHUB_REF_NAME"\)\);\n  assertReleaseTagRef\(tag\);\n  const repository = githubRepository\(requiredEnvString\("GITHUB_REPOSITORY"\)\);\n  const runId = requiredGitHubActionsContext\(\);\n  requiredCommitSha\(requiredEnvString\("GITHUB_SHA"\)\);\n  const actor = githubActor\(requiredEnvString\("GITHUB_ACTOR"\)\);\n  const token = requiredEnvString\("GITHUB_TOKEN", MAX_TOKEN_BYTES\);\n  const packageJson = await readPackageJson\(\);/);
+  assert.match(dockerPublishScript, /const tag = releaseTag\(requiredEnvString\("GITHUB_REF_NAME"\)\);\n  assertReleaseTagRef\(tag\);\n  const repository = githubRepository\(requiredEnvString\("GITHUB_REPOSITORY"\)\);\n  const runId = requiredGitHubActionsContext\(\);\n  const revision = requiredCommitSha\(requiredEnvString\("GITHUB_SHA"\)\);\n  const actor = githubActor\(requiredEnvString\("GITHUB_ACTOR"\)\);\n  const token = requiredEnvString\("GITHUB_TOKEN", MAX_TOKEN_BYTES\);\n  const packageJson = await readPackageJson\(\);/);
   assert.match(dockerPublishScript, /import \{ safeChildEnv \} from "\.\/smoke-packed\.mjs"/);
   assert.match(dockerPublishScript, /env: \{ \.\.\.safeChildEnv\(\), \.\.\.\(options\.env \?\? \{\}\) \}/);
   assert.match(dockerPublishScript, /endChildStdin\(child, options\.input \?\? "", label/);
@@ -1250,6 +1257,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(dockerPolicySmokeScript, /"no-new-privileges"/);
   assert.match(dockerPolicySmokeScript, /const CLI_WEBRTC_RUNTIME_PATHS = \[[\s\S]*"node_modules\/@roamhq"[\s\S]*"node_modules\/\.pnpm\/@roamhq\+wrtc-linux-x64@0\.10\.0"[\s\S]*"node_modules\/\.pnpm\/webidl-conversions@7\.0\.0"/);
   assert.match(dockerPolicySmokeScript, /const SERVER_ONLY_FORBIDDEN_PATHS = \["dist-node\/cli", \.\.\.CLI_WEBRTC_RUNTIME_PATHS\]/);
+  assert.match(dockerPolicySmokeScript, /const SERVER_DISTRIBUTION_REQUIRED_PATHS = \["LICENSE", "README\.md", "SECURITY\.md"\]/);
   assert.match(dockerPolicySmokeScript, /await assertServerOnlyRuntime\(imageTag, dockerEnv\)/);
   assert.match(securityPolicy, /Docker policy smoke must prove the final server runtime image does not contain CLI artifacts or CLI-only native WebRTC packages/);
   assert.match(releaseWorkflow, /ubuntu-24\.04/);

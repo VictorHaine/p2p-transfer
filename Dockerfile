@@ -20,9 +20,20 @@ RUN rm -rf \
 
 FROM node:22.22.3-bookworm-slim@sha256:6ed70fbf60557fb3a2faea5657d4105bace34c93449c2571919a1589fae30153
 WORKDIR /app
+ARG VERSION=0.0.0-dev
+ARG REVISION=unknown
+LABEL org.opencontainers.image.title="p2p-transfer" \
+  org.opencontainers.image.description="End-to-end encrypted WebRTC file transfer signaling server" \
+  org.opencontainers.image.source="https://github.com/VictorHaine/p2p-transfer" \
+  org.opencontainers.image.url="https://github.com/VictorHaine/p2p-transfer" \
+  org.opencontainers.image.documentation="https://github.com/VictorHaine/p2p-transfer#readme" \
+  org.opencontainers.image.licenses="MIT" \
+  org.opencontainers.image.version=$VERSION \
+  org.opencontainers.image.revision=$REVISION
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=8787
+COPY --chown=node:node --from=build /app/LICENSE /app/README.md /app/SECURITY.md ./
 COPY --chown=node:node --from=build /app/package.json /app/pnpm-lock.yaml ./
 COPY --chown=node:node --from=build /app/node_modules ./node_modules
 COPY --chown=node:node --from=build /app/dist-node/server ./dist-node/server
