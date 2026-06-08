@@ -35,6 +35,7 @@ async function main() {
   const tag = releaseTag(requiredEnvString("GITHUB_REF_NAME"));
   assertReleaseTagRef(tag);
   const repository = githubRepository(requiredEnvString("GITHUB_REPOSITORY"));
+  requiredGitHubActionsContext();
   requiredCommitSha(requiredEnvString("GITHUB_SHA"));
   const actor = githubActor(requiredEnvString("GITHUB_ACTOR"));
   const token = requiredEnvString("GITHUB_TOKEN", MAX_TOKEN_BYTES);
@@ -53,6 +54,7 @@ async function main() {
     await run(process.execPath, ["scripts/smoke-docker-policy.mjs"], "release docker policy smoke", SMOKE_TIMEOUT_MS, {
       env: { DOCKER_SMOKE_TAG: versionRef }
     });
+    await assertLiveReleaseRefFromEnv();
     await run("docker", ["tag", versionRef, plainVersionRef], "docker release tag alias", COMMAND_TIMEOUT_MS, { env: dockerEnv });
     await run("docker", ["login", REGISTRY, "-u", actor, "--password-stdin"], "docker registry login", COMMAND_TIMEOUT_MS, {
       env: dockerEnv,
@@ -151,6 +153,11 @@ function requiredCommitSha(value) {
 function githubActor(value) {
   if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/u.test(value)) throw new Error("GitHub actor is invalid.");
   return value;
+}
+
+function requiredGitHubActionsContext() {
+  if (requiredEnvString("GITHUB_ACTIONS") !== "true") throw new Error("GITHUB_ACTIONS must be true for Docker publishing.");
+  if (!/^[1-9]\d{0,19}$/u.test(requiredEnvString("GITHUB_RUN_ID"))) throw new Error("GITHUB_RUN_ID must be a positive decimal GitHub Actions run id.");
 }
 
 function pushedDigest(output) {

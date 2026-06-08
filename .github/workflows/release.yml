@@ -78,6 +78,7 @@ jobs:
     timeout-minutes: 30
     needs:
       - publish
+    environment: npm
     permissions:
       contents: read
       packages: write
@@ -219,6 +220,7 @@ jobs:
     needs:
       - publish
       - docker
+    environment: npm
     permissions:
       contents: write
     steps:

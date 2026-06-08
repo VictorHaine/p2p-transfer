@@ -2,7 +2,7 @@
 import { constants, realpathSync } from "node:fs";
 import { lstat, open, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const MAX_PACKAGE_JSON_BYTES = 1024 * 1024;
 const MAX_CHANGELOG_BYTES = 1024 * 1024;
@@ -11,7 +11,6 @@ const MAX_ERROR_MESSAGE_CHARS = 1024;
 
 const scriptPath = fileURLToPath(import.meta.url);
 const projectRoot = path.resolve(path.dirname(scriptPath), "..");
-const isDirectEntrypoint = typeof process.argv[1] === "string" && realpathSync(process.argv[1]) === realpathSync(scriptPath);
 
 function releaseNotesErrorMessage(error) {
   if (
@@ -42,8 +41,17 @@ function parseArgs(args) {
 }
 
 function assertEntrypoint() {
-  if (!isDirectEntrypoint) {
+  if (!isMain()) {
     throw new Error("Release notes script must be executed directly.");
+  }
+}
+
+function isMain() {
+  if (process.argv[1] === undefined) return false;
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(scriptPath);
+  } catch {
+    return pathToFileURL(process.argv[1]).href === import.meta.url;
   }
 }
 
@@ -198,7 +206,7 @@ async function writeReleaseNotes() {
   await writeFile(path.join(await verifiedArtifactDir(), "RELEASE_NOTES.md"), notes, { flag: "wx" });
 }
 
-if (isDirectEntrypoint) {
+if (isMain()) {
   writeReleaseNotes().catch((error) => {
     console.error("Release notes generation failed:");
     console.error(releaseNotesErrorMessage(error));

@@ -169,8 +169,8 @@ test("server lifecycle intervals stop on shutdown and fatal errors", () => {
   for (const body of [errorSummaryBody, distErrorSummaryBody]) {
     assert.match(body, /ownErrorData\(error, "code"\)/);
     assert.match(body, /ownErrorData\(error, "syscall"\)/);
-    assert.match(body, /ownErrorData\(error, "address"\)/);
-    assert.match(body, /ownErrorData\(error, "port"\)/);
+    assert.doesNotMatch(body, /ownErrorData\(error, "address"\)/);
+    assert.doesNotMatch(body, /ownErrorData\(error, "port"\)/);
     assert.match(body, /ownErrorData\(error, "name"\)/);
     assert.doesNotMatch(body, /error\.name/);
     assert.doesNotMatch(body, /nodeError\./);
@@ -191,7 +191,11 @@ test("server-initiated websocket closes are bounded by forced termination", () =
   assert.match(closeBody, /closePeerWithCode\(peer, 1000, reason\)/);
   const closeWithCodeBody = extractFunctionBody(serverSource, "closePeerWithCode");
   assert.match(closeWithCodeBody, /peer\.ws\.readyState === peer\.ws\.CLOSING/);
-  assert.match(closeWithCodeBody, /peer\.ws\.close\(code, websocketCloseReason\(reason\)\)/);
+  assert.match(closeWithCodeBody, /peer\.ws\.close\(code, websocketCloseReason\(wireCloseReason\(code, reason\)\)\)/);
+  const wireReasonBody = extractFunctionBody(serverSource, "wireCloseReason");
+  assert.match(wireReasonBody, /return "policy violation"/);
+  assert.match(wireReasonBody, /return "closed"/);
+  assert.doesNotMatch(wireReasonBody, /return _?reason/);
   assert.match(closeWithCodeBody, /scheduleCloseTermination\(peer\)/);
   const shutdownCloseBody = extractFunctionBody(serverSource, "closeWebSocketForShutdown");
   assert.match(shutdownCloseBody, /const peer = peersBySocket\.get\(client\)/);
@@ -218,7 +222,7 @@ test("server-initiated websocket closes are bounded by forced termination", () =
   assert.match(distReleaseBody, /clearCloseTimer\(peer\)/);
   const distCloseWithCodeBody = extractFunctionBody(distServerSource, "closePeerWithCode");
   assert.match(distCloseWithCodeBody, /peer\.ws\.readyState === peer\.ws\.CLOSING/);
-  assert.match(distCloseWithCodeBody, /peer\.ws\.close\(code, websocketCloseReason\(reason\)\)/);
+  assert.match(distCloseWithCodeBody, /peer\.ws\.close\(code, websocketCloseReason\(wireCloseReason\(code, reason\)\)\)/);
   assert.match(distCloseWithCodeBody, /scheduleCloseTermination\(peer\)/);
   const distStandaloneScheduleBody = extractFunctionBody(distServerSource, "scheduleStandaloneCloseTermination");
   assert.match(distStandaloneScheduleBody, /SIGNALING_CLOSE_GRACE_MS/);

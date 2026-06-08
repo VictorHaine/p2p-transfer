@@ -238,11 +238,26 @@ test("GitHub release script rejects control-bearing tokens before artifact or Gi
   assert.doesNotMatch(result.stderr, /with-control|release artifact directory|api\.github|token-that-must-not-be-used|Error:/);
 });
 
+test("GitHub release script rejects non-Actions context before artifact or GitHub API work", () => {
+  const result = runScript("scripts/create-github-release.mjs", {
+    ...releaseTagEnv("v0.1.0"),
+    GITHUB_REPOSITORY: "VictorHaine/p2p-transfer",
+    GITHUB_ACTIONS: "false",
+    GH_TOKEN: "token-that-must-not-be-used"
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.equal(result.stdout, "");
+  assert.match(result.stderr, /GitHub Release creation failed:\n- GITHUB_ACTIONS must be true for GitHub Release creation\./);
+  assert.doesNotMatch(result.stderr, /release artifact directory|api\.github|token-that-must-not-be-used|Error:/);
+});
+
 test("GitHub release API verifies the tag and uploads exact release assets", async () => {
   const { createGitHubRelease } = await import(`../scripts/create-github-release.mjs?release-api=${Date.now()}`);
   const originalFetch = globalThis.fetch;
   const requests: Array<{ method: string; url: string; body: string }> = [];
   const uploads: Array<{ name: string | null; body: string; type: string | null }> = [];
+  const liveChecks: string[] = [];
   try {
     globalThis.fetch = async (url, init = {}) => {
       const parsed = new URL(String(url));
@@ -273,7 +288,9 @@ test("GitHub release API verifies the tag and uploads exact release assets", asy
     const assets = releaseAssets();
     const checksumBody = assets.find((asset) => asset.name === "SHA256SUMS")?.bytes.toString("utf8");
     assert.ok(checksumBody);
-    await createGitHubRelease("token-that-must-not-be-printed", "VictorHaine/p2p-transfer", "v0.1.0", RELEASE_TEST_SHA, "scoped release notes", assets);
+    await createGitHubRelease("token-that-must-not-be-printed", "VictorHaine/p2p-transfer", "v0.1.0", RELEASE_TEST_SHA, "scoped release notes", assets, async () => {
+      liveChecks.push(`before:${requests.length}`);
+    });
 
     assert.deepEqual(requests.map((request) => `${request.method} ${request.url}`), [
       "GET https://api.github.com/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0",
@@ -283,6 +300,7 @@ test("GitHub release API verifies the tag and uploads exact release assets", asy
       "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=SBOM.cdx.json",
       "PATCH https://api.github.com/repos/VictorHaine/p2p-transfer/releases/99"
     ]);
+    assert.deepEqual(liveChecks, ["before:1", "before:5"]);
     assert.deepEqual(uploads, [
       { name: "p2p-transfer-0.1.0.tgz", body: "tarball-bytes", type: "application/gzip" },
       { name: "SHA256SUMS", body: checksumBody, type: "text/plain; charset=utf-8" },
@@ -827,7 +845,22 @@ test("Docker publish script rejects wrong repositories before smoke or push work
   assert.doesNotMatch(result.stderr, /Attacker|token-that-must-not-be-used|release docker policy smoke|docker release|api\.github|Error:/);
 });
 
-test("release Docker publisher and checked pnpm imports have no privileged side effects", () => {
+test("Docker publish script rejects non-Actions context before package, smoke, or push work", () => {
+  const result = runScript("scripts/publish-docker-image.mjs", {
+    ...releaseTagEnv("v0.1.0"),
+    GITHUB_REPOSITORY: "VictorHaine/p2p-transfer",
+    GITHUB_ACTIONS: "false",
+    GITHUB_ACTOR: "VictorHaine",
+    GITHUB_TOKEN: "token-that-must-not-be-used"
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.equal(result.stdout, "");
+  assert.match(result.stderr, /Docker image publish failed:\n- GITHUB_ACTIONS must be true for Docker publishing\./);
+  assert.doesNotMatch(result.stderr, /package metadata|token-that-must-not-be-used|release docker policy smoke|docker release|api\.github|Error:/);
+});
+
+test("release helper imports have no privileged side effects", () => {
   const result = spawnSync(
     process.execPath,
     [
@@ -835,7 +868,10 @@ test("release Docker publisher and checked pnpm imports have no privileged side 
       "--eval",
       [
         `await import(${JSON.stringify(pathToFileURL(path.join(root, "scripts", "publish-docker-image.mjs")).href)});`,
-        `await import(${JSON.stringify(pathToFileURL(path.join(root, "scripts", "prepare-checked-pnpm.mjs")).href)});`
+        `await import(${JSON.stringify(pathToFileURL(path.join(root, "scripts", "prepare-checked-pnpm.mjs")).href)});`,
+        `await import(${JSON.stringify(pathToFileURL(path.join(root, "scripts", "write-release-sbom.mjs")).href)});`,
+        `await import(${JSON.stringify(pathToFileURL(path.join(root, "scripts", "write-release-checksum.mjs")).href)});`,
+        `await import(${JSON.stringify(pathToFileURL(path.join(root, "scripts", "write-release-notes.mjs")).href)});`
       ].join("\n")
     ],
     {
@@ -3573,7 +3609,7 @@ function runScriptWithNodeArgs(script: string, env: Record<string, string>, args
 }
 
 function releaseTagEnv(tag: string): Record<string, string> {
-  return { GITHUB_REF_NAME: tag, GITHUB_REF_TYPE: "tag", GITHUB_REF: `refs/tags/${tag}`, GITHUB_SHA: RELEASE_TEST_SHA };
+  return { GITHUB_REF_NAME: tag, GITHUB_REF_TYPE: "tag", GITHUB_REF: `refs/tags/${tag}`, GITHUB_SHA: RELEASE_TEST_SHA, GITHUB_ACTIONS: "true", GITHUB_RUN_ID: "12345" };
 }
 
 function releaseAssets() {

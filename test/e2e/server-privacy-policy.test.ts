@@ -365,8 +365,8 @@ test("built signaling server fatal listen errors do not print stacks or arbitrar
   }
 
   const output = secondOutput?.text() ?? "";
-  assert.match(output, /ff signaling server failed: EADDRINUSE listen 127\.0\.0\.1 \d+/);
-  assert.doesNotMatch(output, /Error:| at |stack|listen EADDRINUSE: address already in use|ALLOWED_ORIGINS|SIGNALING_TOPOLOGY/);
+  assert.match(output, /ff signaling server failed: EADDRINUSE listen\n/);
+  assert.doesNotMatch(output, /Error:| at |stack|listen EADDRINUSE: address already in use|127\.0\.0\.1|\d{2,5}|ALLOWED_ORIGINS|SIGNALING_TOPOLOGY/);
 });
 
 test("built signaling server startup failures do not print stacks or raw configuration evidence", async () => {

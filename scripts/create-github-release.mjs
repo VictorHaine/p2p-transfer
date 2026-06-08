@@ -46,6 +46,7 @@ async function main() {
   const sha = requiredCommitSha(requiredEnvString("GITHUB_SHA"));
   const repository = requiredRepository(requiredEnvString("GITHUB_REPOSITORY"));
   const token = requiredEnvString("GH_TOKEN");
+  requiredGitHubActionsContext();
   await assertLiveReleaseRefFromEnv();
   const tmp = await mkdtemp(path.join(tmpdir(), "ff-github-release-"));
   try {
@@ -58,7 +59,7 @@ async function main() {
       await readArtifactFile("release-artifacts/SBOM.cdx.json", MAX_SBOM_BYTES, "release SBOM")
     ];
     const notes = UTF8.decode((await readArtifactFile("release-artifacts/RELEASE_NOTES.md", MAX_RELEASE_NOTES_BYTES, "release notes")).bytes);
-    await createGitHubRelease(token, repository, tag, sha, notes, assets);
+    await createGitHubRelease(token, repository, tag, sha, notes, assets, assertLiveReleaseRefFromEnv);
   } finally {
     await rm(tmp, { recursive: true, force: true }).catch(() => undefined);
   }
@@ -129,11 +130,12 @@ function sameFile(left, right) {
   return left.dev === right.dev && left.ino === right.ino && left.size === right.size && left.mtimeMs === right.mtimeMs && left.ctimeMs === right.ctimeMs;
 }
 
-export async function createGitHubRelease(token, repository, tag, expectedSha, notes, assets) {
+export async function createGitHubRelease(token, repository, tag, expectedSha, notes, assets, liveRefCheck = async () => {}) {
   if (!isSafeEnvValue(token)) throw new Error(`GH_TOKEN must be a non-empty control-free environment value under ${MAX_ENV_VALUE_BYTES} UTF-8 bytes.`);
   requiredRepository(repository);
   requiredReleaseTag(tag);
   requiredCommitSha(expectedSha);
+  if (typeof liveRefCheck !== "function") throw new Error("live release ref checker is invalid.");
   if (typeof notes !== "string" || notes.length < 1 || utf8ByteLengthExceeds(notes, MAX_RELEASE_NOTES_BYTES)) throw new Error("release notes are invalid.");
   if (!Array.isArray(assets) || assets.length !== 3) throw new Error("release assets are invalid.");
   for (const asset of assets) {
@@ -148,6 +150,7 @@ export async function createGitHubRelease(token, repository, tag, expectedSha, n
   assertReleaseAssetChecksums(assets);
 
   if ((await githubReleaseTagCommitSha(token, repository, tag)) !== expectedSha) throw new Error("GitHub tag ref does not match the release workflow commit.");
+  await liveRefCheck();
   const release = await github(token, "POST", `/repos/${repository}/releases`, {
     tag_name: tag,
     name: tag,
@@ -165,6 +168,7 @@ export async function createGitHubRelease(token, repository, tag, expectedSha, n
     throw error;
   }
   try {
+    await liveRefCheck();
     await publishDraftRelease(token, repository, id);
   } catch (error) {
     if (await reconcileDraftPublishFailure(token, repository, id, tag).catch(() => false)) return;
@@ -356,6 +360,11 @@ function requiredRepository(value) {
   }
   if (value !== EXPECTED_GITHUB_REPOSITORY) throw new Error("GITHUB_REPOSITORY must match the release repository.");
   return value;
+}
+
+function requiredGitHubActionsContext() {
+  if (requiredEnvString("GITHUB_ACTIONS") !== "true") throw new Error("GITHUB_ACTIONS must be true for GitHub Release creation.");
+  if (!/^[1-9]\d{0,19}$/.test(requiredEnvString("GITHUB_RUN_ID"))) throw new Error("GITHUB_RUN_ID must be a positive decimal GitHub Actions run id.");
 }
 
 function requiredEnvString(name) {

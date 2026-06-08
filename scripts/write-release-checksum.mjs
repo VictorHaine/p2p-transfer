@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { constants, realpathSync } from "node:fs";
 import { lstat, open, readdir, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const MAX_PACKAGE_JSON_BYTES = 1024 * 1024;
 const MAX_TARBALL_BYTES = 50 * 1024 * 1024;
@@ -13,7 +13,6 @@ const SBOM_NAME = "SBOM.cdx.json";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const projectRoot = path.resolve(path.dirname(scriptPath), "..");
-const isDirectEntrypoint = typeof process.argv[1] === "string" && realpathSync(process.argv[1]) === realpathSync(scriptPath);
 
 function releaseChecksumErrorMessage(error) {
   if (
@@ -40,8 +39,17 @@ function assertNoArgs(args) {
 }
 
 function assertEntrypoint() {
-  if (!isDirectEntrypoint) {
+  if (!isMain()) {
     throw new Error("Release checksum script must be executed directly.");
+  }
+}
+
+function isMain() {
+  if (process.argv[1] === undefined) return false;
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(scriptPath);
+  } catch {
+    return pathToFileURL(process.argv[1]).href === import.meta.url;
   }
 }
 
@@ -210,7 +218,7 @@ async function writeReleaseChecksum() {
   await writeFile(path.join(artifactDir, "SHA256SUMS"), `${tarballChecksum}  ${expectedTarballName}\n${sbomChecksum}  ${SBOM_NAME}\n`, { flag: "wx" });
 }
 
-if (isDirectEntrypoint) {
+if (isMain()) {
   writeReleaseChecksum().catch((error) => {
     console.error("Release checksum generation failed:");
     console.error(releaseChecksumErrorMessage(error));

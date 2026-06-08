@@ -230,7 +230,7 @@ const expiryInterval = setInterval(() => {
 expiryInterval.unref();
 
 server.listen(port, host, () => {
-  console.log(`ff signaling server listening on http://${host}:${port}`);
+  console.log("ff signaling server listening.");
 });
 
 function loadCheckedServerConfig(): ServerConfig {
@@ -282,7 +282,7 @@ function fatalServerError(error: Error): void {
 }
 
 function operationalErrorSummary(error: Error): string {
-  const parts = [ownErrorData(error, "code"), ownErrorData(error, "syscall"), ownErrorData(error, "address"), ownErrorData(error, "port")].filter(
+  const parts = [ownErrorData(error, "code"), ownErrorData(error, "syscall")].filter(
     (part) => typeof part === "string" || typeof part === "number"
   );
   const name = ownErrorData(error, "name");
@@ -700,12 +700,18 @@ function closePeer(peer: Peer, reason: string): void {
 function closePeerWithCode(peer: Peer, code: number, reason: string): void {
   if (peer.ws.readyState === peer.ws.OPEN || peer.ws.readyState === peer.ws.CONNECTING || peer.ws.readyState === peer.ws.CLOSING) {
     try {
-      peer.ws.close(code, websocketCloseReason(reason));
+      peer.ws.close(code, websocketCloseReason(wireCloseReason(code, reason)));
       scheduleCloseTermination(peer);
     } catch {
       peer.ws.terminate();
     }
   }
+}
+
+function wireCloseReason(code: number, _reason: string): string {
+  if (code === 1001) return "server shutdown";
+  if (code === 1008) return "policy violation";
+  return "closed";
 }
 
 function scheduleCloseTermination(peer: Peer): void {

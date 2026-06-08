@@ -21,7 +21,7 @@ test("server logging stays operational and does not log signaling payload fields
   for (const call of logCalls) {
     assert.doesNotMatch(call, /\b(?:message|payload|manifest|sealedManifest|pake|tag|sdp|candidate|code|sid|reason|peer|ip)\b/i);
   }
-  assert.match(securityPolicy, /server operational logs must not include signaling payloads, receiver codes, session ids, peer identifiers, peer IPs, arbitrary exception messages, raw configuration values, raw static-root paths, or stack traces/);
+  assert.match(securityPolicy, /server operational logs must not include signaling payloads, receiver codes, session ids, peer identifiers, peer IPs, arbitrary exception messages, raw configuration values, raw static-root paths, bind addresses, bind ports, or stack traces/);
   assert.match(serverSource, /console\.error\(`ff signaling server startup failed: \$\{scope\} \$\{startupErrorSummary\(error\)\}`\)/);
   const startupSummaryBody = extractFunctionBody(serverSource, "startupErrorSummary");
   assert.match(startupSummaryBody, /ownErrorData\(error, "code"\)/);
@@ -30,8 +30,8 @@ test("server logging stays operational and does not log signaling payload fields
   const summaryBody = extractFunctionBody(serverSource, "operationalErrorSummary");
   assert.match(summaryBody, /ownErrorData\(error, "code"\)/);
   assert.match(summaryBody, /ownErrorData\(error, "syscall"\)/);
-  assert.match(summaryBody, /ownErrorData\(error, "address"\)/);
-  assert.match(summaryBody, /ownErrorData\(error, "port"\)/);
+  assert.doesNotMatch(summaryBody, /ownErrorData\(error, "address"\)/);
+  assert.doesNotMatch(summaryBody, /ownErrorData\(error, "port"\)/);
   assert.match(summaryBody, /ownErrorData\(error, "name"\)/);
   assert.doesNotMatch(summaryBody, /error\.message|error\.stack|String\(error\)|String\(/);
   assert.match(serverSource, /function ownErrorData\(error: unknown, key: string\): unknown \{[\s\S]*Object\.getOwnPropertyDescriptor\(error, key\)/);
@@ -48,6 +48,17 @@ test("server logging stays operational and does not log signaling payload fields
   assert.match(readme, /cryptography does not hide local endpoint activity from a privileged endpoint monitor/);
   assert.match(readme, /Relay-only ICE reduces direct peer IP exposure to the other peer, but it shifts traffic metadata to the TURN operator/);
   assert.doesNotMatch(readme, /It does not receive the two secret words[\s\S]*MIME types/);
+});
+
+test("server websocket close frames do not expose internal teardown reasons", () => {
+  const closeWithCodeBody = extractFunctionBody(serverSource, "closePeerWithCode");
+  const wireReasonBody = extractFunctionBody(serverSource, "wireCloseReason");
+  assert.match(closeWithCodeBody, /peer\.ws\.close\(code, websocketCloseReason\(wireCloseReason\(code, reason\)\)\)/);
+  assert.match(wireReasonBody, /if \(code === 1001\) return "server shutdown"/);
+  assert.match(wireReasonBody, /if \(code === 1008\) return "policy violation"/);
+  assert.match(wireReasonBody, /return "closed"/);
+  assert.doesNotMatch(wireReasonBody, /return _?reason/);
+  assert.match(securityPolicy, /server-initiated WebSocket close frames must map internal teardown reasons to a fixed close-text vocabulary/);
 });
 
 test("honest clients do not send raw local exception messages through signaling bye reasons", () => {

@@ -52,6 +52,7 @@ async function main() {
       env: { ...childEnv, PACKED_SMOKE_TARBALL: tarball },
       timeoutMs: CHILD_TIMEOUT_MS
     });
+    await assertLiveReleaseRefFromEnv();
     await run(pnpm, ["publish", tarball, "--provenance", "--access", "public", "--registry", NPM_REGISTRY, "--tag", "latest", "--ignore-scripts"], {
       env: { ...childEnv, ...publishEnv },
       timeoutMs: CHILD_TIMEOUT_MS

@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { constants, realpathSync } from "node:fs";
 import { lstat, open, readdir, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { safeChildEnv } from "./smoke-packed.mjs";
 
 const MAX_PACKAGE_JSON_BYTES = 1024 * 1024;
@@ -17,7 +17,6 @@ const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const projectRoot = path.resolve(path.dirname(scriptPath), "..");
-const isDirectEntrypoint = typeof process.argv[1] === "string" && realpathSync(process.argv[1]) === realpathSync(scriptPath);
 
 function releaseSbomErrorMessage(error) {
   if (
@@ -44,8 +43,17 @@ function assertNoArgs(args) {
 }
 
 function assertEntrypoint() {
-  if (!isDirectEntrypoint) {
+  if (!isMain()) {
     throw new Error("Release SBOM script must be executed directly.");
+  }
+}
+
+function isMain() {
+  if (process.argv[1] === undefined) return false;
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(scriptPath);
+  } catch {
+    return pathToFileURL(process.argv[1]).href === import.meta.url;
   }
 }
 
@@ -379,7 +387,7 @@ async function writeReleaseSbom() {
   await writeFile(path.join(artifactDir, SBOM_NAME), sbomText, { flag: "wx" });
 }
 
-if (isDirectEntrypoint) {
+if (isMain()) {
   writeReleaseSbom().catch((error) => {
     console.error("Release SBOM generation failed:");
     console.error(releaseSbomErrorMessage(error));

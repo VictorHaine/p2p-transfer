@@ -758,6 +758,12 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseArtifactSmokeScript, /"scripts\/write-release-checksum\.mjs"/);
   assert.match(releaseArtifactSmokeScript, /"scripts\/verify-release-artifact\.mjs"/);
   assert.match(releaseArtifactSmokeScript, /GITHUB_REF_NAME: `v\$\{version\}`/);
+  for (const writer of [releaseSbomScript, releaseChecksumScript, releaseNotesScript]) {
+    assert.match(writer, /function isMain\(\) \{/);
+    assert.match(writer, /return realpathSync\(process\.argv\[1\]\) === realpathSync\(scriptPath\)/);
+    assert.match(writer, /return pathToFileURL\(process\.argv\[1\]\)\.href === import\.meta\.url/);
+    assert.doesNotMatch(writer, /const isDirectEntrypoint = /);
+  }
   assert.match(releaseArtifactSmokeScript, /const options = parseArgs\(process\.argv\.slice\(2\)\)/);
   assert.match(releaseArtifactSmokeScript, /args\.length === 1 && args\[0\] === "--keep-artifacts"/);
   assert.match(releaseArtifactSmokeScript, /if \(!options\.keepArtifacts\) await rm\(artifactDir, \{ recursive: true, force: true \}\)/);
@@ -789,7 +795,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseArtifactSmokeScript, /function containsPathLikeText\(value\)/);
   assert.match(releaseArtifactSmokeScript, /return "release artifact smoke failed with path-sensitive evidence\."/);
   assert.match(releaseArtifactSmokeScript, /realpathSync\(process\.argv\[1\]\) === realpathSync\(fileURLToPath\(import\.meta\.url\)\)/);
-  assert.match(releaseWorkflow, /release docker image[\s\S]*needs:\n      - publish[\s\S]*permissions:\n      contents: read\n      packages: write\n      id-token: write\n      attestations: write/);
+  assert.match(releaseWorkflow, /release docker image[\s\S]*needs:\n      - publish[\s\S]*environment: npm[\s\S]*permissions:\n      contents: read\n      packages: write\n      id-token: write\n      attestations: write/);
   assert.match(releaseWorkflow, /pre-publish docker validation[\s\S]*needs:\n      - verify\n      - platform-smoke[\s\S]*permissions:\n      contents: read[\s\S]*Validate release Docker image[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:release-gate node scripts\/smoke-docker-policy\.mjs/);
   assert.match(releaseWorkflow, /release docker image[\s\S]*actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3[\s\S]*node scripts\/prepare-checked-pnpm\.mjs[\s\S]*run: node scripts\/publish-docker-image\.mjs/);
   assert.match(releaseWorkflow, /release docker image[\s\S]*subject-name: \$\{\{ steps\.docker_image\.outputs\.image \}\}[\s\S]*subject-digest: \$\{\{ steps\.docker_image\.outputs\.digest \}\}[\s\S]*push-to-registry: true/);
@@ -979,6 +985,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.doesNotMatch(releaseArtifactScript, /execFileSync|child_process|maxBuffer: MAX_PACKED_PACKAGE_JSON_BYTES/);
   assert.match(securityPolicy, /release publishing must packed-install smoke the exact downloaded tarball artifact immediately before `pnpm publish`/);
   assert.match(securityPolicy, /release artifact attestation must run inside the `publish` job after the `npm` environment approval gate/);
+  assert.match(securityPolicy, /GHCR Docker publishing and GitHub Release creation must also run inside the protected release environment/);
   assert.match(securityPolicy, /attest the verified `SHA256SUMS` subjects instead of a single tarball path/);
   assert.doesNotMatch(releaseWorkflow, /\n  attest:\n/);
   assert.match(releaseWorkflow, /publish npm package[\s\S]*environment: npm[\s\S]*node scripts\/verify-release-artifact\.mjs --github-output tarball[\s\S]*node scripts\/verify-live-release-ref\.mjs[\s\S]*uses: actions\/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4\.1\.0[\s\S]*subject-checksums: release-artifacts\/SHA256SUMS[\s\S]*node scripts\/publish-release-artifact\.mjs/);
@@ -1024,8 +1031,8 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.doesNotMatch(releasePublishScript, /release publish subprocess failed[\s\S]*stdout:/);
   assert.doesNotMatch(releasePublishScript, /release publish subprocess failed[\s\S]*stderr:/);
   assert.doesNotMatch(releasePublishScript, /env: \{ \.\.\.process\.env|process\.env\.NODE_AUTH_TOKEN|process\.env\.NPM_TOKEN/);
-  assert.match(securityPolicy, /GitHub Release job must run only after npm and Docker publishing succeed, re-verify the downloaded tarball and SBOM through `scripts\/create-github-release\.mjs`, generate version-scoped release notes from the checked changelog/);
-  assert.match(releaseWorkflow, /github-release:[\s\S]*needs:\n      - publish\n      - docker[\s\S]*permissions:\n      contents: write[\s\S]*node scripts\/create-github-release\.mjs/);
+  assert.match(securityPolicy, /GitHub Release job must run only after npm and Docker publishing succeed, run inside the protected `npm` environment, reject non-Actions repository\/run contexts before artifact or API work, re-verify the downloaded tarball and SBOM through `scripts\/create-github-release\.mjs`/);
+  assert.match(releaseWorkflow, /github-release:[\s\S]*needs:\n      - publish\n      - docker[\s\S]*environment: npm[\s\S]*permissions:\n      contents: write[\s\S]*node scripts\/create-github-release\.mjs/);
   assert.match(githubReleaseScript, /requiredReleaseTag\(requiredEnvString\("GITHUB_REF_NAME"\)\)/);
   assert.match(githubReleaseScript, /requiredEnvString\("GITHUB_REF_TYPE"\) !== "tag"/);
   assert.match(githubReleaseScript, /requiredEnvString\("GITHUB_REF"\) !== `refs\/tags\/\$\{tag\}`/);
@@ -1034,7 +1041,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(githubReleaseScript, /const EXPECTED_GITHUB_REPOSITORY = "VictorHaine\/p2p-transfer"/);
   assert.match(githubReleaseScript, /const token = requiredEnvString\("GH_TOKEN"\)/);
   assert.match(githubReleaseScript, /import \{ assertLiveReleaseRefFromEnv \} from "\.\/verify-live-release-ref\.mjs"/);
-  assert.match(githubReleaseScript, /const token = requiredEnvString\("GH_TOKEN"\);\n  await assertLiveReleaseRefFromEnv\(\);\n  const tmp = await mkdtemp/);
+  assert.match(githubReleaseScript, /const token = requiredEnvString\("GH_TOKEN"\);\n  requiredGitHubActionsContext\(\);\n  await assertLiveReleaseRefFromEnv\(\);\n  const tmp = await mkdtemp/);
   assert.match(githubReleaseScript, /verifiedTarballPath\(\{ \.\.\.childEnv, GITHUB_REF_NAME: tag, GITHUB_REF_TYPE: "tag", GITHUB_REF: `refs\/tags\/\$\{tag\}` \}\)/);
   assert.match(githubReleaseScript, /\/repos\/\$\{repository\}\/git\/ref\/tags\/\$\{tag\}/);
   assert.match(githubReleaseScript, /if \(\(await githubReleaseTagCommitSha\(token, repository, tag\)\) !== expectedSha\) throw new Error\("GitHub tag ref does not match the release workflow commit\."\)/);
@@ -1055,7 +1062,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(githubReleaseScript, /await mkdir\(env\.PNPM_HOME, \{ recursive: true, mode: 0o700 \}\)/);
   assert.match(githubReleaseScript, /await mkdir\(env\.COREPACK_HOME, \{ recursive: true, mode: 0o700 \}\)/);
   assert.match(githubReleaseScript, /\["scripts\/write-release-notes\.mjs"\]/);
-  assert.match(githubReleaseScript, /await createGitHubRelease\(token, repository, tag, sha, notes, assets\)/);
+  assert.match(githubReleaseScript, /await createGitHubRelease\(token, repository, tag, sha, notes, assets, assertLiveReleaseRefFromEnv\)/);
   assert.match(githubReleaseScript, /await readArtifactFile\(tarball, 50 \* 1024 \* 1024, "release tarball"\)/);
   assert.match(githubReleaseScript, /while \(offset < opened\.size\) \{[\s\S]*await handle\.read\(bytes, offset, opened\.size - offset, offset\)[\s\S]*offset \+= bytesRead/);
   assert.match(githubReleaseScript, /await readArtifactFile\("release-artifacts\/SHA256SUMS", MAX_CHECKSUM_BYTES, "SHA256SUMS"\)/);
@@ -1082,7 +1089,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(dockerPublishScript, /realpathSync\(process\.argv\[1\]\) === realpathSync\(fileURLToPath\(import\.meta\.url\)\)/);
   assert.match(dockerPublishScript, /const EXPECTED_GITHUB_REPOSITORY = "VictorHaine\/p2p-transfer"/);
   assert.match(dockerPublishScript, /GitHub repository must match the release repository/);
-  assert.match(dockerPublishScript, /const tag = releaseTag\(requiredEnvString\("GITHUB_REF_NAME"\)\);\n  assertReleaseTagRef\(tag\);\n  const repository = githubRepository\(requiredEnvString\("GITHUB_REPOSITORY"\)\);\n  requiredCommitSha\(requiredEnvString\("GITHUB_SHA"\)\);\n  const actor = githubActor\(requiredEnvString\("GITHUB_ACTOR"\)\);\n  const token = requiredEnvString\("GITHUB_TOKEN", MAX_TOKEN_BYTES\);\n  const packageJson = await readPackageJson\(\);/);
+  assert.match(dockerPublishScript, /const tag = releaseTag\(requiredEnvString\("GITHUB_REF_NAME"\)\);\n  assertReleaseTagRef\(tag\);\n  const repository = githubRepository\(requiredEnvString\("GITHUB_REPOSITORY"\)\);\n  requiredGitHubActionsContext\(\);\n  requiredCommitSha\(requiredEnvString\("GITHUB_SHA"\)\);\n  const actor = githubActor\(requiredEnvString\("GITHUB_ACTOR"\)\);\n  const token = requiredEnvString\("GITHUB_TOKEN", MAX_TOKEN_BYTES\);\n  const packageJson = await readPackageJson\(\);/);
   assert.match(dockerPublishScript, /import \{ safeChildEnv \} from "\.\/smoke-packed\.mjs"/);
   assert.match(dockerPublishScript, /env: \{ \.\.\.safeChildEnv\(\), \.\.\.\(options\.env \?\? \{\}\) \}/);
   assert.match(dockerPublishScript, /endChildStdin\(child, options\.input \?\? "", label/);
@@ -1099,8 +1106,9 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(liveReleaseRefScript, /\/repos\/\$\{repository\}\/git\/ref\/tags\/\$\{tag\}/);
   assert.match(liveReleaseRefScript, /\/repos\/\$\{repository\}\/git\/ref\/heads\/main/);
   assert.match(liveReleaseRefScript, /return error instanceof Error && error\.name === "AbortError"/);
-  assert.match(securityPolicy, /last-mile live release-ref verifier must reject ambiguous `GITHUB_TOKEN` plus `GH_TOKEN` input before network work, then re-check the GitHub tag ref or annotated tag object and GitHub `main` ref against `GITHUB_SHA` through bounded GitHub API calls immediately before release artifact attestation, before npm publish, and before Docker smoke or GHCR push/);
-  assert.match(releaseWorkflow, /release docker image[\s\S]*run: node scripts\/publish-docker-image\.mjs/);
+  assert.match(securityPolicy, /last-mile live release-ref verifier must reject ambiguous `GITHUB_TOKEN` plus `GH_TOKEN` input before network work, then re-check the GitHub tag ref or annotated tag object and GitHub `main` ref against `GITHUB_SHA` through bounded GitHub API calls immediately before release artifact attestation, immediately before npm publish, before Docker smoke, immediately before GHCR push, immediately before GitHub Release draft creation, and immediately before GitHub Release final publish/);
+  assert.match(dockerPublishScript, /await assertLiveReleaseRefFromEnv\(\);\n    await run\("docker", \["tag", versionRef, plainVersionRef\]/);
+  assert.match(releaseWorkflow, /release docker image[\s\S]*environment: npm[\s\S]*run: node scripts\/publish-docker-image\.mjs/);
   assert.match(dockerPolicySmokeScript, /"--read-only"/);
   assert.match(dockerPolicySmokeScript, /"--cap-drop=ALL"/);
   assert.match(dockerPolicySmokeScript, /"no-new-privileges"/);
