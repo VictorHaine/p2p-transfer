@@ -156,6 +156,7 @@ function mainRuleset() {
     rules: [
       { type: "deletion" },
       { type: "non_fast_forward" },
+      { type: "required_signatures" },
       {
         type: "pull_request",
         parameters: {
@@ -476,9 +477,10 @@ function assertRequiredRuleset(rulesetsByName, name, target) {
 function assertMainRuleset(ruleset) {
   assertRulesetBase(ruleset, MAIN_RULESET_NAME, "branch", "refs/heads/main");
   assertNoBypassActors(ruleset, MAIN_RULESET_NAME);
-  const rules = rulesByType(ruleset, MAIN_RULESET_NAME, ["deletion", "non_fast_forward", "pull_request", "required_status_checks"]);
+  const rules = rulesByType(ruleset, MAIN_RULESET_NAME, ["deletion", "non_fast_forward", "required_signatures", "pull_request", "required_status_checks"]);
   assertRulePresent(rules, "deletion", MAIN_RULESET_NAME);
   assertRulePresent(rules, "non_fast_forward", MAIN_RULESET_NAME);
+  assertRulePresent(rules, "required_signatures", MAIN_RULESET_NAME);
   const pullRequest = assertRulePresent(rules, "pull_request", MAIN_RULESET_NAME);
   const pullRequestParameters = parameters(pullRequest, MAIN_RULESET_NAME, "pull_request");
   assertArrayIncludesExactly(pullRequestParameters.allowed_merge_methods, ["squash", "rebase"], `${MAIN_RULESET_NAME} pull request allowed merge methods`);

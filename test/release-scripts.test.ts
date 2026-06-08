@@ -2938,6 +2938,7 @@ function mainRuleset() {
     rules: [
       { type: "deletion" },
       { type: "non_fast_forward" },
+      { type: "required_signatures" },
       {
         type: "pull_request",
         parameters: {
@@ -4179,6 +4180,7 @@ function mainRuleset() {
     rules: [
       { type: "deletion" },
       { type: "non_fast_forward" },
+      { type: "required_signatures" },
       {
         type: "pull_request",
         parameters: {
@@ -4307,6 +4309,7 @@ function mainRuleset() {
     rules: [
       { type: "deletion" },
       { type: "non_fast_forward" },
+      { type: "required_signatures" },
       {
         type: "pull_request",
         parameters: {
@@ -4443,6 +4446,7 @@ function mainRuleset() {
     rules: [
       { type: "deletion" },
       { type: "non_fast_forward" },
+      { type: "required_signatures" },
       {
         type: "pull_request",
         parameters: {

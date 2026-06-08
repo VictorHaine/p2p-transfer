@@ -50,13 +50,14 @@ This project releases only from protected `main` with a matching `v*.*.*` tag. D
 2. Rerun external preflight from the exact commit that will be tagged:
 
    ```sh
+   git fetch origin main
    gh auth token | pnpm release:preflight --token-stdin
    ```
 
-3. Create and push the matching release tag only after preflight is clean:
+3. Create and push the matching release tag from `origin/main` only after preflight is clean:
 
    ```sh
-   git tag -s v0.1.0 -m v0.1.0
+   git tag -s -m v0.1.0 v0.1.0 origin/main
    git push origin v0.1.0
    ```
 
@@ -68,7 +69,7 @@ As of this runbook, local `pnpm verify:release` passes. The remaining known firs
 
 - the installed GitHub token needs `workflow` scope before workflow files can be pushed
 - remote `main` must be pushed after refreshing that token scope
-- GitHub release controls must be configured so the `p2p-transfer: protect main` ruleset enforces required status checks
+- GitHub release controls must be configured so the `p2p-transfer: protect main` ruleset enforces verified commit signatures and required status checks
 - the npm package name must be bootstrapped with `pnpm bootstrap:npm --token-stdin --apply`
 - npm trusted publishing must be configured for `.github/workflows/release.yml` and environment `npm`
 - GHCR package visibility must be made public after first package creation before the anonymous Docker pull release gate can pass

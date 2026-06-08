@@ -684,6 +684,7 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(githubReleaseControlsScript, /conditions: \{ ref_name: \{ include: \[RELEASE_TAG_REF_PATTERN\], exclude: \[\] \} \}/);
   assert.match(githubReleaseControlsScript, /type: "pull_request"[\s\S]*require_code_owner_review: true[\s\S]*require_last_push_approval: true[\s\S]*required_approving_review_count: 1[\s\S]*required_review_thread_resolution: true/);
   assert.match(githubReleaseControlsScript, /type: "required_status_checks"[\s\S]*do_not_enforce_on_create: true[\s\S]*strict_required_status_checks_policy: true[\s\S]*required_status_checks: REQUIRED_CI_CHECKS\.map\(\(context\) => \(\{ context, integration_id: GITHUB_ACTIONS_INTEGRATION_ID \}\)\)/);
+  assert.match(githubReleaseControlsScript, /type: "required_signatures"/);
   assert.match(githubReleaseControlsScript, /bypass_actors: \[\]/);
   assert.match(githubReleaseControlsScript, /type: "deletion"[\s\S]*type: "non_fast_forward"/);
   assert.doesNotMatch(githubReleaseControlsScript, /type: "creation"/);
@@ -755,6 +756,8 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(githubReleaseControlsScript, /function assertTagRuleset\(ruleset\)/);
   assert.match(githubReleaseControlsScript, /assertRulesetBase\(ruleset, MAIN_RULESET_NAME, "branch", "refs\/heads\/main"\)/);
   assert.match(githubReleaseControlsScript, /assertRulesetBase\(ruleset, TAG_RULESET_NAME, "tag", RELEASE_TAG_REF_PATTERN\)/);
+  assert.match(githubReleaseControlsScript, /rulesByType\(ruleset, MAIN_RULESET_NAME, \["deletion", "non_fast_forward", "required_signatures", "pull_request", "required_status_checks"\]\)/);
+  assert.match(githubReleaseControlsScript, /assertRulePresent\(rules, "required_signatures", MAIN_RULESET_NAME\)/);
   assert.match(githubReleaseControlsScript, /assertStatusContexts\(statusParameters\.required_status_checks, REQUIRED_CI_CHECKS, MAIN_RULESET_NAME\)/);
   assert.ok(
     githubReleaseControlsScript.indexOf("environments/${encodeURIComponent(NPM_ENVIRONMENT)}") <
@@ -787,6 +790,7 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(readme, /gh auth token \| node scripts\/configure-github-release-controls\.mjs --token-stdin --apply --npm-reviewer <release-approver-login>/);
   assert.doesNotMatch(readme, /GITHUB_TOKEN=<admin-token> node scripts\/configure-github-release-controls\.mjs/);
   assert.match(readme, /creates\/updates the `npm` environment approval gate with self-review prevention, admin bypass disabled, and `v\*\.\*\.\*` tag-only deployment/);
+  assert.match(readme, /The `main` ruleset requires verified commit signatures in addition to review and status gates/);
   assert.match(readme, /release tags with no bypass actors/);
   assert.match(readme, /refuses read-only or unknown reviewers/);
   assert.match(readme, /refuses to create a sole-reviewer self-approval deadlock/);
@@ -799,6 +803,7 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(securityPolicy, /must be able to create or update the `npm` environment approval gate from explicit reviewers with write, maintain, or admin repository permission, self-review prevention, admin bypass disabled, and a single `v\*\.\*\.\*` tag deployment policy/);
   assert.match(securityPolicy, /must not expose an option that writes `prevent_self_review: false`/);
   assert.match(securityPolicy, /release setup must create branch and tag rulesets with no bypass actors/);
+  assert.match(securityPolicy, /branch ruleset does not require dependency review, verified commit signatures, required status checks pinned to the GitHub Actions app integration/);
   assert.match(securityPolicy, /release setup must reject malformed, unexpected, wrong-target, duplicate, or bypass-enabled GitHub rulesets list entries/);
   assert.match(securityPolicy, /setup script must reject unknown or read-only reviewers and sole-reviewer self-approval deadlocks/);
   assert.match(securityPolicy, /release setup must re-read the persisted repository security controls, dependency vulnerability alerts, `npm` environment, plus persisted reviewer permissions and fail before mutating deployment policies or repository rulesets when repository secret scanning, secret scanning push protection, Dependabot security updates, or dependency vulnerability alerts are not enabled or Dependabot security updates are paused/);
@@ -885,7 +890,7 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /\/repos\/\$\{repository\}\/vulnerability-alerts/);
   assert.match(releaseReadinessScript, /GitHub dependency vulnerability alerts must be enabled\./);
   assert.match(releaseReadinessScript, /GitHub repository Dependabot security updates must not be paused\./);
-  assert.match(securityPolicy, /no branch\/tag bypass actors, required status checks, and the npm environment approval\/tag-only deployment gate before packaging/);
+  assert.match(securityPolicy, /no branch\/tag bypass actors, verified commit signatures, required status checks, and the npm environment approval\/tag-only deployment gate before packaging/);
   assert.match(readme, /verifies the npm package already exists, verifies any bootstrap placeholder is not tagged as `latest`, allows an existing target version only in the matching GitHub tag workflow rerun path, verifies private vulnerability reporting is enabled, verifies dependency vulnerability alerts are enabled, verifies repository secret scanning and secret scanning push protection are enabled, verifies Dependabot security updates are enabled and unpaused/);
   assert.match(readme, /pnpm bootstrap:npm --dry-run/);
   assert.match(readme, /read -rs NPM_BOOTSTRAP_TOKEN\nprintf %s "\$NPM_BOOTSTRAP_TOKEN" \| pnpm bootstrap:npm --apply --token-stdin\nunset NPM_BOOTSTRAP_TOKEN/);
@@ -1050,11 +1055,12 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /function assertMainRuleset\(ruleset\)/);
   assert.match(releaseReadinessScript, /assertRulesetBase\(ruleset, MAIN_RULESET_NAME, "branch", "refs\/heads\/main"\)/);
   assert.match(releaseReadinessScript, /assertNoBypassActors\(ruleset, MAIN_RULESET_NAME\)/);
-  assert.match(releaseReadinessScript, /rulesByType\(ruleset, MAIN_RULESET_NAME, \["deletion", "non_fast_forward", "pull_request", "required_status_checks"\]\)/);
+  assert.match(releaseReadinessScript, /rulesByType\(ruleset, MAIN_RULESET_NAME, \["deletion", "non_fast_forward", "required_signatures", "pull_request", "required_status_checks"\]\)/);
   assert.match(releaseReadinessScript, /includes\.length !== 1 \|\| includes\[0\] !== refName/);
   assert.doesNotMatch(releaseReadinessScript, /includes\.includes\(refName\)/);
   assert.match(releaseReadinessScript, /assertRulePresent\(rules, "deletion", MAIN_RULESET_NAME\)/);
   assert.match(releaseReadinessScript, /assertRulePresent\(rules, "non_fast_forward", MAIN_RULESET_NAME\)/);
+  assert.match(releaseReadinessScript, /assertRulePresent\(rules, "required_signatures", MAIN_RULESET_NAME\)/);
   assert.match(releaseReadinessScript, /assertRulePresent\(rules, "pull_request", MAIN_RULESET_NAME\)/);
   assert.match(releaseReadinessScript, /assertBoolean\(pullRequestParameters\.require_code_owner_review, true/);
   assert.match(releaseReadinessScript, /assertBoolean\(pullRequestParameters\.require_last_push_approval, true/);
