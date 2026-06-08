@@ -1058,6 +1058,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseArtifactScript, /await reader\.close\(\)/);
   assert.doesNotMatch(releaseArtifactScript, /execFileSync|child_process|maxBuffer: MAX_PACKED_PACKAGE_JSON_BYTES/);
   assert.match(securityPolicy, /release publishing must packed-install smoke the exact downloaded tarball artifact immediately before `pnpm publish`/);
+  assert.match(securityPolicy, /after publish, it must re-read bounded npm registry metadata and fail unless the published version identity, `latest` dist-tag, SHA-1 shasum, SHA-512 integrity, and tarball URL match the exact verifier-selected tarball bytes/);
   assert.match(securityPolicy, /release artifact attestation must run inside the `publish` job after the `npm` environment approval gate/);
   assert.match(securityPolicy, /GHCR Docker staging\/promotion and GitHub Release creation must also run inside the protected release environment before mutating production state/);
   assert.match(securityPolicy, /attest the verified `SHA256SUMS` subjects instead of a single tarball path/);
@@ -1098,6 +1099,12 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.doesNotMatch(releasePublishScript, /verifiedTarballPath\(\{ \.\.\.childEnv, GITHUB_REF_NAME: tag \}\)/);
   assert.match(releasePublishScript, /const NPM_REGISTRY = "https:\/\/registry\.npmjs\.org"/);
   assert.match(releasePublishScript, /\["publish", tarball, "--provenance", "--access", "public", "--registry", NPM_REGISTRY, "--tag", "latest", "--ignore-scripts"\]/);
+  assert.match(releasePublishScript, /const tarballDigests = await localTarballDigests\(tarball\)/);
+  assert.match(releasePublishScript, /await assertNpmPublished\(packageMetadata, tarballDigests\)/);
+  assert.match(releasePublishScript, /dist\.integrity !== tarballDigests\.integrity \|\| dist\.shasum !== tarballDigests\.shasum/);
+  assert.match(releasePublishScript, /distTags\.latest !== packageMetadata\.version/);
+  assert.match(releasePublishScript, /headers: \{ accept: "application\/vnd\.npm\.install-v1\+json" \}/);
+  assert.match(releasePublishScript, /if \(total > MAX_NPM_RESPONSE_BYTES\) throw new Error\("npm registry response exceeded the byte limit\."\)/);
   assert.match(securityPolicy, /only the checked release publisher may publish the verifier-selected tarball with `--ignore-scripts`/);
   assert.match(releasePublishScript, /timeoutError = new Error\("release publish subprocess timed out\."\);\s*child\.kill\("SIGTERM"\);\s*killTimer = setTimeout\(\(\) => child\.kill\("SIGKILL"\), 5_000\);/s);
   assert.match(releasePublishScript, /child\.on\("exit", \(code, signal\) => \{[\s\S]*if \(killTimer\) clearTimeout\(killTimer\);[\s\S]*if \(timeoutError\) \{[\s\S]*rejectOnce\(timeoutError\);[\s\S]*return;[\s\S]*\}/);

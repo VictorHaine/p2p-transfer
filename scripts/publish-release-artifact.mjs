@@ -1,7 +1,8 @@
 #!/usr/bin/env node
+import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
-import { realpathSync } from "node:fs";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { constants, realpathSync } from "node:fs";
+import { lstat, mkdir, mkdtemp, open, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -11,7 +12,11 @@ import { assertLiveReleaseRefFromEnv } from "./verify-live-release-ref.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const MAX_ENV_VALUE_BYTES = 8_192;
 const MAX_TARBALL_OUTPUT_BYTES = 512;
+const MAX_PACKAGE_JSON_BYTES = 128 * 1024;
+const MAX_TARBALL_BYTES = 50 * 1024 * 1024;
+const MAX_NPM_RESPONSE_BYTES = 1024 * 1024;
 const CHILD_TIMEOUT_MS = 240_000;
+const NPM_TIMEOUT_MS = 20_000;
 const NPM_REGISTRY = "https://registry.npmjs.org";
 const EXPECTED_GITHUB_REPOSITORY = "VictorHaine/p2p-transfer";
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
@@ -42,6 +47,8 @@ async function main() {
   rejectStaticNpmTokens();
   const tag = requiredReleaseTag(requiredEnvString("GITHUB_REF_NAME"));
   assertReleaseTagRef(tag);
+  const packageMetadata = await readPackageMetadata();
+  if (tag !== `v${packageMetadata.version}`) throw new Error("release tag does not match package version.");
   const publishEnv = requiredPublishEnv();
   await assertLiveReleaseRefFromEnv();
   const tmp = await mkdtemp(path.join(tmpdir(), "ff-release-publish-"));
@@ -53,10 +60,12 @@ async function main() {
       timeoutMs: CHILD_TIMEOUT_MS
     });
     await assertLiveReleaseRefFromEnv();
+    const tarballDigests = await localTarballDigests(tarball);
     await run(pnpm, ["publish", tarball, "--provenance", "--access", "public", "--registry", NPM_REGISTRY, "--tag", "latest", "--ignore-scripts"], {
       env: { ...childEnv, ...publishEnv },
       timeoutMs: CHILD_TIMEOUT_MS
     });
+    await assertNpmPublished(packageMetadata, tarballDigests);
   } finally {
     await rm(tmp, { recursive: true, force: true }).catch(() => undefined);
   }
@@ -118,6 +127,221 @@ function assertReleaseTagRef(tag) {
 
 function releaseVerifierEnv(tag) {
   return { GITHUB_REF_NAME: tag, GITHUB_REF_TYPE: "tag", GITHUB_REF: `refs/tags/${tag}` };
+}
+
+async function readPackageMetadata() {
+  const text = await readCheckedText(path.join(root, "package.json"), MAX_PACKAGE_JSON_BYTES, "package metadata");
+  let packageJson;
+  try {
+    packageJson = JSON.parse(text);
+  } catch {
+    throw new Error("package metadata is not valid JSON.");
+  }
+  const name = packageJson?.name;
+  const version = packageJson?.version;
+  if (typeof name !== "string" || !/^(?:@[a-z0-9][a-z0-9._-]{0,213}\/)?[a-z0-9][a-z0-9._-]{0,213}$/.test(name)) {
+    throw new Error("package name must be an exact npm package name.");
+  }
+  if (typeof version !== "string" || !/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/.test(version)) {
+    throw new Error("package version must be an exact semver release.");
+  }
+  return { name, version };
+}
+
+async function readCheckedText(file, maxBytes, label) {
+  const info = await lstat(file).catch(() => {
+    throw new Error(`${label} could not be read.`);
+  });
+  if (!info.isFile()) throw new Error(`${label} is not a regular file.`);
+  if (info.size < 1 || info.size > maxBytes) throw new Error(`${label} size is outside the allowed range.`);
+  const handle = await open(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0)).catch(() => {
+    throw new Error(`${label} could not be opened.`);
+  });
+  try {
+    const opened = await handle.stat();
+    if (!opened.isFile()) throw new Error(`${label} is not a regular file.`);
+    if (opened.size < 1 || opened.size > maxBytes) throw new Error(`${label} size is outside the allowed range.`);
+    if (!sameFile(info, opened)) throw new Error(`${label} changed before verification.`);
+    const buffer = Buffer.alloc(opened.size);
+    let offset = 0;
+    while (offset < opened.size) {
+      const { bytesRead } = await handle.read(buffer, offset, opened.size - offset, offset);
+      if (bytesRead === 0) break;
+      offset += bytesRead;
+    }
+    if (offset !== opened.size) throw new Error(`${label} changed while being read.`);
+    const afterRead = await handle.stat();
+    if (!sameFile(opened, afterRead)) throw new Error(`${label} changed while being read.`);
+    try {
+      return new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+    } catch {
+      throw new Error(`${label} is not valid UTF-8.`);
+    }
+  } finally {
+    await handle.close();
+  }
+}
+
+async function localTarballDigests(tarballPath) {
+  const file = path.resolve(root, tarballPath);
+  if (!file.startsWith(`${root}${path.sep}`)) throw new Error("release tarball path is invalid.");
+  const info = await lstat(file).catch(() => {
+    throw new Error("release tarball could not be read.");
+  });
+  if (!info.isFile()) throw new Error("release tarball is not a regular file.");
+  if (info.size < 1 || info.size > MAX_TARBALL_BYTES) throw new Error("release tarball size is outside the allowed range.");
+  const handle = await open(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0)).catch(() => {
+    throw new Error("release tarball could not be opened.");
+  });
+  try {
+    const opened = await handle.stat();
+    if (!opened.isFile()) throw new Error("release tarball is not a regular file.");
+    if (opened.size < 1 || opened.size > MAX_TARBALL_BYTES) throw new Error("release tarball size is outside the allowed range.");
+    if (!sameFile(info, opened)) throw new Error("release tarball changed before verification.");
+    const sha1 = createHash("sha1");
+    const sha512 = createHash("sha512");
+    const buffer = Buffer.allocUnsafe(64 * 1024);
+    let offset = 0;
+    while (offset < opened.size) {
+      const length = Math.min(buffer.byteLength, opened.size - offset);
+      const { bytesRead } = await handle.read(buffer, 0, length, offset);
+      if (bytesRead === 0) break;
+      const chunk = buffer.subarray(0, bytesRead);
+      sha1.update(chunk);
+      sha512.update(chunk);
+      offset += bytesRead;
+    }
+    if (offset !== opened.size) throw new Error("release tarball changed while being read.");
+    const afterRead = await handle.stat();
+    if (!sameFile(opened, afterRead)) throw new Error("release tarball changed while being read.");
+    return {
+      integrity: `sha512-${sha512.digest("base64")}`,
+      shasum: sha1.digest("hex")
+    };
+  } finally {
+    await handle.close();
+  }
+}
+
+async function assertNpmPublished(packageMetadata, tarballDigests) {
+  const metadata = await npmPackageMetadata(packageMetadata.name);
+  const versions = plainRecord(metadata?.versions, "npm registry versions");
+  const publishedVersion = plainRecord(versions[packageMetadata.version], "npm registry published version");
+  if (publishedVersion.name !== packageMetadata.name || publishedVersion.version !== packageMetadata.version) {
+    throw new Error("npm registry published package identity does not match the release artifact.");
+  }
+  const dist = plainRecord(publishedVersion.dist, "npm registry published dist metadata");
+  if (dist.integrity !== tarballDigests.integrity || dist.shasum !== tarballDigests.shasum) {
+    throw new Error("npm registry published tarball integrity does not match the release artifact.");
+  }
+  assertRegistryTarballUrl(dist.tarball, packageMetadata);
+  const distTags = plainRecord(metadata?.["dist-tags"], "npm registry dist-tags");
+  if (distTags.latest !== packageMetadata.version) {
+    throw new Error("npm registry latest dist-tag does not point to the published release.");
+  }
+}
+
+async function npmPackageMetadata(name) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), NPM_TIMEOUT_MS);
+  let response;
+  try {
+    response = await fetch(`${NPM_REGISTRY}/${encodeURIComponent(name)}`, {
+      headers: { accept: "application/vnd.npm.install-v1+json" },
+      signal: controller.signal
+    });
+  } catch (error) {
+    if (isAbortError(error)) throw new Error("npm registry request timed out.");
+    throw new Error("npm registry request failed.");
+  } finally {
+    clearTimeout(timer);
+  }
+  if (response.status === 404) throw new Error("npm registry does not contain the published package.");
+  if (!response.ok) throw new Error("npm registry returned an unexpected status.");
+  const text = await boundedResponseText(response);
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error("npm registry response was not valid JSON.");
+  }
+}
+
+async function boundedResponseText(response) {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (!(value instanceof Uint8Array)) throw new Error("npm registry response body was invalid.");
+      total += value.byteLength;
+      if (total > MAX_NPM_RESPONSE_BYTES) throw new Error("npm registry response exceeded the byte limit.");
+      chunks.push(value);
+    }
+  } catch (error) {
+    await reader.cancel().catch(() => undefined);
+    throw error;
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      // Preserve the original registry failure; releasing the stream lock is best-effort cleanup.
+    }
+  }
+  const body = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(body);
+  } catch {
+    throw new Error("npm registry response was not valid UTF-8.");
+  }
+}
+
+function plainRecord(value, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) {
+    throw new Error(`${label} is invalid.`);
+  }
+  return value;
+}
+
+function assertRegistryTarballUrl(value, packageMetadata) {
+  if (typeof value !== "string" || value.length > 512 || /[\p{Cc}\p{Cf}]/u.test(value)) {
+    throw new Error("npm registry published tarball URL is invalid.");
+  }
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error("npm registry published tarball URL is invalid.");
+  }
+  if (
+    parsed.origin !== NPM_REGISTRY ||
+    parsed.username !== "" ||
+    parsed.password !== "" ||
+    parsed.search !== "" ||
+    parsed.hash !== "" ||
+    !parsed.pathname.endsWith(`/${packageLocalName(packageMetadata.name)}-${packageMetadata.version}.tgz`)
+  ) {
+    throw new Error("npm registry published tarball URL is invalid.");
+  }
+}
+
+function packageLocalName(name) {
+  return name.startsWith("@") ? name.slice(1).split("/")[1] : name;
+}
+
+function sameFile(left, right) {
+  return left.dev === right.dev && left.ino === right.ino && left.size === right.size && left.mtimeMs === right.mtimeMs && left.ctimeMs === right.ctimeMs;
+}
+
+function isAbortError(error) {
+  return error instanceof Error && error.name === "AbortError";
 }
 
 function rejectStaticNpmTokens() {

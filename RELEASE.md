@@ -30,7 +30,11 @@ This project releases only from protected `main` with a matching `v*.*.*` tag. D
    gh auth token | node scripts/configure-github-release-controls.mjs --token-stdin --apply --npm-reviewer <github-user>
    ```
 
-5. Add the repository secret `RELEASE_PREFLIGHT_TOKEN` with the repository-administration, ruleset, private vulnerability reporting, dependency alert, repository security-analysis, Dependabot security-update, and Actions workflow-run visibility needed by release preflight.
+5. Configure npm trusted publishing for `@victorhaine/p2p-transfer`. Set the trusted publisher to GitHub repository `VictorHaine/p2p-transfer`, workflow `.github/workflows/release.yml`, environment `npm`, and the GitHub Actions publish action. Do not add `NPM_TOKEN`; the checked publisher rejects static npm tokens and requires OIDC trusted publishing.
+
+6. Add the repository secret `RELEASE_PREFLIGHT_TOKEN` with the repository-administration, ruleset, private vulnerability reporting, dependency alert, repository security-analysis, Dependabot security-update, and Actions workflow-run visibility needed by release preflight. Use a fine-grained PAT or an externally rotated GitHub App installation token; do not store a raw one-hour installation token as a static secret unless rotation updates it before every release.
+
+7. Plan GHCR visibility before the first public Docker release. GitHub Container Registry packages can be private on first publish; after the first workflow creates `ghcr.io/victorhaine/p2p-transfer`, set the package visibility to public and verify anonymous pulls for `ghcr.io/victorhaine/p2p-transfer:X.Y.Z`.
 
 ## Per-release Checklist
 
@@ -56,7 +60,7 @@ This project releases only from protected `main` with a matching `v*.*.*` tag. D
    git push origin v0.1.0
    ```
 
-4. Let the GitHub release workflow publish npm, GHCR, provenance, checksums, SBOM, and the GitHub Release draft. Do not run `pnpm publish` manually; `prepublishOnly` blocks direct publishes by design.
+4. Let the GitHub release workflow publish npm, verify npm registry metadata, publish GHCR, provenance, checksums, SBOM, and the GitHub Release. Do not run `pnpm publish` manually; `prepublishOnly` blocks direct publishes by design.
 
 ## Current External Blockers
 
@@ -65,4 +69,6 @@ As of this runbook, local `pnpm verify:release` passes. The remaining known firs
 - the installed GitHub token needs `workflow` scope
 - remote `main` must be pushed
 - the npm package name must be bootstrapped with `pnpm bootstrap:npm --token-stdin --apply`
+- npm trusted publishing must be configured for `.github/workflows/release.yml` and environment `npm`
+- GHCR package visibility must be made public after first package creation if anonymous Docker pulls are part of the release
 - Docker policy smoke requires a responsive local Docker daemon

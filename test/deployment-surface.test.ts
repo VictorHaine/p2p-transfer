@@ -204,6 +204,40 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function assertNoDuplicateYamlMappingKeys(workflow: string, label: string): void {
+  const scopes: Array<{ indent: number; keys: Set<string> }> = [];
+  let blockScalarParentIndent: number | undefined;
+
+  for (const [index, line] of workflow.split(/\r?\n/).entries()) {
+    if (line.trim().length === 0 || line.trimStart().startsWith("#")) continue;
+    const indent = line.match(/^ */)?.[0].length ?? 0;
+    if (blockScalarParentIndent !== undefined) {
+      if (indent > blockScalarParentIndent) continue;
+      blockScalarParentIndent = undefined;
+    }
+
+    const trimmed = line.slice(indent);
+    const sequenceItem = trimmed.startsWith("- ");
+    const content = sequenceItem ? trimmed.slice(2) : trimmed;
+    const match = content.match(/^([A-Za-z0-9_-]+):(?:\s|$)/);
+    if (!match) continue;
+
+    if (sequenceItem) {
+      while (scopes.length > 0 && scopes[scopes.length - 1]!.indent >= indent) scopes.pop();
+      scopes.push({ indent, keys: new Set() });
+    } else {
+      while (scopes.length > 0 && scopes[scopes.length - 1]!.indent > indent) scopes.pop();
+      if (scopes.length === 0 || scopes[scopes.length - 1]!.indent !== indent) scopes.push({ indent, keys: new Set() });
+    }
+
+    const key = match[1]!;
+    const scope = scopes[scopes.length - 1]!;
+    assert.equal(scope.keys.has(key), false, `${label}:${index + 1} duplicate YAML mapping key "${key}"`);
+    scope.keys.add(key);
+    if (/[|>]$/.test(content.trimEnd())) blockScalarParentIndent = indent;
+  }
+}
+
 test("CI and release workflows keep minimal token permissions", () => {
   for (const workflow of [ciWorkflow, releaseWorkflow, codeqlWorkflow, scorecardWorkflow, dependencyReviewWorkflow]) {
     assert.doesNotMatch(workflow, /pull_request_target|workflow_run/);
@@ -440,12 +474,16 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releasePublishScript, /rejectStaticNpmTokens\(\)/);
   assert.match(releasePublishScript, /import \{ assertLiveReleaseRefFromEnv \} from "\.\/verify-live-release-ref\.mjs"/);
   assert.match(releasePublishScript, /const EXPECTED_GITHUB_REPOSITORY = "VictorHaine\/p2p-transfer"/);
-  assert.match(releasePublishScript, /assertReleaseTagRef\(tag\);\n  const publishEnv = requiredPublishEnv\(\);\n  await assertLiveReleaseRefFromEnv\(\);\n  const tmp = await mkdtemp/);
+  assert.match(releasePublishScript, /assertReleaseTagRef\(tag\);\n  const packageMetadata = await readPackageMetadata\(\);\n  if \(tag !== `v\$\{packageMetadata\.version\}`\) throw new Error\("release tag does not match package version\."\);\n  const publishEnv = requiredPublishEnv\(\);\n  await assertLiveReleaseRefFromEnv\(\);\n  const tmp = await mkdtemp/);
   assert.match(releasePublishScript, /ACTIONS_ID_TOKEN_REQUEST_TOKEN/);
   assert.match(releasePublishScript, /if \(out\.GITHUB_REPOSITORY !== EXPECTED_GITHUB_REPOSITORY\) throw new Error\("GITHUB_REPOSITORY must match the trusted publishing repository\."\)/);
   assert.match(releasePublishScript, /if \(!\/\^\[1-9\]\\d\{0,19\}\$\/\.test\(out\.GITHUB_RUN_ID\)\) throw new Error\("GITHUB_RUN_ID must be a positive decimal GitHub Actions run id\."\)/);
   assert.match(securityPolicy, /must reject static npm token variables, malformed trusted-publishing repository or run-id context, and wrong-repository release contexts before trusted publishing, Docker publish, GitHub API, or artifact work/);
   assert.match(securityPolicy, /wrong-repository release contexts before trusted publishing, Docker publish, GitHub API, or artifact work/);
+  assert.match(securityPolicy, /after publish, it must re-read bounded npm registry metadata and fail unless the published version identity, `latest` dist-tag, SHA-1 shasum, SHA-512 integrity, and tarball URL match the exact verifier-selected tarball bytes/);
+  assert.match(releasePublishScript, /const tarballDigests = await localTarballDigests\(tarball\)/);
+  assert.match(releasePublishScript, /await assertNpmPublished\(packageMetadata, tarballDigests\)/);
+  assert.match(releasePublishScript, /dist\.integrity !== tarballDigests\.integrity \|\| dist\.shasum !== tarballDigests\.shasum/);
   assert.match(releasePublishScript, /isolatedChildEnv\(privateHome\)/);
   assert.match(releasePublishScript, /PACKED_SMOKE_TARBALL: tarball/);
   assert.match(releasePublishScript, /const NPM_REGISTRY = "https:\/\/registry\.npmjs\.org"/);
@@ -1415,9 +1453,16 @@ test("server deployment policy requires an explicit in-memory signaling topology
   assert.match(readme, /Because rendezvous state is in memory[\s\S]*SIGNALING_TOPOLOGY=single-instance[\s\S]*SIGNALING_TOPOLOGY=sticky-sessions/);
   assert.match(securityPolicy, /production and non-loopback signaling deployments must explicitly declare `SIGNALING_TOPOLOGY=single-instance` or `SIGNALING_TOPOLOGY=sticky-sessions`/);
   assert.match(readme, /create an Actions secret named `RELEASE_PREFLIGHT_TOKEN`/);
-  assert.match(readme, /GitHub App installation token or fine-grained PAT/);
-  assert.match(readme, /classic PATs, OAuth tokens, refresh tokens, and user access tokens are rejected in the release workflow before package or network work/);
+  assert.match(readme, /fine-grained PAT or an externally rotated GitHub App installation token/);
+  assert.match(readme, /do not store a raw one-hour GitHub App installation token as a static secret unless rotation updates it before each release/);
+  assert.match(readme, /Classic PATs, OAuth tokens, refresh tokens, and user access tokens are rejected in the release workflow before package or network work/);
   assert.match(readme, /`\$\{\{ github\.token \}\}` is not enough for this gate/);
+  assert.match(releaseRunbook, /Configure npm trusted publishing[\s\S]*repository `VictorHaine\/p2p-transfer`[\s\S]*workflow `\.github\/workflows\/release\.yml`[\s\S]*environment `npm`/);
+  assert.match(releaseRunbook, /Do not add `NPM_TOKEN`; the checked publisher rejects static npm tokens and requires OIDC trusted publishing/);
+  assert.match(releaseRunbook, /fine-grained PAT or an externally rotated GitHub App installation token/);
+  assert.match(releaseRunbook, /do not store a raw one-hour installation token as a static secret/);
+  assert.match(releaseRunbook, /GitHub Container Registry packages can be private on first publish[\s\S]*set the package visibility to public[\s\S]*verify anonymous pulls for `ghcr\.io\/victorhaine\/p2p-transfer:X\.Y\.Z`/);
+  assert.match(releaseRunbook, /publish npm, verify npm registry metadata, publish GHCR, provenance, checksums, SBOM, and the GitHub Release/);
   assert.match(readme, /Use the released package after the first npm publish:[\s\S]*pnpm add -g @victorhaine\/p2p-transfer[\s\S]*ff recv[\s\S]*ff send --code-stdin --files-stdin/);
   assert.match(readme, /Run the packaged server:[\s\S]*ff-server/);
   assert.match(readme, /Production-shaped run, assuming TLS terminates at `https:\/\/files\.example\.com`/);
@@ -1547,6 +1592,15 @@ test("CI and release workflows pin third-party actions to reviewed full-length c
     assert.doesNotMatch(workflow, /uses:\s+[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)?@v[0-9]/);
   }
   assert.deepEqual([...PINNED_ACTIONS.keys()].sort(), [...seenActions].sort());
+});
+
+test("GitHub workflows do not contain duplicate YAML mapping keys", () => {
+  assertNoDuplicateYamlMappingKeys(ciWorkflow, ".github/workflows/ci.yml");
+  assertNoDuplicateYamlMappingKeys(releaseWorkflow, ".github/workflows/release.yml");
+  assertNoDuplicateYamlMappingKeys(codeqlWorkflow, ".github/workflows/codeql.yml");
+  assertNoDuplicateYamlMappingKeys(scorecardWorkflow, ".github/workflows/scorecard.yml");
+  assertNoDuplicateYamlMappingKeys(dependencyReviewWorkflow, ".github/workflows/dependency-review.yml");
+  assertNoDuplicateYamlMappingKeys(dependencyIntegrityWorkflow, ".github/workflows/dependency-integrity.yml");
 });
 
 test("dependency update automation covers npm, GitHub Actions, and Docker", () => {

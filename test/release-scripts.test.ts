@@ -1160,6 +1160,117 @@ test("release publish script passes the full tag ref tuple into artifact verific
   assert.doesNotMatch(source, /verifiedTarballPath\(\{ \.\.\.childEnv, GITHUB_REF_NAME: tag \}\)/);
 });
 
+test("release publish script verifies npm registry metadata after publish", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-publish-registry-"));
+  try {
+    const workspace = await fakeReleasePublishWorkspace(tmp);
+    const tarball = await fs.readFile(workspace.tarball);
+    const integrity = `sha512-${createHash("sha512").update(tarball).digest("base64")}`;
+    const shasum = createHash("sha1").update(tarball).digest("hex");
+    await fs.writeFile(
+      workspace.mock,
+      `
+import { appendFileSync } from "node:fs";
+
+const log = process.env.FF_MOCK_NPM_PUBLISH_REGISTRY_LOG;
+globalThis.fetch = async (url, init = {}) => {
+  const parsed = new URL(url);
+  appendFileSync(log, (init.method ?? "GET") + " " + parsed.origin + parsed.pathname + "\\n", "utf8");
+  if (parsed.origin !== "https://registry.npmjs.org" || parsed.pathname !== "/%40victorhaine%2Fp2p-transfer") {
+    return new Response(JSON.stringify({ message: "unexpected registry request" }), { status: 500, headers: { "content-type": "application/json" } });
+  }
+  return new Response(JSON.stringify({
+    versions: {
+      "0.1.0": {
+        name: "@victorhaine/p2p-transfer",
+        version: "0.1.0",
+        dist: {
+          integrity: ${JSON.stringify(integrity)},
+          shasum: ${JSON.stringify(shasum)},
+          tarball: "https://registry.npmjs.org/@victorhaine/p2p-transfer/-/p2p-transfer-0.1.0.tgz"
+        }
+      }
+    },
+    "dist-tags": { latest: "0.1.0" }
+  }), { status: 200, headers: { "content-type": "application/json" } });
+};
+`,
+      "utf8"
+    );
+
+    const result = runScriptWithNodeArgs(
+      workspace.script,
+      {
+        ...releaseTagEnv("v0.1.0"),
+        ACTIONS_ID_TOKEN_REQUEST_TOKEN: "oidc-token",
+        ACTIONS_ID_TOKEN_REQUEST_URL: "https://pipelines.actions.githubusercontent.com/example",
+        FF_MOCK_NPM_PUBLISH_REGISTRY_LOG: workspace.registryLog,
+        GITHUB_REPOSITORY: "VictorHaine/p2p-transfer",
+        PATH: `${workspace.bin}${path.delimiter}${process.env.PATH ?? ""}`
+      },
+      [],
+      ["--import", workspace.mock]
+    );
+    const publishArgs = await fs.readFile(workspace.publishLog, "utf8");
+    const registryRequests = await fs.readFile(workspace.registryLog, "utf8");
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, "");
+    assert.equal(result.stderr, "");
+    assert.match(publishArgs, /publish release-artifacts\/victorhaine-p2p-transfer-0\.1\.0\.tgz --provenance --access public --registry https:\/\/registry\.npmjs\.org --tag latest --ignore-scripts/);
+    assert.equal(registryRequests, "GET https://registry.npmjs.org/%40victorhaine%2Fp2p-transfer\n");
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
+test("release publish script rejects npm registry tarball integrity drift after publish", async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-release-publish-drift-"));
+  try {
+    const workspace = await fakeReleasePublishWorkspace(tmp);
+    await fs.writeFile(
+      workspace.mock,
+      `
+globalThis.fetch = async () => new Response(JSON.stringify({
+  versions: {
+    "0.1.0": {
+      name: "@victorhaine/p2p-transfer",
+      version: "0.1.0",
+      dist: {
+        integrity: "sha512-wrong",
+        shasum: "wrong",
+        tarball: "https://registry.npmjs.org/@victorhaine/p2p-transfer/-/p2p-transfer-0.1.0.tgz"
+      }
+    }
+  },
+  "dist-tags": { latest: "0.1.0" }
+}), { status: 200, headers: { "content-type": "application/json" } });
+`,
+      "utf8"
+    );
+
+    const result = runScriptWithNodeArgs(
+      workspace.script,
+      {
+        ...releaseTagEnv("v0.1.0"),
+        ACTIONS_ID_TOKEN_REQUEST_TOKEN: "oidc-token",
+        ACTIONS_ID_TOKEN_REQUEST_URL: "https://pipelines.actions.githubusercontent.com/example",
+        GITHUB_REPOSITORY: "VictorHaine/p2p-transfer",
+        PATH: `${workspace.bin}${path.delimiter}${process.env.PATH ?? ""}`
+      },
+      [],
+      ["--import", workspace.mock]
+    );
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Release publish failed:\n- npm registry published tarball integrity does not match the release artifact\./);
+    assert.doesNotMatch(result.stderr, /oidc-token|release-artifacts|registry\.npmjs|Error:/);
+  } finally {
+    await fs.rm(tmp, { force: true, recursive: true });
+  }
+});
+
 test("Docker publish script rejects prerelease tags before smoke or push", () => {
   const result = runScript("scripts/publish-docker-image.mjs", {
     ...releaseTagEnv("v0.1.0-alpha.1"),
@@ -4020,6 +4131,82 @@ globalThis.fetch = async (url, init = {}) => {
 
 function runScript(script: string, env: Record<string, string>, args: string[] = []) {
   return runScriptWithNodeArgs(script, env, args, []);
+}
+
+async function fakeReleasePublishWorkspace(tmp: string) {
+  const scripts = path.join(tmp, "scripts");
+  const bin = path.join(tmp, "bin");
+  const artifacts = path.join(tmp, "release-artifacts");
+  const publishLog = path.join(tmp, "publish.log");
+  const registryLog = path.join(tmp, "registry.log");
+  const mock = path.join(tmp, "mock-registry.mjs");
+  const tarball = path.join(artifacts, "victorhaine-p2p-transfer-0.1.0.tgz");
+
+  await fs.mkdir(scripts);
+  await fs.mkdir(bin);
+  await fs.mkdir(artifacts);
+  await fs.copyFile(path.join(root, "scripts", "publish-release-artifact.mjs"), path.join(scripts, "publish-release-artifact.mjs"));
+  await fs.writeFile(
+    path.join(tmp, "package.json"),
+    JSON.stringify({ name: "@victorhaine/p2p-transfer", version: "0.1.0" }, null, 2),
+    "utf8"
+  );
+  await fs.writeFile(tarball, "release tarball bytes\n", "utf8");
+  await fs.writeFile(
+    path.join(scripts, "smoke-packed.mjs"),
+    `
+import path from "node:path";
+
+export function isolatedChildEnv(privateHome) {
+  return {
+    PATH: process.env.PATH ?? "",
+    HOME: privateHome,
+    XDG_CONFIG_HOME: path.join(privateHome, "xdg"),
+    PNPM_HOME: path.join(privateHome, "pnpm-home"),
+    COREPACK_HOME: path.join(privateHome, "corepack-home"),
+    LOCALAPPDATA: path.join(privateHome, "local-app-data"),
+    APPDATA: path.join(privateHome, "app-data"),
+    NPM_CONFIG_USERCONFIG: path.join(privateHome, ".npmrc")
+  };
+}
+
+export function appendBoundedOutput(current, chunk) {
+  return current + Buffer.from(chunk).toString("utf8");
+}
+`,
+    "utf8"
+  );
+  await fs.writeFile(
+    path.join(scripts, "verify-release-artifact.mjs"),
+    'console.log("release-artifacts/victorhaine-p2p-transfer-0.1.0.tgz");\n',
+    "utf8"
+  );
+  await fs.writeFile(
+    path.join(scripts, "verify-live-release-ref.mjs"),
+    "export async function assertLiveReleaseRefFromEnv() {}\n",
+    "utf8"
+  );
+  const fakePnpm = path.join(bin, process.platform === "win32" ? "pnpm.cmd" : "pnpm");
+  await fs.writeFile(
+    fakePnpm,
+    `#!/usr/bin/env node
+import { appendFileSync } from "node:fs";
+appendFileSync(${JSON.stringify(publishLog)}, process.argv.slice(2).join(" ") + "\\n", "utf8");
+`,
+    "utf8"
+  );
+  await fs.chmod(fakePnpm, 0o755);
+  await fs.writeFile(publishLog, "", "utf8");
+  await fs.writeFile(registryLog, "", "utf8");
+
+  return {
+    bin,
+    mock,
+    publishLog,
+    registryLog,
+    script: path.join(scripts, "publish-release-artifact.mjs"),
+    tarball
+  };
 }
 
 function runScriptWithNodeArgs(script: string, env: Record<string, string>, args: string[] = [], nodeArgs: string[] = [], input?: string) {
