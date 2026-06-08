@@ -42,6 +42,7 @@ const allScriptSources = new Map(
 const allRuntimeSources = new Map(readSourceFiles(new URL("../src/", import.meta.url)));
 const pnpmWorkspace = fs.readFileSync(new URL("../pnpm-workspace.yaml", import.meta.url), "utf8");
 const pnpmLock = fs.readFileSync(new URL("../pnpm-lock.yaml", import.meta.url), "utf8");
+const gitAttributes = fs.readFileSync(new URL("../.gitattributes", import.meta.url), "utf8");
 const packedSmokeScript = fs.readFileSync(new URL("../scripts/smoke-packed.mjs", import.meta.url), "utf8");
 const releaseArtifactSmokeScript = fs.readFileSync(new URL("../scripts/smoke-release-artifact.mjs", import.meta.url), "utf8");
 const dockerPolicySmokeScript = fs.readFileSync(new URL("../scripts/smoke-docker-policy.mjs", import.meta.url), "utf8");
@@ -369,6 +370,10 @@ test("server deployment docs distinguish npm global and minimized Docker surface
 
 test("package ships only the current protocol conformance fixture", () => {
   assert.deepEqual(conformanceFiles, ["protocol-v10.json"]);
+});
+
+test("repository text checkouts stay newline-stable across CI platforms", () => {
+  assert.match(gitAttributes, /^\* text=auto eol=lf$/m);
 });
 
 test("package publishing config keeps provenance and reproducible dependency pins", () => {
