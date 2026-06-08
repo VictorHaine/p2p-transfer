@@ -1009,7 +1009,7 @@ async function readStaticFile(filePath: string): Promise<StaticFileBody> {
     if (!stat.isFile() || !staticFileWithinLimit(stat.size, STATIC_MAX_FILE_BYTES)) throw new Error("static asset exceeds maximum size");
     if (!sameFile(info, stat)) throw new Error("static asset changed before verification");
     releaseStaticBytes = reserveStaticResponseBytes(stat.size);
-    const body = await readBoundedFile(handle, STATIC_MAX_FILE_BYTES);
+    const body = await readExactFile(handle, stat.size, STATIC_MAX_FILE_BYTES);
     const afterRead = await handle.stat();
     if (!sameFile(stat, afterRead)) throw new Error("static asset changed while being read");
     const release = releaseStaticBytes;
@@ -1041,20 +1041,21 @@ function sameFile(
   return left.dev === right.dev && left.ino === right.ino && left.size === right.size && left.mtimeMs === right.mtimeMs && left.ctimeMs === right.ctimeMs;
 }
 
-async function readBoundedFile(handle: FileHandle, maxBytes: number): Promise<Buffer> {
+async function readExactFile(handle: FileHandle, expectedBytes: number, maxBytes: number): Promise<Buffer> {
+  if (!staticFileWithinLimit(expectedBytes, maxBytes)) throw new Error("static asset exceeds maximum size");
   const chunks: Buffer[] = [];
   const scratch = Buffer.alloc(64 * 1024);
   let total = 0;
   let position = 0;
-  while (true) {
-    const { bytesRead } = await handle.read(scratch, 0, scratch.length, position);
-    if (bytesRead === 0) break;
+  while (position < expectedBytes) {
+    const bytesRemaining = expectedBytes - position;
+    const { bytesRead } = await handle.read(scratch, 0, Math.min(scratch.length, bytesRemaining), position);
+    if (bytesRead === 0) throw new Error("static asset changed while being read");
     total += bytesRead;
-    if (!staticFileWithinLimit(total, maxBytes)) throw new Error("static asset exceeds maximum size");
     chunks.push(Buffer.from(scratch.subarray(0, bytesRead)));
     position += bytesRead;
   }
-  return Buffer.concat(chunks, total);
+  return Buffer.concat(chunks, expectedBytes);
 }
 
 function contentType(filePath: string): string {

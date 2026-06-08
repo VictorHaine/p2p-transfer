@@ -145,7 +145,7 @@ test("static file serving opens assets with no-follow nonblocking flags", () => 
   }
   for (const candidate of [source, distSource]) {
     assert.match(securityPolicy, /static serving must distinguish attacker-shaped not-found or path-rejection responses from operational filesystem failures/);
-    assert.match(securityPolicy, /static asset reads must use no-follow regular-file opens with pre-open and post-read identity and mutation-metadata checks plus bounded handle reads/);
+    assert.match(securityPolicy, /static asset reads must use no-follow regular-file opens with pre-open and post-read identity and mutation-metadata checks plus exact-size handle reads that never exceed the reserved byte count/);
     assert.match(securityPolicy, /static responses must reserve against a global in-flight byte budget until the HTTP response finishes or closes/);
     assert.match(securityPolicy, /synchronous static response setup failures after reservation must release that reservation/);
     assert.match(securityPolicy, /late static failures after headers or the response body have started must not attempt to write a second JSON error response/);
@@ -163,7 +163,7 @@ test("static file serving opens assets with no-follow nonblocking flags", () => 
     assert.match(candidate, /const info = await fs\.lstat\(filePath\)/);
     assert.match(candidate, /fs\.open\(filePath, flags\)/);
     assert.match(candidate, /if \(!sameFile\(info, stat\)\)[\s\S]*throw new Error\("static asset changed before verification"\)/);
-    assert.match(candidate, /releaseStaticBytes = reserveStaticResponseBytes\(stat\.size\)/);
+    assert.match(candidate, /releaseStaticBytes = reserveStaticResponseBytes\(stat\.size\);[\s\S]*const body = await readExactFile\(handle, stat\.size, STATIC_MAX_FILE_BYTES\)/);
     assert.match(candidate, /const afterRead = await handle\.stat\(\);[\s\S]*if \(!sameFile\(stat, afterRead\)\)[\s\S]*throw new Error\("static asset changed while being read"\)/);
     assert.match(candidate, /res\.once\("finish", staticFile\.release\)/);
     assert.match(candidate, /res\.once\("close", staticFile\.release\)/);
@@ -175,6 +175,15 @@ test("static file serving opens assets with no-follow nonblocking flags", () => 
     assert.match(candidate, /mtimeMs/);
     assert.match(candidate, /ctimeMs/);
     assert.doesNotMatch(candidate, /fsConstants\.O_RDONLY \| fsConstants\.O_NOFOLLOW;/);
+    assert.match(candidate, /async function readExactFile\(handle(?:: FileHandle)?, expectedBytes(?:: number)?, maxBytes(?:: number)?\)(?:: Promise<Buffer>)?/);
+    assert.match(candidate, /if \(!staticFileWithinLimit\(expectedBytes, maxBytes\)\)[\s\S]{0,120}throw new Error\("static asset exceeds maximum size"\)/);
+    assert.match(candidate, /while \(position < expectedBytes\)/);
+    assert.match(candidate, /const bytesRemaining = expectedBytes - position/);
+    assert.match(candidate, /handle\.read\(scratch, 0, Math\.min\(scratch\.length, bytesRemaining\), position\)/);
+    assert.match(candidate, /if \(bytesRead === 0\)[\s\S]{0,120}throw new Error\("static asset changed while being read"\)/);
+    assert.match(candidate, /Buffer\.concat\(chunks, expectedBytes\)/);
+    assert.doesNotMatch(candidate, /readBoundedFile\(handle, STATIC_MAX_FILE_BYTES\)/);
+    assert.doesNotMatch(candidate, /while \(true\) \{[\s\S]*handle\.read\(scratch, 0, scratch\.length, position\)/);
     assert.match(candidate, /Buffer\.alloc\(64 \* 1024\)/);
     assert.doesNotMatch(candidate, /Buffer\.allocUnsafe/);
   }
