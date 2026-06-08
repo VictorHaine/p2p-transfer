@@ -52,7 +52,13 @@ pnpm exec playwright install --with-deps chromium
 DOCKER_SMOKE_TAG=p2p-transfer:test pnpm verify:release:docker
 gh auth refresh -h github.com -s workflow
 gh auth token | pnpm release:preflight --token-stdin
+pnpm release:tag -- v0.1.0
+git push origin v0.1.0
 ```
+
+The checked tag creator must be used after preflight. It revalidates the signed
+commit, clean worktree, package version, local tag absence, tag target, and tag
+signature while suppressing signer subprocess output.
 
 ## Security Rules
 
