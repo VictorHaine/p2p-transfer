@@ -428,7 +428,8 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releaseDockerStageJob, /outputs:\n      image: \$\{\{ steps\.docker_image\.outputs\.image \}\}\n      digest: \$\{\{ steps\.docker_image\.outputs\.digest \}\}/);
   assert.match(releaseDockerStageJob, /actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3/);
   assert.match(releaseDockerStageJob, /node scripts\/prepare-checked-pnpm\.mjs[\s\S]*Build, smoke, and stage image[\s\S]*id: docker_image[\s\S]*GITHUB_TOKEN: \$\{\{ github\.token \}\}[\s\S]*run: node scripts\/publish-docker-image\.mjs/);
-  assert.match(releaseDockerStageJob, /Scan staged image for vulnerabilities[\s\S]*aquasecurity\/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0\.36\.0[\s\S]*image-ref: \$\{\{ steps\.docker_image\.outputs\.image \}\}@\$\{\{ steps\.docker_image\.outputs\.digest \}\}[\s\S]*exit-code: "1"[\s\S]*ignore-unfixed: true[\s\S]*vuln-type: os,library[\s\S]*severity: CRITICAL,HIGH[\s\S]*TRIVY_USERNAME: \$\{\{ github\.actor \}\}[\s\S]*TRIVY_PASSWORD: \$\{\{ github\.token \}\}/);
+  assert.match(releaseDockerStageJob, /Scan staged image for vulnerabilities[\s\S]*aquasecurity\/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0\.36\.0[\s\S]*image-ref: \$\{\{ steps\.docker_image\.outputs\.image \}\}@\$\{\{ steps\.docker_image\.outputs\.digest \}\}[\s\S]*exit-code: "1"[\s\S]*vuln-type: os,library[\s\S]*severity: CRITICAL,HIGH[\s\S]*TRIVY_USERNAME: \$\{\{ github\.actor \}\}[\s\S]*TRIVY_PASSWORD: \$\{\{ github\.token \}\}/);
+  assert.doesNotMatch(releaseDockerStageJob, /ignore-unfixed:\s*true/);
   assert.match(releaseDockerStageJob, /Generate staged image SBOM[\s\S]*aquasecurity\/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0\.36\.0[\s\S]*scan-type: image[\s\S]*format: cyclonedx[\s\S]*output: docker-image-sbom\.cdx\.json[\s\S]*scanners: vuln/);
   assert.match(releaseDockerStageJob, /actions\/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4\.1\.0[\s\S]*subject-name: \$\{\{ steps\.docker_image\.outputs\.image \}\}[\s\S]*subject-digest: \$\{\{ steps\.docker_image\.outputs\.digest \}\}[\s\S]*sbom-path: docker-image-sbom\.cdx\.json[\s\S]*push-to-registry: true/);
   assert.match(releaseDockerStageJob, /actions\/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4\.6\.2[\s\S]*name: docker-image-sbom[\s\S]*path: docker-image-sbom\.cdx\.json[\s\S]*if-no-files-found: error/);
@@ -1217,16 +1218,16 @@ test("dependency review blocks vulnerable dependency introductions", () => {
 });
 
 test("dependency integrity monitor catches new registry risk and gates releases", () => {
-  assert.match(securityPolicy, /dependency integrity monitoring must run from a pinned workflow on pushes to `main`, manual dispatch, and a weekly schedule on unchanged `main` across the supported native WebRTC runner set with read-only permissions/);
+  assert.match(securityPolicy, /dependency integrity monitoring must run from a pinned workflow on pushes to `main`, manual dispatch, and a daily schedule on unchanged `main` across the supported native WebRTC runner set with read-only permissions/);
   assert.match(securityPolicy, /release-evidence concurrency that does not cancel in-progress runs, checked pnpm bootstrap, frozen install, installed-state verification, `pnpm security:dependencies`, `pnpm security:audit`, and `pnpm security:signatures`/);
   assert.match(securityPolicy, /crypto, wordlist, or native dependency drift, new advisories, or registry signature failures/);
   assert.match(securityPolicy, /release preflight must require a successful dependency-integrity run for the current `main` commit/);
-  assert.match(readme, /\.github\/workflows\/dependency-integrity\.yml` runs on pushes to `main`, manual dispatch, and weekly across the supported native WebRTC runner set with read-only permissions without cancelling in-progress release-evidence runs/);
+  assert.match(readme, /\.github\/workflows\/dependency-integrity\.yml` runs on pushes to `main`, manual dispatch, and daily across the supported native WebRTC runner set with read-only permissions without cancelling in-progress release-evidence runs/);
   assert.match(readme, /re-checks the frozen install, installed dependency tree, reviewed crypto\/wordlist\/native dependency attestations, npm advisory audit, and registry package signatures even when `main` has not changed/);
   assert.match(readme, /release preflight requires a successful dependency-integrity run for the exact current `main` commit before tagging/);
   assert.equal(packageJson.scripts?.["security:dependencies"], "node --import tsx --test test/crypto-dependencies.test.ts test/cpace-vectors.test.ts test/native-webrtc-dependencies.test.ts");
   assert.match(dependencyIntegrityWorkflow, /^name: dependency-integrity$/m);
-  assert.match(dependencyIntegrityWorkflow, /^on:\n  push:\n    branches:\n      - main\n  schedule:\n    - cron: "41 5 \* \* 4"\n  workflow_dispatch:$/m);
+  assert.match(dependencyIntegrityWorkflow, /^on:\n  push:\n    branches:\n      - main\n  schedule:\n    - cron: "41 5 \* \* \*"\n  workflow_dispatch:$/m);
   assert.match(dependencyIntegrityWorkflow, /^permissions:\n  contents: read$/m);
   assert.match(dependencyIntegrityWorkflow, /^concurrency:\n  group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}\n  cancel-in-progress: false$/m);
   assert.match(workflowJob(dependencyIntegrityWorkflow, "dependency-integrity"), /name: dependency integrity \/ \$\{\{ matrix\.os \}\}[\s\S]*runs-on: \$\{\{ matrix\.os \}\}[\s\S]*timeout-minutes: 15/);
@@ -1294,7 +1295,7 @@ test("documented release gates require a hardened Docker runtime smoke, not just
   assert.match(securityPolicy, /must not use static npm tokens/);
   assert.match(securityPolicy, /checked Docker policy smoke script that proves the production Docker image independently refuses to start without `ALLOWED_ORIGINS` and without `SIGNALING_TOPOLOGY`/);
   assert.match(securityPolicy, /verify `\/healthz`, origin policy, and the bundled web UI from that running container/);
-  assert.match(securityPolicy, /Docker staging must scan the exact staged GHCR digest for unfixed high or critical OS and library vulnerabilities before provenance attestation, must generate a CycloneDX image SBOM artifact from that same digest, must attest that SBOM to the staged digest before artifact upload or provenance attestation, and must use full-length pinned scanner and attestation actions/);
+  assert.match(securityPolicy, /Docker staging must scan the exact staged GHCR digest for high or critical OS and library vulnerabilities, including unfixed advisories, before provenance attestation, must generate a CycloneDX image SBOM artifact from that same digest, must attest that SBOM to the staged digest before artifact upload or provenance attestation, and must use full-length pinned scanner and attestation actions/);
   assert.match(securityPolicy, /accepts the configured production origin and rejects an untrusted origin on both the HTTP ICE endpoint and the WebSocket signaling upgrade path/);
   assert.match(securityPolicy, /explicit signaling topology/);
 });
