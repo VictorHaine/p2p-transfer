@@ -775,7 +775,12 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.doesNotMatch(ciWorkflow, /runs-on:\s*[a-z]+-latest|-\s+[a-z]+-latest/);
   assert.equal(packageJson.scripts?.["smoke:docker-policy"], "node scripts/smoke-docker-policy.mjs");
   assert.match(ciWorkflow, /DOCKER_SMOKE_TAG=p2p-transfer:test node scripts\/smoke-docker-policy\.mjs/);
-  assert.match(checkedPnpmScript, /corepack", \["pack", `pnpm@\$\{version\}`, "-o", archive\]/);
+  assert.match(checkedPnpmScript, /const corepack = await corepackInvocation\(\)/);
+  assert.match(checkedPnpmScript, /await run\(corepack\.command, \[\.\.\.corepack\.argsPrefix, "pack", `pnpm@\$\{version\}`, "-o", archive\], \{ cwd: root, env: childEnv, label: "corepack", timeoutMs: 120_000 \}\)/);
+  assert.match(checkedPnpmScript, /function corepackEntrypointCandidates\(nodeExecutable\)[\s\S]*node_modules", "corepack", "dist", "corepack\.js"[\s\S]*"lib", "node_modules", "corepack", "dist", "corepack\.js"/);
+  assert.match(checkedPnpmScript, /checkedNodeExecutablePath\(process\.execPath\)/);
+  assert.match(checkedPnpmScript, /MAX_COREPACK_ENTRYPOINT_BYTES = 10 \* 1024 \* 1024/);
+  assert.match(checkedPnpmScript, /MAX_NODE_EXECUTABLE_PATH_BYTES = 4_096/);
   assert.match(checkedPnpmScript, /import \{ gunzipSync \} from "node:zlib"/);
   assert.match(checkedPnpmScript, /const MAX_COREPACK_ARCHIVE_BYTES = 50 \* 1024 \* 1024/);
   assert.match(checkedPnpmScript, /const MAX_COREPACK_TAR_BYTES = 200 \* 1024 \* 1024/);
@@ -799,7 +804,9 @@ test("CI workflow enforces local, platform, browser, and Docker gates", () => {
   assert.match(checkedPnpmScript, /HOME: home[\s\S]*PNPM_HOME: path\.join\(home, "pnpm-home"\)[\s\S]*COREPACK_HOME: path\.join\(home, "corepack-home"\)/);
   assert.match(checkedPnpmScript, /\["PATH", true\]/);
   assert.match(checkedPnpmScript, /const descriptor = Object\.getOwnPropertyDescriptor\(process\.env, name\)/);
+  assert.match(checkedPnpmScript, /const label = options\.label \?\? command/);
   assert.match(checkedPnpmScript, /spawn\(command, args, \{ cwd: options\.cwd, env: options\.env, stdio: \["ignore", "pipe", "pipe"\] \}\)/);
+  assert.doesNotMatch(checkedPnpmScript, /shell:\s*true|spawn\("cmd\.exe"|spawn\("corepack"/);
   assert.doesNotMatch(checkedPnpmScript, /readFile\(path\.join\(root, "package\.json"\)|readFileSync\(path\.join\(root, "package\.json"\)/);
   assert.match(ciWorkflow, /production docker policy[\s\S]*actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3[\s\S]*node scripts\/prepare-checked-pnpm\.mjs[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:test node scripts\/smoke-docker-policy\.mjs/);
   assert.doesNotMatch(ciWorkflow, /corepack prepare pnpm@/);

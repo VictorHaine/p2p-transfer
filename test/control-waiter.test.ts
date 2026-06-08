@@ -12,7 +12,7 @@ const distWebBundle = readDistWebBundle();
 test("control ack waiter resolves only armed acknowledgements", async () => {
   const waiter = new ControlAckWaiter(50);
   assert.equal(waiter.mark("ready", 0), false);
-  await assert.rejects(() => waiter.wait("ready", 0), /Timed out waiting for ready/);
+  await keepEventLoopAliveUntil(assert.rejects(() => waiter.wait("ready", 0), /Timed out waiting for ready/), "initial ack timeout");
 
   const pending = waiter.wait("file-ok", 1);
   setTimeout(() => assert.equal(waiter.mark("file-ok", 1), true), 1);
@@ -58,7 +58,7 @@ test("control ack waiter rejects pending and future waits after peer failure", a
 
 test("control ack waiter times out missing acknowledgements", async () => {
   const waiter = new ControlAckWaiter(5);
-  await assert.rejects(() => waiter.wait("ready", 3), /Timed out waiting for ready/);
+  await keepEventLoopAliveUntil(assert.rejects(() => waiter.wait("ready", 3), /Timed out waiting for ready/), "missing ack timeout");
 });
 
 test("control ack waiter rejects malformed runtime inputs before coercion or timers", () => {
@@ -114,4 +114,16 @@ function readDistWebBundle(): string {
   const bundleNames = fs.readdirSync(assetsDir).filter((name) => name.endsWith(".js"));
   assert.equal(bundleNames.length, 1);
   return fs.readFileSync(new URL(bundleNames[0]!, assetsDir), "utf8");
+}
+
+async function keepEventLoopAliveUntil<T>(promise: Promise<T>, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const guard = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} did not settle while the test kept the event loop alive.`)), 250);
+  });
+  try {
+    return await Promise.race([promise, guard]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
