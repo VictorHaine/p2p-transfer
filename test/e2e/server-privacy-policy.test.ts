@@ -184,7 +184,7 @@ test("built signaling server sanitizes peer-controlled bye reasons before forwar
     sendJson(sender, { type: "bye", sid, reason: secretReason });
     const peerLeft = await waitForServerEvent(receiver, "peer-left", sid);
     assert.notEqual(peerLeft.reason, secretReason);
-    assert.equal(peerLeft.reason, "disconnected");
+    assert.equal(peerLeft.reason, "closed");
   } finally {
     receiver?.terminate();
     sender?.terminate();

@@ -19,6 +19,7 @@ updates:
         patterns:
           - "@roamhq/wrtc"
           - "@roamhq/wrtc-*"
+          - "domexception"
         dependency-type: production
       build-toolchain-dependencies:
         patterns:
@@ -37,6 +38,7 @@ updates:
           - "@noble/hashes"
           - "@roamhq/wrtc"
           - "@roamhq/wrtc-*"
+          - "domexception"
       development-dependencies:
         dependency-type: development
         exclude-patterns:

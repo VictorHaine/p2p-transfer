@@ -372,14 +372,15 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releaseDockerJob, /environment: npm/);
   assert.match(releaseDockerJob, /permissions:\n      contents: read\n      packages: write\n      id-token: write\n      attestations: write/);
   assert.match(releaseDockerJob, /actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3/);
-  assert.match(releaseDockerJob, /node scripts\/prepare-checked-pnpm\.mjs[\s\S]*Build, smoke, and push image[\s\S]*id: docker_image[\s\S]*GITHUB_TOKEN: \$\{\{ github\.token \}\}[\s\S]*run: node scripts\/publish-docker-image\.mjs/);
+  assert.match(releaseDockerJob, /node scripts\/prepare-checked-pnpm\.mjs[\s\S]*Build, smoke, and stage image[\s\S]*id: docker_image[\s\S]*GITHUB_TOKEN: \$\{\{ github\.token \}\}[\s\S]*run: node scripts\/publish-docker-image\.mjs/);
   assert.match(releaseDockerJob, /actions\/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4\.1\.0[\s\S]*subject-name: \$\{\{ steps\.docker_image\.outputs\.image \}\}[\s\S]*subject-digest: \$\{\{ steps\.docker_image\.outputs\.digest \}\}[\s\S]*push-to-registry: true/);
+  assert.match(releaseDockerJob, /Promote attested image[\s\S]*DOCKER_STAGED_DIGEST: \$\{\{ steps\.docker_image\.outputs\.digest \}\}[\s\S]*run: node scripts\/publish-docker-image\.mjs --promote/);
   assert.doesNotMatch(releaseDockerJob, /corepack prepare pnpm@/);
   assert.match(dockerPublishScript, /import \{ assertLiveReleaseRefFromEnv \} from "\.\/verify-live-release-ref\.mjs"/);
-  assert.match(dockerPublishScript, /requiredGitHubActionsContext\(\);\n  requiredCommitSha\(requiredEnvString\("GITHUB_SHA"\)\);\n  const actor = githubActor\(requiredEnvString\("GITHUB_ACTOR"\)\);\n  const token = requiredEnvString\("GITHUB_TOKEN", MAX_TOKEN_BYTES\);\n  const packageJson = await readPackageJson\(\);[\s\S]*if \(tag !== `v\$\{version\}`\) throw new Error\("release tag does not match package version\."\);\n\n  await assertLiveReleaseRefFromEnv\(\);/);
-  assert.match(dockerPublishScript, /await run\(process\.execPath, \["scripts\/smoke-docker-policy\.mjs"\], "release docker policy smoke", SMOKE_TIMEOUT_MS,\s+\{\s+env: \{ DOCKER_SMOKE_TAG: versionRef \}/);
-  assert.match(dockerPublishScript, /await run\("docker", \["push", versionRef\]/);
-  assert.match(dockerPublishScript, /await run\("docker", \["push", plainVersionRef\]/);
+  assert.match(dockerPublishScript, /const runId = requiredGitHubActionsContext\(\);\n  requiredCommitSha\(requiredEnvString\("GITHUB_SHA"\)\);\n  const actor = githubActor\(requiredEnvString\("GITHUB_ACTOR"\)\);\n  const token = requiredEnvString\("GITHUB_TOKEN", MAX_TOKEN_BYTES\);\n  const packageJson = await readPackageJson\(\);[\s\S]*if \(tag !== `v\$\{version\}`\) throw new Error\("release tag does not match package version\."\);\n\n  await assertLiveReleaseRefFromEnv\(\);/);
+  assert.match(dockerPublishScript, /env: \{ DOCKER_SMOKE_TAG: stagedRef \}/);
+  assert.match(dockerPublishScript, /await run\("docker", \["push", stagedRef\]/);
+  assert.match(dockerPublishScript, /if \(mode === "promote"\) \{[\s\S]*dockerDigest\(requiredEnvString\("DOCKER_STAGED_DIGEST"\)\)[\s\S]*await run\("docker", \["push", versionRef\]/);
   assert.match(dockerPublishScript, /if \(aliasDigest !== digest\) throw new Error\("docker release tag aliases resolved to different digests\."\)/);
   assert.match(dockerPublishScript, /writeGithubOutput\(\{ image, digest, tag: versionRef, alias: plainVersionRef \}\)/);
   assert.match(dockerPublishScript, /import \{ createIsolatedDockerConfig \} from "\.\/docker-config\.mjs"/);
@@ -450,14 +451,14 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(liveReleaseRefScript, /GitHub main branch does not match the release workflow commit\./);
   assert.match(liveReleaseRefScript, /if \(githubToken !== undefined && ghToken !== undefined\) throw new Error\("Set only one of GITHUB_TOKEN or GH_TOKEN for live release ref verification\."\)/);
   assert.match(liveReleaseRefScript, /return error instanceof Error && error\.name === "AbortError"/);
-  assert.match(securityPolicy, /last-mile live release-ref verifier must reject ambiguous `GITHUB_TOKEN` plus `GH_TOKEN` input before network work, then re-check the GitHub tag ref or annotated tag object and GitHub `main` ref against `GITHUB_SHA` through bounded GitHub API calls immediately before release artifact attestation, immediately before npm publish, before Docker smoke, immediately before GHCR push, immediately before GitHub Release draft creation, and immediately before GitHub Release final publish/);
+  assert.match(securityPolicy, /last-mile live release-ref verifier must reject ambiguous `GITHUB_TOKEN` plus `GH_TOKEN` input before network work, then re-check the GitHub tag ref or annotated tag object and GitHub `main` ref against `GITHUB_SHA` through bounded GitHub API calls immediately before release artifact attestation, immediately before npm publish, before Docker smoke, immediately before GHCR staging push, immediately before GHCR promotion, immediately before GitHub Release draft creation, and immediately before GitHub Release final publish/);
   assert.match(securityPolicy, /Docker publishing subprocesses must use a minimal allowlisted child environment plus a temporary 0700 `DOCKER_CONFIG`/);
   assert.match(securityPolicy, /Docker publishing subprocesses must use a minimal allowlisted child environment plus a temporary 0700 `DOCKER_CONFIG`[\s\S]*handle child stdin pipe errors with generic non-token-reporting failures/);
   assert.match(dockerPublishScript, /endChildStdin\(child, options\.input \?\? "", label/);
   assert.match(dockerPublishScript, /new Error\(`\$\{label\} stdin pipe failed\.`\)/);
   assert.match(dockerPublishScript, /const EXPECTED_GITHUB_REPOSITORY = "VictorHaine\/p2p-transfer"/);
   assert.match(dockerPublishScript, /GitHub repository must match the release repository/);
-  assert.match(dockerPublishScript, /const tag = releaseTag\(requiredEnvString\("GITHUB_REF_NAME"\)\);\n  assertReleaseTagRef\(tag\);\n  const repository = githubRepository\(requiredEnvString\("GITHUB_REPOSITORY"\)\);\n  requiredGitHubActionsContext\(\);\n  requiredCommitSha\(requiredEnvString\("GITHUB_SHA"\)\);\n  const actor = githubActor\(requiredEnvString\("GITHUB_ACTOR"\)\);\n  const token = requiredEnvString\("GITHUB_TOKEN", MAX_TOKEN_BYTES\);\n  const packageJson = await readPackageJson\(\);/);
+  assert.match(dockerPublishScript, /const tag = releaseTag\(requiredEnvString\("GITHUB_REF_NAME"\)\);\n  assertReleaseTagRef\(tag\);\n  const repository = githubRepository\(requiredEnvString\("GITHUB_REPOSITORY"\)\);\n  const runId = requiredGitHubActionsContext\(\);\n  requiredCommitSha\(requiredEnvString\("GITHUB_SHA"\)\);\n  const actor = githubActor\(requiredEnvString\("GITHUB_ACTOR"\)\);\n  const token = requiredEnvString\("GITHUB_TOKEN", MAX_TOKEN_BYTES\);\n  const packageJson = await readPackageJson\(\);/);
   assert.match(githubReleaseScript, /\/repos\/\$\{repository\}\/releases/);
   assert.match(githubReleaseScript, /uploadReleaseAsset\(token, uploadUrl, asset\)/);
   assert.match(githubReleaseScript, /draft: true/);
@@ -506,7 +507,9 @@ test("checked GitHub release controls setup matches the protected release surfac
   assert.match(githubReleaseControlsScript, /if \(consumeOptionalGitHubTokenEnv\(\)\) throw new Error\("Do not set GITHUB_TOKEN or GH_TOKEN when using --token-stdin\."\)/);
   assert.match(githubReleaseControlsScript, /Pipe GitHub token stdin; interactive terminal stdin is not accepted for --token-stdin\./);
   assert.match(githubReleaseControlsScript, /Do not set GITHUB_TOKEN or GH_TOKEN when using --token-stdin\./);
-  assert.match(githubReleaseControlsScript, /delete process\.env\["GITHUB_TOKEN"\];\n    delete process\.env\["GH_TOKEN"\]/);
+  assert.match(githubReleaseControlsScript, /clearEnvValue\("GITHUB_TOKEN"\);\n    clearEnvValue\("GH_TOKEN"\)/);
+  assert.match(githubReleaseControlsScript, /function clearEnvValue\(name\) \{[\s\S]*Object\.getOwnPropertyDescriptor\(process\.env, name\)[\s\S]*Reflect\.deleteProperty\(process\.env, name\)/);
+  assert.doesNotMatch(githubReleaseControlsScript, /delete process\.env\["GITHUB_TOKEN"\]|delete process\.env\["GH_TOKEN"\]/);
   assert.match(githubReleaseControlsScript, /Object\.getOwnPropertyDescriptor\(process\.env, name\)/);
   assert.match(githubReleaseControlsScript, /\$\{name\} must be a non-empty control-free string under/);
   assert.doesNotMatch(githubReleaseControlsScript, /process\.env\.GITHUB_TOKEN|process\.env\.GH_TOKEN|process\.env\.GITHUB_REPOSITORY/);
@@ -866,7 +869,9 @@ test("release preflight checks external GitHub release prerequisites", () => {
   assert.match(releaseReadinessScript, /if \(consumeOptionalGitHubTokenEnv\(\)\) throw new Error\("Do not set GITHUB_TOKEN or GH_TOKEN when using --token-stdin\."\)/);
   assert.match(releaseReadinessScript, /Pipe GitHub token stdin; interactive terminal stdin is not accepted for --token-stdin\./);
   assert.match(releaseReadinessScript, /Do not set GITHUB_TOKEN or GH_TOKEN when using --token-stdin\./);
-  assert.match(releaseReadinessScript, /delete process\.env\["GITHUB_TOKEN"\];\n    delete process\.env\["GH_TOKEN"\]/);
+  assert.match(releaseReadinessScript, /clearEnvValue\("GITHUB_TOKEN"\);\n    clearEnvValue\("GH_TOKEN"\)/);
+  assert.match(releaseReadinessScript, /function clearEnvValue\(name\) \{[\s\S]*Object\.getOwnPropertyDescriptor\(process\.env, name\)[\s\S]*Reflect\.deleteProperty\(process\.env, name\)/);
+  assert.doesNotMatch(releaseReadinessScript, /delete process\.env\["GITHUB_TOKEN"\]|delete process\.env\["GH_TOKEN"\]/);
   assert.match(releaseReadinessScript, /Object\.getOwnPropertyDescriptor\(process\.env, name\)/);
   assert.match(releaseReadinessScript, /\$\{name\} must be a non-empty control-free string under/);
   assert.match(releaseReadinessScript, /const GITHUB_API_TIMEOUT_MS = 30_000/);
@@ -1428,7 +1433,7 @@ test("README reports implemented release capabilities without stale MVP-gap lang
 test("interop tests run the signaling server behind an explicit origin policy", () => {
   const e2eTest = fs.readFileSync(new URL("../test/e2e/cli-transfer.test.ts", import.meta.url), "utf8");
   const browserTest = fs.readFileSync(new URL("../test/browser/browser-cli-send.test.ts", import.meta.url), "utf8");
-  assert.match(readme, /browser sender to CLI receiver, browser sender resume into a CLI receiver partial, CLI sender to browser download receiver, CLI sender to browser opaque-name download receiver, CLI sender to browser folder-only receiver, native browser filesystem error redaction, multi-file browser folder receive without resume exposure, CLI sender to browser opaque-name folder receiver, valid single-file browser folder resume from a saved partial, invalid resume-key isolation for ordinary folder receives, browser resume-registry metadata scrubbing, and browser folder restart after a corrupted saved partial/);
+  assert.match(readme, /browser sender to CLI receiver, browser sender resume into a CLI receiver partial, CLI sender to browser download receiver, CLI sender to browser opaque-name download receiver, CLI sender to browser folder-only receiver, native browser filesystem error redaction, multi-file browser folder receive without resume exposure, CLI sender to browser opaque-name folder receiver, ordinary folder receives without resume-key creation, valid single-file browser folder resume from a saved partial, invalid resume-key isolation, browser resume-registry metadata scrubbing, and browser folder restart after a corrupted saved partial/);
   assert.match(browserTest, /CLI sender interoperates with browser opaque-name download receiver/);
   assert.match(browserTest, /browser sender resumes into CLI receiver partials/);
   assert.match(browserTest, /browser folder receiver redacts native filesystem error names/);

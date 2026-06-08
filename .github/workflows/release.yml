@@ -94,7 +94,7 @@ jobs:
       - name: Enable pnpm
         run: |
           node scripts/prepare-checked-pnpm.mjs
-      - name: Build, smoke, and push image
+      - name: Build, smoke, and stage image
         id: docker_image
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -104,6 +104,11 @@ jobs:
           subject-name: ${{ steps.docker_image.outputs.image }}
           subject-digest: ${{ steps.docker_image.outputs.digest }}
           push-to-registry: true
+      - name: Promote attested image
+        env:
+          DOCKER_STAGED_DIGEST: ${{ steps.docker_image.outputs.digest }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/publish-docker-image.mjs --promote
 
   docker-validate:
     name: pre-publish docker validation

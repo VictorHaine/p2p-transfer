@@ -783,8 +783,8 @@ function consumeOptionalGitHubTokenEnv() {
   } catch (error) {
     failure ??= error;
   } finally {
-    delete process.env["GITHUB_TOKEN"];
-    delete process.env["GH_TOKEN"];
+    clearEnvValue("GITHUB_TOKEN");
+    clearEnvValue("GH_TOKEN");
   }
   if (failure) throw failure;
   return token;
@@ -827,6 +827,12 @@ function envString(name) {
     throw new Error(`${name} must be a non-empty control-free string under ${MAX_ENV_VALUE_BYTES} UTF-8 bytes.`);
   }
   return descriptor.value;
+}
+
+function clearEnvValue(name) {
+  const descriptor = Object.getOwnPropertyDescriptor(process.env, name);
+  if (!descriptor) return;
+  if (!Reflect.deleteProperty(process.env, name)) throw new Error(`${name} could not be cleared.`);
 }
 
 function hasUnsafeEnvText(value) {

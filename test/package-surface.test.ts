@@ -797,9 +797,11 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseArtifactSmokeScript, /realpathSync\(process\.argv\[1\]\) === realpathSync\(fileURLToPath\(import\.meta\.url\)\)/);
   assert.match(releaseWorkflow, /release docker image[\s\S]*needs:\n      - publish[\s\S]*environment: npm[\s\S]*permissions:\n      contents: read\n      packages: write\n      id-token: write\n      attestations: write/);
   assert.match(releaseWorkflow, /pre-publish docker validation[\s\S]*needs:\n      - verify\n      - platform-smoke[\s\S]*permissions:\n      contents: read[\s\S]*Validate release Docker image[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:release-gate node scripts\/smoke-docker-policy\.mjs/);
-  assert.match(releaseWorkflow, /release docker image[\s\S]*actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3[\s\S]*node scripts\/prepare-checked-pnpm\.mjs[\s\S]*run: node scripts\/publish-docker-image\.mjs/);
+  assert.match(releaseWorkflow, /release docker image[\s\S]*actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3[\s\S]*node scripts\/prepare-checked-pnpm\.mjs[\s\S]*Build, smoke, and stage image[\s\S]*run: node scripts\/publish-docker-image\.mjs[\s\S]*Promote attested image[\s\S]*DOCKER_STAGED_DIGEST: \$\{\{ steps\.docker_image\.outputs\.digest \}\}[\s\S]*run: node scripts\/publish-docker-image\.mjs --promote/);
   assert.match(releaseWorkflow, /release docker image[\s\S]*subject-name: \$\{\{ steps\.docker_image\.outputs\.image \}\}[\s\S]*subject-digest: \$\{\{ steps\.docker_image\.outputs\.digest \}\}[\s\S]*push-to-registry: true/);
-  assert.match(dockerPublishScript, /await run\(process\.execPath, \["scripts\/smoke-docker-policy\.mjs"\], "release docker policy smoke", SMOKE_TIMEOUT_MS,\s+\{\s+env: \{ DOCKER_SMOKE_TAG: versionRef \}/);
+  assert.match(dockerPublishScript, /env: \{ DOCKER_SMOKE_TAG: stagedRef \}/);
+  assert.match(dockerPublishScript, /await run\("docker", \["push", stagedRef\]/);
+  assert.match(dockerPublishScript, /if \(mode === "promote"\) \{[\s\S]*dockerDigest\(requiredEnvString\("DOCKER_STAGED_DIGEST"\)\)[\s\S]*await run\("docker", \["pull", `\$\{image\}@\$\{digest\}`\]/);
   assert.match(dockerPublishScript, /await run\("docker", \["push", versionRef\]/);
   assert.match(dockerPublishScript, /await run\("docker", \["push", plainVersionRef\]/);
   assert.match(dockerPublishScript, /if \(aliasDigest !== digest\) throw new Error\("docker release tag aliases resolved to different digests\."\)/);
@@ -985,7 +987,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.doesNotMatch(releaseArtifactScript, /execFileSync|child_process|maxBuffer: MAX_PACKED_PACKAGE_JSON_BYTES/);
   assert.match(securityPolicy, /release publishing must packed-install smoke the exact downloaded tarball artifact immediately before `pnpm publish`/);
   assert.match(securityPolicy, /release artifact attestation must run inside the `publish` job after the `npm` environment approval gate/);
-  assert.match(securityPolicy, /GHCR Docker publishing and GitHub Release creation must also run inside the protected release environment/);
+  assert.match(securityPolicy, /GHCR Docker staging\/promotion and GitHub Release creation must also run inside the protected release environment before mutating production state/);
   assert.match(securityPolicy, /attest the verified `SHA256SUMS` subjects instead of a single tarball path/);
   assert.doesNotMatch(releaseWorkflow, /\n  attest:\n/);
   assert.match(releaseWorkflow, /publish npm package[\s\S]*environment: npm[\s\S]*node scripts\/verify-release-artifact\.mjs --github-output tarball[\s\S]*node scripts\/verify-live-release-ref\.mjs[\s\S]*uses: actions\/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4\.1\.0[\s\S]*subject-checksums: release-artifacts\/SHA256SUMS[\s\S]*node scripts\/publish-release-artifact\.mjs/);
@@ -1084,12 +1086,12 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.doesNotMatch(releaseWorkflow, /publish npm package[\s\S]*find release-artifacts/);
   assert.doesNotMatch(releaseWorkflow, /tgz="\$\(node scripts\/verify-release-artifact\.mjs --print-tarball\)"|printf 'tarball=%s\\n'|test -f "\$tgz"|PACKED_SMOKE_TARBALL="\$tgz" node scripts\/smoke-packed\.mjs|pnpm publish "\$tgz"|gh release create "\$GITHUB_REF_NAME"/);
   assert.doesNotMatch(releaseWorkflow, /sha256sum -c SHA256SUMS|execFileSync\('tar'/);
-  assert.match(dockerPublishScript, /DOCKER_SMOKE_TAG: versionRef/);
+  assert.match(dockerPublishScript, /DOCKER_SMOKE_TAG: stagedRef/);
   assert.match(dockerPublishScript, /if \(isMain\(\)\) \{[\s\S]*await main\(\)/);
   assert.match(dockerPublishScript, /realpathSync\(process\.argv\[1\]\) === realpathSync\(fileURLToPath\(import\.meta\.url\)\)/);
   assert.match(dockerPublishScript, /const EXPECTED_GITHUB_REPOSITORY = "VictorHaine\/p2p-transfer"/);
   assert.match(dockerPublishScript, /GitHub repository must match the release repository/);
-  assert.match(dockerPublishScript, /const tag = releaseTag\(requiredEnvString\("GITHUB_REF_NAME"\)\);\n  assertReleaseTagRef\(tag\);\n  const repository = githubRepository\(requiredEnvString\("GITHUB_REPOSITORY"\)\);\n  requiredGitHubActionsContext\(\);\n  requiredCommitSha\(requiredEnvString\("GITHUB_SHA"\)\);\n  const actor = githubActor\(requiredEnvString\("GITHUB_ACTOR"\)\);\n  const token = requiredEnvString\("GITHUB_TOKEN", MAX_TOKEN_BYTES\);\n  const packageJson = await readPackageJson\(\);/);
+  assert.match(dockerPublishScript, /const tag = releaseTag\(requiredEnvString\("GITHUB_REF_NAME"\)\);\n  assertReleaseTagRef\(tag\);\n  const repository = githubRepository\(requiredEnvString\("GITHUB_REPOSITORY"\)\);\n  const runId = requiredGitHubActionsContext\(\);\n  requiredCommitSha\(requiredEnvString\("GITHUB_SHA"\)\);\n  const actor = githubActor\(requiredEnvString\("GITHUB_ACTOR"\)\);\n  const token = requiredEnvString\("GITHUB_TOKEN", MAX_TOKEN_BYTES\);\n  const packageJson = await readPackageJson\(\);/);
   assert.match(dockerPublishScript, /import \{ safeChildEnv \} from "\.\/smoke-packed\.mjs"/);
   assert.match(dockerPublishScript, /env: \{ \.\.\.safeChildEnv\(\), \.\.\.\(options\.env \?\? \{\}\) \}/);
   assert.match(dockerPublishScript, /endChildStdin\(child, options\.input \?\? "", label/);
@@ -1106,9 +1108,10 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(liveReleaseRefScript, /\/repos\/\$\{repository\}\/git\/ref\/tags\/\$\{tag\}/);
   assert.match(liveReleaseRefScript, /\/repos\/\$\{repository\}\/git\/ref\/heads\/main/);
   assert.match(liveReleaseRefScript, /return error instanceof Error && error\.name === "AbortError"/);
-  assert.match(securityPolicy, /last-mile live release-ref verifier must reject ambiguous `GITHUB_TOKEN` plus `GH_TOKEN` input before network work, then re-check the GitHub tag ref or annotated tag object and GitHub `main` ref against `GITHUB_SHA` through bounded GitHub API calls immediately before release artifact attestation, immediately before npm publish, before Docker smoke, immediately before GHCR push, immediately before GitHub Release draft creation, and immediately before GitHub Release final publish/);
-  assert.match(dockerPublishScript, /await assertLiveReleaseRefFromEnv\(\);\n    await run\("docker", \["tag", versionRef, plainVersionRef\]/);
-  assert.match(releaseWorkflow, /release docker image[\s\S]*environment: npm[\s\S]*run: node scripts\/publish-docker-image\.mjs/);
+  assert.match(securityPolicy, /last-mile live release-ref verifier must reject ambiguous `GITHUB_TOKEN` plus `GH_TOKEN` input before network work, then re-check the GitHub tag ref or annotated tag object and GitHub `main` ref against `GITHUB_SHA` through bounded GitHub API calls immediately before release artifact attestation, immediately before npm publish, before Docker smoke, immediately before GHCR staging push, immediately before GHCR promotion, immediately before GitHub Release draft creation, and immediately before GitHub Release final publish/);
+  assert.match(dockerPublishScript, /await assertLiveReleaseRefFromEnv\(\);\n      const digest = dockerDigest\(requiredEnvString\("DOCKER_STAGED_DIGEST"\)\)/);
+  assert.match(dockerPublishScript, /await assertLiveReleaseRefFromEnv\(\);\n    await run\("docker", \["login", REGISTRY/);
+  assert.match(releaseWorkflow, /release docker image[\s\S]*environment: npm[\s\S]*run: node scripts\/publish-docker-image\.mjs[\s\S]*run: node scripts\/publish-docker-image\.mjs --promote/);
   assert.match(dockerPolicySmokeScript, /"--read-only"/);
   assert.match(dockerPolicySmokeScript, /"--cap-drop=ALL"/);
   assert.match(dockerPolicySmokeScript, /"no-new-privileges"/);
@@ -1489,11 +1492,13 @@ test("direct noble hashes dependency identity and install surface stay reviewed"
 
 test("native WebRTC dependency identity and install surface stay reviewed", () => {
   const wrtcPin = packageJson.dependencies?.["@roamhq/wrtc"];
+  const domexceptionPin = packageJson.dependencies?.domexception;
   assert.match(securityPolicy, /native WebRTC dependency metadata, optional prebuilt package set, allowed build-script surface, and platform smoke coverage must stay reviewed/);
-  assert.match(securityPolicy, /Dependabot must track `@roamhq\/wrtc` and `@roamhq\/wrtc-\*` in their own production update group/);
-  assert.match(dependabotConfig, /native-webrtc-dependency:\n\s+patterns:\n\s+- "@roamhq\/wrtc"\n\s+- "@roamhq\/wrtc-\*"\n\s+dependency-type: production/);
+  assert.match(securityPolicy, /Dependabot must track `@roamhq\/wrtc`, `@roamhq\/wrtc-\*`, and `domexception` in their own production update group/);
+  assert.match(dependabotConfig, /native-webrtc-dependency:\n\s+patterns:\n\s+- "@roamhq\/wrtc"\n\s+- "@roamhq\/wrtc-\*"\n\s+- "domexception"\n\s+dependency-type: production/);
   assert.match(dependabotConfig, /production-dependencies:\n\s+dependency-type: production\n\s+exclude-patterns:\n\s+- "@cipherman\/pake-js"\n\s+- "@noble\/curves"\n\s+- "@noble\/hashes"\n\s+- "@roamhq\/wrtc"\n\s+- "@roamhq\/wrtc-\*"/);
   assert.equal(wrtcPin, "0.10.0");
+  assert.equal(domexceptionPin, "4.0.0");
   assert.equal(wrtcPackageJson.name, "@roamhq/wrtc");
   assert.equal(wrtcPackageJson.version, wrtcPin);
   assert.equal(wrtcPackageJson.license, "BSD-2-Clause");
@@ -1544,6 +1549,7 @@ test("native WebRTC dependency identity and install surface stay reviewed", () =
     );
   }
   assert.match(pnpmLock, new RegExp(`^  domexception@4\\.0\\.0:\\n    resolution: \\{integrity: ${escapeRegExp(reviewedDomexceptionIntegrity)}\\}`, "m"));
+  assert.match(pnpmLock, /^      domexception:\n        specifier: 4\.0\.0\n        version: 4\.0\.0/m);
   assert.match(pnpmLock, new RegExp(`^  webidl-conversions@7\\.0\\.0:\\n    resolution: \\{integrity: ${escapeRegExp(reviewedWebidlConversionsIntegrity)}\\}`, "m"));
   assert.match(nativeSmokeScript, /const mod = await import\("\.\.\/dist-node\/cli\/native-webrtc\.js"\)/);
   assert.match(nativeSmokeScript, /requiredConstructor\(wrtc\.RTCPeerConnection, "RTCPeerConnection"\)/);
@@ -1583,7 +1589,7 @@ test("native WebRTC dependency identity and install surface stay reviewed", () =
   assert.match(nativeWebrtcReview, /# Native WebRTC Dependency Review/);
   assert.match(nativeWebrtcReview, new RegExp(`Package: \`${escapeRegExp(wrtcPackageJson.name ?? "")}\``));
   assert.match(nativeWebrtcReview, new RegExp(`Reviewed package version: \`${escapeRegExp(wrtcPin ?? "")}\``));
-  assert.match(nativeWebrtcReview, new RegExp(`Local pin: \`package\\.json\` pins \`@roamhq/wrtc\` to exact version \`${escapeRegExp(wrtcPin ?? "")}\``));
+  assert.match(nativeWebrtcReview, new RegExp(`Local pin: \`package\\.json\` pins \`@roamhq/wrtc\` to exact version \`${escapeRegExp(wrtcPin ?? "")}\` and pins the reviewed non-native runtime companion \`domexception\` to exact version \`${escapeRegExp(domexceptionPin ?? "")}\``));
   assert.match(nativeWebrtcReview, new RegExp(`Installed package identity: \`node_modules/@roamhq/wrtc/package\\.json\` reports name \`${escapeRegExp(wrtcPackageJson.name ?? "")}\` and version \`${escapeRegExp(wrtcPackageJson.version ?? "")}\``));
   assert.match(nativeWebrtcReview, new RegExp(`License: \`${escapeRegExp(wrtcPackageJson.license ?? "")}\``));
   assert.match(nativeWebrtcReview, /Upstream repository: `git\+ssh:\/\/git@github\.com\/WonderInventions\/node-webrtc\.git`/);
@@ -1613,7 +1619,7 @@ test("native WebRTC dependency identity and install surface stay reviewed", () =
   assert.match(nativeWebrtcReview, /This repo does not contain a formal independent audit certificate for the package or its prebuilts/);
   assert.match(nativeWebrtcReview, /does not include Windows ARM64, Linux ARMv7, or other unsupported platforms/);
   assert.match(nativeWebrtcReview, /does not hide endpoint compromise, MDM inspection of local files before encryption or after decryption, or network-level metadata/);
-  assert.match(nativeWebrtcReview, /Dependabot must keep `@roamhq\/wrtc` and `@roamhq\/wrtc-\*` in the `native-webrtc-dependency` production group and excluded from the bulk production dependency group/);
+  assert.match(nativeWebrtcReview, /Dependabot must keep `@roamhq\/wrtc`, `@roamhq\/wrtc-\*`, and `domexception` in the `native-webrtc-dependency` production group and excluded from the bulk production dependency group/);
   assert.match(nativeWebrtcReview, /Native WebRTC dependency updates must update this artifact in the same change as the package pin and lockfile/);
   assert.match(nativeWebrtcReview, /Release must stop if any of these are true:/);
   assert.match(nativeWebrtcReview, /`package\.json`, `pnpm-lock\.yaml`, runtime dependency attestation, installed package metadata, optional prebuilt declarations, dependency declarations, lifecycle-script surfaces, current-platform prebuilt metadata, or domexception metadata no longer agree/);

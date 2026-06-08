@@ -115,7 +115,7 @@ test("browser interop tests fail closed unless browser skipping is explicit", ()
   assert.match(browserInteropTest, /async function removeTestTemp\(dir: string\): Promise<void>/);
   assert.match(browserInteropTest, /await fs\.rm\(dir, \{ recursive: true, force: true \}\);/);
   assert.doesNotMatch(browserInteropTest, /removeTestTemp[\s\S]*catch\(\(\) => undefined\)/);
-  assert.equal(browserInteropTest.match(/await removeTestTemp\(tmp\);/g)?.length, 12);
+  assert.equal(browserInteropTest.match(/await removeTestTemp\(tmp\);/g)?.length, 13);
   assert.doesNotMatch(browserInteropTest, /skip: chromiumPath \? false : "No Chromium executable found"/);
 });
 
@@ -125,7 +125,7 @@ test("browser sender revalidates transfer manifests at the send boundary", () =>
     webSource,
     /const sendPlan = await buildBrowserSendPlan\(files\);[\s\S]*const manifest = browserSendPlanManifest\(sendPlan\);[\s\S]*keys = await establishBrowserKeys\(signaling, joined\.sid, "sender", parsedCode\.handle\);[\s\S]*setLog\(sendLog, `SAS \$\{keys\.sas\}`\);[\s\S]*const sealedManifest = await sealManifest\(keys, manifest\);[\s\S]*signaling\.send\(\{ type: "pair-request", sid: joined\.sid, manifest: redactManifest\(manifest\), sealedManifest \}\)/
   );
-  assert.match(webSource, /function clearBrowserSendSecrets\(\): void \{[\s\S]*clearBrowserSendCode\(\);\n\s+sendLog\.textContent = "";/);
+  assert.match(webSource, /function clearBrowserSendSecrets\(\): void \{[\s\S]*clearBrowserSendCode\(\);\n\s+fileInput\.value = "";\n\s+sendLog\.textContent = "";/);
   assert.match(webSource, /function clearBrowserSendCode\(\): void \{[\s\S]*sendCode\.value = "";/);
   assert.match(webSource, /sendFromBrowser\(\)[\s\S]*finally \{[\s\S]*clearBrowserSendSecrets\(\);[\s\S]*\}/);
   assert.match(
@@ -280,6 +280,7 @@ test("browser receive resume is explicit and limited to saved opaque folder part
   assert.match(webSource, /receiveBrowserFiles\(control, bulk, keys, recvLog, manifest, accept\.accepted \? accept\.directory : undefined, accept\.accepted \? accept\.resume : false, accept\.accepted \? accept\.opaqueNames : false\)/);
   assert.match(webSource, /resume = false,\n  opaqueOutputNames = false\s*\): Promise<void> \{/);
   assert.match(securityPolicy, /browser receive must not create or load browser resume HMAC key material for ordinary folder receives/);
+  assert.match(browserInteropTest, /browser ordinary folder receiver does not create resume state/);
   assert.match(receiveBody, /const resumeKey = resume \? await browserResumeKey\(acceptedManifest, expected\) : undefined;/);
   assert.match(receiveBody, /createBrowserReceiveFile\(directory, message\.name, message\.size, resumeKey, resume, opaqueOutputNames\)/);
   assert.match(receiveBody, /hash: writableState\.hash \?\? createSha256\(\)/);

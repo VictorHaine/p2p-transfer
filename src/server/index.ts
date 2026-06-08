@@ -665,8 +665,15 @@ function clearCloseTimer(peer: Peer): void {
 function notifyPeerLeft(session: Session, leaving: Peer | undefined, reason: string): void {
   for (const peer of [session.sender, session.receiver]) {
     if (leaving && peer.id === leaving.id) continue;
-    send(peer, { type: "peer-left", sid: session.sid, reason });
+    send(peer, { type: "peer-left", sid: session.sid, reason: peerLeftReason(reason) });
   }
+}
+
+function peerLeftReason(reason: string): string {
+  if (reason === "complete") return "complete";
+  if (reason === "cancelled") return "cancelled";
+  if (reason === "bye") return "bye";
+  return "closed";
 }
 
 function endSession(session: Session, reason: string, leavingPeerId?: SessionPeerId): void {

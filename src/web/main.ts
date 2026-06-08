@@ -1260,6 +1260,7 @@ async function promptForBrowserAccept(manifest: FileManifest, sas: string, requi
 
 function clearBrowserSendSecrets(): void {
   clearBrowserSendCode();
+  fileInput.value = "";
   sendLog.textContent = "";
 }
 

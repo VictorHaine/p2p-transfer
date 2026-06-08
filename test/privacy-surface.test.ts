@@ -53,12 +53,20 @@ test("server logging stays operational and does not log signaling payload fields
 test("server websocket close frames do not expose internal teardown reasons", () => {
   const closeWithCodeBody = extractFunctionBody(serverSource, "closePeerWithCode");
   const wireReasonBody = extractFunctionBody(serverSource, "wireCloseReason");
+  const notifyPeerLeftBody = extractFunctionBody(serverSource, "notifyPeerLeft");
+  const peerLeftReasonBody = extractFunctionBody(serverSource, "peerLeftReason");
   assert.match(closeWithCodeBody, /peer\.ws\.close\(code, websocketCloseReason\(wireCloseReason\(code, reason\)\)\)/);
   assert.match(wireReasonBody, /if \(code === 1001\) return "server shutdown"/);
   assert.match(wireReasonBody, /if \(code === 1008\) return "policy violation"/);
   assert.match(wireReasonBody, /return "closed"/);
   assert.doesNotMatch(wireReasonBody, /return _?reason/);
-  assert.match(securityPolicy, /server-initiated WebSocket close frames must map internal teardown reasons to a fixed close-text vocabulary/);
+  assert.match(notifyPeerLeftBody, /reason: peerLeftReason\(reason\)/);
+  assert.match(peerLeftReasonBody, /if \(reason === "complete"\) return "complete"/);
+  assert.match(peerLeftReasonBody, /if \(reason === "cancelled"\) return "cancelled"/);
+  assert.match(peerLeftReasonBody, /if \(reason === "bye"\) return "bye"/);
+  assert.match(peerLeftReasonBody, /return "closed"/);
+  assert.doesNotMatch(peerLeftReasonBody, /return reason/);
+  assert.match(securityPolicy, /server-initiated WebSocket close frames and `peer-left` messages must map internal teardown reasons to a fixed close-text vocabulary/);
 });
 
 test("honest clients do not send raw local exception messages through signaling bye reasons", () => {
@@ -146,7 +154,7 @@ test("README documents endpoint-visible local path and browser filename limits",
 });
 
 test("browser clears sensitive DOM transfer metadata after operations", () => {
-  assert.match(webSource, /function clearBrowserSendSecrets\(\): void \{[\s\S]*clearBrowserSendCode\(\);\n\s+sendLog\.textContent = "";/);
+  assert.match(webSource, /function clearBrowserSendSecrets\(\): void \{[\s\S]*clearBrowserSendCode\(\);\n\s+fileInput\.value = "";\n\s+sendLog\.textContent = "";/);
   assert.match(webSource, /function clearBrowserSendCode\(\): void \{[\s\S]*sendCode\.value = "";/);
   assert.match(webSource, /function clearBrowserReceiveSecrets\(\): void \{[\s\S]*codeBox\.textContent = "";\n\s+codeBox\.hidden = true;\n\s+clearBrowserPairRequest\(\);/);
   assert.match(webSource, /function clearBrowserPairRequest\(\): void \{[\s\S]*requestBox\.replaceChildren\(\);\n\s+requestBox\.hidden = true;/);

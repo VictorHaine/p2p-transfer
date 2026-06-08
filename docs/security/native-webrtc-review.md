@@ -7,7 +7,7 @@ Status: required release-review artifact for the native WebRTC runtime dependenc
 - Package: `@roamhq/wrtc`
 - Reviewed package version: `0.10.0`
 - Dependency class: production runtime dependency
-- Local pin: `package.json` pins `@roamhq/wrtc` to exact version `0.10.0`
+- Local pin: `package.json` pins `@roamhq/wrtc` to exact version `0.10.0` and pins the reviewed non-native runtime companion `domexception` to exact version `4.0.0`
 - Lockfile entry: `pnpm-lock.yaml` resolves `@roamhq/wrtc@0.10.0` with a `sha512` integrity value
 - Installed package identity: `node_modules/@roamhq/wrtc/package.json` reports name `@roamhq/wrtc` and version `0.10.0`
 - License: `BSD-2-Clause`
@@ -35,7 +35,7 @@ If it is compromised or if a platform prebuilt drifts, the CLI can load hostile 
 - Consumer install lifecycle hooks reviewed: `preinstall`, `install`, and `postinstall` are absent. `prepare` is present upstream but is not run during registry consumer installs.
 - Build policy reviewed: `pnpm-workspace.yaml` has `strictDepBuilds: true`; `@roamhq/wrtc` is in `allowBuilds` because this native dependency is the only production package allowed to run reviewed dependency build tooling.
 - Optional platform prebuilt packages reviewed: `@roamhq/wrtc-darwin-arm64@0.10.0`, `@roamhq/wrtc-darwin-x64@0.10.0`, `@roamhq/wrtc-linux-arm64@0.10.0`, `@roamhq/wrtc-linux-x64@0.10.0`, and `@roamhq/wrtc-win32-x64@0.10.0`.
-- Optional non-native runtime dependency reviewed: `domexception` is declared as `^4.0.0` upstream and is locked by `pnpm-lock.yaml`.
+- Optional non-native runtime dependency reviewed: `domexception` is declared as `^4.0.0` upstream and is pinned directly in `package.json` to exact version `4.0.0` so consumer installs do not drift beyond the runtime attestation contract.
 - Runtime consumer-install hardening reviewed: CLI WebRTC helpers load `@roamhq/wrtc` lazily after validating package metadata, and fail closed unless the resolved package graph matches `@roamhq/wrtc@0.10.0`, the current platform's reviewed `@roamhq/wrtc-*` prebuilt, and `domexception@4.0.0`, including reviewed wrapper metadata, optional prebuilt declarations, current-platform prebuilt metadata, domexception metadata, dependency declarations, and lifecycle-script surfaces; the guard resolves and loads the exact reviewed platform `wrtc.node` before package-root import, rejects root `build-*` fallback outputs, and rejects nested `node_modules/@roamhq/wrtc-*` fallback outputs under the wrapper package.
 - Reviewed lockfile integrity for `@roamhq/wrtc@0.10.0`: `sha512-yFqQQ0EV1ZUHaphh3tmjoxPi2wzhW2vjmzoAVNRRLUjXYd2e1nvwi9TKfE2w4WNvNws/hBkouvOt23Xo9FkXkQ==`.
 - Reviewed lockfile integrity for platform prebuilts: `@roamhq/wrtc-darwin-arm64@0.10.0` is `sha512-vFdi79jWuPHcnUcnuOjTvyKtmY/RI2xRQo9Y6RsIjIlYePN/7LTy00c+Ivrz4prYAPbp0oHscl7PDV64VUqGTQ==`; `@roamhq/wrtc-darwin-x64@0.10.0` is `sha512-H6852g2xYCuaR+/TrthpdMafs4bMfAUEpvRDhsIguzrK7Dz+MKpNI8MkwdqJN8W65J+7w7k+YqXIkTHe7Fz/cg==`; `@roamhq/wrtc-linux-arm64@0.10.0` is `sha512-fEuJbNjprxQG6QlFd2iqBW9x028RDSho6izVg7gyt8irdPiXWOxzOxNnYMs/B2fohBTd1wD4Qxfivl07/dCR8A==`; `@roamhq/wrtc-linux-x64@0.10.0` is `sha512-H32lK2eFg3sVb/9nkHIX5HIisxFoS82Gpesuea+zqAyRpRzSd5NpFXx28bVy9wQyRrNtj8k0bTUgEzWRzSbYCA==`; `@roamhq/wrtc-win32-x64@0.10.0` is `sha512-wEVXMvLrBizdLyrd+Zc7zb7zpwUuHUBXwrdIvI69e3i/AA8YsVYI2xo/sxk6GoQ+o8a14ONc4SStDS35TCjg+w==`.
@@ -52,7 +52,7 @@ If it is compromised or if a platform prebuilt drifts, the CLI can load hostile 
 
 ## Monitoring And Update Process
 
-- Dependabot must keep `@roamhq/wrtc` and `@roamhq/wrtc-*` in the `native-webrtc-dependency` production group and excluded from the bulk production dependency group.
+- Dependabot must keep `@roamhq/wrtc`, `@roamhq/wrtc-*`, and `domexception` in the `native-webrtc-dependency` production group and excluded from the bulk production dependency group.
 - GitHub dependency review must run on pull requests and fail vulnerable runtime or development dependency changes at low severity or higher.
 - Release verification must run `pnpm security:audit` and `pnpm security:signatures`.
 - Local, CI, Docker, and release verification must run `pnpm check:install-state` so the installed direct dependency tree matches exact `package.json` pins and `node_modules/.pnpm/lock.yaml` matches `pnpm-lock.yaml`.
