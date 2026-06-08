@@ -81,6 +81,39 @@ test("built signaling server rate-limits short-lived websocket upgrade churn", a
   }
 });
 
+test("built signaling server rejects no-origin websocket upgrades when origins are allowlisted", async () => {
+  const root = process.cwd();
+  const port = 28_500 + randomInt(500);
+  const origin = `http://127.0.0.1:${port}`;
+  const serverUrl = `ws://127.0.0.1:${port}/v1/ws`;
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-server-ws-origin-"));
+  const server = spawn(process.execPath, ["dist-node/server/index.js"], {
+    cwd: root,
+    env: {
+      ...testChildEnv(tmp),
+      PORT: String(port),
+      HOST: "127.0.0.1",
+      NODE_ENV: "production",
+      ALLOWED_ORIGINS: origin,
+      SIGNALING_TOPOLOGY: "single-instance",
+      ALLOW_INSECURE_ORIGINS: "true"
+    }
+  });
+  const serverOutput = collectOutput(server);
+
+  try {
+    await waitForOutput(server, /listening/);
+    const allowed = await connectWs(serverUrl, origin);
+    allowed.close();
+    await waitForWsClose(allowed);
+    await assert.rejects(() => connectWsWithoutOrigin(serverUrl), /Unexpected server response|Server sent no subprotocol|Timed out connecting WebSocket/);
+  } finally {
+    server.kill();
+    await serverOutput.done;
+    await removeTestTemp(tmp);
+  }
+});
+
 test("built signaling server rate-limits unauthenticated static requests before disk work", async () => {
   const root = process.cwd();
   const port = 29_000 + randomInt(1_000);
@@ -767,6 +800,24 @@ function waitForOutput(child: ChildProcessWithoutNullStreams, pattern: RegExp): 
 function connectWs(url: string, origin: string): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url, { headers: { Origin: origin } });
+    const timer = setTimeout(() => {
+      ws.terminate();
+      reject(new Error("Timed out connecting WebSocket."));
+    }, 10_000);
+    ws.once("open", () => {
+      clearTimeout(timer);
+      resolve(ws);
+    });
+    ws.once("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+  });
+}
+
+function connectWsWithoutOrigin(url: string): Promise<WebSocket> {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(url);
     const timer = setTimeout(() => {
       ws.terminate();
       reject(new Error("Timed out connecting WebSocket."));

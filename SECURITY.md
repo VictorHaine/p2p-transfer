@@ -177,6 +177,7 @@ The project is expected to preserve these invariants:
 - non-loopback server binds must require an explicit `ALLOWED_ORIGINS` policy even outside production mode
 - production and non-loopback signaling deployments must explicitly declare `SIGNALING_TOPOLOGY=single-instance` or `SIGNALING_TOPOLOGY=sticky-sessions` because rendezvous state is in memory and random multi-replica routing breaks pairing
 - omitted `ALLOWED_ORIGINS` must only allow browser `Origin` traffic when both the request `Host` and browser `Origin` are loopback, so public websites and reverse-proxy exposure fail closed
+- WebSocket upgrades must reject missing `Origin` headers, and CLI signaling sockets must send a deterministic `Origin` header derived from the signaling URL, so non-browser clients cannot bypass `ALLOWED_ORIGINS` by omitting browser headers
 - production browser deployments must not allow arbitrary browser `wss:` destinations unless `BROWSER_ALLOW_ANY_WSS=true` is a deliberate deployment choice
 - production browser deployments must not allow browser loopback `ws://` destinations unless `BROWSER_ALLOW_LOOPBACK_WS=true` is a deliberate private deployment choice
 - browser security headers must keep no-referrer, HSTS, frame denial, MIME sniffing denial, download-open denial, cross-domain policy denial, COOP, COEP, CORP, Origin-Agent-Cluster, and a deny-by-default Permissions-Policy for unused browser capabilities so the static app stays isolated from ambient browser embedding, legacy plugin policy, and cross-origin side channels

@@ -304,6 +304,14 @@ test("CLI signaling clients reject connect reuse while a socket is active", asyn
   await assert.rejects(() => client.connect(), /signaling client is closed/);
 });
 
+test("CLI signaling clients send a deterministic websocket Origin header", () => {
+  const connectBody = extractFunctionBody(cliSignalingSource, "connect");
+  assert.match(securityPolicy, /CLI signaling sockets must send a deterministic `Origin` header derived from the signaling URL/);
+  assert.match(connectBody, /headers: \{ Origin: signalingOriginHeader\(this\.url\) \}/);
+  assert.match(cliSignalingSource, /function signalingOriginHeader\(url: string\): string \{[\s\S]*const parsed = new URL\(url\);[\s\S]*return `\$\{parsed\.protocol === "wss:" \? "https:" : "http:"\}\/\/\$\{parsed\.host\}`;[\s\S]*\}/);
+  assert.match(distCliSignalingSource, /headers: \{ Origin: signalingOriginHeader\(this\.url\) \}/);
+});
+
 test("CLI signaling failed connects self-close because callers cannot clean them up", () => {
   const connectBody = extractFunctionBody(cliSignalingSource, "connect");
   const failedConnectCleanupBody = extractFunctionBody(cliSignalingSource, "closeSocketAfterFailedConnect");

@@ -567,7 +567,7 @@ function parseOrigin(origin: string): string {
 export function originAllowed(origin: unknown, allowedOrigins: readonly string[] | undefined): boolean {
   if (origin !== undefined && typeof origin !== "string") return false;
   if (allowedOrigins === undefined) return true;
-  if (origin === undefined) return true;
+  if (origin === undefined) return false;
   return allowedOriginContains(allowedOrigins, origin);
 }
 

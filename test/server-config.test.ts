@@ -560,7 +560,7 @@ test("server config parses strict browser origin allowlists", () => {
   assert.deepEqual(parseAllowedOrigins("https://1.example,http://[::1]:5173"), ["https://1.example", "http://[::1]:5173"]);
   assert.equal(originAllowed("https://send.example", ["https://send.example"]), true);
   assert.equal(originAllowed("https://evil.example", ["https://send.example"]), false);
-  assert.equal(originAllowed(undefined, ["https://send.example"]), true);
+  assert.equal(originAllowed(undefined, ["https://send.example"]), false);
   assert.equal(originAllowedForRequest(undefined, undefined, "files.example"), true);
   assert.equal(originAllowedForRequest("http://localhost:5173", undefined, "localhost:8787"), true);
   assert.equal(originAllowedForRequest("http://127.0.0.1:5173", undefined, "127.0.0.1:8787"), true);

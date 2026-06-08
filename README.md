@@ -246,7 +246,7 @@ For public deployments, restrict browser WebSocket origins with `ALLOWED_ORIGINS
 ALLOWED_ORIGINS='https://files.example.com,https://www.files.example.com' pnpm start
 ```
 
-CLI clients do not send a browser `Origin` header and remain allowed.
+WebSocket upgrades require a valid `Origin` header. Browser clients send their page origin. CLI clients send a deterministic origin derived from the signaling URL (`wss://signal.example.com/v1/ws` sends `https://signal.example.com`), so deployments that use a separate signaling hostname must include both the browser page origin and the CLI signaling origin in `ALLOWED_ORIGINS`.
 The signaling server defaults to `PORT=8787`; if `PORT` is set, it must be a fixed integer between 1 and 65535. `PORT=0` is rejected instead of silently binding a random ephemeral port.
 In production, `ALLOWED_ORIGINS` entries must use `https://`; set `ALLOW_INSECURE_ORIGINS=true` only for private deployments behind a trusted network boundary.
 

@@ -147,7 +147,7 @@ test("unauthenticated server surfaces rate-limit connection churn and static HTT
   assert.match(serverSource, /const websocketConnectionRateLimits = new Map<string, number\[\]>\(\)/);
   assert.match(serverSource, /if \(\(url\.pathname === "\/healthz" \|\| url\.pathname === "\/v1\/version"\) && !hitStaticHttpRateLimit\(req\)\) \{[\s\S]*return json\(res, 429, \{ error: "rate_limited" \}, cors\);[\s\S]*\}/);
   assert.match(serverSource, /if \(!hitStaticHttpRateLimit\(req\)\) return json\(res, 429, \{ error: "rate_limited" \}, cors\);[\s\S]*serveStatic\(url\.pathname, res\)/);
-  assert.match(serverSource, /originAllowedForRequest\(origin, allowedOrigins, authority\) && hitWebSocketConnectionRateLimit\(req\)/);
+  assert.match(serverSource, /origin !== undefined && origin !== null && originAllowedForRequest\(origin, allowedOrigins, authority\) && hitWebSocketConnectionRateLimit\(req\)/);
   assert.match(serverSource, /hitFixedWindowRateLimit\(staticHttpRateLimits, requestIp\(req\), Date\.now\(\), 60_000, STATIC_MAX_REQUESTS_PER_MINUTE\)/);
   assert.match(serverSource, /hitFixedWindowRateLimit\(websocketConnectionRateLimits, requestIp\(req\), Date\.now\(\), 60_000, SIGNALING_MAX_CONNECTION_ATTEMPTS_PER_MINUTE\)/);
   assert.match(serverSource, /pruneFixedWindowRateLimits\(staticHttpRateLimits, now, 60_000\)/);

@@ -1537,11 +1537,14 @@ test("server deployment policy requires origin allowlists for non-loopback binds
   assert.match(configSource, /const parsed = new URL\(origin\)/);
   assert.match(configSource, /parsed\.origin === origin/);
   assert.match(configSource, /isLoopbackAuthority\(parsed\.host\)/);
+  assert.match(configSource, /if \(origin === undefined\) return false/);
+  assert.match(serverSource, /origin !== undefined && origin !== null && originAllowedForRequest\(origin, allowedOrigins, authority\)/);
   assert.match(serverSource, /originAllowedForRequest\(origin, allowedOrigins, authority\)/);
   assert.match(serverSource, /originAllowedForRequest\(origin, allowedOrigins, requestHostAuthority\(req\)\)/);
   assert.match(readme, /When `ALLOWED_ORIGINS` is omitted, browser `Origin` traffic is accepted only when both the request `Host` and browser `Origin` are loopback/);
   assert.match(securityPolicy, /non-loopback server binds must require an explicit `ALLOWED_ORIGINS` policy even outside production mode/);
   assert.match(securityPolicy, /omitted `ALLOWED_ORIGINS` must only allow browser `Origin` traffic when both the request `Host` and browser `Origin` are loopback/);
+  assert.match(securityPolicy, /WebSocket upgrades must reject missing `Origin` headers/);
 });
 
 test("server deployment policy requires an explicit in-memory signaling topology", () => {

@@ -153,7 +153,7 @@ const verifyOrigin: VerifyClientCallbackSync = ({ req }) => {
   const authority = requestHostAuthority(req);
   if (authority === null || requestBaseUrl(req) === null) return false;
   const origin = requestOriginHeader(req);
-  return origin !== null && originAllowedForRequest(origin, allowedOrigins, authority) && hitWebSocketConnectionRateLimit(req);
+  return origin !== undefined && origin !== null && originAllowedForRequest(origin, allowedOrigins, authority) && hitWebSocketConnectionRateLimit(req);
 };
 
 const wss = new WebSocketServer({

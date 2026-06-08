@@ -129,7 +129,7 @@ export class SignalingClient extends EventEmitter {
       };
       const onRuntimeError = (error: Error) => this.emit("socket-error", error);
       try {
-        ws = new WebSocket(this.url, { maxPayload: SIGNALING_MAX_PAYLOAD_BYTES, perMessageDeflate: false });
+        ws = new WebSocket(this.url, { headers: { Origin: signalingOriginHeader(this.url) }, maxPayload: SIGNALING_MAX_PAYLOAD_BYTES, perMessageDeflate: false });
       } catch (error) {
         fail(error instanceof Error ? error : new Error(safeErrorMessage(error)));
         return;
@@ -237,6 +237,11 @@ export class SignalingClient extends EventEmitter {
       ws.off("error", ignoreLateSocketError);
     });
   }
+}
+
+function signalingOriginHeader(url: string): string {
+  const parsed = new URL(url);
+  return `${parsed.protocol === "wss:" ? "https:" : "http:"}//${parsed.host}`;
 }
 
 export function waitForMessage<T extends ServerMessage["type"]>(
