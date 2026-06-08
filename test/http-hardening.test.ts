@@ -142,11 +142,11 @@ test("unauthenticated server surfaces rate-limit connection churn and static HTT
   assert.equal(SIGNALING_MAX_CONNECTION_ATTEMPTS_PER_MINUTE, 120);
   assert.equal(STATIC_MAX_REQUESTS_PER_MINUTE, 300);
   assert.match(securityPolicy, /WebSocket upgrade attempts, including malformed or disallowed `Host`\/`Origin` attempts, must hit a per-IP fixed-window limiter before origin policy checks or connection state acceptance/);
-  assert.match(securityPolicy, /unauthenticated static and JSON control-plane HTTP requests, including `\/healthz` and `\/v1\/version`, must hit a per-IP fixed-window limiter before static path resolution, file reads, or control response generation/);
+  assert.match(securityPolicy, /unauthenticated HTTP requests, including malformed or disallowed `Host`\/`Origin` attempts, static requests, and JSON control-plane requests such as `\/healthz` and `\/v1\/version`, must hit a per-IP fixed-window limiter before CORS\/origin policy checks/);
   assert.match(serverSource, /const staticHttpRateLimits = new Map<string, number\[\]>\(\)/);
   assert.match(serverSource, /const websocketConnectionRateLimits = new Map<string, number\[\]>\(\)/);
-  assert.match(serverSource, /if \(\(url\.pathname === "\/healthz" \|\| url\.pathname === "\/v1\/version"\) && !hitStaticHttpRateLimit\(req\)\) \{[\s\S]*return json\(res, 429, \{ error: "rate_limited" \}, cors\);[\s\S]*\}/);
-  assert.match(serverSource, /if \(!hitStaticHttpRateLimit\(req\)\) return json\(res, 429, \{ error: "rate_limited" \}, cors\);[\s\S]*serveStatic\(url\.pathname, res\)/);
+  assert.match(serverSource, /const server = http\.createServer\(\(req, res\) => \{[\s\S]*if \(!hitStaticHttpRateLimit\(req\)\) return json\(res, 429, \{ error: "rate_limited" \}, \{\}\);[\s\S]*const cors = requestCorsHeaders\(req\)/);
+  assert.doesNotMatch(serverSource, /origin_forbidden[\s\S]{0,240}hitStaticHttpRateLimit\(req\)/);
   assert.match(serverSource, /const verifyOrigin: VerifyClientCallbackSync = \(\{ req \}\) => \{[\s\S]*if \(!hitWebSocketConnectionRateLimit\(req\)\) return false;[\s\S]*const authority = requestHostAuthority\(req\)/);
   assert.doesNotMatch(serverSource, /originAllowedForRequest\(origin, allowedOrigins, authority\) && hitWebSocketConnectionRateLimit\(req\)/);
   assert.match(serverSource, /hitFixedWindowRateLimit\(staticHttpRateLimits, requestIp\(req\), Date\.now\(\), 60_000, STATIC_MAX_REQUESTS_PER_MINUTE\)/);

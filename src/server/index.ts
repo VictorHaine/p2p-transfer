@@ -128,14 +128,12 @@ let fatalErrorSeen = false;
 let shutdownStarted = false;
 
 const server = http.createServer((req, res) => {
+  if (!hitStaticHttpRateLimit(req)) return json(res, 429, { error: "rate_limited" }, {});
   const cors = requestCorsHeaders(req);
   if (cors === null) return json(res, 403, { error: "origin_forbidden" }, {});
   const url = parseRequestUrl(req);
   if (!url) return json(res, 400, { error: "bad_request" }, cors);
   if (requestMethod(req) !== "GET") return methodNotAllowed(res, cors);
-  if ((url.pathname === "/healthz" || url.pathname === "/v1/version") && !hitStaticHttpRateLimit(req)) {
-    return json(res, 429, { error: "rate_limited" }, cors);
-  }
   if (url.pathname === "/healthz") return json(res, 200, { ok: true }, cors);
   if (url.pathname === "/v1/version") {
     return json(res, 200, versionResponse(), cors);
@@ -144,7 +142,6 @@ const server = http.createServer((req, res) => {
     if (!hitIceConfigHttpRateLimit(req)) return json(res, 429, { error: "rate_limited" }, cors);
     return json(res, 200, { iceServers: iceServersForUnauthenticatedRequest(serverConfig) }, cors);
   }
-  if (!hitStaticHttpRateLimit(req)) return json(res, 429, { error: "rate_limited" }, cors);
   serveStatic(url.pathname, res).catch((error) => staticFailure(res, cors, error));
 });
 applyHttpServerHardening(server);

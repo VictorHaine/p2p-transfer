@@ -183,6 +183,42 @@ test("built signaling server rate-limits unauthenticated static requests before 
   }
 });
 
+test("built signaling server rate-limits rejected HTTP requests before origin policy", async () => {
+  const root = process.cwd();
+  const port = 29_700 + randomInt(300);
+  const origin = `http://127.0.0.1:${port}`;
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-server-http-bad-origin-rate-"));
+  const server = spawn(process.execPath, ["dist-node/server/index.js"], {
+    cwd: root,
+    env: {
+      ...testChildEnv(tmp),
+      PORT: String(port),
+      HOST: "127.0.0.1",
+      NODE_ENV: "production",
+      ALLOWED_ORIGINS: origin,
+      SIGNALING_TOPOLOGY: "single-instance",
+      ALLOW_INSECURE_ORIGINS: "true"
+    }
+  });
+  const serverOutput = collectOutput(server);
+
+  try {
+    await waitForOutput(server, /listening/);
+    for (let index = 0; index < STATIC_MAX_REQUESTS_PER_MINUTE; index += 1) {
+      const response = await fetch(`http://127.0.0.1:${port}/bad-origin-${index}`, { headers: { Origin: "https://evil.example" } });
+      assert.equal(response.status, 403);
+      await response.arrayBuffer();
+    }
+    const limited = await fetch(`http://127.0.0.1:${port}/healthz`, { headers: { Origin: origin } });
+    assert.equal(limited.status, 429);
+    assert.deepEqual(await limited.json(), { error: "rate_limited" });
+  } finally {
+    server.kill();
+    await serverOutput.done;
+    await removeTestTemp(tmp);
+  }
+});
+
 test("built signaling server rate-limits unauthenticated control endpoints", async () => {
   const root = process.cwd();
   const port = 30_000 + randomInt(1_000);
