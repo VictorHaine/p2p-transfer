@@ -50,11 +50,12 @@ test("static HTML detection applies CSP to every html response", () => {
     fs.readFileSync(new URL("../dist-node/server/index.js", import.meta.url), "utf8")
   ]) {
     assert.match(candidate, /const \[root, realFilePath\] = await Promise\.all\(\[realWebRoot, fs\.realpath\(filePath\)\]\)/);
-    assert.match(candidate, /const body = await readStaticFile\(realFilePath\)/);
+    assert.match(candidate, /const staticFile = await readStaticFile\(realFilePath\)/);
     assert.match(candidate, /const type = contentType\(realFilePath\)/);
     assert.match(candidate, /const isHtml = type\.startsWith\("text\/html;"\)/);
     assert.match(candidate, /"content-type": type/);
     assert.match(candidate, /"cache-control": isHtml \? "no-store" : "public, max-age=31536000, immutable"/);
+    assert.match(candidate, /res\.end\(staticFile\.body\)/);
     assert.doesNotMatch(candidate, /const isHtml = filePath\.endsWith\("index\.html"\)/);
     assert.doesNotMatch(candidate, /const type = contentType\(filePath\)/);
   }

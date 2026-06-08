@@ -200,7 +200,7 @@ Exit codes:
 
 In production, `GET /v1/version` returns only protocol compatibility so unauthenticated scanners do not get an exact package-version fingerprint; non-production runs also include package name and version for local debugging.
 
-The WebSocket broker keeps only in-memory state, matches peers by the public eight-digit rendezvous prefix, enforces one-shot registrations, validates manifest limits, rate-limits WebSocket upgrade churn, registration/connect attempts, static HTTP requests, and ICE credential issuance, rejects malformed or duplicated `Origin`/`Host` headers before policy checks, caps signaling frames at 256 KiB, and applies hard global caps to waiting codes and active sessions.
+The WebSocket broker keeps only in-memory state, matches peers by the public eight-digit rendezvous prefix, enforces one-shot registrations, validates manifest limits, rate-limits WebSocket upgrade churn, registration/connect attempts, static HTTP requests, and ICE credential issuance, rejects malformed or duplicated `Origin`/`Host` headers before policy checks, caps signaling frames at 256 KiB, applies hard global caps to waiting codes and active sessions, and keeps static asset responses under a global in-flight byte budget.
 
 Metadata privacy is intentionally limited and should be understood before using the tool:
 

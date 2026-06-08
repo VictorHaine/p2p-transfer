@@ -9,6 +9,7 @@ import {
   isPathInsideRoot as distIsPathInsideRoot,
   staticUrlPathToRelative as distStaticUrlPathToRelative
 } from "../dist-node/server/static-path.js";
+import { STATIC_MAX_IN_FLIGHT_BYTES } from "../src/shared/constants.js";
 
 test("static path containment rejects sibling prefix tricks and parent escapes", () => {
   const root = path.resolve("/srv/app/dist-web");
@@ -128,6 +129,7 @@ test("static file serving opens assets with no-follow nonblocking flags", () => 
   const staticPathSource = fs.readFileSync(new URL("../src/server/static-path.ts", import.meta.url), "utf8");
   const distStaticPathSource = fs.readFileSync(new URL("../dist-node/server/static-path.js", import.meta.url), "utf8");
   const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
+  assert.equal(STATIC_MAX_IN_FLIGHT_BYTES, 64 * 1024 * 1024);
   assert.match(securityPolicy, /static path helpers must reject non-string, over-budget, traversal-shaped, absolute, backslash, control-character, and format-character runtime values/);
   for (const candidate of [staticPathSource, distStaticPathSource]) {
     assert.match(candidate, /typeof root !== "string" \|\| typeof candidate !== "string"/);
@@ -144,7 +146,9 @@ test("static file serving opens assets with no-follow nonblocking flags", () => 
   for (const candidate of [source, distSource]) {
     assert.match(securityPolicy, /static serving must distinguish attacker-shaped not-found or path-rejection responses from operational filesystem failures/);
     assert.match(securityPolicy, /static asset reads must use no-follow regular-file opens with pre-open and post-read identity and mutation-metadata checks plus bounded handle reads/);
+    assert.match(securityPolicy, /static responses must reserve against a global in-flight byte budget until the HTTP response finishes or closes/);
     assert.match(candidate, /serveStatic\(url\.pathname, res\)\.catch\(\(error\) => staticFailure\(res, cors, error\)\)/);
+    assert.match(candidate, /let staticInFlightBytes = 0/);
     assert.match(candidate, /function staticRelativePath/);
     assert.match(candidate, /function staticFailure/);
     assert.match(candidate, /function staticHttpStatus/);
@@ -156,7 +160,14 @@ test("static file serving opens assets with no-follow nonblocking flags", () => 
     assert.match(candidate, /const info = await fs\.lstat\(filePath\)/);
     assert.match(candidate, /fs\.open\(filePath, flags\)/);
     assert.match(candidate, /if \(!sameFile\(info, stat\)\)[\s\S]*throw new Error\("static asset changed before verification"\)/);
+    assert.match(candidate, /releaseStaticBytes = reserveStaticResponseBytes\(stat\.size\)/);
     assert.match(candidate, /const afterRead = await handle\.stat\(\);[\s\S]*if \(!sameFile\(stat, afterRead\)\)[\s\S]*throw new Error\("static asset changed while being read"\)/);
+    assert.match(candidate, /res\.once\("finish", staticFile\.release\)/);
+    assert.match(candidate, /res\.once\("close", staticFile\.release\)/);
+    assert.match(candidate, /function reserveStaticResponseBytes/);
+    assert.match(candidate, /staticFileWithinLimit\(staticInFlightBytes \+ size, STATIC_MAX_IN_FLIGHT_BYTES\)/);
+    assert.match(candidate, /staticInFlightBytes \+= size/);
+    assert.match(candidate, /staticInFlightBytes = Math\.max\(0, staticInFlightBytes - size\)/);
     assert.match(candidate, /mtimeMs/);
     assert.match(candidate, /ctimeMs/);
     assert.doesNotMatch(candidate, /fsConstants\.O_RDONLY \| fsConstants\.O_NOFOLLOW;/);

@@ -20,6 +20,7 @@ import {
   SIGNALING_MAX_SESSIONS,
   SIGNALING_MAX_WAITING_CODES,
   STATIC_MAX_FILE_BYTES,
+  STATIC_MAX_IN_FLIGHT_BYTES,
   STATIC_MAX_REQUESTS_PER_MINUTE
 } from "../shared/constants.js";
 import { assertManifestWithinLimits } from "../shared/limits.js";
@@ -120,6 +121,7 @@ const activeConnections = new Map<string, number>();
 const peersBySocket = new Map<WebSocket, Peer>();
 const SESSION_ID_LENGTH = 32;
 const SHUTDOWN_GRACE_MS = 5_000;
+let staticInFlightBytes = 0;
 let fatalErrorSeen = false;
 let shutdownStarted = false;
 
@@ -915,7 +917,7 @@ async function serveStatic(urlPath: string, res: http.ServerResponse): Promise<v
   }
   const [root, realFilePath] = await Promise.all([realWebRoot, fs.realpath(filePath)]);
   if (!isPathInsideRoot(root, realFilePath)) throw staticHttpError(404);
-  const body = await readStaticFile(realFilePath);
+  const staticFile = await readStaticFile(realFilePath);
   const type = contentType(realFilePath);
   const isHtml = type.startsWith("text/html;");
   res.writeHead(200, {
@@ -923,7 +925,9 @@ async function serveStatic(urlPath: string, res: http.ServerResponse): Promise<v
     "cache-control": isHtml ? "no-store" : "public, max-age=31536000, immutable",
     ...securityHeaders(isHtml, { allowAnyWss: browserAllowAnyWss, allowLoopbackWs: browserAllowLoopbackWs })
   });
-  res.end(body);
+  res.once("finish", staticFile.release);
+  res.once("close", staticFile.release);
+  res.end(staticFile.body);
 }
 
 function staticRelativePath(urlPath: string): string {
@@ -951,22 +955,45 @@ function staticHttpStatus(error: unknown): 404 | 500 {
   return descriptor && "value" in descriptor && descriptor.value === 404 ? 404 : 500;
 }
 
-async function readStaticFile(filePath: string): Promise<Buffer> {
+type StaticFileBody = {
+  body: Buffer;
+  release: () => void;
+};
+
+async function readStaticFile(filePath: string): Promise<StaticFileBody> {
   const flags = fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK;
   const info = await fs.lstat(filePath);
   if (!info.isFile() || !staticFileWithinLimit(info.size, STATIC_MAX_FILE_BYTES)) throw new Error("static asset exceeds maximum size");
   const handle = await fs.open(filePath, flags);
+  let releaseStaticBytes = () => {};
   try {
     const stat = await handle.stat();
     if (!stat.isFile() || !staticFileWithinLimit(stat.size, STATIC_MAX_FILE_BYTES)) throw new Error("static asset exceeds maximum size");
     if (!sameFile(info, stat)) throw new Error("static asset changed before verification");
+    releaseStaticBytes = reserveStaticResponseBytes(stat.size);
     const body = await readBoundedFile(handle, STATIC_MAX_FILE_BYTES);
     const afterRead = await handle.stat();
     if (!sameFile(stat, afterRead)) throw new Error("static asset changed while being read");
-    return body;
+    const release = releaseStaticBytes;
+    releaseStaticBytes = () => {};
+    return { body, release };
   } finally {
+    releaseStaticBytes();
     await handle.close();
   }
+}
+
+function reserveStaticResponseBytes(size: number): () => void {
+  if (!staticFileWithinLimit(size, STATIC_MAX_FILE_BYTES) || !staticFileWithinLimit(staticInFlightBytes + size, STATIC_MAX_IN_FLIGHT_BYTES)) {
+    throw new Error("static response capacity exceeded");
+  }
+  staticInFlightBytes += size;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    staticInFlightBytes = Math.max(0, staticInFlightBytes - size);
+  };
 }
 
 function sameFile(
