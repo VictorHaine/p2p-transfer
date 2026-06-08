@@ -82,6 +82,9 @@ function installedStateMismatches() {
     if (installedLock !== expectedLock) {
       mismatches.push("node_modules/.pnpm/lock.yaml does not match pnpm-lock.yaml; run pnpm install --frozen-lockfile");
     }
+    if (!lockfileUsesRegistrySha512Resolutions(expectedLock)) {
+      mismatches.push("pnpm-lock.yaml contains a non-registry or non-sha512 package resolution");
+    }
   } catch (error) {
     mismatches.push(installStateErrorMessage(error));
   }
@@ -164,6 +167,36 @@ function readLockfile(file) {
   } catch {
     throw new Error(`could not verify lockfile evidence at ${relativeEvidencePath(file)}`);
   }
+}
+
+function lockfileUsesRegistrySha512Resolutions(text) {
+  let section = "";
+  let inPackage = false;
+  let packageHasResolution = false;
+  for (const rawLine of text.split("\n")) {
+    if (rawLine.trim().length === 0 || rawLine.trimStart().startsWith("#")) continue;
+    const indent = rawLine.match(/^ */)?.[0].length ?? 0;
+    const trimmed = rawLine.trimEnd().trim();
+    if (indent === 0) {
+      if (inPackage && !packageHasResolution) return false;
+      inPackage = false;
+      packageHasResolution = false;
+      section = trimmed.endsWith(":") ? trimmed.slice(0, -1) : "";
+      continue;
+    }
+    if (section !== "packages") continue;
+    if (indent === 2) {
+      if (inPackage && !packageHasResolution) return false;
+      inPackage = true;
+      packageHasResolution = false;
+      continue;
+    }
+    if (inPackage && indent === 4 && trimmed.startsWith("resolution:")) {
+      if (!/^resolution: \{integrity: sha512-[A-Za-z0-9+/]+={0,2}\}$/.test(trimmed)) return false;
+      packageHasResolution = true;
+    }
+  }
+  return !inPackage || packageHasResolution;
 }
 
 function readText(file, maxBytes) {

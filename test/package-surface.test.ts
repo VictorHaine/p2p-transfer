@@ -341,6 +341,10 @@ test("package publishing config keeps provenance and reproducible dependency pin
   assert.match(securityPolicy, /installed-state verification must validate direct dependency names and package pins before installed package reads, check both installed direct package identity and installed direct package version against `package\.json` pins before accepting the local dependency tree, and mismatch output must not echo raw workspace paths, raw filesystem errors, stack traces, or installed package metadata/);
   assert.match(securityPolicy, /installed-state verification must resolve the project root from the checked script location, use a symlink-safe realpath entrypoint check, avoid filesystem verification side effects when imported, and use verifier-owned top-level failure reporting/);
   assert.match(securityPolicy, /installed-state verification must byte-cap, no-follow-open, identity-check, mutation-metadata-check, handle-read, and fatal-UTF-8-decode package and lockfile evidence/);
+  assert.match(securityPolicy, /reject package lockfile entries that are missing registry-style `sha512` integrity resolutions/);
+  assert.match(installStateScript, /function lockfileUsesRegistrySha512Resolutions\(text\)/);
+  assert.match(installStateScript, /pnpm-lock\.yaml contains a non-registry or non-sha512 package resolution/);
+  assert.equal(installStateScript.includes("/^resolution: \\{integrity: sha512-[A-Za-z0-9+/]+={0,2}\\}$/.test(trimmed)"), true);
   assert.match(securityPolicy, /runtime crypto and native WebRTC dependency attestation must byte-cap, no-follow-open, identity-check, mutation-metadata-check, handle-read, and fatal-UTF-8-decode dependency package metadata before accepting installed package identity/);
   assert.match(securityPolicy, /browser and CLI builds must run the reviewed crypto dependency attestation before producing production artifacts/);
   assert.match(cryptoDependencyCheckScript, /assertReviewedCryptoDependencies\(\)/);

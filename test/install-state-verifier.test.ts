@@ -91,6 +91,36 @@ test("installed-state verifier rejects duplicate direct dependency declarations"
   assert.match(result.stderr, /Dependency ws must not be declared in both dependencies and devDependencies/);
 });
 
+test("installed-state verifier rejects non-registry or non-sha512 lockfile package resolutions", async () => {
+  for (const resolution of [
+    "resolution: {tarball: https://example.invalid/ws-8.20.1.tgz, integrity: sha512-fixture}",
+    "resolution: {repo: git+https://example.invalid/ws.git, commit: 0123456789abcdef0123456789abcdef01234567}",
+    "resolution: {directory: ../ws, type: directory}",
+    "resolution: {integrity: sha1-fixture}",
+    "engines: {node: '>=18'}"
+  ]) {
+    const packageJson = {
+      name: "fixture",
+      version: "1.0.0",
+      dependencies: { ws: "8.20.1" },
+      devDependencies: {}
+    };
+    const lockfile = fixtureLockfile("ws", "8.20.1", resolution);
+    const result = await runVerifierFixture({
+      packageJson: Buffer.from(`${JSON.stringify(packageJson)}\n`),
+      rootLockfile: Buffer.from(lockfile),
+      installedLockfile: Buffer.from(lockfile),
+      installedPackages: {
+        ws: { name: "ws", version: "8.20.1" }
+      }
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /pnpm-lock\.yaml contains a non-registry or non-sha512 package resolution/);
+    assert.doesNotMatch(result.stderr, /example\.invalid|0123456789abcdef|sha1-fixture|\.\.\/ws/);
+  }
+});
+
 test("installed-state verifier does not echo invalid dependency names", async () => {
   const packageJson = {
     name: "fixture",
@@ -227,4 +257,27 @@ async function removeTestTemp(dir: string): Promise<void> {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
+}
+
+function fixtureLockfile(name: string, version: string, resolution: string): string {
+  return `lockfileVersion: '9.0'
+
+importers:
+
+  .:
+    dependencies:
+      ${name}:
+        specifier: ${version}
+        version: ${version}
+
+packages:
+
+  ${name}@${version}:
+    ${resolution}
+
+snapshots:
+
+  ${name}@${version}:
+    optional: false
+`;
 }
