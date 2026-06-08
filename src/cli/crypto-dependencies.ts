@@ -109,6 +109,43 @@ const REVIEWED_CRYPTO_DEPENDENCIES = {
       "./sha2.js": "./sha2.js",
       "./utils.js": "./utils.js"
     }
+  },
+  wordlist: {
+    name: "@scure/bip39",
+    version: "2.2.0",
+    license: "MIT",
+    repositoryUrl: "git+https://github.com/paulmillr/scure-bip39.git",
+    homepage: "https://paulmillr.com/noble/#scure",
+    type: "module",
+    main: "index.js",
+    module: "index.js",
+    types: "index.d.ts",
+    files: ["index.js", "index.d.ts", "wordlists/*.js", "wordlists/*.d.ts", "src/index.ts"],
+    sideEffects: false,
+    dependencies: { "@noble/hashes": "2.2.0", "@scure/base": "2.2.0" },
+    resolvedFiles: {
+      "wordlists/english.js": "961d1c711e071b4a5bb698461cce45614cc487d9a45e99bb975a174f0ea2dbc4"
+    },
+    requiredExports: {
+      ".": "./index.js",
+      "./wordlists/english.js": "./wordlists/english.js"
+    }
+  },
+  wordlistBase: {
+    name: "@scure/base",
+    version: "2.2.0",
+    license: "MIT",
+    repositoryUrl: "git+https://github.com/paulmillr/scure-base.git",
+    homepage: "https://paulmillr.com/noble/#scure",
+    type: "module",
+    main: "index.js",
+    module: "index.js",
+    types: "index.d.ts",
+    files: ["index.js", "index.js.map", "index.d.ts", "index.d.ts.map", "index.ts"],
+    sideEffects: false,
+    resolvedFiles: {
+      "index.js": "69501488e8af95addf77a91cb4255292ff45fdd7a63bf4cae3d329d02fd330a7"
+    }
   }
 } as const;
 const REVIEWED_SCRIPT_SURFACE = ["preinstall", "install", "postinstall", "prepare", "prepublish", "prepublishOnly"] as const;
@@ -159,6 +196,17 @@ export function assertReviewedCryptoDependencies(): void {
     const directHashes = packageEvidenceFromResolvedFile(directHashesResolved);
     assertReviewedDependencyEvidence(directHashes, REVIEWED_CRYPTO_DEPENDENCIES.directHashes);
     assertReviewedDependencyFileEvidence(directHashes, REVIEWED_CRYPTO_DEPENDENCIES.directHashes);
+
+    const wordlistResolved = requireFromCli.resolve("@scure/bip39/wordlists/english.js");
+    const wordlist = packageEvidenceFromResolvedFile(wordlistResolved);
+    assertReviewedDependencyEvidence(wordlist, REVIEWED_CRYPTO_DEPENDENCIES.wordlist);
+    assertReviewedDependencyFileEvidence(wordlist, REVIEWED_CRYPTO_DEPENDENCIES.wordlist);
+
+    const requireFromWordlist = createRequire(path.join(wordlist.root, "package.json"));
+    const wordlistBaseResolved = requireFromWordlist.resolve("@scure/base");
+    const wordlistBase = packageEvidenceFromResolvedFile(wordlistBaseResolved);
+    assertReviewedDependencyEvidence(wordlistBase, REVIEWED_CRYPTO_DEPENDENCIES.wordlistBase);
+    assertReviewedDependencyFileEvidence(wordlistBase, REVIEWED_CRYPTO_DEPENDENCIES.wordlistBase);
     verified = true;
   } catch {
     throw new Error("Reviewed cryptographic dependency metadata is not installed.");

@@ -17,6 +17,11 @@ updates:
           - "@noble/curves"
           - "@noble/hashes"
         dependency-type: production
+      wordlist-code-dependency:
+        patterns:
+          - "@scure/bip39"
+          - "@scure/base"
+        dependency-type: production
       native-webrtc-dependency:
         patterns:
           - "@roamhq/wrtc"
@@ -39,6 +44,8 @@ updates:
           - "@cipherman/pake-js"
           - "@noble/curves"
           - "@noble/hashes"
+          - "@scure/bip39"
+          - "@scure/base"
           - "@roamhq/wrtc"
           - "@roamhq/wrtc-*"
           - "domexception"

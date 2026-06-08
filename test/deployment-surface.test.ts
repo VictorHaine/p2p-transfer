@@ -1199,10 +1199,10 @@ test("dependency review blocks vulnerable dependency introductions", () => {
 test("dependency integrity monitor catches new registry risk and gates releases", () => {
   assert.match(securityPolicy, /dependency integrity monitoring must run from a pinned workflow on pushes to `main`, manual dispatch, and a weekly schedule on unchanged `main` across the supported native WebRTC runner set with read-only permissions/);
   assert.match(securityPolicy, /release-evidence concurrency that does not cancel in-progress runs, checked pnpm bootstrap, frozen install, installed-state verification, `pnpm security:dependencies`, `pnpm security:audit`, and `pnpm security:signatures`/);
-  assert.match(securityPolicy, /CPace\/native dependency drift, new advisories, or registry signature failures/);
+  assert.match(securityPolicy, /crypto, wordlist, or native dependency drift, new advisories, or registry signature failures/);
   assert.match(securityPolicy, /release preflight must require a successful dependency-integrity run for the current `main` commit/);
   assert.match(readme, /\.github\/workflows\/dependency-integrity\.yml` runs on pushes to `main`, manual dispatch, and weekly across the supported native WebRTC runner set with read-only permissions without cancelling in-progress release-evidence runs/);
-  assert.match(readme, /re-checks the frozen install, installed dependency tree, reviewed CPace\/native dependency attestations, npm advisory audit, and registry package signatures even when `main` has not changed/);
+  assert.match(readme, /re-checks the frozen install, installed dependency tree, reviewed crypto\/wordlist\/native dependency attestations, npm advisory audit, and registry package signatures even when `main` has not changed/);
   assert.match(readme, /release preflight requires a successful dependency-integrity run for the exact current `main` commit before tagging/);
   assert.equal(packageJson.scripts?.["security:dependencies"], "node --import tsx --test test/crypto-dependencies.test.ts test/cpace-vectors.test.ts test/native-webrtc-dependencies.test.ts");
   assert.match(dependencyIntegrityWorkflow, /^name: dependency-integrity$/m);

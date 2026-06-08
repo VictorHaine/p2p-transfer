@@ -18,7 +18,7 @@ const cliEntrypoint = fileURLToPath(new URL("../dist-node/cli/index.js", import.
 test("CLI json mode emits structured sanitized error events instead of plain stderr", () => {
   assert.match(cliSource, /return runWithExit\(\(\) => recv\(merged\), merged\)/);
   assert.match(cliSource, /const inputs = await resolveSendInputs\(code, files, merged\)/);
-  assert.match(cliSource, /return send\(normalizeCode\(inputs\.code\), inputs\.files, merged\)/);
+  assert.match(cliSource, /return send\(inputs\.code, inputs\.files, merged\)/);
   assert.match(securityPolicy, /CLI parser errors must suppress Commander raw stderr and route parse failures through the same sanitized error renderer/);
   assert.match(cliSource, /program\.configureOutput\(\{[\s\S]*writeErr: \(\) => \{[\s\S]*Parse errors may contain raw argv values/);
   assert.match(cliSource, /program\.exitOverride\(\)/);
@@ -97,31 +97,33 @@ test("CLI exit handling does not truncate piped output with direct process.exit"
 
 test("CLI receive validates supplied codes before filesystem or signaling side effects", () => {
   assert.match(securityPolicy, /CLI receive codes supplied with `recv --code` must be validated before output-directory creation or signaling connection setup/);
-  assert.match(securityPolicy, /CLI send and receive commands must verify the reviewed runtime cryptographic dependency graph before importing CLI modules that load CPace or noble-hashes code, opening local send files, creating receive output directories, or connecting to signaling/);
+  assert.match(securityPolicy, /CLI send and receive commands must verify the reviewed runtime cryptographic dependency graph before importing CLI modules that load CPace, noble-hashes, or scure-bip39 wordlist code, parsing or generating transfer codes, opening local send files, creating receive output directories, or connecting to signaling/);
   assert.match(securityPolicy, /interactive receive flows must emit a generic no-values warning to human stderr when `recv --code` or `recv --out` accepts a supplied receive code or output directory from argv unless quiet output is selected, and JSON mode must emit the same warning as a structured no-values event/);
   for (const source of [cliSource, distCliSource]) {
     const recvBody = extractFunctionBody(source, "recv");
     const outputDirCall = "ensureOutputDir(outputDirInput, { private: Boolean(options.localPrivateMode) })";
     assert.match(recvBody, /const outputDirInput = resolveRecvOutputDir\(options\)/);
-    assert.match(recvBody, /const suppliedCode = await resolveRecvCode\(options\)/);
     assert.match(recvBody, /const runtime = await reviewedCliRuntime\(\)/);
-    assert.equal(recvBody.indexOf("resolveRecvCode(options)") < recvBody.indexOf(outputDirCall), true);
+    assert.match(recvBody, /const suppliedCode = await resolveRecvCode\(options, runtime\.wordlist\)/);
     assert.equal(recvBody.indexOf("reviewedCliRuntime()") < recvBody.indexOf(outputDirCall), true);
+    assert.equal(recvBody.indexOf("reviewedCliRuntime()") < recvBody.indexOf("resolveRecvCode(options, runtime.wordlist)"), true);
+    assert.equal(recvBody.indexOf("resolveRecvCode(options, runtime.wordlist)") < recvBody.indexOf(outputDirCall), true);
     assert.match(recvBody, /ensureOutputDir\(outputDirInput, \{ private: Boolean\(options\.localPrivateMode\) \}\)/);
     assert.match(recvBody, /const serverUrl = resolveServerUrl\(options\)/);
     assert.equal(recvBody.indexOf("resolveServerUrl(options)") < recvBody.indexOf("openSignaling(serverUrl)"), true);
-    assert.equal(recvBody.indexOf("resolveRecvCode(options)") < recvBody.indexOf("openSignaling(serverUrl)"), true);
+    assert.equal(recvBody.indexOf("resolveRecvCode(options, runtime.wordlist)") < recvBody.indexOf("openSignaling(serverUrl)"), true);
     assert.equal(recvBody.indexOf("reviewedCliRuntime()") < recvBody.indexOf("openSignaling(serverUrl)"), true);
-    assert.match(recvBody, /registerReceiver\(signaling, suppliedCode\)/);
-    assert.match(source, /assertReviewedCryptoDependencies\(\);\s*reviewedCliRuntimePromise = Promise\.all\(\[import\("\.\.\/shared\/security\.js"\), import\("\.\/rtc\.js"\), import\("\.\/secure\.js"\), import\("\.\/transfer\.js"\)\]\)/);
+    assert.match(recvBody, /registerReceiver\(signaling, runtime\.wordlist, suppliedCode\)/);
+    assert.match(source, /assertReviewedCryptoDependencies\(\);\s*reviewedCliRuntimePromise = Promise\.all\(\[import\("\.\.\/shared\/security\.js"\), import\("\.\/rtc\.js"\), import\("\.\/secure\.js"\), import\("\.\/transfer\.js"\), import\("\.\.\/shared\/wordlist\.js"\)\]\)/);
     assert.doesNotMatch(source, /import \{[^}]+(?:openManifest|sealManifest|wipeSessionKeys)[^}]+from "\.\.\/shared\/security\.js"/);
     assert.doesNotMatch(source, /import \{[^}]+(?:createPeer|handleSignal)[^}]+from "\.\/rtc\.js"/);
+    assert.doesNotMatch(source, /import \{[^}]+(?:generateCode|normalizeCode|parseCode|codeInputUtf8ByteLengthExceeds)[^}]+from "\.\.\/shared\/wordlist\.js"/);
 
     assert.match(source, /function resolveRecvCode/);
     assert.match(source, /if \(options\.code !== undefined\) \{[\s\S]*rejectSensitiveRecvArgv\(options\);[\s\S]*warnSensitiveRecvArgv\(options\);[\s\S]*\}/);
-    assert.match(source, /parseRequiredCode\(normalizeCode\(code\)\)/);
+    assert.match(source, /parseRequiredCode\(wordlist, wordlist\.normalizeCode\(code\)\)/);
     assert.match(source, /supplied: true/);
-    assert.match(source, /function registerReceiver[\s\S]*const parsedCode = suppliedCode\?\.parsedCode \?\? parseRequiredCode\(normalizeCode\(generateCode\(\)\)\)/);
+    assert.match(source, /function registerReceiver[\s\S]*const parsedCode = suppliedCode\?\.parsedCode \?\? parseRequiredCode\(wordlist, wordlist\.normalizeCode\(wordlist\.generateCode\(\)\)\)/);
     assert.match(source, /const attempts = suppliedCode \? 1 : RECEIVE_CODE_GENERATION_ATTEMPTS/);
     assert.doesNotMatch(source, /parseRequiredCode\(normalizeCode\(options\.code \?\? generateCode\(\)\)\)/);
   }
@@ -134,9 +136,9 @@ test("CLI send supports non-argv code and file path input", () => {
   assert.match(securityPolicy, /interactive receive flows must emit a generic no-values warning to human stderr when `recv --code` or `recv --out` accepts a supplied receive code or output directory from argv unless quiet output is selected, and JSON mode must emit the same warning as a structured no-values event/);
   for (const source of [cliSource, distCliSource]) {
     const sendBody = extractFunctionBody(source, "send");
-    assert.match(sendBody, /const parsedCode = parseRequiredCode\(code\)/);
     assert.match(sendBody, /const runtime = await reviewedCliRuntime\(\)/);
-    assert.equal(sendBody.indexOf("parseRequiredCode(code)") < sendBody.indexOf("reviewedCliRuntime()"), true);
+    assert.match(sendBody, /const parsedCode = parseRequiredCode\(runtime\.wordlist, runtime\.wordlist\.normalizeCode\(code\)\)/);
+    assert.equal(sendBody.indexOf("reviewedCliRuntime()") < sendBody.indexOf("parseRequiredCode(runtime.wordlist, runtime.wordlist.normalizeCode(code))"), true);
     assert.equal(sendBody.indexOf("reviewedCliRuntime()") < sendBody.indexOf("buildManifest(paths)"), true);
     assert.match(sendBody, /const serverUrl = resolveServerUrl\(options\)/);
     assert.equal(sendBody.indexOf("resolveServerUrl(options)") < sendBody.indexOf("openSignaling(serverUrl)"), true);
@@ -246,8 +248,8 @@ test("CLI private receive-code inputs are not echoed back into local telemetry",
     assert.match(source, /printRegisteredReceiver\(options, parsedCode\.handle, registered, registeredCode\.supplied\)/);
     assert.doesNotMatch(source, /codeSupplied: true, rendezvous: registered\.code/);
     assert.doesNotMatch(source, /code: parsedCode\.handle, rendezvous: registered\.code, expiresInSec: registered\.expiresInSec \}\);[\s\S]*Ready to receive\. Share this code/);
-    assert.match(source, /codeInputUtf8ByteLengthExceeds/);
-    assert.match(source, /const value = descriptor\.value;[\s\S]*clearEnvValue\(name\);[\s\S]*codeInputUtf8ByteLengthExceeds\(value\)/);
+    assert.match(source, /CLI_CODE_INPUT_MAX_BYTES = 256/);
+    assert.match(source, /const value = descriptor\.value;[\s\S]*clearEnvValue\(name\);[\s\S]*utf8ByteLengthExceeds\(value, CLI_CODE_INPUT_MAX_BYTES\)/);
     assert.match(source, /const value = descriptor\.value;[\s\S]*clearEnvValue\(name\);[\s\S]*utf8ByteLengthExceeds\(value, CLI_OUTPUT_DIR_ENV_MAX_BYTES\)/);
     assert.match(source, /const value = descriptor\.value;[\s\S]*clearEnvValue\(name\);[\s\S]*utf8ByteLengthExceeds\(value, CLI_SERVER_URL_ENV_MAX_BYTES\)/);
     assert.match(source, /UNSAFE_OUTPUT_DIR_ENV_CHARS\.test\(value\)/);

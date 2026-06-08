@@ -18,7 +18,7 @@ import { sanitizeDisplayText, sanitizeStructuredOutput } from "../shared/output-
 import { PACKAGE_VERSION } from "../shared/package-info.js";
 import { redactManifestForSignaling } from "../shared/public-manifest.js";
 import { WebRtcSignalReplayGuard } from "../shared/signal-replay.js";
-import { codeInputUtf8ByteLengthExceeds, generateCode, normalizeCode, parseCode } from "../shared/wordlist.js";
+import type { ParsedCode } from "../shared/wordlist.js";
 import type { SessionKeys } from "../shared/security.js";
 import { cloneIceServers } from "../shared/ice.js";
 import { assertReviewedCryptoDependencies } from "./crypto-dependencies.js";
@@ -68,7 +68,7 @@ type RecvCommandOptions = Omit<RecvOptions, "out"> & {
 };
 
 type ResolvedRecvCode = {
-  parsedCode: ReturnType<typeof parseRequiredCode>;
+  parsedCode: ParsedCode;
   supplied: boolean;
 };
 
@@ -87,15 +87,18 @@ type SecurityModule = typeof import("../shared/security.js");
 type RtcModule = typeof import("./rtc.js");
 type SecureModule = typeof import("./secure.js");
 type TransferModule = typeof import("./transfer.js");
+type WordlistModule = typeof import("../shared/wordlist.js");
 type ReviewedCliRuntime = {
   security: SecurityModule;
   rtc: RtcModule;
   secure: SecureModule;
   transfer: TransferModule;
+  wordlist: WordlistModule;
 };
 type CliPeer = ReturnType<RtcModule["createPeer"]>;
 
 let reviewedCliRuntimePromise: Promise<ReviewedCliRuntime> | undefined;
+const CLI_CODE_INPUT_MAX_BYTES = 256;
 
 process.title = "ff";
 
@@ -154,7 +157,7 @@ program
     applyLocalPrivateMode(merged);
     return runWithExit(async () => {
       const inputs = await resolveSendInputs(code, files, merged);
-      return send(normalizeCode(inputs.code), inputs.files, merged);
+      return send(inputs.code, inputs.files, merged);
     }, merged);
   });
 
@@ -204,11 +207,12 @@ function parseEarlyOutputOptions(argv: readonly string[]): CommonOptions {
 async function reviewedCliRuntime(): Promise<ReviewedCliRuntime> {
   if (!reviewedCliRuntimePromise) {
     assertReviewedCryptoDependencies();
-    reviewedCliRuntimePromise = Promise.all([import("../shared/security.js"), import("./rtc.js"), import("./secure.js"), import("./transfer.js")]).then(([security, rtc, secure, transfer]) => ({
+    reviewedCliRuntimePromise = Promise.all([import("../shared/security.js"), import("./rtc.js"), import("./secure.js"), import("./transfer.js"), import("../shared/wordlist.js")]).then(([security, rtc, secure, transfer, wordlist]) => ({
       security,
       rtc,
       secure,
-      transfer
+      transfer,
+      wordlist
     }));
   }
   return reviewedCliRuntimePromise;
@@ -217,16 +221,16 @@ async function reviewedCliRuntime(): Promise<ReviewedCliRuntime> {
 async function recv(options: RecvOptions): Promise<void> {
   rejectSensitiveRecvArgvInputs(options);
   const serverUrl = resolveServerUrl(options);
-  const suppliedCode = await resolveRecvCode(options);
   const outputDirInput = resolveRecvOutputDir(options);
   const runtime = await reviewedCliRuntime();
+  const suppliedCode = await resolveRecvCode(options, runtime.wordlist);
   const outDir = await ensureOutputDir(outputDirInput, { private: Boolean(options.localPrivateMode) });
 
   const signaling = await openSignaling(serverUrl);
   let peer: CliPeer | undefined;
   let keys: SessionKeys | undefined;
   let sid: string | undefined;
-  let parsedCode: ReturnType<typeof parseRequiredCode> | undefined;
+  let parsedCode: ParsedCode | undefined;
   let completed = false;
   let iceServers = cloneIceServers(DEFAULT_ICE_SERVERS);
   let unwireSignals: (() => void) | undefined;
@@ -248,7 +252,7 @@ async function recv(options: RecvOptions): Promise<void> {
   try {
     await withInterrupt(
       (async () => {
-        const registeredCode = await registerReceiver(signaling, suppliedCode);
+        const registeredCode = await registerReceiver(signaling, runtime.wordlist, suppliedCode);
         parsedCode = registeredCode.parsedCode;
         const registered = registeredCode.registered;
         printRegisteredReceiver(options, parsedCode.handle, registered, registeredCode.supplied);
@@ -329,11 +333,12 @@ async function recv(options: RecvOptions): Promise<void> {
 
 async function registerReceiver(
   signaling: SignalingClient,
+  wordlist: WordlistModule,
   suppliedCode?: ResolvedRecvCode
-): Promise<{ parsedCode: ReturnType<typeof parseRequiredCode>; registered: Extract<ServerMessage, { type: "registered" }>; supplied: boolean }> {
+): Promise<{ parsedCode: ParsedCode; registered: Extract<ServerMessage, { type: "registered" }>; supplied: boolean }> {
   const attempts = suppliedCode ? 1 : RECEIVE_CODE_GENERATION_ATTEMPTS;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    const parsedCode = suppliedCode?.parsedCode ?? parseRequiredCode(normalizeCode(generateCode()));
+    const parsedCode = suppliedCode?.parsedCode ?? parseRequiredCode(wordlist, wordlist.normalizeCode(wordlist.generateCode()));
     signaling.send({ type: "register", role: "receiver", code: parsedCode.rendezvous, protocolVersion: PROTOCOL_VERSION });
     try {
       const registered = await waitForMessage(signaling, "registered", CONNECT_TIMEOUT_MS);
@@ -368,7 +373,7 @@ async function waitForConfirmedReceiverSession(
   code: string,
   options: RecvOptions
 ): Promise<{ sid: string; keys: SessionKeys }> {
-  const expectedRendezvous = parseRequiredCode(code).rendezvous;
+  const expectedRendezvous = parseRequiredCode(runtime.wordlist, code).rendezvous;
   for (let attempt = 1; attempt <= RECEIVER_MAX_PREPAIR_ATTEMPTS; attempt += 1) {
     const joined = await waitForMessage(signaling, "peer-joined", PAIR_TIMEOUT_MS);
     try {
@@ -416,8 +421,8 @@ async function getIceServersAfterAccept(signaling: SignalingClient, fallback: RT
 
 async function send(code: string, paths: string[], options: CommonOptions): Promise<void> {
   const serverUrl = resolveServerUrl(options);
-  const parsedCode = parseRequiredCode(code);
   const runtime = await reviewedCliRuntime();
+  const parsedCode = parseRequiredCode(runtime.wordlist, runtime.wordlist.normalizeCode(code));
   const { files, manifest } = await buildManifest(paths);
   let signaling: SignalingClient | undefined;
   let peer: CliPeer | undefined;
@@ -495,7 +500,7 @@ async function send(code: string, paths: string[], options: CommonOptions): Prom
   }
 }
 
-async function resolveRecvCode(options: RecvOptions): Promise<ResolvedRecvCode | undefined> {
+async function resolveRecvCode(options: RecvOptions, wordlist: WordlistModule): Promise<ResolvedRecvCode | undefined> {
   const sourceCount = Number(options.code !== undefined) + Number(Boolean(options.codeStdin)) + Number(options.codeEnv !== undefined);
   if (sourceCount === 0 && options.localPrivateMode) throw new Error("Receive code stdin or environment input is required by --local-private-mode.");
   if (sourceCount === 0) return undefined;
@@ -505,7 +510,7 @@ async function resolveRecvCode(options: RecvOptions): Promise<ResolvedRecvCode |
     warnSensitiveRecvArgv(options);
   }
   const code = options.codeStdin ? await readCodeFromStdin("Receive code") : options.codeEnv !== undefined ? readCodeEnv(options.codeEnv) : options.code;
-  return { parsedCode: parseRequiredCode(normalizeCode(code)), supplied: true };
+  return { parsedCode: parseRequiredCode(wordlist, wordlist.normalizeCode(code)), supplied: true };
 }
 
 function resolveRecvOutputDir(options: RecvOptions): string {
@@ -605,7 +610,7 @@ function readCodeEnv(name: string): string {
   }
   const value = descriptor.value;
   clearEnvValue(name);
-  if (typeof value !== "string" || value.length === 0 || codeInputUtf8ByteLengthExceeds(value)) {
+  if (typeof value !== "string" || value.length === 0 || utf8ByteLengthExceeds(value, CLI_CODE_INPUT_MAX_BYTES)) {
     throw new Error(`Environment variable ${name} is invalid.`);
   }
   return value;
@@ -989,8 +994,8 @@ function pairRejectMessage(_reason: string | undefined): string {
   return "Transfer rejected.";
 }
 
-function parseRequiredCode(code: string) {
-  const parsed = parseCode(code);
+function parseRequiredCode(wordlist: WordlistModule, code: string): ParsedCode {
+  const parsed = wordlist.parseCode(code);
   if (!parsed) throw new Error("Code must look like 12345678-two-words.");
   return parsed;
 }

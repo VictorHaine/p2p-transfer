@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 
 type PackageJson = {
@@ -77,6 +78,7 @@ const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url
 const cpaceReview = fs.readFileSync(new URL("../docs/security/cpace-review.md", import.meta.url), "utf8");
 const cpaceVectorTest = fs.readFileSync(new URL("./cpace-vectors.test.ts", import.meta.url), "utf8");
 const nobleHashesReview = fs.readFileSync(new URL("../docs/security/noble-hashes-review.md", import.meta.url), "utf8");
+const scureWordlistReview = fs.readFileSync(new URL("../docs/security/scure-wordlist-review.md", import.meta.url), "utf8");
 const nativeWebrtcReview = fs.readFileSync(new URL("../docs/security/native-webrtc-review.md", import.meta.url), "utf8");
 const buildToolchainNativeReview = fs.readFileSync(new URL("../docs/security/build-toolchain-native-review.md", import.meta.url), "utf8");
 const dependabotConfig = fs.readFileSync(new URL("../.github/dependabot.yml", import.meta.url), "utf8");
@@ -84,8 +86,14 @@ const ciWorkflow = fs.readFileSync(new URL("../.github/workflows/ci.yml", import
 const releaseWorkflow = fs.readFileSync(new URL("../.github/workflows/release.yml", import.meta.url), "utf8");
 const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
 const conformanceFiles = fs.readdirSync(new URL("../conformance", import.meta.url));
+const requireFromPackageSurface = createRequire(import.meta.url);
+const scureBip39Root = path.dirname(requireFromPackageSurface.resolve("@scure/bip39"));
+const requireFromScureBip39 = createRequire(path.join(scureBip39Root, "package.json"));
+const scureBaseRoot = path.dirname(requireFromScureBip39.resolve("@scure/base"));
 const pakePackageJson = JSON.parse(fs.readFileSync(new URL("../node_modules/@cipherman/pake-js/package.json", import.meta.url), "utf8")) as PackageJson;
 const nobleHashesPackageJson = JSON.parse(fs.readFileSync(new URL("../node_modules/@noble/hashes/package.json", import.meta.url), "utf8")) as PackageJson;
+const scureBip39PackageJson = JSON.parse(fs.readFileSync(path.join(scureBip39Root, "package.json"), "utf8")) as PackageJson;
+const scureBasePackageJson = JSON.parse(fs.readFileSync(path.join(scureBaseRoot, "package.json"), "utf8")) as PackageJson;
 const wrtcPackageJson = JSON.parse(fs.readFileSync(new URL("../node_modules/@roamhq/wrtc/package.json", import.meta.url), "utf8")) as PackageJson;
 const vitePackageJson = JSON.parse(fs.readFileSync(new URL("../node_modules/vite/package.json", import.meta.url), "utf8")) as PackageJson;
 const esbuildPackageJson = JSON.parse(
@@ -110,6 +118,8 @@ const reviewedPakeIntegrity = "sha512-iutxMCmRXYacl3fc19SKFisk1sRD1FNQi7+GWPlnQn
 const reviewedNobleCurvesIntegrity = "sha512-gbKGcRUYIjA3/zCCNaWDciTMFI0dCkvou3TL8Zmy5Nc7sJ47a0jtOeZoTaMxkuqRo9cRhjOdZJXegxYE5FN/xw==";
 const reviewedNobleHashesCpaceIntegrity = "sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A==";
 const reviewedNobleHashesIntegrity = "sha512-IYqDGiTXab6FniAgnSdZwgWbomxpy9FtYvLKs7wCUs2a8RkITG+DFGO1DM9cr+E3/RgADRpFjrKVaJ1z6sjtEg==";
+const reviewedScureBip39Integrity = "sha512-T/Bj/YvYMNkIPq6EENO6/rcs2e7qTNuyoUXf0KBFDmp0ZDu0H2X4Lq6yC3i0c8PcWkov5EbW+yQZZbdMmk154A==";
+const reviewedScureBaseIntegrity = "sha512-b8XEupJibegiXV+tDUseI8oLQc8ei3d/4Jkb2RpbHh3MfE054ov3uIz2dhFkB3FI8iwYkEh0gGCApkrYggkPNg==";
 const reviewedWrtcIntegrity = "sha512-yFqQQ0EV1ZUHaphh3tmjoxPi2wzhW2vjmzoAVNRRLUjXYd2e1nvwi9TKfE2w4WNvNws/hBkouvOt23Xo9FkXkQ==";
 const reviewedWrtcPrebuiltIntegrities: Record<string, string> = {
   "@roamhq/wrtc-darwin-arm64": "sha512-vFdi79jWuPHcnUcnuOjTvyKtmY/RI2xRQo9Y6RsIjIlYePN/7LTy00c+Ivrz4prYAPbp0oHscl7PDV64VUqGTQ==",
@@ -1644,6 +1654,79 @@ test("direct noble hashes dependency identity and install surface stay reviewed"
   assert.match(nobleHashesReview, /`@noble\/hashes` adds `preinstall`, `install`, `postinstall`, `prepare`, or `prepublishOnly` hooks/);
 });
 
+test("scure wordlist dependency identity and install surface stay reviewed", () => {
+  const bip39Pin = packageJson.dependencies?.["@scure/bip39"];
+  assert.match(securityPolicy, /`@scure\/bip39` and `@scure\/base` wordlist-code dependency metadata, exports, runtime dependency declarations, lifecycle hooks, English wordlist contents, and lockfile integrity must stay reviewed/);
+  assert.match(securityPolicy, /Dependabot must track them in their own production update group and exclude them from bulk production dependency groups/);
+  assert.match(dependabotConfig, /wordlist-code-dependency:\n\s+patterns:\n\s+- "@scure\/bip39"\n\s+- "@scure\/base"\n\s+dependency-type: production/);
+  assert.match(dependabotConfig, /production-dependencies:\n\s+dependency-type: production\n\s+exclude-patterns:\n\s+- "@cipherman\/pake-js"\n\s+- "@noble\/curves"\n\s+- "@noble\/hashes"\n\s+- "@scure\/bip39"\n\s+- "@scure\/base"/);
+  assert.equal(bip39Pin, "2.2.0");
+  assert.equal(scureBip39PackageJson.name, "@scure/bip39");
+  assert.equal(scureBip39PackageJson.version, bip39Pin);
+  assert.equal(scureBip39PackageJson.license, "MIT");
+  assert.equal(scureBip39PackageJson.type, "module");
+  assert.equal(scureBip39PackageJson.main, "index.js");
+  assert.equal(scureBip39PackageJson.module, "index.js");
+  assert.equal(scureBip39PackageJson.types, "index.d.ts");
+  assert.equal(scureBip39PackageJson.sideEffects, false);
+  assert.equal(scureBip39PackageJson.homepage, "https://paulmillr.com/noble/#scure");
+  assert.deepEqual(scureBip39PackageJson.repository, {
+    type: "git",
+    url: "git+https://github.com/paulmillr/scure-bip39.git"
+  });
+  assert.deepEqual(scureBip39PackageJson.files, ["index.js", "index.d.ts", "wordlists/*.js", "wordlists/*.d.ts", "src/index.ts"]);
+  assert.deepEqual(scureBip39PackageJson.dependencies, { "@noble/hashes": "2.2.0", "@scure/base": "2.2.0" });
+  assert.equal(scureBip39PackageJson.optionalDependencies, undefined);
+  assert.equal(scureBip39PackageJson.peerDependencies, undefined);
+  assert.deepEqual(scureBip39PackageJson.exports, {
+    ".": "./index.js",
+    "./wordlists/czech.js": "./wordlists/czech.js",
+    "./wordlists/english.js": "./wordlists/english.js",
+    "./wordlists/french.js": "./wordlists/french.js",
+    "./wordlists/italian.js": "./wordlists/italian.js",
+    "./wordlists/japanese.js": "./wordlists/japanese.js",
+    "./wordlists/korean.js": "./wordlists/korean.js",
+    "./wordlists/portuguese.js": "./wordlists/portuguese.js",
+    "./wordlists/simplified-chinese.js": "./wordlists/simplified-chinese.js",
+    "./wordlists/spanish.js": "./wordlists/spanish.js",
+    "./wordlists/traditional-chinese.js": "./wordlists/traditional-chinese.js"
+  });
+  for (const lifecycle of ["preinstall", "install", "postinstall", "prepare", "prepublish", "prepublishOnly"]) {
+    assert.equal(scureBip39PackageJson.scripts?.[lifecycle], undefined);
+    assert.equal(scureBasePackageJson.scripts?.[lifecycle], undefined);
+  }
+  assert.equal(scureBasePackageJson.name, "@scure/base");
+  assert.equal(scureBasePackageJson.version, "2.2.0");
+  assert.equal(scureBasePackageJson.license, "MIT");
+  assert.equal(scureBasePackageJson.type, "module");
+  assert.equal(scureBasePackageJson.main, "index.js");
+  assert.equal(scureBasePackageJson.module, "index.js");
+  assert.equal(scureBasePackageJson.types, "index.d.ts");
+  assert.equal(scureBasePackageJson.sideEffects, false);
+  assert.deepEqual(scureBasePackageJson.files, ["index.js", "index.js.map", "index.d.ts", "index.d.ts.map", "index.ts"]);
+  assert.deepEqual(scureBasePackageJson.repository, {
+    type: "git",
+    url: "git+https://github.com/paulmillr/scure-base.git"
+  });
+  assert.match(pnpmLock, new RegExp(`^  '@scure/bip39@2\\.2\\.0':\\n    resolution: \\{integrity: ${escapeRegExp(reviewedScureBip39Integrity)}\\}`, "m"));
+  assert.match(pnpmLock, new RegExp(`^  '@scure/base@2\\.2\\.0':\\n    resolution: \\{integrity: ${escapeRegExp(reviewedScureBaseIntegrity)}\\}`, "m"));
+  assert.match(cliCryptoDependenciesSource, /name: "@scure\/bip39",\n    version: "2\.2\.0"/);
+  assert.match(cliCryptoDependenciesSource, /name: "@scure\/base",\n    version: "2\.2\.0"/);
+  assert.match(cliCryptoDependenciesSource, /requireFromCli\.resolve\("@scure\/bip39\/wordlists\/english\.js"\)/);
+  assert.match(cliCryptoDependenciesSource, /requireFromWordlist\.resolve\("@scure\/base"\)/);
+  assert.match(cliCryptoDependenciesSource, /"wordlists\/english\.js": "961d1c711e071b4a5bb698461cce45614cc487d9a45e99bb975a174f0ea2dbc4"/);
+  assert.match(cliCryptoDependenciesSource, /"index\.js": "69501488e8af95addf77a91cb4255292ff45fdd7a63bf4cae3d329d02fd330a7"/);
+  assert.match(scureWordlistReview, /# Scure Wordlist Dependency Review/);
+  assert.match(scureWordlistReview, /Package: `@scure\/bip39`/);
+  assert.match(scureWordlistReview, /Reviewed package version: `2\.2\.0`/);
+  assert.match(scureWordlistReview, new RegExp(`Lockfile entry: \`pnpm-lock\\.yaml\` resolves \`@scure/bip39@2\\.2\\.0\` with integrity \`${escapeRegExp(reviewedScureBip39Integrity)}\``));
+  assert.match(scureWordlistReview, new RegExp(`\`@scure/base@2\\.2\\.0\` with integrity \`${escapeRegExp(reviewedScureBaseIntegrity)}\``));
+  assert.match(scureWordlistReview, /`@scure\/bip39\/wordlists\/english\.js`/);
+  assert.match(scureWordlistReview, /short-code generation and validation/);
+  assert.match(scureWordlistReview, /This repo does not contain a formal independent audit certificate for `@scure\/bip39@2\.2\.0` or `@scure\/base@2\.2\.0`/);
+  assert.match(scureWordlistReview, /Release must stop if any of these are true:/);
+});
+
 test("native WebRTC dependency identity and install surface stay reviewed", () => {
   const wrtcPin = packageJson.dependencies?.["@roamhq/wrtc"];
   const domexceptionPin = packageJson.dependencies?.domexception;
@@ -1651,7 +1734,7 @@ test("native WebRTC dependency identity and install surface stay reviewed", () =
   assert.match(securityPolicy, /native WebRTC dependency metadata, optional prebuilt package set, allowed build-script surface, and platform smoke coverage must stay reviewed/);
   assert.match(securityPolicy, /Dependabot must track `@roamhq\/wrtc`, `@roamhq\/wrtc-\*`, `domexception`, and `webidl-conversions` in their own production update group/);
   assert.match(dependabotConfig, /native-webrtc-dependency:\n\s+patterns:\n\s+- "@roamhq\/wrtc"\n\s+- "@roamhq\/wrtc-\*"\n\s+- "domexception"\n\s+- "webidl-conversions"\n\s+dependency-type: production/);
-  assert.match(dependabotConfig, /production-dependencies:\n\s+dependency-type: production\n\s+exclude-patterns:\n\s+- "@cipherman\/pake-js"\n\s+- "@noble\/curves"\n\s+- "@noble\/hashes"\n\s+- "@roamhq\/wrtc"\n\s+- "@roamhq\/wrtc-\*"\n\s+- "domexception"\n\s+- "webidl-conversions"/);
+  assert.match(dependabotConfig, /production-dependencies:\n\s+dependency-type: production\n\s+exclude-patterns:\n\s+- "@cipherman\/pake-js"\n\s+- "@noble\/curves"\n\s+- "@noble\/hashes"\n\s+- "@scure\/bip39"\n\s+- "@scure\/base"\n\s+- "@roamhq\/wrtc"\n\s+- "@roamhq\/wrtc-\*"\n\s+- "domexception"\n\s+- "webidl-conversions"/);
   assert.equal(wrtcPin, "0.10.0");
   assert.equal(domexceptionPin, "4.0.0");
   assert.equal(webidlConversionsPin, "7.0.0");
