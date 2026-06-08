@@ -12,16 +12,18 @@ const prePairSource = fs.readFileSync(new URL("../src/server/prepair-attempts.ts
 const distPrePairSource = fs.readFileSync(new URL("../dist-node/server/prepair-attempts.js", import.meta.url), "utf8");
 const securityPolicy = fs.readFileSync(new URL("../SECURITY.md", import.meta.url), "utf8");
 
-test("pre-pair attempt budget is consumed before receiver restoration", () => {
+test("pre-pair attempt budget allows bounded retry before expiry", () => {
   let remaining = initialPrePairAttempts();
   assert.equal(remaining, RECEIVER_MAX_PREPAIR_ATTEMPTS);
-  assert.equal(RECEIVER_MAX_PREPAIR_ATTEMPTS, 1);
-  assert.match(securityPolicy, /strict one-shot pre-pair attempt budget/);
-  assert.match(securityPolicy, /must expire the receiver code instead of allowing another online guess/);
+  assert.equal(RECEIVER_MAX_PREPAIR_ATTEMPTS, 3);
+  assert.match(securityPolicy, /small bounded pre-pair attempt budget/);
+  assert.match(securityPolicy, /one bad sender cannot burn it/);
+  assert.match(securityPolicy, /repeated invalid attempts must expire the receiver code instead of allowing unbounded online guesses/);
 
   for (let attempt = 1; attempt <= RECEIVER_MAX_PREPAIR_ATTEMPTS; attempt += 1) {
     assert.equal(canRestorePrePairCode(remaining), true);
     remaining = consumePrePairAttempt(remaining);
+    if (attempt < RECEIVER_MAX_PREPAIR_ATTEMPTS) assert.equal(canRestorePrePairCode(remaining), true);
   }
 
   assert.equal(remaining, 0);
@@ -63,7 +65,7 @@ test("pre-pair attempt helpers reject malformed runtime counters", () => {
   }
 });
 
-test("server burns a pre-pair attempt when a sender claims a rendezvous", () => {
+test("server burns one bounded pre-pair attempt when a sender claims a rendezvous", () => {
   const serverSource = fs.readFileSync(new URL("../src/server/index.ts", import.meta.url), "utf8");
   const connectBody = extractFunctionBody(serverSource, "connect");
   const relayBody = extractFunctionBody(serverSource, "relay");

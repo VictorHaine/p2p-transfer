@@ -366,7 +366,7 @@ test("built signaling server mints TURN REST credentials only after pair accepta
   assert.doesNotMatch(serverOutput.text(), /12345685|sender-share|receiver-share|ssss/);
 });
 
-test("built signaling server exhausts receive codes after invalid pre-pair sender attempts", async () => {
+test("built signaling server survives one invalid pre-pair sender and expires after bounded retries", async () => {
   const root = process.cwd();
   const port = 21_000 + randomInt(1_000);
   const origin = `http://127.0.0.1:${port}`;
