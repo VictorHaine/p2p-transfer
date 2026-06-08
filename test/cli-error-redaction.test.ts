@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { redactLocalPathEvidence } from "../src/cli/error-redaction.js";
+import { redactCliErrorEvidence, redactLocalPathEvidence } from "../src/cli/error-redaction.js";
 
 test("CLI local path evidence redacts quoted and unquoted absolute paths", () => {
   const message = [
@@ -40,4 +40,10 @@ test("CLI local path redaction does not redact websocket or HTTPS URLs", () => {
   const message = "connect ws://127.0.0.1:8787/v1/ws and https://files.example.com/assets/index.js failed";
 
   assert.equal(redactLocalPathEvidence(message, "/workspace/project"), message);
+});
+
+test("CLI user-facing error redaction removes websocket endpoints but keeps HTTPS evidence", () => {
+  const message = "connect ws://127.0.0.1:8787/v1/ws and wss://files.example.com/v1/ws and https://files.example.com/assets/index.js failed";
+
+  assert.equal(redactCliErrorEvidence(message, "/workspace/project"), "connect [endpoint] and [endpoint] and https://files.example.com/assets/index.js failed");
 });

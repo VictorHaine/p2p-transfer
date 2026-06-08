@@ -141,22 +141,24 @@ If local shell history or process-argument telemetry matters, avoid putting the 
 
 ```sh
 read -rs FF_RECEIVE_CODE
-find ./to-send -maxdepth 1 -type f | FF_RECEIVE_CODE="$FF_RECEIVE_CODE" node dist-node/cli/index.js send --code-env FF_RECEIVE_CODE --files-stdin
-unset FF_RECEIVE_CODE
+read -rs FF_SIGNALING_SERVER
+find ./to-send -maxdepth 1 -type f | FF_RECEIVE_CODE="$FF_RECEIVE_CODE" FF_SIGNALING_SERVER="$FF_SIGNALING_SERVER" node dist-node/cli/index.js --server-env FF_SIGNALING_SERVER send --code-env FF_RECEIVE_CODE --files-stdin
+unset FF_RECEIVE_CODE FF_SIGNALING_SERVER
 ```
 
-`--code-env` and `--out-env` only avoid argv and shell-history exposure. Environment variables are not a secrecy boundary against process-environment telemetry, same-user inspection windows, privileged endpoint tools, or MDM/EDR.
-Interactive send commands print a generic warning on stderr whenever the receive code or local file paths are still accepted from argv. `recv --code` and `recv --out` print the same kind of generic warning for supplied receive codes or output directories in argv. The warnings never include the code or paths. In `--json` mode they are emitted as structured `warning` events; human warning text is suppressed for `--quiet` and non-TTY stderr.
-Use `--require-private-input` in automation that must fail closed instead of accepting receive codes, receive output directories, or send code/file paths from argv.
+`--code-env`, `--out-env`, and `--server-env` only avoid argv and shell-history exposure. Environment variables are not a secrecy boundary against process-environment telemetry, same-user inspection windows, privileged endpoint tools, or MDM/EDR.
+Interactive send commands print a generic warning on stderr whenever the receive code or local file paths are still accepted from argv. `recv --code` and `recv --out` print the same kind of generic warning for supplied receive codes or output directories in argv. Explicit `--server` URLs also print a generic warning. The warnings never include the code, paths, or URL. In `--json` mode they are emitted as structured `warning` events; human warning text is suppressed for `--quiet` and non-TTY stderr.
+Use `--require-private-input` in automation that must fail closed instead of accepting signaling server URLs, receive codes, receive output directories, or send code/file paths from argv.
 Use `--local-private-mode` when you want the local CLI privacy preset: it enables `--require-private-input` and `--redact-output`, and for `recv` also enables `--opaque-output-names`. Because generated receive codes would be redacted, `recv --local-private-mode` requires `--code-stdin` or `--code-env`.
 
 Useful CLI flags:
 
 - `--server <url>`: use a self-hosted signaling server.
+- `--server-env <name>`: read the signaling server URL from an environment variable instead of argv.
 - `--json`: emit machine-readable events.
 - `--quiet`: suppress human-readable progress.
 - `--redact-output`: redact transfer codes, SAS, file names, MIME types, file counts, byte counts, and per-file placeholders from local CLI output, JSON events, and error text for log-collected automation. It does not hide signaling/server metadata, peer-visible metadata, endpoint telemetry, ICE candidates, timing, or traffic shape.
-- `--require-private-input`: reject `recv --code`, `recv --out`, `send <code>`, and send file paths supplied through argv; use `--code-stdin`/`--code-env`, `recv --out-env`, and `send --files-stdin` instead.
+- `--require-private-input`: reject `--server`, `recv --code`, `recv --out`, `send <code>`, and send file paths supplied through argv; use `--server-env`, `--code-stdin`/`--code-env`, `recv --out-env`, and `send --files-stdin` instead.
 - `--local-private-mode`: enable the local privacy preset (`--require-private-input`, `--redact-output`, and `recv --opaque-output-names`). It is a local CLI guardrail only, not protection from privileged endpoint monitoring or network metadata. Receivers must supply a private code with `recv --code-stdin` or `recv --code-env` because generated codes are intentionally redacted.
 - `--relay`: force relay-only ICE when TURN is configured, reducing local and public endpoint candidate exposure to peers and signaling logs.
 - `--no-server-ice`: ignore signaling-provided STUN/TURN endpoints and use only the built-in public STUN defaults. This reduces trust in the rendezvous operator's ICE configuration, but disables that server's TURN fallback.
@@ -389,7 +391,7 @@ MIT. See `LICENSE`.
 ## Known limitations
 
 - A local MDM/EDR administrator can still observe selected files through endpoint controls, including file picker choices, CLI file opens, writes, renames, browser DOM previews, browser download behavior, final output names, and local plaintext before encryption or after decryption. `--local-private-mode` combines the CLI local guardrails, `send --code-stdin`, `send --code-env`, and `send --files-stdin` reduce shell-history and `ff` process-argv exposure, `recv --opaque-output-names` avoids peer basenames in final CLI receive paths, and browser `Opaque output names` avoids peer basenames in final browser receive names, but none of those options protect from a privileged endpoint monitor.
-- Environment variables are local process metadata. `--code-env` and `--out-env` delete the variable after capture, but local process telemetry or privileged observers may still see it briefly; use `--code-stdin` for receive codes and the current working directory for receive output when you need to avoid both argv and environment exposure.
+- Environment variables are local process metadata. `--code-env`, `--out-env`, and `--server-env` delete the variable after capture, but local process telemetry or privileged observers may still see it briefly; use `--code-stdin` for receive codes and the current working directory for receive output when you need to avoid both argv and environment exposure.
 - CLI output is metadata-bearing by default for consent, progress, and detailed failures. Use `--redact-output` for log-collected automation; it redacts local CLI output only and does not hide metadata from the signaling server, peer, endpoint telemetry, ICE candidates, timing, or the network.
 - `--files-stdin` protects the `ff` process argv only. The command that produces the file list can still leak local paths through its own argv, shell history, terminal logs, or endpoint telemetry; use operational controls around the producer command when that matters.
 - `--require-private-input` makes argv fallback a command error, but it does not hide paths from the command that enumerates them or from local file-open telemetry.

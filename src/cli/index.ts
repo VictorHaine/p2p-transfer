@@ -23,7 +23,7 @@ import type { SessionKeys } from "../shared/security.js";
 import { cloneIceServers } from "../shared/ice.js";
 import { assertReviewedCryptoDependencies } from "./crypto-dependencies.js";
 import { buildManifest, closeSendFiles, ensureOutputDir, validateSendPathInputs } from "./files.js";
-import { redactLocalPathEvidence } from "./error-redaction.js";
+import { redactCliErrorEvidence } from "./error-redaction.js";
 import { classifyExitCode, safeErrorMessage } from "./exit-codes.js";
 import { onInterrupt, withInterrupt } from "./interrupt.js";
 import { SignalingClient, SignalingError, SignalingWaitTimeoutError, waitForMessage } from "./signaling.js";
@@ -31,6 +31,9 @@ import { unrefTimer } from "./timers.js";
 
 type CommonOptions = {
   server: string;
+  serverEnv?: string;
+  serverFromArgv?: boolean;
+  resolvedServerUrl?: string;
   json?: boolean;
   verbose?: boolean;
   relay?: boolean;
@@ -72,9 +75,11 @@ type ResolvedRecvCode = {
 const RECEIVE_CODE_GENERATION_ATTEMPTS = 10;
 const ICE_CONFIG_GRACE_MS = 1_000;
 const CLI_STDIN_MAX_BYTES = 512 * 1024;
+const CLI_SERVER_URL_ENV_MAX_BYTES = 2_048;
 const CLI_OUTPUT_DIR_ENV_MAX_BYTES = 4_096;
 const ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const UNSAFE_OUTPUT_DIR_ENV_CHARS = /[\p{Cc}\p{Cf}]/u;
+const SERVER_ARGV_TELEMETRY_WARNING = "Warning: signaling server URLs passed as arguments can be captured by shell history, process lists, or endpoint telemetry. Use --server-env for private input.";
 const SEND_ARGV_TELEMETRY_WARNING = "Warning: receiver codes or local file paths passed as arguments can be captured by shell history, process lists, or endpoint telemetry. Use --code-stdin/--code-env and --files-stdin for private input.";
 const RECV_ARGV_TELEMETRY_WARNING = "Warning: receive codes or output directories passed as arguments can be captured by shell history, process lists, or endpoint telemetry. Use --code-stdin/--code-env and --out-env for private input.";
 
@@ -101,6 +106,7 @@ program
   .description("Peer-to-peer file transfer over WebRTC.")
   .version(`${PACKAGE_VERSION} protocol ${PROTOCOL_VERSION}`)
   .option("--server <url>", "signaling server WebSocket URL", DEFAULT_SERVER_URL)
+  .option("--server-env <name>", "read the signaling server WebSocket URL from an environment variable")
   .option("--relay", "force TURN relay candidates when TURN is configured")
   .option("--no-server-ice", "ignore signaling-provided ICE servers and use built-in public STUN only")
   .option("--json", "emit machine-readable events")
@@ -123,7 +129,7 @@ program
   .option("--code-stdin", "read a supplied receive code from piped stdin")
   .option("--code-env <name>", "read a supplied receive code from an environment variable")
   .action(async (options: RecvCommandOptions) => {
-    const merged: RecvOptions = { ...program.opts<CommonOptions>(), ...options, out: options.out ?? process.cwd(), outFromArgv: options.out !== undefined };
+    const merged: RecvOptions = { ...program.opts<CommonOptions>(), ...options, serverFromArgv: program.getOptionValueSource("server") === "cli", out: options.out ?? process.cwd(), outFromArgv: options.out !== undefined };
     applyLocalPrivateMode(merged);
     return runWithExit(() => recv(merged), merged);
   });
@@ -137,7 +143,7 @@ program
   .option("--code-env <name>", "read the receiver code from an environment variable instead of argv")
   .option("--files-stdin", "read newline-delimited file paths from stdin instead of argv")
   .action(async (code: string | undefined, files: string[], options: SendOptions) => {
-    const merged = { ...program.opts<CommonOptions>(), ...options };
+    const merged = { ...program.opts<CommonOptions>(), ...options, serverFromArgv: program.getOptionValueSource("server") === "cli" };
     applyLocalPrivateMode(merged);
     return runWithExit(async () => {
       const inputs = await resolveSendInputs(code, files, merged);
@@ -170,12 +176,13 @@ async function reviewedCliRuntime(): Promise<ReviewedCliRuntime> {
 
 async function recv(options: RecvOptions): Promise<void> {
   rejectSensitiveRecvArgvInputs(options);
+  const serverUrl = resolveServerUrl(options);
   const suppliedCode = await resolveRecvCode(options);
   const outputDirInput = resolveRecvOutputDir(options);
   const runtime = await reviewedCliRuntime();
   const outDir = await ensureOutputDir(outputDirInput);
 
-  const signaling = await openSignaling(options.server);
+  const signaling = await openSignaling(serverUrl);
   let peer: CliPeer | undefined;
   let keys: SessionKeys | undefined;
   let sid: string | undefined;
@@ -367,6 +374,7 @@ async function getIceServersAfterAccept(signaling: SignalingClient, fallback: RT
 }
 
 async function send(code: string, paths: string[], options: CommonOptions): Promise<void> {
+  const serverUrl = resolveServerUrl(options);
   const parsedCode = parseRequiredCode(code);
   const runtime = await reviewedCliRuntime();
   const { files, manifest } = await buildManifest(paths);
@@ -381,7 +389,7 @@ async function send(code: string, paths: string[], options: CommonOptions): Prom
   const useServerIce = shouldUseServerIce(options);
 
   try {
-    signaling = await openSignaling(options.server);
+    signaling = await openSignaling(serverUrl);
     if (useServerIce) {
       signaling.on("ice-config", (message: unknown) => {
         if (!isServerMessage(message)) return;
@@ -523,6 +531,7 @@ async function resolveSendInputs(code: string | undefined, files: string[], opti
 
 function rejectSensitiveSendArgvInputs(code: string | undefined, files: string[], options: SendOptions): void {
   if (!options.requirePrivateInput) return;
+  if (options.serverFromArgv) rejectSensitiveServerArgv(options);
   const codeFromArgv = !options.codeStdin && options.codeEnv === undefined && code !== undefined && code !== "-";
   const filesFromArgv = files.length > 0 || ((options.codeStdin || options.codeEnv !== undefined) && code !== undefined && code !== "-");
   rejectSensitiveSendArgv(options, codeFromArgv, filesFromArgv);
@@ -530,8 +539,17 @@ function rejectSensitiveSendArgvInputs(code: string | undefined, files: string[]
 
 function rejectSensitiveRecvArgvInputs(options: RecvOptions): void {
   if (!options.requirePrivateInput) return;
+  if (options.serverFromArgv) rejectSensitiveServerArgv(options);
   if (options.code !== undefined) rejectSensitiveRecvArgv(options);
   if (options.outFromArgv) rejectSensitiveRecvOutputArgv(options);
+}
+
+function resolveServerUrl(options: CommonOptions): string {
+  if (options.serverEnv !== undefined && options.serverFromArgv) throw new Error("Use only one signaling server URL input source.");
+  if (options.serverFromArgv) warnSensitiveServerArgv(options);
+  const serverUrl = options.serverEnv === undefined ? options.server : readServerUrlEnv(options.serverEnv);
+  options.resolvedServerUrl = serverUrl;
+  return serverUrl;
 }
 
 async function readCodeFromStdin(label: string): Promise<string> {
@@ -566,6 +584,20 @@ function readOutputDirEnv(name: string): string {
     utf8ByteLengthExceeds(value, CLI_OUTPUT_DIR_ENV_MAX_BYTES) ||
     UNSAFE_OUTPUT_DIR_ENV_CHARS.test(value)
   ) {
+    throw new Error(`Environment variable ${name} is invalid.`);
+  }
+  return value;
+}
+
+function readServerUrlEnv(name: string): string {
+  if (name.length > 128 || !ENV_NAME_PATTERN.test(name)) throw new Error("Environment variable name is invalid.");
+  const descriptor = Object.getOwnPropertyDescriptor(process.env, name);
+  if (!descriptor || !("value" in descriptor) || descriptor.value === undefined) {
+    throw new Error(`Environment variable ${name} is not set.`);
+  }
+  const value = descriptor.value;
+  clearEnvValue(name);
+  if (typeof value !== "string" || value.length === 0 || utf8ByteLengthExceeds(value, CLI_SERVER_URL_ENV_MAX_BYTES) || /[\p{Cc}\p{Cf}]/u.test(value)) {
     throw new Error(`Environment variable ${name} is invalid.`);
   }
   return value;
@@ -966,6 +998,10 @@ function warnSensitiveRecvArgv(options: CommonOptions): void {
   printArgvTelemetryWarning(options, "recv_argv_telemetry", RECV_ARGV_TELEMETRY_WARNING);
 }
 
+function warnSensitiveServerArgv(options: CommonOptions): void {
+  printArgvTelemetryWarning(options, "server_argv_telemetry", SERVER_ARGV_TELEMETRY_WARNING);
+}
+
 function printArgvTelemetryWarning(options: CommonOptions, warning: string, message: string): void {
   if (options.quiet) return;
   const safeMessage = sanitizeDisplayText(message);
@@ -992,6 +1028,10 @@ function rejectSensitiveRecvOutputArgv(options: CommonOptions): void {
   if (options.requirePrivateInput) throw new Error("Output directory argv is disabled by --require-private-input. Use --out-env or the current working directory.");
 }
 
+function rejectSensitiveServerArgv(options: CommonOptions): void {
+  if (options.requirePrivateInput) throw new Error("Signaling server URL argv is disabled by --require-private-input. Use --server-env.");
+}
+
 async function runWithExit(fn: () => Promise<void>, options: CommonOptions): Promise<void> {
   try {
     await fn();
@@ -1004,12 +1044,27 @@ async function runWithExit(fn: () => Promise<void>, options: CommonOptions): Pro
 }
 
 function printError(options: CommonOptions, error: unknown, code: number): void {
-  const message = sanitizeDisplayText(options.redactOutput ? redactedErrorMessage(code) : redactLocalPathEvidence(safeErrorMessage(error)));
+  const message = sanitizeDisplayText(options.redactOutput ? redactedErrorMessage(code) : redactConfiguredServerEvidence(redactCliErrorEvidence(safeErrorMessage(error)), options));
   if (options.json) {
     console.error(JSON.stringify(sanitizeStructuredOutput({ event: "error", code, message })));
     return;
   }
   console.error(message);
+}
+
+function redactConfiguredServerEvidence(message: string, options: CommonOptions): string {
+  const endpoint = options.resolvedServerUrl ?? options.server;
+  if (typeof endpoint !== "string" || endpoint.length === 0) return message;
+  let redacted = message.split(endpoint).join("[endpoint]");
+  try {
+    const url = new URL(endpoint);
+    for (const evidence of [url.href, url.host, url.hostname]) {
+      if (evidence) redacted = redacted.split(evidence).join("[endpoint]");
+    }
+  } catch {
+    // Invalid endpoint text is handled elsewhere; this is best-effort error rendering.
+  }
+  return redacted;
 }
 
 function redactedErrorMessage(code: number): string {

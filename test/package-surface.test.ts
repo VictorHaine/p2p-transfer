@@ -452,12 +452,12 @@ test("packed package smoke installs and executes published bins", () => {
   assert.doesNotMatch(packedSmokeScript, /version\.stdout\.includes/);
   assert.match(packedSmokeScript, /pnpm.*exec", "ff-server"/);
   assert.match(packedSmokeScript, /async function smokeInstalledTransfer\(consumerDir, childEnv, port, tmp\)/);
-  assert.match(packedSmokeScript, /"exec", "ff", "--server", serverUrl, "--json", "--local-private-mode", "recv", "--code-stdin", "--yes", "--out-env", "FF_RECEIVE_OUT"/);
-  assert.match(packedSmokeScript, /env: \{ \.\.\.childEnv, FF_RECEIVE_OUT: out \}/);
+  assert.match(packedSmokeScript, /"exec", "ff", "--server-env", "FF_SIGNALING_SERVER", "--json", "--local-private-mode", "recv", "--code-stdin", "--yes", "--out-env", "FF_RECEIVE_OUT"/);
+  assert.match(packedSmokeScript, /env: \{ \.\.\.childEnv, FF_RECEIVE_OUT: out, FF_SIGNALING_SERVER: serverUrl \}/);
   assert.match(packedSmokeScript, /endCheckedChildStdin\(receiver, `\$\{code\}\\n`, "packed ff recv"/);
   assert.match(packedSmokeScript, /let receiverStdinError/);
   assert.match(packedSmokeScript, /throw receiverStdinError \?\? error/);
-  assert.match(packedSmokeScript, /"exec", "ff", "--server", serverUrl, "--json", "--local-private-mode", "send", "--code-stdin", "--files-stdin"/);
+  assert.match(packedSmokeScript, /"exec", "ff", "--server-env", "FF_SIGNALING_SERVER", "--json", "--local-private-mode", "send", "--code-stdin", "--files-stdin"/);
   assert.match(packedSmokeScript, /stdin: `\$\{code\}\\n\$\{source\}\\n`/);
   assert.match(packedSmokeScript, /Packed installed ff recv did not use an opaque output name\./);
   assert.match(packedSmokeScript, /function checkedChildStdin\(value\)/);

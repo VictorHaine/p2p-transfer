@@ -77,7 +77,8 @@ test("CLI local-private-mode redacts transfer metadata during a real transfer", 
     ...testChildEnv(tmp),
     FF_PRIVATE_RECEIVE_CODE: code,
     FF_PRIVATE_SEND_CODE: code,
-    FF_PRIVATE_RECEIVE_OUT: out
+    FF_PRIVATE_RECEIVE_OUT: out,
+    FF_PRIVATE_SIGNALING_SERVER: `ws://127.0.0.1:${port}/v1/ws`
   };
   const server = spawn(process.execPath, ["dist-node/server/index.js"], {
     cwd: root,
@@ -88,15 +89,14 @@ test("CLI local-private-mode redacts transfer metadata during a real transfer", 
 
   try {
     await waitForOutput(server, /listening/);
-    const serverUrl = `ws://127.0.0.1:${port}/v1/ws`;
-    receiver = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "--local-private-mode", "recv", "--code-env", "FF_PRIVATE_RECEIVE_CODE", "--out-env", "FF_PRIVATE_RECEIVE_OUT", "--yes"], {
+    receiver = spawn(process.execPath, ["dist-node/cli/index.js", "--server-env", "FF_PRIVATE_SIGNALING_SERVER", "--json", "--local-private-mode", "recv", "--code-env", "FF_PRIVATE_RECEIVE_CODE", "--out-env", "FF_PRIVATE_RECEIVE_OUT", "--yes"], {
       cwd: root,
       env: childEnv
     });
     const receiverDone = waitForExitWithOutput(receiver, "receiver", CHILD_EXIT_TIMEOUT_MS);
     await waitForOutput(receiver, /"registered"/);
 
-    sender = spawn(process.execPath, ["dist-node/cli/index.js", "--server", serverUrl, "--json", "--local-private-mode", "send", "--code-env", "FF_PRIVATE_SEND_CODE", "--files-stdin"], {
+    sender = spawn(process.execPath, ["dist-node/cli/index.js", "--server-env", "FF_PRIVATE_SIGNALING_SERVER", "--json", "--local-private-mode", "send", "--code-env", "FF_PRIVATE_SEND_CODE", "--files-stdin"], {
       cwd: root,
       env: childEnv
     });

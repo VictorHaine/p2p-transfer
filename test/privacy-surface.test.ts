@@ -134,11 +134,11 @@ test("CLI redacted error output does not render transfer exception metadata", ()
   assert.match(cliSource, /--redact-output", "redact transfer codes, SAS, file metadata, and byte counts from CLI output, JSON events, and error text"/);
   for (const source of [cliSource, distCliSource]) {
     const printErrorBody = extractFunctionBody(source, "printError");
-    assert.match(printErrorBody, /options\.redactOutput \? redactedErrorMessage\(code\) : redactLocalPathEvidence\(safeErrorMessage\(error\)\)/);
+    assert.match(printErrorBody, /options\.redactOutput \? redactedErrorMessage\(code\) : redactConfiguredServerEvidence\(redactCliErrorEvidence\(safeErrorMessage\(error\)\), options\)/);
     assert.equal(printErrorBody.indexOf("redactedErrorMessage(code)") < printErrorBody.indexOf("sanitizeStructuredOutput"), true);
     const redactedErrorBody = extractFunctionBody(source, "redactedErrorMessage");
     assert.match(redactedErrorBody, /Command failed\. Re-run without --redact-output for details\./);
-    assert.doesNotMatch(redactedErrorBody, /safeErrorMessage|redactLocalPathEvidence|formatBytes|error\.message|file\.name|state\.name/);
+    assert.doesNotMatch(redactedErrorBody, /safeErrorMessage|redactCliErrorEvidence|redactLocalPathEvidence|formatBytes|error\.message|file\.name|state\.name/);
   }
 });
 

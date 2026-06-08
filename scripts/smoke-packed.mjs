@@ -227,9 +227,9 @@ async function smokeInstalledTransfer(consumerDir, childEnv, port, tmp) {
   await writeFile(source, expected);
   const serverUrl = `ws://127.0.0.1:${port}/v1/ws`;
   const code = "12345678-apple-anchor";
-  const receiver = spawn(pnpm, ["exec", "ff", "--server", serverUrl, "--json", "--local-private-mode", "recv", "--code-stdin", "--yes", "--out-env", "FF_RECEIVE_OUT"], {
+  const receiver = spawn(pnpm, ["exec", "ff", "--server-env", "FF_SIGNALING_SERVER", "--json", "--local-private-mode", "recv", "--code-stdin", "--yes", "--out-env", "FF_RECEIVE_OUT"], {
     cwd: consumerDir,
-    env: { ...childEnv, FF_RECEIVE_OUT: out },
+    env: { ...childEnv, FF_RECEIVE_OUT: out, FF_SIGNALING_SERVER: serverUrl },
     stdio: ["pipe", "pipe", "pipe"]
   });
   const receiverOutput = captureChildOutput(receiver);
@@ -248,10 +248,10 @@ async function smokeInstalledTransfer(consumerDir, childEnv, port, tmp) {
       throw receiverStdinError ?? error;
     });
     if (receiverStdinError) throw receiverStdinError;
-    const sender = await run(pnpm, ["exec", "ff", "--server", serverUrl, "--json", "--local-private-mode", "send", "--code-stdin", "--files-stdin"], {
+    const sender = await run(pnpm, ["exec", "ff", "--server-env", "FF_SIGNALING_SERVER", "--json", "--local-private-mode", "send", "--code-stdin", "--files-stdin"], {
       cwd: consumerDir,
       timeoutMs: 90_000,
-      env: childEnv,
+      env: { ...childEnv, FF_SIGNALING_SERVER: serverUrl },
       stdin: `${code}\n${source}\n`
     });
     const receiverResult = await waitForExitWithOutput(receiver, 90_000, receiverOutput);
