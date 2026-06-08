@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
 import { constants, realpathSync } from "node:fs";
-import { lstat, open, readdir, realpath, writeFile } from "node:fs/promises";
+import { lstat, open, readdir, realpath } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { safeChildEnv } from "./smoke-packed.mjs";
@@ -34,6 +34,10 @@ function releaseSbomErrorMessage(error) {
 
 function noFollowReadFlags() {
   return constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0);
+}
+
+function noFollowCreateFlags() {
+  return constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0);
 }
 
 function assertNoArgs(args) {
@@ -117,6 +121,10 @@ function sameFile(left, right) {
   return left.dev === right.dev && left.ino === right.ino && left.size === right.size && left.mtimeMs === right.mtimeMs && left.ctimeMs === right.ctimeMs;
 }
 
+function sameFileIdentity(left, right) {
+  return left.dev === right.dev && left.ino === right.ino;
+}
+
 async function verifiedArtifactDir() {
   const artifactDir = path.join(projectRoot, "release-artifacts");
   let info;
@@ -136,11 +144,47 @@ async function verifiedArtifactDir() {
   return realArtifactDir;
 }
 
+async function writeNewArtifactFile(artifactDir, name, body, description) {
+  const filePath = path.join(artifactDir, name);
+  const bodyBytes = Buffer.from(body, "utf8");
+  const handle = await open(filePath, noFollowCreateFlags(), 0o644).catch(() => {
+    throw new Error(`${description} could not be created.`);
+  });
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile() || stat.size !== 0) throw new Error(`${description} output is invalid.`);
+    const info = await lstat(filePath).catch(() => {
+      throw new Error(`${description} output could not be verified.`);
+    });
+    if (!sameFileIdentity(info, stat)) throw new Error(`${description} output changed before writing.`);
+    const realProjectRoot = await realpathStrict(projectRoot, "project root");
+    const realFilePath = await realpathStrict(filePath, description);
+    if (!isPathInside(realProjectRoot, realFilePath)) throw new Error(`${description} output must stay inside the project root.`);
+    await writeAll(handle, bodyBytes, description);
+    const afterWrite = await handle.stat();
+    if (!sameFileIdentity(stat, afterWrite) || afterWrite.size !== bodyBytes.byteLength) {
+      throw new Error(`${description} output changed while writing.`);
+    }
+  } finally {
+    bodyBytes.fill(0);
+    await handle.close();
+  }
+}
+
 async function realpathStrict(targetPath, description) {
   try {
     return await realpath(targetPath);
   } catch {
     throw new Error(`${description} could not be verified.`);
+  }
+}
+
+async function writeAll(handle, body, description) {
+  let offset = 0;
+  while (offset < body.byteLength) {
+    const { bytesWritten } = await handle.write(body, offset, body.byteLength - offset, offset);
+    if (bytesWritten === 0) throw new Error(`${description} output write made no progress.`);
+    offset += bytesWritten;
   }
 }
 
@@ -384,7 +428,7 @@ async function writeReleaseSbom() {
   await assertOnlyPackedTarball(artifactDir, expectedTarballName);
   const sbomText = await generateSbom();
   validateSbomText(sbomText, packageJson);
-  await writeFile(path.join(artifactDir, SBOM_NAME), sbomText, { flag: "wx" });
+  await writeNewArtifactFile(artifactDir, SBOM_NAME, sbomText, "release SBOM");
 }
 
 if (isMain()) {

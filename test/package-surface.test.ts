@@ -970,13 +970,23 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(releaseWorkflow, /Verify release notes[\s\S]*node scripts\/write-release-notes\.mjs --check[\s\S]*pack release artifact[\s\S]*node scripts\/smoke-release-artifact\.mjs --keep-artifacts/);
   assert.doesNotMatch(releaseWorkflow, /pack release artifact[\s\S]*(rm -rf release-artifacts|mkdir -p release-artifacts|pnpm --config\.ignore-scripts=true pack --pack-destination release-artifacts|node scripts\/write-release-checksum\.mjs)/);
   assert.match(releaseSbomScript, /spawn\(pnpm, \["sbom", "--sbom-format", "cyclonedx", "--prod", "--sbom-type", "application"\]/);
-  assert.match(releaseSbomScript, /await writeFile\(path\.join\(artifactDir, SBOM_NAME\), sbomText, \{ flag: "wx" \}\)/);
-  assert.match(releaseChecksumScript, /return `\$\{packedPackageName\(name\)\}-\$\{version\}\.tgz`[\s\S]*const expectedTarballName = expectedTarballNameFor\(packageJson\)[\s\S]*entries\.length !== 2[\s\S]*entry\.name === expectedTarballName[\s\S]*entry\.name === SBOM_NAME[\s\S]*const tarballChecksum = createHash\("sha256"\)[\s\S]*const sbomChecksum = createHash\("sha256"\)[\s\S]*writeFile\(path\.join\(artifactDir, "SHA256SUMS"\), `\$\{tarballChecksum\}  \$\{expectedTarballName\}\\n\$\{sbomChecksum\}  \$\{SBOM_NAME\}\\n`, \{ flag: "wx" \}\)/);
+  assert.match(releaseSbomScript, /await writeNewArtifactFile\(artifactDir, SBOM_NAME, sbomText, "release SBOM"\)/);
+  assert.match(releaseChecksumScript, /return `\$\{packedPackageName\(name\)\}-\$\{version\}\.tgz`[\s\S]*const expectedTarballName = expectedTarballNameFor\(packageJson\)[\s\S]*entries\.length !== 2[\s\S]*entry\.name === expectedTarballName[\s\S]*entry\.name === SBOM_NAME[\s\S]*const tarballChecksum = createHash\("sha256"\)[\s\S]*const sbomChecksum = createHash\("sha256"\)[\s\S]*writeNewArtifactFile\(artifactDir, "SHA256SUMS", `\$\{tarballChecksum\}  \$\{expectedTarballName\}\\n\$\{sbomChecksum\}  \$\{SBOM_NAME\}\\n`, "release checksum"\)/);
   assert.match(releaseChecksumScript, /async function verifiedArtifactDir\(\)/);
   assert.match(releaseChecksumScript, /const artifactDir = await verifiedArtifactDir\(\)/);
   assert.match(releaseNotesScript, /async function verifiedArtifactDir\(\)/);
-  assert.match(releaseNotesScript, /writeFile\(path\.join\(await verifiedArtifactDir\(\), "RELEASE_NOTES\.md"\), notes, \{ flag: "wx" \}\)/);
-  assert.match(securityPolicy, /release checksum, SBOM, and release-notes writers must verify `release-artifacts` is a real directory inside the project root/);
+  assert.match(releaseNotesScript, /writeNewArtifactFile\(await verifiedArtifactDir\(\), "RELEASE_NOTES\.md", notes, "release notes"\)/);
+  assert.match(securityPolicy, /release checksum, SBOM, and release-notes writers must verify `release-artifacts` is a real directory inside the project root[\s\S]*exclusive no-follow opened handles/);
+  for (const script of [releaseChecksumScript, releaseSbomScript, releaseNotesScript]) {
+    assert.match(script, /function noFollowCreateFlags\(\)[\s\S]*constants\.O_CREAT[\s\S]*constants\.O_EXCL[\s\S]*constants\.O_NOFOLLOW/);
+    assert.match(script, /async function writeNewArtifactFile/);
+    assert.match(script, /const stat = await handle\.stat\(\)/);
+    assert.match(script, /const info = await lstat\(filePath\)/);
+    assert.match(script, /sameFileIdentity\(info, stat\)/);
+    assert.match(script, /const realFilePath = await realpathStrict\(filePath, description\)/);
+    assert.match(script, /writeAll\(handle, bodyBytes, description\)/);
+    assert.match(script, /afterWrite\.size !== bodyBytes\.byteLength/);
+  }
   assert.match(releaseChecksumScript, /fileURLToPath\(import\.meta\.url\)/);
   assert.match(releaseChecksumScript, /const MAX_TARBALL_BYTES = 50 \* 1024 \* 1024/);
   assert.match(releaseChecksumScript, /constants\.O_NOFOLLOW/);
