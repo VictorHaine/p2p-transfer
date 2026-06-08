@@ -68,6 +68,45 @@ test("browser sender interoperates with CLI receiver", browserTestOptions, async
   }
 });
 
+test("browser sender clears selected files after local validation failure", browserTestOptions, async () => {
+  const root = process.cwd();
+  const port = 32_000 + randomInt(1_000);
+  const origin = `http://127.0.0.1:${port}`;
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ff-browser-send-clear-"));
+  const childEnv = testChildEnv(tmp);
+  const server = spawn(process.execPath, ["dist-node/server/index.js"], {
+    cwd: root,
+    env: { ...childEnv, PORT: String(port), HOST: "127.0.0.1", NODE_ENV: "production", ALLOWED_ORIGINS: origin, SIGNALING_TOPOLOGY: "single-instance", ALLOW_INSECURE_ORIGINS: "true" }
+  });
+
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  try {
+    await waitForOutput(server, /listening/);
+    const source = path.join(tmp, "private-browser-source-name.txt");
+    await fs.writeFile(source, "browser local validation cleanup\n");
+
+    browser = await chromium.launch(chromiumLaunchOptions());
+    const page = await browser.newPage();
+    await page.goto(`http://127.0.0.1:${port}/`);
+    await page.locator("#sendCode").fill("not-a-valid-code");
+    await page.locator("#fileInput").setInputFiles(source);
+    assert.equal(await browserSelectedFileCount(page), 1);
+    await page.locator('button[type="submit"]').click();
+    await expectText(page.locator("#sendStatus"), "Failed");
+    await waitForSelectedFileCount(page, 0);
+
+    assert.equal(await page.locator("#sendCode").inputValue(), "");
+    assert.equal(await browserSelectedFileCount(page), 0);
+    const sendLogText = (await page.locator("#sendLog").textContent()) ?? "";
+    assert.equal(sendLogText, "Code must look like 12345678-two-words.");
+    assert.doesNotMatch(sendLogText, /private-browser-source-name|not-a-valid-code/);
+  } finally {
+    await browser?.close();
+    server.kill();
+    await removeTestTemp(tmp);
+  }
+});
+
 test("browser sender resumes into CLI receiver partials", browserTestOptions, async () => {
   const root = process.cwd();
   const port = 28_000 + randomInt(1_000);
@@ -1047,6 +1086,14 @@ type FolderSnapshot = { files: Record<string, string>; byteLengths: Record<strin
 
 function folderPickerSnapshot(page: Page): Promise<FolderSnapshot> {
   return page.evaluate(() => (window as unknown as { __ffTestFs: { snapshot: () => FolderSnapshot } }).__ffTestFs.snapshot());
+}
+
+function browserSelectedFileCount(page: Page): Promise<number> {
+  return page.evaluate(() => document.querySelector<HTMLInputElement>("#fileInput")?.files?.length ?? -1);
+}
+
+async function waitForSelectedFileCount(page: Page, count: number): Promise<void> {
+  await page.waitForFunction((expected) => document.querySelector<HTMLInputElement>("#fileInput")?.files?.length === expected, count, { timeout: 30_000 });
 }
 
 async function installFolderFinalAckFailure(page: Page): Promise<void> {

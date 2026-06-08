@@ -254,7 +254,7 @@ sendForm.addEventListener("submit", (event) => {
       setLog(sendLog, topLevelBrowserErrorMessage(error, "send"));
     })
     .finally(() => {
-      clearBrowserSendCode();
+      clearBrowserSendInputs();
       sendBusy = false;
       updateOperationControls();
     });
@@ -1280,9 +1280,13 @@ async function promptForBrowserAccept(manifest: FileManifest, sas: string, requi
 }
 
 function clearBrowserSendSecrets(): void {
+  clearBrowserSendInputs();
+  sendLog.textContent = "";
+}
+
+function clearBrowserSendInputs(): void {
   clearBrowserSendCode();
   fileInput.value = "";
-  sendLog.textContent = "";
 }
 
 function clearBrowserSendCode(): void {

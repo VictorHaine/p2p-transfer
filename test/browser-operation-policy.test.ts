@@ -28,7 +28,7 @@ test("browser top-level transfer failures update visible status", () => {
     webSource,
     /sendFromBrowser\(\)[\s\S]*\.catch\(\(error\) => \{[\s\S]*setStatus\(sendStatus, "Failed"\);[\s\S]*setLog\(sendLog, topLevelBrowserErrorMessage\(error, "send"\)\);[\s\S]*\}\)/
   );
-  assert.match(webSource, /sendFromBrowser\(\)[\s\S]*\.finally\(\(\) => \{[\s\S]*clearBrowserSendCode\(\);[\s\S]*sendBusy = false;/);
+  assert.match(webSource, /sendFromBrowser\(\)[\s\S]*\.finally\(\(\) => \{[\s\S]*clearBrowserSendInputs\(\);[\s\S]*sendBusy = false;/);
   assert.match(
     webSource,
     /receiveInBrowser\(\)[\s\S]*\.catch\(\(error\) => \{[\s\S]*setStatus\(recvStatus, "Failed"\);[\s\S]*setLog\(recvLog, topLevelBrowserErrorMessage\(error, "receive"\)\);[\s\S]*\}\)/
@@ -115,7 +115,7 @@ test("browser interop tests fail closed unless browser skipping is explicit", ()
   assert.match(browserInteropTest, /async function removeTestTemp\(dir: string\): Promise<void>/);
   assert.match(browserInteropTest, /await fs\.rm\(dir, \{ recursive: true, force: true \}\);/);
   assert.doesNotMatch(browserInteropTest, /removeTestTemp[\s\S]*catch\(\(\) => undefined\)/);
-  assert.equal(browserInteropTest.match(/await removeTestTemp\(tmp\);/g)?.length, 14);
+  assert.equal(browserInteropTest.match(/await removeTestTemp\(tmp\);/g)?.length, 15);
   assert.doesNotMatch(browserInteropTest, /skip: chromiumPath \? false : "No Chromium executable found"/);
 });
 
@@ -125,8 +125,10 @@ test("browser sender revalidates transfer manifests at the send boundary", () =>
     webSource,
     /const sendPlan = await buildBrowserSendPlan\(files\);[\s\S]*const manifest = browserSendPlanManifest\(sendPlan\);[\s\S]*keys = await establishBrowserKeys\(signaling, joined\.sid, "sender", parsedCode\.handle\);[\s\S]*setLog\(sendLog, `SAS \$\{keys\.sas\}`\);[\s\S]*const sealedManifest = await sealManifest\(keys, manifest\);[\s\S]*signaling\.send\(\{ type: "pair-request", sid: joined\.sid, manifest: redactManifest\(manifest\), sealedManifest \}\)/
   );
-  assert.match(webSource, /function clearBrowserSendSecrets\(\): void \{[\s\S]*clearBrowserSendCode\(\);\n\s+fileInput\.value = "";\n\s+sendLog\.textContent = "";/);
+  assert.match(webSource, /function clearBrowserSendSecrets\(\): void \{[\s\S]*clearBrowserSendInputs\(\);\n\s+sendLog\.textContent = "";/);
+  assert.match(webSource, /function clearBrowserSendInputs\(\): void \{[\s\S]*clearBrowserSendCode\(\);\n\s+fileInput\.value = "";/);
   assert.match(webSource, /function clearBrowserSendCode\(\): void \{[\s\S]*sendCode\.value = "";/);
+  assert.match(webSource, /sendFromBrowser\(\)[\s\S]*\.finally\(\(\) => \{[\s\S]*clearBrowserSendInputs\(\);[\s\S]*sendBusy = false;/);
   assert.match(webSource, /sendFromBrowser\(\)[\s\S]*finally \{[\s\S]*clearBrowserSendSecrets\(\);[\s\S]*\}/);
   assert.match(
     webSource,
