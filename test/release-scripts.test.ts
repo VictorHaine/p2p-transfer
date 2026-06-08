@@ -316,6 +316,7 @@ test("GitHub release API verifies the tag and uploads exact release assets", asy
   const requests: Array<{ method: string; url: string; body: string }> = [];
   const uploads: Array<{ name: string | null; body: string; type: string | null }> = [];
   const liveChecks: string[] = [];
+  const assets = releaseAssets();
   try {
     globalThis.fetch = async (url, init = {}) => {
       const parsed = new URL(String(url));
@@ -336,6 +337,16 @@ test("GitHub release API verifies the tag and uploads exact release assets", asy
         uploads.push({ name: parsed.searchParams.get("name"), body, type });
         return json(201, { name: parsed.searchParams.get("name") });
       }
+      if (parsed.origin === "https://api.github.com" && method === "GET" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/releases/99/assets") {
+        assert.equal(parsed.searchParams.get("per_page"), "100");
+        return json(200, releaseAssetRecords(assets));
+      }
+      if (parsed.origin === "https://api.github.com" && method === "GET" && parsed.pathname.startsWith("/repos/VictorHaine/p2p-transfer/releases/assets/")) {
+        const id = Number(parsed.pathname.split("/").pop());
+        const asset = assets[id - 1];
+        assert.ok(asset);
+        return new Response(asset.bytes);
+      }
       if (parsed.origin === "https://api.github.com" && method === "PATCH" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/releases/99") {
         assert.deepEqual(JSON.parse(body), { draft: false });
         return json(200, { id: 99, tag_name: "v0.1.0", draft: false });
@@ -343,7 +354,6 @@ test("GitHub release API verifies the tag and uploads exact release assets", asy
       return json(500, {});
     };
 
-    const assets = releaseAssets();
     const checksumBody = assets.find((asset) => asset.name === "SHA256SUMS")?.bytes.toString("utf8");
     assert.ok(checksumBody);
     await createGitHubRelease("token-that-must-not-be-printed", "VictorHaine/p2p-transfer", "v0.1.0", RELEASE_TEST_SHA, "scoped release notes", assets, async () => {
@@ -356,9 +366,13 @@ test("GitHub release API verifies the tag and uploads exact release assets", asy
       "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=p2p-transfer-0.1.0.tgz",
       "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=SHA256SUMS",
       "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=SBOM.cdx.json",
+      "GET https://api.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?per_page=100",
+      "GET https://api.github.com/repos/VictorHaine/p2p-transfer/releases/assets/1",
+      "GET https://api.github.com/repos/VictorHaine/p2p-transfer/releases/assets/2",
+      "GET https://api.github.com/repos/VictorHaine/p2p-transfer/releases/assets/3",
       "PATCH https://api.github.com/repos/VictorHaine/p2p-transfer/releases/99"
     ]);
-    assert.deepEqual(liveChecks, ["before:1", "before:5"]);
+    assert.deepEqual(liveChecks, ["before:1", "before:9"]);
     assert.deepEqual(uploads, [
       { name: "p2p-transfer-0.1.0.tgz", body: "tarball-bytes", type: "application/gzip" },
       { name: "SHA256SUMS", body: checksumBody, type: "text/plain; charset=utf-8" },
@@ -399,6 +413,7 @@ test("GitHub release API recovers an existing draft release on rerun", async () 
   const originalFetch = globalThis.fetch;
   const requests: string[] = [];
   const liveChecks: string[] = [];
+  const assets = releaseAssets();
   let createAttempts = 0;
   try {
     globalThis.fetch = async (url, init = {}) => {
@@ -423,18 +438,28 @@ test("GitHub release API recovers an existing draft release on rerun", async () 
       if (parsed.origin === "https://uploads.github.com" && method === "POST" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/releases/99/assets") {
         return json(201, { name: parsed.searchParams.get("name") });
       }
+      if (parsed.origin === "https://api.github.com" && method === "GET" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/releases/99/assets") {
+        assert.equal(parsed.searchParams.get("per_page"), "100");
+        return json(200, releaseAssetRecords(assets));
+      }
+      if (parsed.origin === "https://api.github.com" && method === "GET" && parsed.pathname.startsWith("/repos/VictorHaine/p2p-transfer/releases/assets/")) {
+        const id = Number(parsed.pathname.split("/").pop());
+        const asset = assets[id - 1];
+        assert.ok(asset);
+        return new Response(asset.bytes);
+      }
       if (parsed.origin === "https://api.github.com" && method === "PATCH" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/releases/99") {
         return json(200, { id: 99, tag_name: "v0.1.0", draft: false });
       }
       return json(500, {});
     };
 
-    await createGitHubRelease("token-that-must-not-be-printed", "VictorHaine/p2p-transfer", "v0.1.0", RELEASE_TEST_SHA, "scoped release notes", releaseAssets(), async () => {
+    await createGitHubRelease("token-that-must-not-be-printed", "VictorHaine/p2p-transfer", "v0.1.0", RELEASE_TEST_SHA, "scoped release notes", assets, async () => {
       liveChecks.push(`before:${requests.length}`);
     });
 
     assert.equal(createAttempts, 2);
-    assert.deepEqual(liveChecks, ["before:1", "before:4", "before:8"]);
+    assert.deepEqual(liveChecks, ["before:1", "before:4", "before:12"]);
     assert.deepEqual(requests, [
       "GET https://api.github.com/repos/VictorHaine/p2p-transfer/git/ref/tags/v0.1.0",
       "POST https://api.github.com/repos/VictorHaine/p2p-transfer/releases",
@@ -444,6 +469,10 @@ test("GitHub release API recovers an existing draft release on rerun", async () 
       "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=p2p-transfer-0.1.0.tgz",
       "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=SHA256SUMS",
       "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=SBOM.cdx.json",
+      "GET https://api.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?per_page=100",
+      "GET https://api.github.com/repos/VictorHaine/p2p-transfer/releases/assets/1",
+      "GET https://api.github.com/repos/VictorHaine/p2p-transfer/releases/assets/2",
+      "GET https://api.github.com/repos/VictorHaine/p2p-transfer/releases/assets/3",
       "PATCH https://api.github.com/repos/VictorHaine/p2p-transfer/releases/99"
     ]);
     assert.doesNotMatch(JSON.stringify(requests), /token-that-must-not-be-printed|private/);
@@ -739,6 +768,7 @@ test("GitHub release API deletes draft releases when final publish fails", async
   const { createGitHubRelease } = await import(`../scripts/create-github-release.mjs?release-publish-cleanup=${Date.now()}`);
   const originalFetch = globalThis.fetch;
   const requests: string[] = [];
+  const assets = releaseAssets();
   try {
     globalThis.fetch = async (url, init = {}) => {
       const parsed = new URL(String(url));
@@ -754,6 +784,16 @@ test("GitHub release API deletes draft releases when final publish fails", async
       if (parsed.origin === "https://uploads.github.com" && method === "POST" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/releases/99/assets") {
         return json(201, { name: parsed.searchParams.get("name") });
       }
+      if (parsed.origin === "https://api.github.com" && method === "GET" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/releases/99/assets") {
+        assert.equal(parsed.searchParams.get("per_page"), "100");
+        return json(200, releaseAssetRecords(assets));
+      }
+      if (parsed.origin === "https://api.github.com" && method === "GET" && parsed.pathname.startsWith("/repos/VictorHaine/p2p-transfer/releases/assets/")) {
+        const id = Number(parsed.pathname.split("/").pop());
+        const asset = assets[id - 1];
+        assert.ok(asset);
+        return new Response(asset.bytes);
+      }
       if (parsed.origin === "https://api.github.com" && method === "PATCH" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/releases/99") {
         return json(500, { message: "publish failed with token-that-must-not-be-printed" });
       }
@@ -767,7 +807,7 @@ test("GitHub release API deletes draft releases when final publish fails", async
     };
 
     await assert.rejects(
-      createGitHubRelease("token-that-must-not-be-printed", "VictorHaine/p2p-transfer", "v0.1.0", RELEASE_TEST_SHA, "scoped release notes", releaseAssets()),
+      createGitHubRelease("token-that-must-not-be-printed", "VictorHaine/p2p-transfer", "v0.1.0", RELEASE_TEST_SHA, "scoped release notes", assets),
       (error) => {
         assert.ok(error instanceof Error);
         assert.equal(error.message, "GitHub API request failed with HTTP status 500.");
@@ -781,6 +821,10 @@ test("GitHub release API deletes draft releases when final publish fails", async
       "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=p2p-transfer-0.1.0.tgz",
       "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=SHA256SUMS",
       "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=SBOM.cdx.json",
+      "GET https://api.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?per_page=100",
+      "GET https://api.github.com/repos/VictorHaine/p2p-transfer/releases/assets/1",
+      "GET https://api.github.com/repos/VictorHaine/p2p-transfer/releases/assets/2",
+      "GET https://api.github.com/repos/VictorHaine/p2p-transfer/releases/assets/3",
       "PATCH https://api.github.com/repos/VictorHaine/p2p-transfer/releases/99",
       "GET https://api.github.com/repos/VictorHaine/p2p-transfer/releases/99",
       "DELETE https://api.github.com/repos/VictorHaine/p2p-transfer/releases/99"
@@ -848,6 +892,10 @@ test("GitHub release API accepts an already-published draft after final publish 
       "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=p2p-transfer-0.1.0.tgz",
       "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=SHA256SUMS",
       "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=SBOM.cdx.json",
+      "GET https://api.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?per_page=100",
+      "GET https://api.github.com/repos/VictorHaine/p2p-transfer/releases/assets/1",
+      "GET https://api.github.com/repos/VictorHaine/p2p-transfer/releases/assets/2",
+      "GET https://api.github.com/repos/VictorHaine/p2p-transfer/releases/assets/3",
       "PATCH https://api.github.com/repos/VictorHaine/p2p-transfer/releases/99",
       "GET https://api.github.com/repos/VictorHaine/p2p-transfer/releases/99",
       "GET https://api.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?per_page=100",
@@ -866,6 +914,7 @@ test("GitHub release API rejects final publish ambiguity when published metadata
   const { createGitHubRelease } = await import(`../scripts/create-github-release.mjs?release-publish-metadata-mismatch=${Date.now()}`);
   const originalFetch = globalThis.fetch;
   const requests: string[] = [];
+  const assets = releaseAssets();
   try {
     globalThis.fetch = async (url, init = {}) => {
       const parsed = new URL(String(url));
@@ -881,6 +930,16 @@ test("GitHub release API rejects final publish ambiguity when published metadata
       if (parsed.origin === "https://uploads.github.com" && method === "POST" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/releases/99/assets") {
         return json(201, { name: parsed.searchParams.get("name") });
       }
+      if (parsed.origin === "https://api.github.com" && method === "GET" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/releases/99/assets") {
+        assert.equal(parsed.searchParams.get("per_page"), "100");
+        return json(200, releaseAssetRecords(assets));
+      }
+      if (parsed.origin === "https://api.github.com" && method === "GET" && parsed.pathname.startsWith("/repos/VictorHaine/p2p-transfer/releases/assets/")) {
+        const id = Number(parsed.pathname.split("/").pop());
+        const asset = assets[id - 1];
+        assert.ok(asset);
+        return new Response(asset.bytes);
+      }
       if (parsed.origin === "https://api.github.com" && method === "PATCH" && parsed.pathname === "/repos/VictorHaine/p2p-transfer/releases/99") {
         return json(500, { message: "ambiguous publish failure token-that-must-not-be-printed" });
       }
@@ -891,7 +950,7 @@ test("GitHub release API rejects final publish ambiguity when published metadata
     };
 
     await assert.rejects(
-      createGitHubRelease("token-that-must-not-be-printed", "VictorHaine/p2p-transfer", "v0.1.0", RELEASE_TEST_SHA, "scoped release notes", releaseAssets()),
+      createGitHubRelease("token-that-must-not-be-printed", "VictorHaine/p2p-transfer", "v0.1.0", RELEASE_TEST_SHA, "scoped release notes", assets),
       (error) => {
         assert.ok(error instanceof Error);
         assert.equal(error.message, "GitHub API request failed with HTTP status 500.");
@@ -905,10 +964,15 @@ test("GitHub release API rejects final publish ambiguity when published metadata
       "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=p2p-transfer-0.1.0.tgz",
       "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=SHA256SUMS",
       "POST https://uploads.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?name=SBOM.cdx.json",
+      "GET https://api.github.com/repos/VictorHaine/p2p-transfer/releases/99/assets?per_page=100",
+      "GET https://api.github.com/repos/VictorHaine/p2p-transfer/releases/assets/1",
+      "GET https://api.github.com/repos/VictorHaine/p2p-transfer/releases/assets/2",
+      "GET https://api.github.com/repos/VictorHaine/p2p-transfer/releases/assets/3",
       "PATCH https://api.github.com/repos/VictorHaine/p2p-transfer/releases/99",
       "GET https://api.github.com/repos/VictorHaine/p2p-transfer/releases/99"
     ]);
-    assert.equal(requests.some((request) => /DELETE|\/assets\?per_page=100|\/releases\/assets\//.test(request)), false);
+    assert.equal(requests.some((request) => request.startsWith("DELETE ")), false);
+    assert.equal(requests.filter((request) => /\/assets\?per_page=100/.test(request)).length, 1);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -3986,6 +4050,15 @@ function releaseAssets() {
     },
     { name: "SBOM.cdx.json", bytes: sbom }
   ];
+}
+
+function releaseAssetRecords(assets: Array<{ name: string; bytes: Buffer }>) {
+  return assets.map((asset, index) => ({
+    id: index + 1,
+    name: asset.name,
+    size: asset.bytes.length,
+    url: `https://api.github.com/repos/VictorHaine/p2p-transfer/releases/assets/${index + 1}`
+  }));
 }
 
 function sha256Hex(bytes: Buffer) {

@@ -1119,7 +1119,7 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(githubReleaseScript, /\/repos\/\$\{repository\}\/releases/);
   assert.match(githubReleaseScript, /const existing = await existingReleaseForTag\(token, repository, tag, notes\)/);
   assert.match(githubReleaseScript, /function assertPublishedReleaseMetadata\(release, tag, notes\) \{[\s\S]*release\.name !== tag \|\| release\.body !== notes \|\| release\.prerelease !== false/);
-  assert.match(githubReleaseScript, /if \(existing\.state === "published"\) \{[\s\S]*await assertPublishedReleaseAssetsMatch\(token, repository, existing\.id, assets\);[\s\S]*return \{ alreadyPublished: true \};[\s\S]*\}/);
+  assert.match(githubReleaseScript, /if \(existing\.state === "published"\) \{[\s\S]*await assertRemoteReleaseAssetsMatch\(token, repository, existing\.id, assets\);[\s\S]*return \{ alreadyPublished: true \};[\s\S]*\}/);
   assert.match(githubReleaseScript, /await liveRefCheck\(\);\n\s+return await postDraftRelease\(token, repository, tag, notes\)/);
   assert.match(githubReleaseScript, /\/repos\/\$\{repository\}\/releases\/tags\/\$\{tag\}/);
   assert.match(githubReleaseScript, /\/repos\/\$\{repository\}\/releases\/\$\{releaseId\}\/assets\?per_page=100/);
@@ -1128,11 +1128,12 @@ test("release workflow is tag-only, verifies one artifact, and publishes with tr
   assert.match(securityPolicy, /recover reruns that find an existing exact-tag draft by deleting only that draft, re-running the live ref verifier, and creating a fresh draft/);
   assert.match(securityPolicy, /recover reruns that find an already-published exact-tag release only after checking its title, release notes body, and prerelease flag against the verified release metadata and listing and byte-checking every remote asset against the verified tarball, `SHA256SUMS`, and `SBOM\.cdx\.json`/);
   assert.match(githubReleaseScript, /uploadReleaseAsset\(token, uploadUrl, asset\)/);
+  assert.match(githubReleaseScript, /await assertRemoteReleaseAssetsMatch\(token, repository, id, assets\);\n\s+\} catch \(error\) \{/);
   assert.match(githubReleaseScript, /draft: true/);
   assert.match(githubReleaseScript, /await publishDraftRelease\(token, repository, id\)/);
   assert.match(githubReleaseScript, /await reconcileDraftPublishFailure\(token, repository, id, tag, notes, assets\)\.catch\(\(\) => false\)/);
   assert.match(githubReleaseScript, /const state = releaseState\(release, id, tag, notes\)/);
-  assert.match(githubReleaseScript, /if \(state === "published"\) \{[\s\S]*await assertPublishedReleaseAssetsMatch\(token, repository, id, assets\);[\s\S]*return true;[\s\S]*\}/);
+  assert.match(githubReleaseScript, /if \(state === "published"\) \{[\s\S]*await assertRemoteReleaseAssetsMatch\(token, repository, id, assets\);[\s\S]*return true;[\s\S]*\}/);
   assert.match(githubReleaseScript, /await deleteDraftRelease\(token, repository, id\)\.catch\(\(\) => undefined\)/);
   assert.match(securityPolicy, /treat an already-published release as successful only after checking the same verified metadata and remote asset bytes/);
   assert.doesNotMatch(githubReleaseScript, /"gh"|gh release create|"--verify-tag"/);

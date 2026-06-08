@@ -158,6 +158,7 @@ export async function createGitHubRelease(token, repository, tag, expectedSha, n
     for (const asset of assets) {
       await uploadReleaseAsset(token, uploadUrl, asset);
     }
+    await assertRemoteReleaseAssetsMatch(token, repository, id, assets);
   } catch (error) {
     await deleteDraftRelease(token, repository, id).catch(() => undefined);
     throw error;
@@ -178,7 +179,7 @@ async function createDraftRelease(token, repository, tag, notes, assets, liveRef
     if (!(error instanceof GitHubApiError) || error.status !== 422) throw error;
     const existing = await existingReleaseForTag(token, repository, tag, notes);
     if (existing.state === "published") {
-      await assertPublishedReleaseAssetsMatch(token, repository, existing.id, assets);
+      await assertRemoteReleaseAssetsMatch(token, repository, existing.id, assets);
       return { alreadyPublished: true };
     }
     await deleteDraftRelease(token, repository, existing.id);
@@ -290,7 +291,7 @@ async function publishDraftRelease(token, repository, id) {
   await github(token, "PATCH", `/repos/${repository}/releases/${id}`, { draft: false });
 }
 
-async function assertPublishedReleaseAssetsMatch(token, repository, releaseId, assets) {
+async function assertRemoteReleaseAssetsMatch(token, repository, releaseId, assets) {
   const remoteAssets = await github(token, "GET", `/repos/${repository}/releases/${releaseId}/assets?per_page=100`);
   const byName = releaseAssetMetadataByName(remoteAssets, repository, assets);
   try {
@@ -352,7 +353,7 @@ async function reconcileDraftPublishFailure(token, repository, id, tag, notes, a
   const release = await github(token, "GET", `/repos/${repository}/releases/${id}`);
   const state = releaseState(release, id, tag, notes);
   if (state === "published") {
-    await assertPublishedReleaseAssetsMatch(token, repository, id, assets);
+    await assertRemoteReleaseAssetsMatch(token, repository, id, assets);
     return true;
   }
   await deleteDraftRelease(token, repository, id).catch(() => undefined);
