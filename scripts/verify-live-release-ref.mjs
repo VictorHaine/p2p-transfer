@@ -7,6 +7,7 @@ const MAX_ENV_VALUE_BYTES = 8_192;
 const MAX_GITHUB_API_RESPONSE_BYTES = 1024 * 1024;
 const GITHUB_API_TIMEOUT_MS = 30_000;
 const MAX_ERROR_MESSAGE_CHARS = 1024;
+const EXPECTED_GITHUB_REPOSITORY = "VictorHaine/p2p-transfer";
 
 const scriptPath = fileURLToPath(import.meta.url);
 
@@ -123,6 +124,7 @@ function requiredCommitSha(value) {
 
 function requiredRepository(value) {
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(value)) throw new Error("GITHUB_REPOSITORY must be owner/name.");
+  if (value !== EXPECTED_GITHUB_REPOSITORY) throw new Error("GITHUB_REPOSITORY must match the release repository.");
   return value;
 }
 
