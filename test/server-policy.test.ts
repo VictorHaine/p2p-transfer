@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { SIGNALING_MAX_ICE_CANDIDATES_PER_PEER } from "../src/shared/constants.js";
+import { MAX_FILE_BYTES, MAX_FILES_PER_SESSION, SIGNALING_MAX_ICE_CANDIDATES_PER_PEER } from "../src/shared/constants.js";
 import {
   applyRelayPhase,
   otherSessionPeerId,
@@ -141,36 +141,19 @@ test("server-visible pair request manifests must be redacted", () => {
   assert.match(policySource, /sharedPublicPairRequestManifestIsRedacted\(manifest\)/);
   assert.match(publicManifestSource, /function hasOnlyOwnDataKeys/);
   assert.match(publicManifestSource, /Object\.getOwnPropertySymbols\(value\)\.length !== 0/);
+  const redacted = constantPublicManifest();
+  assert.equal(publicPairRequestManifestIsRedacted(redacted), true);
   assert.equal(
     publicPairRequestManifestIsRedacted({
-      fileCount: 2,
-      totalBytes: 4,
-      files: [
-        { id: 0, name: "encrypted-0", size: 4 },
-        { id: 1, name: "encrypted-1", size: 0 }
-      ]
-    }),
-    true
-  );
-  assert.equal(
-    publicPairRequestManifestIsRedacted({
-      fileCount: 2,
-      totalBytes: 3,
-      files: [
-        { id: 0, name: "encrypted-0", size: 3 },
-        { id: 1, name: "encrypted-1", size: 0 }
-      ]
+      ...redacted,
+      totalBytes: redacted.totalBytes - 1
     }),
     false
   );
   assert.equal(
     publicPairRequestManifestIsRedacted({
-      fileCount: 2,
-      totalBytes: 4,
-      files: [
-        { id: 0, name: "encrypted-0", size: 1 },
-        { id: 1, name: "encrypted-1", size: 3 }
-      ]
+      ...redacted,
+      files: [{ id: 0, name: "encrypted-0", size: MAX_FILE_BYTES - 1 }, ...redacted.files.slice(1)]
     }),
     false
   );
@@ -181,30 +164,25 @@ test("server-visible pair request manifests must be redacted", () => {
   assert.equal(publicPairRequestManifestIsRedacted({ fileCount: 1, totalBytes: 1, files: [{ id: 0, name: "encrypted-1", size: 1 }] }), false);
 
   const manifestWithExtraField = {
-    fileCount: 1,
-    totalBytes: 1,
-    files: [{ id: 0, name: "encrypted-0", size: 1 }],
+    ...redacted,
     leaked: "taxes.pdf"
   };
   assert.equal(publicPairRequestManifestIsRedacted(manifestWithExtraField as never), false);
 
   const manifestWithExtraFileField = {
-    fileCount: 1,
-    totalBytes: 1,
-    files: [{ id: 0, name: "encrypted-0", size: 1, leaked: "taxes.pdf" }]
+    ...redacted,
+    files: [{ id: 0, name: "encrypted-0", size: MAX_FILE_BYTES, leaked: "taxes.pdf" }, ...redacted.files.slice(1)]
   };
   assert.equal(publicPairRequestManifestIsRedacted(manifestWithExtraFileField as never), false);
 
   const manifestWithSymbolField = {
-    fileCount: 1,
-    totalBytes: 1,
-    files: [{ id: 0, name: "encrypted-0", size: 1 }]
+    ...redacted
   };
   Object.defineProperty(manifestWithSymbolField, Symbol("leaked"), { value: "taxes.pdf" });
   assert.equal(publicPairRequestManifestIsRedacted(manifestWithSymbolField as never), false);
 });
 
-test("public pair request manifests expose only bucketed count and byte upper bounds", () => {
+test("public pair request manifests expose only a constant maximum-shape placeholder", () => {
   const publicManifest = redactManifestForSignaling({
     fileCount: 3,
     totalBytes: 184_321,
@@ -215,16 +193,7 @@ test("public pair request manifests expose only bucketed count and byte upper bo
     ]
   });
 
-  assert.deepEqual(publicManifest, {
-    fileCount: 4,
-    totalBytes: 262_144,
-    files: [
-      { id: 0, name: "encrypted-0", size: 262_144 },
-      { id: 1, name: "encrypted-1", size: 0 },
-      { id: 2, name: "encrypted-2", size: 0 },
-      { id: 3, name: "encrypted-3", size: 0 }
-    ]
-  });
+  assert.deepEqual(publicManifest, constantPublicManifest());
   assert.equal(publicPairRequestManifestIsRedacted(publicManifest), true);
   assert.equal(publicPairRequestManifestIsRedacted({ fileCount: 3, totalBytes: 184_321, files: publicManifest.files.slice(0, 3) }), false);
 });
@@ -478,6 +447,14 @@ function pake(): Extract<ClientMessage, { type: "pake" }> {
 
 function confirm(): Extract<ClientMessage, { type: "confirm" }> {
   return { type: "confirm", sid: "sid", tag: "tag" };
+}
+
+function constantPublicManifest(): FileManifest {
+  return {
+    fileCount: MAX_FILES_PER_SESSION,
+    totalBytes: MAX_FILE_BYTES * MAX_FILES_PER_SESSION,
+    files: Array.from({ length: MAX_FILES_PER_SESSION }, (_, index) => ({ id: index, name: `encrypted-${index}`, size: MAX_FILE_BYTES }))
+  };
 }
 
 function pairRequest(): Extract<ClientMessage, { type: "pair-request" }> {

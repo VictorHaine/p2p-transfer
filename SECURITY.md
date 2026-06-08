@@ -8,7 +8,7 @@ Only the latest released version is supported for security fixes until the proje
 
 Do not open a public issue for suspected vulnerabilities.
 
-Use GitHub private vulnerability reporting or a private maintainer contact for:
+Use GitHub private vulnerability reporting for:
 
 - cryptographic bypasses, PAKE confirmation failures, or signaling MITM paths
 - file overwrite, path traversal, symlink, hardlink, or partial-file cleanup issues
@@ -29,7 +29,7 @@ Expected response target: acknowledge within 72 hours, patch or publish mitigati
 
 The project is expected to preserve these invariants:
 
-- conforming clients must never send the signaling server the two secret words, PAKE output, plaintext file names, plaintext MIME types, file bytes, DataChannel plaintext, exact file count, exact manifest total bytes, exact encrypted-manifest JSON length, or declared per-file sizes; the server must reject unredacted public pair-request manifests from modified clients without forwarding or logging them, and it still receives routing metadata, bucketed public upper bounds for file count and total bytes, message timing/sizes, traffic volume, and authenticated SDP/ICE contents
+- conforming clients must never send the signaling server the two secret words, PAKE output, plaintext file names, plaintext MIME types, file bytes, DataChannel plaintext, exact file count, exact manifest total bytes, exact encrypted-manifest JSON length, or declared per-file sizes; the server must reject unredacted public pair-request manifests from modified clients without forwarding or logging them, and it still receives routing metadata, a constant maximum-shape synthetic public pair-request manifest, message timing/sizes, traffic volume, and authenticated SDP/ICE contents
 - the signaling server must not relay arbitrary peer-controlled disconnect text or stateful internal teardown text; client `bye.reason` values and server cleanup reasons must be reduced to a fixed server-owned reason set before any `peer-left` forwarding
 - production or non-loopback TURN REST deployments must require an explicit acknowledgement that the server cannot cryptographically verify receiver accept authenticity before minting short-lived relay credentials; operators must pair that acknowledgement with TURN-side allocation quotas, bandwidth caps, and abuse monitoring
 - wire-incompatible changes must bump `PROTOCOL_VERSION` and the current conformance fixture together
@@ -43,7 +43,7 @@ The project is expected to preserve these invariants:
 - local WebRTC ICE candidate callbacks must snapshot native event and candidate data into defensive plain records before signal authentication and signaling send, and browser candidate serialization must locate `toJSON` through data descriptors on the candidate/prototype chain so malformed local event objects cannot invoke accessors or mutate the candidate payload between HMAC and transport
 - browser WebRTC ICE candidate callbacks must copy the signal-authentication key, clear their handler, and wipe that callback-owned copy before session-key wipe; callback failures must close the peer connection without retaining live session key objects
 - client public manifest redaction must walk manifest fields and file entries through own data descriptors so future local call-surface changes cannot invoke accessors or leak caller-owned ids, names, or MIME types
-- client public manifest redaction must use bucketed file counts, bucketed total bytes, and synthetic per-file sizes that sum to the bucketed total, so the signaling server can validate a bounded manifest without seeing exact file count, exact manifest total bytes, or declared per-file sizes
+- client public manifest redaction must use a constant maximum-shape synthetic manifest, so the signaling server can validate a bounded manifest without seeing exact file count, exact manifest total bytes, declared per-file sizes, or bucketed count/byte upper bounds
 - encrypted manifest wrappers must be padded before AEAD sealing so signaling frame sizes reveal only a coarse encrypted-manifest bucket instead of exact private filename, MIME, and manifest JSON length
 - session ids in every signaling message schema must be restricted to the URL-safe nanoid alphabet, not arbitrary bounded or printable strings
 - PAKE confirmation must complete before pair requests and WebRTC signaling advance

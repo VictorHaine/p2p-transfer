@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { CHUNK_SIZE, MAX_FILE_NAME_CHARS, MAX_FILES_PER_SESSION, MAX_MIME_CHARS, MAX_OUTPUT_NAME_ATTEMPTS, PROTOCOL_VERSION } from "../src/shared/constants.js";
+import { CHUNK_SIZE, MAX_FILE_BYTES, MAX_FILE_NAME_CHARS, MAX_FILES_PER_SESSION, MAX_MIME_CHARS, MAX_OUTPUT_NAME_ATTEMPTS, PROTOCOL_VERSION } from "../src/shared/constants.js";
 import { decodeChunk, encodeChunk } from "../src/shared/chunks.js";
 import { assertManifestWithinLimits, assertTransferManifestWithinLimits, safeCollisionFileName, safeFileName, SAFE_FILE_NAME_BYTES } from "../src/shared/limits.js";
 import {
@@ -14,7 +14,7 @@ import { abortControlMessage, assertControlMessage, assertSenderControlMessage, 
 import { assertControlMessage as distAssertControlMessage, assertSenderControlMessage as distAssertSenderControlMessage, assertTransferManifestMatchesAccepted as distAssertTransferManifestMatchesAccepted } from "../dist-node/shared/transfer.js";
 import { generateCode, GENERATED_RENDEZVOUS_DIGITS, isValidCode, isValidRendezvous, MAX_CODE_INPUT_BYTES, normalizeCode, parseCode, RENDEZVOUS_DIGITS } from "../src/shared/wordlist.js";
 
-const vectors = JSON.parse(fs.readFileSync(new URL("../conformance/protocol-v7.json", import.meta.url), "utf8")) as {
+const vectors = JSON.parse(fs.readFileSync(new URL("../conformance/protocol-v8.json", import.meta.url), "utf8")) as {
   protocolVersion: number;
   chunkFrames: { fileId: number; chunkSeq: number; payloadHex: string; frameHex: string }[];
   controlMessages: { name: string; message: unknown; senderControl?: boolean }[];
@@ -98,12 +98,9 @@ test("pair-request conformance vector exposes only redacted public manifest meta
     | undefined;
   assert.equal(pairRequest?.type, "pair-request");
   assert.deepEqual(pairRequest.manifest, {
-    files: [
-      { id: 0, name: "encrypted-0", size: 262144 },
-      { id: 1, name: "encrypted-1", size: 0 }
-    ],
-    fileCount: 2,
-    totalBytes: 262144
+    files: Array.from({ length: MAX_FILES_PER_SESSION }, (_, id) => ({ id, name: `encrypted-${id}`, size: MAX_FILE_BYTES })),
+    fileCount: MAX_FILES_PER_SESSION,
+    totalBytes: MAX_FILE_BYTES * MAX_FILES_PER_SESSION
   });
   assert.doesNotMatch(JSON.stringify(pairRequest.manifest), /photo\.jpg|image\/jpeg/);
 });

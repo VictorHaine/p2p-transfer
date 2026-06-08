@@ -1,0 +1,835 @@
+{
+  "protocolVersion": 8,
+  "chunkFrames": [
+    {
+      "name": "basic bulk chunk frame",
+      "fileId": 7,
+      "chunkSeq": 42,
+      "payloadHex": "deadbeef",
+      "frameHex": "070000002a00000004deadbeef"
+    },
+    {
+      "name": "maximum chunk address with empty payload",
+      "fileId": 255,
+      "chunkSeq": 4294967295,
+      "payloadHex": "",
+      "frameHex": "ffffffffff00000000"
+    }
+  ],
+  "controlMessages": [
+    {
+      "name": "encrypted transfer manifest",
+      "message": {
+        "t": "manifest",
+        "files": [
+          {
+            "id": 0,
+            "name": "photo.jpg",
+            "size": 184320,
+            "mime": "image/jpeg"
+          }
+        ],
+        "totalBytes": 184320
+      }
+    },
+    {
+      "name": "file begin",
+      "message": {
+        "t": "file-begin",
+        "id": 0,
+        "name": "photo.jpg",
+        "size": 184320
+      }
+    },
+    {
+      "name": "receiver ready",
+      "message": {
+        "t": "ready",
+        "id": 0
+      },
+      "senderControl": true
+    },
+    {
+      "name": "receiver ready with resume offset and prefix hash",
+      "message": {
+        "t": "ready",
+        "id": 0,
+        "offset": 16384,
+        "prefixSha256": "63e40b2e565bbe4417e9ab4b13a84ee4fb7b4c57fd7ad70443642b0f96c50dd1"
+      },
+      "senderControl": true
+    },
+    {
+      "name": "sender restart after stale resume prefix",
+      "message": {
+        "t": "restart",
+        "id": 0
+      }
+    },
+    {
+      "name": "file end with sha256",
+      "message": {
+        "t": "file-end",
+        "id": 0,
+        "sha256": "9e812dc78fbd98dd37aac45ad03ecfe780d2150b1e4ff6e1770fe9a3b4f8c06d"
+      }
+    },
+    {
+      "name": "file ok",
+      "message": {
+        "t": "file-ok",
+        "id": 0
+      },
+      "senderControl": true
+    },
+    {
+      "name": "all done",
+      "message": {
+        "t": "all-done"
+      }
+    },
+    {
+      "name": "all done ok",
+      "message": {
+        "t": "all-done-ok"
+      },
+      "senderControl": true
+    },
+    {
+      "name": "abort",
+      "message": {
+        "t": "abort",
+        "reason": "Transfer aborted."
+      },
+      "senderControl": true
+    }
+  ],
+  "signalingMessages": [
+    {
+      "name": "legacy receiver register",
+      "direction": "client",
+      "message": {
+        "type": "register",
+        "role": "receiver",
+        "code": "12345678",
+        "protocolVersion": 8
+      },
+      "json": "{\"type\":\"register\",\"role\":\"receiver\",\"code\":\"12345678\",\"protocolVersion\":8}"
+    },
+    {
+      "name": "receiver register 12-digit",
+      "direction": "client",
+      "message": {
+        "type": "register",
+        "role": "receiver",
+        "code": "123456789012",
+        "protocolVersion": 8
+      },
+      "json": "{\"type\":\"register\",\"role\":\"receiver\",\"code\":\"123456789012\",\"protocolVersion\":8}"
+    },
+    {
+      "name": "sender connect 12-digit",
+      "direction": "client",
+      "message": {
+        "type": "connect",
+        "role": "sender",
+        "code": "123456789012",
+        "protocolVersion": 8
+      },
+      "json": "{\"type\":\"connect\",\"role\":\"sender\",\"code\":\"123456789012\",\"protocolVersion\":8}"
+    },
+    {
+      "name": "sender pair request",
+      "direction": "client",
+      "message": {
+        "type": "pair-request",
+        "sid": "sid-fixture",
+        "manifest": {
+          "files": [
+            {
+              "id": 0,
+              "name": "encrypted-0",
+              "size": 1073741824
+            },
+            {
+              "id": 1,
+              "name": "encrypted-1",
+              "size": 1073741824
+            },
+            {
+              "id": 2,
+              "name": "encrypted-2",
+              "size": 1073741824
+            },
+            {
+              "id": 3,
+              "name": "encrypted-3",
+              "size": 1073741824
+            },
+            {
+              "id": 4,
+              "name": "encrypted-4",
+              "size": 1073741824
+            },
+            {
+              "id": 5,
+              "name": "encrypted-5",
+              "size": 1073741824
+            },
+            {
+              "id": 6,
+              "name": "encrypted-6",
+              "size": 1073741824
+            },
+            {
+              "id": 7,
+              "name": "encrypted-7",
+              "size": 1073741824
+            },
+            {
+              "id": 8,
+              "name": "encrypted-8",
+              "size": 1073741824
+            },
+            {
+              "id": 9,
+              "name": "encrypted-9",
+              "size": 1073741824
+            },
+            {
+              "id": 10,
+              "name": "encrypted-10",
+              "size": 1073741824
+            },
+            {
+              "id": 11,
+              "name": "encrypted-11",
+              "size": 1073741824
+            },
+            {
+              "id": 12,
+              "name": "encrypted-12",
+              "size": 1073741824
+            },
+            {
+              "id": 13,
+              "name": "encrypted-13",
+              "size": 1073741824
+            },
+            {
+              "id": 14,
+              "name": "encrypted-14",
+              "size": 1073741824
+            },
+            {
+              "id": 15,
+              "name": "encrypted-15",
+              "size": 1073741824
+            },
+            {
+              "id": 16,
+              "name": "encrypted-16",
+              "size": 1073741824
+            },
+            {
+              "id": 17,
+              "name": "encrypted-17",
+              "size": 1073741824
+            },
+            {
+              "id": 18,
+              "name": "encrypted-18",
+              "size": 1073741824
+            },
+            {
+              "id": 19,
+              "name": "encrypted-19",
+              "size": 1073741824
+            },
+            {
+              "id": 20,
+              "name": "encrypted-20",
+              "size": 1073741824
+            },
+            {
+              "id": 21,
+              "name": "encrypted-21",
+              "size": 1073741824
+            },
+            {
+              "id": 22,
+              "name": "encrypted-22",
+              "size": 1073741824
+            },
+            {
+              "id": 23,
+              "name": "encrypted-23",
+              "size": 1073741824
+            },
+            {
+              "id": 24,
+              "name": "encrypted-24",
+              "size": 1073741824
+            },
+            {
+              "id": 25,
+              "name": "encrypted-25",
+              "size": 1073741824
+            },
+            {
+              "id": 26,
+              "name": "encrypted-26",
+              "size": 1073741824
+            },
+            {
+              "id": 27,
+              "name": "encrypted-27",
+              "size": 1073741824
+            },
+            {
+              "id": 28,
+              "name": "encrypted-28",
+              "size": 1073741824
+            },
+            {
+              "id": 29,
+              "name": "encrypted-29",
+              "size": 1073741824
+            },
+            {
+              "id": 30,
+              "name": "encrypted-30",
+              "size": 1073741824
+            },
+            {
+              "id": 31,
+              "name": "encrypted-31",
+              "size": 1073741824
+            },
+            {
+              "id": 32,
+              "name": "encrypted-32",
+              "size": 1073741824
+            },
+            {
+              "id": 33,
+              "name": "encrypted-33",
+              "size": 1073741824
+            },
+            {
+              "id": 34,
+              "name": "encrypted-34",
+              "size": 1073741824
+            },
+            {
+              "id": 35,
+              "name": "encrypted-35",
+              "size": 1073741824
+            },
+            {
+              "id": 36,
+              "name": "encrypted-36",
+              "size": 1073741824
+            },
+            {
+              "id": 37,
+              "name": "encrypted-37",
+              "size": 1073741824
+            },
+            {
+              "id": 38,
+              "name": "encrypted-38",
+              "size": 1073741824
+            },
+            {
+              "id": 39,
+              "name": "encrypted-39",
+              "size": 1073741824
+            },
+            {
+              "id": 40,
+              "name": "encrypted-40",
+              "size": 1073741824
+            },
+            {
+              "id": 41,
+              "name": "encrypted-41",
+              "size": 1073741824
+            },
+            {
+              "id": 42,
+              "name": "encrypted-42",
+              "size": 1073741824
+            },
+            {
+              "id": 43,
+              "name": "encrypted-43",
+              "size": 1073741824
+            },
+            {
+              "id": 44,
+              "name": "encrypted-44",
+              "size": 1073741824
+            },
+            {
+              "id": 45,
+              "name": "encrypted-45",
+              "size": 1073741824
+            },
+            {
+              "id": 46,
+              "name": "encrypted-46",
+              "size": 1073741824
+            },
+            {
+              "id": 47,
+              "name": "encrypted-47",
+              "size": 1073741824
+            },
+            {
+              "id": 48,
+              "name": "encrypted-48",
+              "size": 1073741824
+            },
+            {
+              "id": 49,
+              "name": "encrypted-49",
+              "size": 1073741824
+            },
+            {
+              "id": 50,
+              "name": "encrypted-50",
+              "size": 1073741824
+            },
+            {
+              "id": 51,
+              "name": "encrypted-51",
+              "size": 1073741824
+            },
+            {
+              "id": 52,
+              "name": "encrypted-52",
+              "size": 1073741824
+            },
+            {
+              "id": 53,
+              "name": "encrypted-53",
+              "size": 1073741824
+            },
+            {
+              "id": 54,
+              "name": "encrypted-54",
+              "size": 1073741824
+            },
+            {
+              "id": 55,
+              "name": "encrypted-55",
+              "size": 1073741824
+            },
+            {
+              "id": 56,
+              "name": "encrypted-56",
+              "size": 1073741824
+            },
+            {
+              "id": 57,
+              "name": "encrypted-57",
+              "size": 1073741824
+            },
+            {
+              "id": 58,
+              "name": "encrypted-58",
+              "size": 1073741824
+            },
+            {
+              "id": 59,
+              "name": "encrypted-59",
+              "size": 1073741824
+            },
+            {
+              "id": 60,
+              "name": "encrypted-60",
+              "size": 1073741824
+            },
+            {
+              "id": 61,
+              "name": "encrypted-61",
+              "size": 1073741824
+            },
+            {
+              "id": 62,
+              "name": "encrypted-62",
+              "size": 1073741824
+            },
+            {
+              "id": 63,
+              "name": "encrypted-63",
+              "size": 1073741824
+            },
+            {
+              "id": 64,
+              "name": "encrypted-64",
+              "size": 1073741824
+            },
+            {
+              "id": 65,
+              "name": "encrypted-65",
+              "size": 1073741824
+            },
+            {
+              "id": 66,
+              "name": "encrypted-66",
+              "size": 1073741824
+            },
+            {
+              "id": 67,
+              "name": "encrypted-67",
+              "size": 1073741824
+            },
+            {
+              "id": 68,
+              "name": "encrypted-68",
+              "size": 1073741824
+            },
+            {
+              "id": 69,
+              "name": "encrypted-69",
+              "size": 1073741824
+            },
+            {
+              "id": 70,
+              "name": "encrypted-70",
+              "size": 1073741824
+            },
+            {
+              "id": 71,
+              "name": "encrypted-71",
+              "size": 1073741824
+            },
+            {
+              "id": 72,
+              "name": "encrypted-72",
+              "size": 1073741824
+            },
+            {
+              "id": 73,
+              "name": "encrypted-73",
+              "size": 1073741824
+            },
+            {
+              "id": 74,
+              "name": "encrypted-74",
+              "size": 1073741824
+            },
+            {
+              "id": 75,
+              "name": "encrypted-75",
+              "size": 1073741824
+            },
+            {
+              "id": 76,
+              "name": "encrypted-76",
+              "size": 1073741824
+            },
+            {
+              "id": 77,
+              "name": "encrypted-77",
+              "size": 1073741824
+            },
+            {
+              "id": 78,
+              "name": "encrypted-78",
+              "size": 1073741824
+            },
+            {
+              "id": 79,
+              "name": "encrypted-79",
+              "size": 1073741824
+            },
+            {
+              "id": 80,
+              "name": "encrypted-80",
+              "size": 1073741824
+            },
+            {
+              "id": 81,
+              "name": "encrypted-81",
+              "size": 1073741824
+            },
+            {
+              "id": 82,
+              "name": "encrypted-82",
+              "size": 1073741824
+            },
+            {
+              "id": 83,
+              "name": "encrypted-83",
+              "size": 1073741824
+            },
+            {
+              "id": 84,
+              "name": "encrypted-84",
+              "size": 1073741824
+            },
+            {
+              "id": 85,
+              "name": "encrypted-85",
+              "size": 1073741824
+            },
+            {
+              "id": 86,
+              "name": "encrypted-86",
+              "size": 1073741824
+            },
+            {
+              "id": 87,
+              "name": "encrypted-87",
+              "size": 1073741824
+            },
+            {
+              "id": 88,
+              "name": "encrypted-88",
+              "size": 1073741824
+            },
+            {
+              "id": 89,
+              "name": "encrypted-89",
+              "size": 1073741824
+            },
+            {
+              "id": 90,
+              "name": "encrypted-90",
+              "size": 1073741824
+            },
+            {
+              "id": 91,
+              "name": "encrypted-91",
+              "size": 1073741824
+            },
+            {
+              "id": 92,
+              "name": "encrypted-92",
+              "size": 1073741824
+            },
+            {
+              "id": 93,
+              "name": "encrypted-93",
+              "size": 1073741824
+            },
+            {
+              "id": 94,
+              "name": "encrypted-94",
+              "size": 1073741824
+            },
+            {
+              "id": 95,
+              "name": "encrypted-95",
+              "size": 1073741824
+            },
+            {
+              "id": 96,
+              "name": "encrypted-96",
+              "size": 1073741824
+            },
+            {
+              "id": 97,
+              "name": "encrypted-97",
+              "size": 1073741824
+            },
+            {
+              "id": 98,
+              "name": "encrypted-98",
+              "size": 1073741824
+            },
+            {
+              "id": 99,
+              "name": "encrypted-99",
+              "size": 1073741824
+            }
+          ],
+          "fileCount": 100,
+          "totalBytes": 107374182400
+        },
+        "sealedManifest": "AAAAAAAAAAAAAAAAAAAA"
+      },
+      "json": "{\"type\":\"pair-request\",\"sid\":\"sid-fixture\",\"manifest\":{\"files\":[{\"id\":0,\"name\":\"encrypted-0\",\"size\":1073741824},{\"id\":1,\"name\":\"encrypted-1\",\"size\":1073741824},{\"id\":2,\"name\":\"encrypted-2\",\"size\":1073741824},{\"id\":3,\"name\":\"encrypted-3\",\"size\":1073741824},{\"id\":4,\"name\":\"encrypted-4\",\"size\":1073741824},{\"id\":5,\"name\":\"encrypted-5\",\"size\":1073741824},{\"id\":6,\"name\":\"encrypted-6\",\"size\":1073741824},{\"id\":7,\"name\":\"encrypted-7\",\"size\":1073741824},{\"id\":8,\"name\":\"encrypted-8\",\"size\":1073741824},{\"id\":9,\"name\":\"encrypted-9\",\"size\":1073741824},{\"id\":10,\"name\":\"encrypted-10\",\"size\":1073741824},{\"id\":11,\"name\":\"encrypted-11\",\"size\":1073741824},{\"id\":12,\"name\":\"encrypted-12\",\"size\":1073741824},{\"id\":13,\"name\":\"encrypted-13\",\"size\":1073741824},{\"id\":14,\"name\":\"encrypted-14\",\"size\":1073741824},{\"id\":15,\"name\":\"encrypted-15\",\"size\":1073741824},{\"id\":16,\"name\":\"encrypted-16\",\"size\":1073741824},{\"id\":17,\"name\":\"encrypted-17\",\"size\":1073741824},{\"id\":18,\"name\":\"encrypted-18\",\"size\":1073741824},{\"id\":19,\"name\":\"encrypted-19\",\"size\":1073741824},{\"id\":20,\"name\":\"encrypted-20\",\"size\":1073741824},{\"id\":21,\"name\":\"encrypted-21\",\"size\":1073741824},{\"id\":22,\"name\":\"encrypted-22\",\"size\":1073741824},{\"id\":23,\"name\":\"encrypted-23\",\"size\":1073741824},{\"id\":24,\"name\":\"encrypted-24\",\"size\":1073741824},{\"id\":25,\"name\":\"encrypted-25\",\"size\":1073741824},{\"id\":26,\"name\":\"encrypted-26\",\"size\":1073741824},{\"id\":27,\"name\":\"encrypted-27\",\"size\":1073741824},{\"id\":28,\"name\":\"encrypted-28\",\"size\":1073741824},{\"id\":29,\"name\":\"encrypted-29\",\"size\":1073741824},{\"id\":30,\"name\":\"encrypted-30\",\"size\":1073741824},{\"id\":31,\"name\":\"encrypted-31\",\"size\":1073741824},{\"id\":32,\"name\":\"encrypted-32\",\"size\":1073741824},{\"id\":33,\"name\":\"encrypted-33\",\"size\":1073741824},{\"id\":34,\"name\":\"encrypted-34\",\"size\":1073741824},{\"id\":35,\"name\":\"encrypted-35\",\"size\":1073741824},{\"id\":36,\"name\":\"encrypted-36\",\"size\":1073741824},{\"id\":37,\"name\":\"encrypted-37\",\"size\":1073741824},{\"id\":38,\"name\":\"encrypted-38\",\"size\":1073741824},{\"id\":39,\"name\":\"encrypted-39\",\"size\":1073741824},{\"id\":40,\"name\":\"encrypted-40\",\"size\":1073741824},{\"id\":41,\"name\":\"encrypted-41\",\"size\":1073741824},{\"id\":42,\"name\":\"encrypted-42\",\"size\":1073741824},{\"id\":43,\"name\":\"encrypted-43\",\"size\":1073741824},{\"id\":44,\"name\":\"encrypted-44\",\"size\":1073741824},{\"id\":45,\"name\":\"encrypted-45\",\"size\":1073741824},{\"id\":46,\"name\":\"encrypted-46\",\"size\":1073741824},{\"id\":47,\"name\":\"encrypted-47\",\"size\":1073741824},{\"id\":48,\"name\":\"encrypted-48\",\"size\":1073741824},{\"id\":49,\"name\":\"encrypted-49\",\"size\":1073741824},{\"id\":50,\"name\":\"encrypted-50\",\"size\":1073741824},{\"id\":51,\"name\":\"encrypted-51\",\"size\":1073741824},{\"id\":52,\"name\":\"encrypted-52\",\"size\":1073741824},{\"id\":53,\"name\":\"encrypted-53\",\"size\":1073741824},{\"id\":54,\"name\":\"encrypted-54\",\"size\":1073741824},{\"id\":55,\"name\":\"encrypted-55\",\"size\":1073741824},{\"id\":56,\"name\":\"encrypted-56\",\"size\":1073741824},{\"id\":57,\"name\":\"encrypted-57\",\"size\":1073741824},{\"id\":58,\"name\":\"encrypted-58\",\"size\":1073741824},{\"id\":59,\"name\":\"encrypted-59\",\"size\":1073741824},{\"id\":60,\"name\":\"encrypted-60\",\"size\":1073741824},{\"id\":61,\"name\":\"encrypted-61\",\"size\":1073741824},{\"id\":62,\"name\":\"encrypted-62\",\"size\":1073741824},{\"id\":63,\"name\":\"encrypted-63\",\"size\":1073741824},{\"id\":64,\"name\":\"encrypted-64\",\"size\":1073741824},{\"id\":65,\"name\":\"encrypted-65\",\"size\":1073741824},{\"id\":66,\"name\":\"encrypted-66\",\"size\":1073741824},{\"id\":67,\"name\":\"encrypted-67\",\"size\":1073741824},{\"id\":68,\"name\":\"encrypted-68\",\"size\":1073741824},{\"id\":69,\"name\":\"encrypted-69\",\"size\":1073741824},{\"id\":70,\"name\":\"encrypted-70\",\"size\":1073741824},{\"id\":71,\"name\":\"encrypted-71\",\"size\":1073741824},{\"id\":72,\"name\":\"encrypted-72\",\"size\":1073741824},{\"id\":73,\"name\":\"encrypted-73\",\"size\":1073741824},{\"id\":74,\"name\":\"encrypted-74\",\"size\":1073741824},{\"id\":75,\"name\":\"encrypted-75\",\"size\":1073741824},{\"id\":76,\"name\":\"encrypted-76\",\"size\":1073741824},{\"id\":77,\"name\":\"encrypted-77\",\"size\":1073741824},{\"id\":78,\"name\":\"encrypted-78\",\"size\":1073741824},{\"id\":79,\"name\":\"encrypted-79\",\"size\":1073741824},{\"id\":80,\"name\":\"encrypted-80\",\"size\":1073741824},{\"id\":81,\"name\":\"encrypted-81\",\"size\":1073741824},{\"id\":82,\"name\":\"encrypted-82\",\"size\":1073741824},{\"id\":83,\"name\":\"encrypted-83\",\"size\":1073741824},{\"id\":84,\"name\":\"encrypted-84\",\"size\":1073741824},{\"id\":85,\"name\":\"encrypted-85\",\"size\":1073741824},{\"id\":86,\"name\":\"encrypted-86\",\"size\":1073741824},{\"id\":87,\"name\":\"encrypted-87\",\"size\":1073741824},{\"id\":88,\"name\":\"encrypted-88\",\"size\":1073741824},{\"id\":89,\"name\":\"encrypted-89\",\"size\":1073741824},{\"id\":90,\"name\":\"encrypted-90\",\"size\":1073741824},{\"id\":91,\"name\":\"encrypted-91\",\"size\":1073741824},{\"id\":92,\"name\":\"encrypted-92\",\"size\":1073741824},{\"id\":93,\"name\":\"encrypted-93\",\"size\":1073741824},{\"id\":94,\"name\":\"encrypted-94\",\"size\":1073741824},{\"id\":95,\"name\":\"encrypted-95\",\"size\":1073741824},{\"id\":96,\"name\":\"encrypted-96\",\"size\":1073741824},{\"id\":97,\"name\":\"encrypted-97\",\"size\":1073741824},{\"id\":98,\"name\":\"encrypted-98\",\"size\":1073741824},{\"id\":99,\"name\":\"encrypted-99\",\"size\":1073741824}],\"fileCount\":100,\"totalBytes\":107374182400},\"sealedManifest\":\"AAAAAAAAAAAAAAAAAAAA\"}"
+    },
+    {
+      "name": "server ice config",
+      "direction": "server",
+      "message": {
+        "type": "ice-config",
+        "iceServers": [
+          {
+            "urls": "stun:stun.l.google.com:19302"
+          },
+          {
+            "urls": "turn:turn.example.org:3478?transport=udp",
+            "username": "fixture-user",
+            "credential": "fixture-credential",
+            "credentialType": "password"
+          }
+        ]
+      },
+      "json": "{\"type\":\"ice-config\",\"iceServers\":[{\"urls\":\"stun:stun.l.google.com:19302\"},{\"urls\":\"turn:turn.example.org:3478?transport=udp\",\"username\":\"fixture-user\",\"credential\":\"fixture-credential\",\"credentialType\":\"password\"}]}"
+    },
+    {
+      "name": "receiver pair reject",
+      "direction": "server",
+      "message": {
+        "type": "pair-reject",
+        "sid": "sid-fixture",
+        "auth": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        "reason": "user_declined"
+      },
+      "json": "{\"type\":\"pair-reject\",\"sid\":\"sid-fixture\",\"auth\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\",\"reason\":\"user_declined\"}"
+    },
+    {
+      "name": "authenticated candidate signal",
+      "direction": "client",
+      "message": {
+        "type": "signal",
+        "sid": "sid-fixture",
+        "signal": {
+          "kind": "candidate",
+          "candidate": {
+            "candidate": "candidate:1 1 UDP 2122252543 2001:db8::1 54400 typ host",
+            "sdpMid": "data",
+            "sdpMLineIndex": 1,
+            "usernameFragment": "ufrag-123"
+          },
+          "auth": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+        }
+      },
+      "json": "{\"type\":\"signal\",\"sid\":\"sid-fixture\",\"signal\":{\"kind\":\"candidate\",\"candidate\":{\"candidate\":\"candidate:1 1 UDP 2122252543 2001:db8::1 54400 typ host\",\"sdpMid\":\"data\",\"sdpMLineIndex\":1,\"usernameFragment\":\"ufrag-123\"},\"auth\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"}}"
+    }
+  ],
+  "pairDecisionAuth": [
+    {
+      "name": "receiver reject auth",
+      "keyHex": "1111111111111111111111111111111111111111111111111111111111111111",
+      "sid": "sid-fixture",
+      "fromRole": "receiver",
+      "decision": "reject",
+      "sealedManifest": "AAAAAAAAAAAAAAAAAAAA",
+      "reason": "user_declined",
+      "tagBase64": "MfDx6FsCe7rulk8ycqXZ1gC7qSS7pvb4CIVXU/UKxdM="
+    }
+  ],
+  "encryptedJsonAead": [
+    {
+      "name": "sealed manifest wrapper",
+      "kind": "manifest",
+      "keyHex": "2222222222222222222222222222222222222222222222222222222222222222",
+      "sid": "sid-fixture",
+      "sealedBase64": "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",
+      "plaintext": {
+        "fileCount": 1,
+        "totalBytes": 5,
+        "files": [
+          {
+            "id": 0,
+            "name": "secret.txt",
+            "size": 5,
+            "mime": "text/plain"
+          }
+        ]
+      }
+    },
+    {
+      "name": "sealed control message",
+      "kind": "control",
+      "keyHex": "2222222222222222222222222222222222222222222222222222222222222222",
+      "sid": "sid-fixture",
+      "sealedBase64": "DA0ODxAREhMUFRYXr6f4UYWSdjvx0LGt8bsnX/5rO54NcTImwTuX5MKA9FICbVav09DU9tX6644Z+xjjiKDidhpgSP1K0O0KYnVc7smpznDt5Q==",
+      "plaintext": {
+        "t": "file-begin",
+        "id": 0,
+        "name": "secret.txt",
+        "size": 5
+      }
+    }
+  ],
+  "bulkAead": [
+    {
+      "name": "sender bulk chunk",
+      "keyHex": "3333333333333333333333333333333333333333333333333333333333333333",
+      "sid": "sid-fixture",
+      "fileId": 7,
+      "chunkSeq": 42,
+      "payloadHex": "7061796c6f6164",
+      "sealedPayloadHex": "2858d5cdc21ebeed756ef5ed488ca08261a2bd5ce1fde9"
+    }
+  ],
+  "signalAuth": [
+    {
+      "name": "sender offer auth",
+      "keyHex": "1111111111111111111111111111111111111111111111111111111111111111",
+      "sid": "sid-fixture",
+      "fromRole": "sender",
+      "signal": {
+        "kind": "offer",
+        "sdp": "v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\n"
+      },
+      "tagBase64": "eMB2LdXsa+Ges4W+6NQNhVh7nn99SZzEBuiXVDjK3wE="
+    },
+    {
+      "name": "receiver answer auth",
+      "keyHex": "1111111111111111111111111111111111111111111111111111111111111111",
+      "sid": "sid-fixture",
+      "fromRole": "receiver",
+      "signal": {
+        "kind": "answer",
+        "sdp": "v=0\r\no=- 3 4 IN IP4 127.0.0.1\r\n"
+      },
+      "tagBase64": "WzSxvWsFW9ldTMVWILSiAoU2QWrqrUyH6hypNrwvr7E="
+    },
+    {
+      "name": "receiver candidate auth",
+      "keyHex": "1111111111111111111111111111111111111111111111111111111111111111",
+      "sid": "sid-fixture",
+      "fromRole": "receiver",
+      "signal": {
+        "kind": "candidate",
+        "candidate": {
+          "candidate": "candidate:0 1 UDP 1 127.0.0.1 9 typ host",
+          "sdpMid": "0",
+          "sdpMLineIndex": 0
+        }
+      },
+      "tagBase64": "mZQNzuB6ZMux+0/JumM1n3c2G1RpCe1Ow4W9piTf+mo="
+    },
+    {
+      "name": "sender candidate auth with username fragment",
+      "keyHex": "1111111111111111111111111111111111111111111111111111111111111111",
+      "sid": "sid-fixture",
+      "fromRole": "sender",
+      "signal": {
+        "kind": "candidate",
+        "candidate": {
+          "candidate": "candidate:1 1 UDP 2122252543 2001:db8::1 54400 typ host",
+          "sdpMid": "data",
+          "sdpMLineIndex": 1,
+          "usernameFragment": "ufrag-123"
+        }
+      },
+      "tagBase64": "0IyfYnwUgolUWhRt9xSykhpnKbrs5DJzVHL0EDdQzWI="
+    }
+  ],
+  "sessionConfirm": [
+    {
+      "name": "sender session confirmation",
+      "keyHex": "1111111111111111111111111111111111111111111111111111111111111111",
+      "sid": "sid-fixture",
+      "fromRole": "sender",
+      "tagBase64": "TpVla14+OpuW20sop9C94C0jVJDQh4zeSe5y7yZxXMk="
+    },
+    {
+      "name": "receiver session confirmation",
+      "keyHex": "1111111111111111111111111111111111111111111111111111111111111111",
+      "sid": "sid-fixture",
+      "fromRole": "receiver",
+      "tagBase64": "socBD9qWir51WzMeGUcfbgDqnnkrOudAi1Wlib3Emgg="
+    }
+  ]
+}

@@ -1,7 +1,6 @@
 import { MAX_FILE_BYTES, MAX_FILES_PER_SESSION } from "./constants.js";
 import type { FileManifest } from "./messages.js";
 
-const FILE_COUNT_BUCKETS = Object.freeze([1, 2, 4, 8, 16, 32, 64, MAX_FILES_PER_SESSION]);
 const MAX_PUBLIC_TOTAL_BYTES = MAX_FILE_BYTES * MAX_FILES_PER_SESSION;
 
 export function redactManifestForSignaling(manifest: FileManifest): FileManifest {
@@ -34,9 +33,7 @@ export function redactManifestForSignaling(manifest: FileManifest): FileManifest
   }
   if (actualTotalBytes !== totalBytes) throw new Error("Manifest is invalid.");
 
-  const publicFileCount = publicFileCountBucket(fileCount);
-  const publicTotalBytes = publicTotalBytesBucket(totalBytes, publicFileCount);
-  return bucketedPublicManifest(publicFileCount, publicTotalBytes);
+  return constantPublicManifest();
 }
 
 export function publicPairRequestManifestIsRedacted(manifest: FileManifest): boolean {
@@ -47,61 +44,29 @@ export function publicPairRequestManifestIsRedacted(manifest: FileManifest): boo
   if (
     typeof fileCount !== "number" ||
     !Array.isArray(files) ||
-    !isPublicFileCountBucket(fileCount) ||
+    fileCount !== MAX_FILES_PER_SESSION ||
     files.length !== fileCount ||
     typeof totalBytes !== "number" ||
-    !isPublicTotalBytesBucket(totalBytes, fileCount)
+    totalBytes !== MAX_PUBLIC_TOTAL_BYTES
   ) {
     return false;
   }
-  let remainingBytes = totalBytes;
   for (let index = 0; index < files.length; index += 1) {
     const descriptor = Object.getOwnPropertyDescriptor(files, String(index));
     if (!descriptor || !("value" in descriptor)) return false;
     const file = descriptor.value;
     if (!hasOnlyOwnDataKeys(file, ["id", "name", "size"])) return false;
-    const expectedSize = Math.min(remainingBytes, MAX_FILE_BYTES);
-    if (ownDataValue(file, "id") !== index || ownDataValue(file, "name") !== `encrypted-${index}` || ownDataValue(file, "size") !== expectedSize || ownDataValue(file, "mime") !== undefined) return false;
-    remainingBytes -= expectedSize;
+    if (ownDataValue(file, "id") !== index || ownDataValue(file, "name") !== `encrypted-${index}` || ownDataValue(file, "size") !== MAX_FILE_BYTES || ownDataValue(file, "mime") !== undefined) return false;
   }
-  return remainingBytes === 0;
+  return true;
 }
 
-function bucketedPublicManifest(fileCount: number, totalBytes: number): FileManifest {
+function constantPublicManifest(): FileManifest {
   const files: FileManifest["files"] = [];
-  let remainingBytes = totalBytes;
-  for (let index = 0; index < fileCount; index += 1) {
-    const size = Math.min(remainingBytes, MAX_FILE_BYTES);
-    files.push({ id: index, name: `encrypted-${index}`, size });
-    remainingBytes -= size;
+  for (let index = 0; index < MAX_FILES_PER_SESSION; index += 1) {
+    files.push({ id: index, name: `encrypted-${index}`, size: MAX_FILE_BYTES });
   }
-  return { files, fileCount, totalBytes };
-}
-
-function publicFileCountBucket(fileCount: number): number {
-  for (const bucket of FILE_COUNT_BUCKETS) {
-    if (fileCount <= bucket) return bucket;
-  }
-  return MAX_FILES_PER_SESSION;
-}
-
-function publicTotalBytesBucket(totalBytes: number, fileCountBucket: number): number {
-  const maxForBucket = fileCountBucket * MAX_FILE_BYTES;
-  if (totalBytes <= 1) return 1;
-  let bucket = 1;
-  while (bucket < totalBytes && bucket < maxForBucket) bucket *= 2;
-  return Math.min(bucket, maxForBucket);
-}
-
-function isPublicFileCountBucket(fileCount: number): boolean {
-  return Number.isSafeInteger(fileCount) && FILE_COUNT_BUCKETS.includes(fileCount);
-}
-
-function isPublicTotalBytesBucket(totalBytes: number, fileCountBucket: number): boolean {
-  if (!Number.isSafeInteger(totalBytes) || totalBytes < 1) return false;
-  const maxForBucket = fileCountBucket * MAX_FILE_BYTES;
-  if (totalBytes > maxForBucket) return false;
-  return totalBytes === maxForBucket || Number.isInteger(Math.log2(totalBytes));
+  return { files, fileCount: MAX_FILES_PER_SESSION, totalBytes: MAX_PUBLIC_TOTAL_BYTES };
 }
 
 function hasOnlyOwnDataKeys(value: unknown, expectedKeys: readonly string[]): boolean {

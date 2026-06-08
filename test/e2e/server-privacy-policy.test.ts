@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { randomInt } from "node:crypto";
 import WebSocket from "ws";
-import { PROTOCOL_VERSION, RECEIVER_MAX_PREPAIR_ATTEMPTS, SIGNALING_MAX_BAD_MESSAGES, SIGNALING_MAX_CONNECTION_ATTEMPTS_PER_MINUTE, STATIC_MAX_REQUESTS_PER_MINUTE } from "../../src/shared/constants.js";
+import { MAX_FILE_BYTES, MAX_FILES_PER_SESSION, PROTOCOL_VERSION, RECEIVER_MAX_PREPAIR_ATTEMPTS, SIGNALING_MAX_BAD_MESSAGES, SIGNALING_MAX_CONNECTION_ATTEMPTS_PER_MINUTE, STATIC_MAX_REQUESTS_PER_MINUTE } from "../../src/shared/constants.js";
 import { PACKAGE_NAME, PACKAGE_VERSION } from "../../src/shared/package-info.js";
 
 type ServerEvent = { type?: string; sid?: string; code?: string; message?: string; [key: string]: unknown };
@@ -458,7 +458,7 @@ test("built signaling server sanitizes paired bye reasons before forwarding", as
     sendJson(sender, {
       type: "pair-request",
       sid,
-      manifest: { fileCount: 1, totalBytes: 1, files: [{ id: 0, name: "encrypted-0", size: 1 }] },
+      manifest: constantPublicManifest(),
       sealedManifest: Buffer.alloc(20).toString("base64")
     });
     assert.equal((await waitForServerEvent(receiver, "pair-request", sid)).type, "pair-request");
@@ -753,6 +753,14 @@ async function removeTestTemp(dir: string): Promise<void> {
 
 function sendJson(ws: WebSocket, message: unknown): void {
   ws.send(JSON.stringify(message));
+}
+
+function constantPublicManifest(): ServerEvent {
+  return {
+    fileCount: MAX_FILES_PER_SESSION,
+    totalBytes: MAX_FILE_BYTES * MAX_FILES_PER_SESSION,
+    files: Array.from({ length: MAX_FILES_PER_SESSION }, (_, id) => ({ id, name: `encrypted-${id}`, size: MAX_FILE_BYTES }))
+  };
 }
 
 function waitForServerEvent(ws: WebSocket, type: string, sid?: string): Promise<ServerEvent> {
