@@ -44,6 +44,8 @@ test("server logging stays operational and does not log signaling payload fields
   assert.match(readme, /server rejects unredacted public manifests and does not forward or log them/);
   assert.match(readme, /from conforming clients and accepted protocol flow: two secret words, PAKE output, plaintext file names, MIME types/);
   assert.match(readme, /public WebRTC signal kinds, coarse sealed frame buckets, timing, byte volume, and traffic shape/);
+  assert.match(readme, /Browser E2EE assumes the served web client code and origin are trusted/);
+  assert.match(readme, /browser app is an endpoint and necessarily sees receive codes, selected file metadata, plaintext chunks, DOM state, output\/download names, and resume state/);
   assert.match(readme, /SDP contents, ICE candidate contents/);
   assert.match(readme, /A signaling\/TURN operator can infer some ICE endpoint choices when it also observes TURN\/STUN allocation traffic/);
   assert.match(readme, /conforming clients do not report a local server-ICE toggle to the signaling protocol/);
@@ -51,8 +53,13 @@ test("server logging stays operational and does not log signaling payload fields
   assert.doesNotMatch(readme, /whether clients accept its ICE endpoint hints|signaling logs/);
   assert.match(readme, /traffic shape/);
   assert.match(readme, /absence of padding or cover traffic/);
+  assert.match(readme, /Browser app \/ web origin \/ served JS/);
+  assert.match(readme, /hostile same-origin script, compromised static hosting, extensions, or injected browser code can observe endpoint plaintext/);
   assert.match(readme, /Managed endpoint \/ MDM \/ EDR/);
   assert.match(readme, /cryptography does not hide local endpoint activity from a privileged endpoint monitor/);
+  assert.match(readme, /The browser app and its origin are trusted endpoint code/);
+  assert.match(securityPolicy, /browser E2EE claims must treat the served browser client code and origin as trusted endpoint code/);
+  assert.match(securityPolicy, /hostile same-origin script, compromised static hosting, extensions, or injected browser code can observe endpoint plaintext/);
   assert.match(readme, /Relay-only ICE reduces direct peer IP exposure to the other peer, but it shifts traffic metadata to the TURN operator/);
   assert.doesNotMatch(readme, /It does not receive the two secret words[\s\S]*MIME types/);
 });

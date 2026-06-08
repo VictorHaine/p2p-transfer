@@ -193,6 +193,8 @@ test("package runtime range is bounded to tested Node majors", () => {
   assert.equal(packageJson.engines?.node, ">=22.22.3 <23 || >=24.13.1 <25");
   assert.match(readme, /Node\.js 22\.22\.3 through the latest Node\.js 22 patch, or Node\.js 24\.13\.1 through the latest Node\.js 24 patch/);
   assert.match(readme, /Node\.js 23 is intentionally unsupported/);
+  assert.match(readme, /CLI's native WebRTC dependency is supported only on macOS arm64\/x64, Linux arm64\/x64, and Windows x64/);
+  assert.match(readme, /Windows ARM64, Linux ARMv7, and other platforms fail closed for CLI WebRTC instead of falling back to unreviewed native builds/);
   assert.doesNotMatch(readme, /Node\.js 22\.22\.3 or newer, before Node\.js 25/);
   const platformSmokeJob = ciWorkflow.slice(ciWorkflow.indexOf("  platform-smoke:"));
   assert.match(platformSmokeJob, /node:\n\s+- 22\.22\.3\n\s+- 22\.x\n\s+- 24\.13\.1\n\s+- 24\.x/);
@@ -1605,6 +1607,7 @@ test("pull request template keeps production-sensitive verification explicit", (
 
 test("README reports implemented release capabilities without stale MVP-gap language", () => {
   assert.match(readme, /Privacy boundary: file contents, real manifests, SDP contents, and ICE candidate contents are end-to-end encrypted from the signaling server, but this is not network or endpoint opacity/);
+  assert.match(readme, /Browser E2EE assumes the served web client code and origin are trusted, because the browser app is an endpoint/);
   assert.match(readme, /Signaling\/network observers can still see IPs, roles, public WebRTC signal kinds, coarse sealed frame buckets, timing, byte volume, and traffic shape/);
   assert.match(readme, /privileged local MDM\/EDR administrator can still observe selected files and plaintext at the endpoint before encryption or after decryption/);
   assert.doesNotMatch(readme, /## MVP gaps/);
