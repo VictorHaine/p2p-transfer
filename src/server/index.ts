@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import http from "node:http";
-import { constants as fsConstants } from "node:fs";
+import { constants as fsConstants, writeSync } from "node:fs";
 import fs, { type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { nanoid } from "nanoid";
@@ -253,7 +253,7 @@ async function checkedRealWebRoot(root: string): Promise<string> {
 }
 
 function startupFailure(scope: "configuration" | "web root", error: unknown): never {
-  console.error(`ff signaling server startup failed: ${scope} ${startupErrorSummary(error)}`);
+  writeSync(2, `ff signaling server startup failed: ${scope} ${startupErrorSummary(error)}\n`);
   process.exit(1);
 }
 

@@ -128,7 +128,11 @@ test("websocket peers are heartbeat-terminated to release stale capacity", () =>
 test("server lifecycle intervals stop on shutdown and fatal errors", () => {
   assert.match(securityPolicy, /shutdown and fatal-error paths must clear server lifecycle intervals/);
   assert.match(securityPolicy, /fatal-error summaries must read error fields through own data descriptors/);
+  assert.match(securityPolicy, /server startup failures must write the sanitized startup failure line synchronously before exiting/);
   assert.match(securityPolicy, /server shutdown and fatal-error close callbacks must set `process\.exitCode`/);
+  const startupFailureBody = extractFunctionBody(serverSource, "startupFailure");
+  assert.match(startupFailureBody, /writeSync\(2, `ff signaling server startup failed: \$\{scope\} \$\{startupErrorSummary\(error\)\}\\n`\)/);
+  assert.doesNotMatch(startupFailureBody, /console\.error/);
   assert.match(serverSource, /const expiryInterval = setInterval\(\(\) => \{/);
   assert.match(serverSource, /expiryInterval\.unref\(\)/);
   const stopTimersBody = extractFunctionBody(serverSource, "stopLifecycleTimers");
