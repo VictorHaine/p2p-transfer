@@ -166,7 +166,7 @@ export async function createGitHubRelease(token, repository, tag, expectedSha, n
     await liveRefCheck();
     await publishDraftRelease(token, repository, id);
   } catch (error) {
-    if (await reconcileDraftPublishFailure(token, repository, id, tag).catch(() => false)) return;
+    if (await reconcileDraftPublishFailure(token, repository, id, tag, notes, assets).catch(() => false)) return;
     throw error;
   }
 }
@@ -206,10 +206,14 @@ function existingReleaseInfo(release, tag, notes) {
   if (!release || release.tag_name !== tag || !Number.isSafeInteger(release.id) || release.id < 1 || typeof release.draft !== "boolean") {
     throw new Error("GitHub release response was invalid.");
   }
-  if (release.draft === false && (release.name !== tag || release.body !== notes || release.prerelease !== false)) {
+  if (release.draft === false) assertPublishedReleaseMetadata(release, tag, notes);
+  return { id: release.id, state: release.draft ? "draft" : "published" };
+}
+
+function assertPublishedReleaseMetadata(release, tag, notes) {
+  if (release.name !== tag || release.body !== notes || release.prerelease !== false) {
     throw new Error("existing published GitHub release metadata does not match verified release metadata.");
   }
-  return { id: release.id, state: release.draft ? "draft" : "published" };
 }
 
 function assertReleaseAssetChecksums(assets) {
@@ -344,18 +348,22 @@ function releaseAssetMetadataByName(remoteAssets, repository, expectedAssets) {
   return byName;
 }
 
-async function reconcileDraftPublishFailure(token, repository, id, tag) {
+async function reconcileDraftPublishFailure(token, repository, id, tag, notes, assets) {
   const release = await github(token, "GET", `/repos/${repository}/releases/${id}`);
-  const state = releaseState(release, id, tag);
-  if (state === "published") return true;
+  const state = releaseState(release, id, tag, notes);
+  if (state === "published") {
+    await assertPublishedReleaseAssetsMatch(token, repository, id, assets);
+    return true;
+  }
   await deleteDraftRelease(token, repository, id).catch(() => undefined);
   return false;
 }
 
-function releaseState(release, id, tag) {
+function releaseState(release, id, tag, notes) {
   if (!release || release.id !== id || release.tag_name !== tag || typeof release.draft !== "boolean") {
     throw new Error("GitHub release response was invalid.");
   }
+  if (release.draft === false) assertPublishedReleaseMetadata(release, tag, notes);
   return release.draft ? "draft" : "published";
 }
 
