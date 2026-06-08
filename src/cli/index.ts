@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import readline from "node:readline/promises";
-import { stdin as input, stdout as output, stderr } from "node:process";
+import { stdin as input, stdout as output } from "node:process";
 import { Command } from "commander";
 import {
   CONNECT_TIMEOUT_MS,
@@ -1064,7 +1064,6 @@ function printArgvTelemetryWarning(options: CommonOptions, warning: string, mess
     console.error(JSON.stringify(sanitizeStructuredOutput({ event: "warning", warning, message: safeMessage })));
     return;
   }
-  if (stderr.isTTY !== true) return;
   console.error(safeMessage);
 }
 
