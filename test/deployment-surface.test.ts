@@ -276,7 +276,8 @@ test("CI and release workflows keep minimal token permissions", () => {
   const ciDockerJob = workflowJob(ciWorkflow, "docker");
   const releasePlatformSmokeJob = workflowJob(releaseWorkflow, "platform-smoke");
   const releaseDockerValidateJob = workflowJob(releaseWorkflow, "docker-validate");
-  const releaseDockerJob = workflowJob(releaseWorkflow, "docker");
+  const releaseDockerStageJob = workflowJob(releaseWorkflow, "docker-stage");
+  const releaseDockerPromoteJob = workflowJob(releaseWorkflow, "docker-promote");
   for (const runner of PINNED_RUNNERS) {
     assert.match(ciWorkflow, new RegExp(escapeRegExp(runner)));
     assert.match(releaseWorkflow, new RegExp(escapeRegExp(runner)));
@@ -341,7 +342,8 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releaseVerifyJob, /timeout-minutes: 60/);
   assert.match(releasePlatformSmokeJob, /timeout-minutes: 25/);
   assert.match(releaseDockerValidateJob, /timeout-minutes: 30/);
-  assert.match(releaseDockerJob, /timeout-minutes: 30/);
+  assert.match(releaseDockerStageJob, /timeout-minutes: 30/);
+  assert.match(releaseDockerPromoteJob, /timeout-minutes: 15/);
   assert.doesNotMatch(releaseWorkflow, /\n  attest:\n/);
   assert.match(releasePublishJob, /timeout-minutes: 20/);
   assert.match(releaseGitHubReleaseJob, /timeout-minutes: 10/);
@@ -370,14 +372,21 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(releaseDockerValidateJob, /needs:\n      - verify\n      - platform-smoke/);
   assert.match(releaseDockerValidateJob, /permissions:\n      contents: read/);
   assert.match(releaseDockerValidateJob, /node scripts\/prepare-checked-pnpm\.mjs[\s\S]*Validate release Docker image[\s\S]*DOCKER_SMOKE_TAG=p2p-transfer:release-gate node scripts\/smoke-docker-policy\.mjs/);
-  assert.match(releaseDockerJob, /needs:\n      - publish/);
-  assert.match(releaseDockerJob, /environment: npm/);
-  assert.match(releaseDockerJob, /permissions:\n      contents: read\n      packages: write\n      id-token: write\n      attestations: write/);
-  assert.match(releaseDockerJob, /actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3/);
-  assert.match(releaseDockerJob, /node scripts\/prepare-checked-pnpm\.mjs[\s\S]*Build, smoke, and stage image[\s\S]*id: docker_image[\s\S]*GITHUB_TOKEN: \$\{\{ github\.token \}\}[\s\S]*run: node scripts\/publish-docker-image\.mjs/);
-  assert.match(releaseDockerJob, /actions\/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4\.1\.0[\s\S]*subject-name: \$\{\{ steps\.docker_image\.outputs\.image \}\}[\s\S]*subject-digest: \$\{\{ steps\.docker_image\.outputs\.digest \}\}[\s\S]*push-to-registry: true/);
-  assert.match(releaseDockerJob, /Promote attested image[\s\S]*DOCKER_STAGED_DIGEST: \$\{\{ steps\.docker_image\.outputs\.digest \}\}[\s\S]*run: node scripts\/publish-docker-image\.mjs --promote/);
-  assert.doesNotMatch(releaseDockerJob, /corepack prepare pnpm@/);
+  assert.match(releaseDockerStageJob, /needs:\n      - verify\n      - platform-smoke\n      - docker-validate/);
+  assert.match(releaseDockerStageJob, /environment: npm/);
+  assert.match(releaseDockerStageJob, /permissions:\n      contents: read\n      packages: write\n      id-token: write\n      attestations: write/);
+  assert.match(releaseDockerStageJob, /outputs:\n      image: \$\{\{ steps\.docker_image\.outputs\.image \}\}\n      digest: \$\{\{ steps\.docker_image\.outputs\.digest \}\}/);
+  assert.match(releaseDockerStageJob, /actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3/);
+  assert.match(releaseDockerStageJob, /node scripts\/prepare-checked-pnpm\.mjs[\s\S]*Build, smoke, and stage image[\s\S]*id: docker_image[\s\S]*GITHUB_TOKEN: \$\{\{ github\.token \}\}[\s\S]*run: node scripts\/publish-docker-image\.mjs/);
+  assert.match(releaseDockerStageJob, /actions\/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4\.1\.0[\s\S]*subject-name: \$\{\{ steps\.docker_image\.outputs\.image \}\}[\s\S]*subject-digest: \$\{\{ steps\.docker_image\.outputs\.digest \}\}[\s\S]*push-to-registry: true/);
+  assert.doesNotMatch(releaseDockerStageJob, /Promote attested image|corepack prepare pnpm@/);
+  assert.match(releaseDockerPromoteJob, /needs:\n      - publish\n      - docker-stage/);
+  assert.match(releaseDockerPromoteJob, /environment: npm/);
+  assert.match(releaseDockerPromoteJob, /permissions:\n      contents: read\n      packages: write/);
+  assert.doesNotMatch(releaseDockerPromoteJob, /id-token: write|attestations: write/);
+  assert.match(releaseDockerPromoteJob, /actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4\.4\.0[\s\S]*node-version: 22\.22\.3/);
+  assert.match(releaseDockerPromoteJob, /node scripts\/prepare-checked-pnpm\.mjs[\s\S]*Promote attested image[\s\S]*DOCKER_STAGED_DIGEST: \$\{\{ needs\.docker-stage\.outputs\.digest \}\}[\s\S]*run: node scripts\/publish-docker-image\.mjs --promote/);
+  assert.doesNotMatch(releaseDockerPromoteJob, /corepack prepare pnpm@/);
   assert.match(dockerPublishScript, /import \{ assertLiveReleaseRefFromEnv \} from "\.\/verify-live-release-ref\.mjs"/);
   assert.match(dockerPublishScript, /const runId = requiredGitHubActionsContext\(\);\n  requiredCommitSha\(requiredEnvString\("GITHUB_SHA"\)\);\n  const actor = githubActor\(requiredEnvString\("GITHUB_ACTOR"\)\);\n  const token = requiredEnvString\("GITHUB_TOKEN", MAX_TOKEN_BYTES\);\n  const packageJson = await readPackageJson\(\);[\s\S]*if \(tag !== `v\$\{version\}`\) throw new Error\("release tag does not match package version\."\);\n\n  await assertLiveReleaseRefFromEnv\(\);/);
   assert.match(dockerPublishScript, /env: \{ DOCKER_SMOKE_TAG: stagedRef \}/);
@@ -399,7 +408,7 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.match(securityPolicy, /release Docker publishing must read package metadata through no-follow regular-file opens with exact-size handle reads and pre\/post-read identity checks/);
   assert.match(securityPolicy, /byte-cap, no-follow-open, identity-check, handle-read, and fatal-UTF-8-decode that source Docker config\/context metadata/);
   assert.match(securityPolicy, /emit the staged digest through checked `GITHUB_OUTPUT` no-follow regular-file appends with size and identity checks/);
-  assert.match(securityPolicy, /then promote only that attested digest to the `vX\.Y\.Z` and `X\.Y\.Z` release tags/);
+  assert.match(securityPolicy, /make npm publish depend on that staged, attested digest[\s\S]*After npm publish succeeds[\s\S]*promote the attested digest to GHCR as both `vX\.Y\.Z` and `X\.Y\.Z`/);
   assert.match(dockerPublishScript, /const MAX_GITHUB_OUTPUT_BYTES = 1024 \* 1024/);
   assert.match(dockerPublishScript, /await open\(file, constants\.O_WRONLY \| constants\.O_APPEND \| \(constants\.O_NOFOLLOW \?\? 0\)\)/);
   assert.match(dockerPublishScript, /if \(!opened\.isFile\(\) \|\| !sameFile\(info, opened\)\) throw new Error\("GitHub output path is invalid\."\)/);
@@ -486,6 +495,7 @@ test("CI and release workflows keep minimal token permissions", () => {
   assert.doesNotMatch(releaseWorkflow, /tgz="\$\(node scripts\/verify-release-artifact\.mjs --print-tarball\)"|printf 'tarball=%s\\n'|test -f "\$tgz"|PACKED_SMOKE_TARBALL="\$tgz" node scripts\/smoke-packed\.mjs|pnpm publish "\$tgz"|gh release create "\$GITHUB_REF_NAME"/);
   const publishJob = releaseWorkflow.slice(releaseWorkflow.indexOf("  publish:"));
   assert.match(publishJob, /needs:\n      - verify\n      - platform-smoke\n      - docker-validate/);
+  assert.match(publishJob, /needs:[\s\S]*- docker-stage/);
   assert.doesNotMatch(publishJob, /pnpm install|pnpm build|pnpm smoke:native/);
   assert.match(releasePublishScript, /"--ignore-scripts"/);
   assert.match(releasePublishScript, /verifiedTarballPath\(\{ \.\.\.childEnv, \.\.\.releaseVerifierEnv\(tag\) \}\)/);

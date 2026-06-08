@@ -72,18 +72,23 @@ jobs:
           path: release-artifacts
           if-no-files-found: error
 
-  docker:
-    name: release docker image
+  docker-stage:
+    name: stage docker image
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     needs:
-      - publish
+      - verify
+      - platform-smoke
+      - docker-validate
     environment: npm
     permissions:
       contents: read
       packages: write
       id-token: write
       attestations: write
+    outputs:
+      image: ${{ steps.docker_image.outputs.image }}
+      digest: ${{ steps.docker_image.outputs.digest }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -104,9 +109,31 @@ jobs:
           subject-name: ${{ steps.docker_image.outputs.image }}
           subject-digest: ${{ steps.docker_image.outputs.digest }}
           push-to-registry: true
+
+  docker-promote:
+    name: promote docker image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    needs:
+      - publish
+      - docker-stage
+    environment: npm
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.22.3
+      - name: Enable pnpm
+        run: |
+          node scripts/prepare-checked-pnpm.mjs
       - name: Promote attested image
         env:
-          DOCKER_STAGED_DIGEST: ${{ steps.docker_image.outputs.digest }}
+          DOCKER_STAGED_DIGEST: ${{ needs.docker-stage.outputs.digest }}
           GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/publish-docker-image.mjs --promote
 
@@ -183,6 +210,7 @@ jobs:
       - verify
       - platform-smoke
       - docker-validate
+      - docker-stage
     environment: npm
     permissions:
       contents: read
@@ -224,7 +252,7 @@ jobs:
     timeout-minutes: 10
     needs:
       - publish
-      - docker
+      - docker-promote
     environment: npm
     permissions:
       contents: write
