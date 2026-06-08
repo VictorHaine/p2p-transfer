@@ -119,7 +119,7 @@ program
   .option("--json", "emit machine-readable events")
   .option("--quiet", "suppress human-readable progress output")
   .option("--redact-output", "redact transfer codes, SAS, file metadata, and byte counts from CLI output, JSON events, and error text")
-  .option("--require-private-input", "reject receive codes, receive output directories, and send code/file paths supplied through argv")
+  .option("--require-private-input", "reject signaling server URLs, receive codes, receive output directories, and send code/file paths supplied through argv")
   .option("--local-private-mode", "enable local CLI privacy guardrails: private input, redacted output, and opaque receive names")
   .option("--no-color", "disable color output")
   .option("--verbose", "show debug details");

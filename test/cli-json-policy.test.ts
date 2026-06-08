@@ -148,7 +148,7 @@ test("CLI send supports non-argv code and file path input", () => {
     assert.match(source, /\.option\("--code-stdin"/);
     assert.match(source, /\.option\("--code-env <name>"/);
     assert.match(source, /\.option\("--files-stdin"/);
-    assert.match(source, /\.option\("--require-private-input", "reject receive codes, receive output directories, and send code\/file paths supplied through argv"\)/);
+    assert.match(source, /\.option\("--require-private-input", "reject signaling server URLs, receive codes, receive output directories, and send code\/file paths supplied through argv"\)/);
     assert.match(source, /\.option\("--local-private-mode", "enable local CLI privacy guardrails: private input, redacted output, and opaque receive names"\)/);
     assert.match(source, /function applyLocalPrivateMode/);
     assert.match(source, /options\.redactOutput = true/);
