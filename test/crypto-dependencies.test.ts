@@ -3,8 +3,9 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { assertReviewedCryptoDependencies, assertReviewedDependencyEvidence, type ReviewedDependency } from "../src/cli/crypto-dependencies.js";
-import { packageEvidenceFromResolvedFile } from "../src/cli/dependency-metadata.js";
+import { createHash } from "node:crypto";
+import { assertReviewedCryptoDependencies, assertReviewedDependencyEvidence, assertReviewedDependencyFileEvidence, type ReviewedDependency } from "../src/cli/crypto-dependencies.js";
+import { packageEvidenceFromResolvedFile, sha256FileEvidenceFromResolvedFile } from "../src/cli/dependency-metadata.js";
 
 test("CLI runtime crypto dependency attestation accepts the reviewed install graph", () => {
   assert.doesNotThrow(() => assertReviewedCryptoDependencies());
@@ -27,6 +28,30 @@ test("CLI dependency metadata attestation reads bounded package metadata", async
 
     await writeFile(path.join(packageRoot, "package.json"), Buffer.alloc(128 * 1024 + 1, 0x20));
     assert.throws(() => packageEvidenceFromResolvedFile(resolvedFile), /Dependency package metadata is invalid\./);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("CLI dependency file attestation hashes bounded no-follow package files", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ff-dependency-file-"));
+  try {
+    const packageRoot = path.join(root, "node_modules", "@scope", "pkg");
+    const resolvedFile = path.join(packageRoot, "dist", "index.js");
+    const content = "export const reviewed = true;\n";
+    await mkdir(path.dirname(resolvedFile), { recursive: true });
+    await writeFile(path.join(packageRoot, "package.json"), JSON.stringify({ name: "@scope/pkg", version: "1.2.3" }));
+    await writeFile(resolvedFile, content);
+
+    const evidence = packageEvidenceFromResolvedFile(resolvedFile);
+    const digest = createHash("sha256").update(content).digest("hex");
+    assert.equal(sha256FileEvidenceFromResolvedFile(resolvedFile), digest);
+    assert.doesNotThrow(() => assertReviewedDependencyFileEvidence(resolvedFile, evidence, { name: "@scope/pkg", version: "1.2.3", resolvedFile: "dist/index.js", resolvedFileSha256: digest }));
+    assert.throws(() => assertReviewedDependencyFileEvidence(resolvedFile, evidence, { name: "@scope/pkg", version: "1.2.3", resolvedFile: "dist/index.js", resolvedFileSha256: "0".repeat(64) }), /file changed/);
+    assert.throws(() => assertReviewedDependencyFileEvidence(resolvedFile, evidence, { name: "@scope/pkg", version: "1.2.3", resolvedFile: "dist/other.js", resolvedFileSha256: digest }), /file changed/);
+
+    await writeFile(resolvedFile, "");
+    assert.throws(() => sha256FileEvidenceFromResolvedFile(resolvedFile), /Dependency package file is invalid\./);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

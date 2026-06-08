@@ -1383,14 +1383,31 @@ test("critical PAKE dependency identity and install surface stay reviewed", () =
   assert.match(cpaceReview, /Consumer resolution hardening reviewed: this package also declares `@noble\/curves@1\.9\.7` as a direct exact production dependency/);
   assert.match(cpaceReview, /Runtime consumer-install hardening reviewed: CLI send and receive fail closed unless the resolved package graph matches/);
   assert.match(cpaceReview, /including reviewed package metadata, dependency declarations, consumer lifecycle-hook policy, and CPace\/curve\/hash import surfaces/);
+  assert.match(cpaceReview, /Runtime resolved-file hash hardening reviewed: CLI send and receive fail closed unless the resolved crypto entry files also match the reviewed relative paths and SHA-256 digests/);
+  assert.match(cpaceReview, /`@cipherman\/pake-js` resolves `dist\/index\.cjs` to `3acc7e2184b3f9cd7fe01797d15cfe4a6dc07ced0ea48312ae0389e5d519f94d`/);
+  assert.match(cpaceReview, /CPace-resolved `@noble\/curves` resolves `ed25519\.js` to `33df162c066fcaef63f82118d296dcbb49ab94dc729e76c9dc5dea67f6f1da09`/);
+  assert.match(cpaceReview, /CPace-resolved `@noble\/hashes` resolves `sha2\.js` to `53b6dc30db76a7c4e4b9370049e7a3c01bbb5507d058c084e97ccb3ee050faa4`/);
+  assert.match(cpaceReview, /direct `@noble\/hashes` resolves `hkdf\.js` to `c0de209ef30cc76c14781d7746e6802b44eb17b7bfad6c07e5c17c5806c9836d`/);
+  assert.match(securityPolicy, /CLI crypto dependency runtime attestation must verify the exact resolved entry file path and SHA-256 digest/);
+  assert.match(cliDependencyMetadataSource, /export function sha256FileEvidenceFromResolvedFile/);
+  assert.match(cliDependencyMetadataSource, /MAX_DEPENDENCY_FILE_BYTES = 2 \* 1024 \* 1024/);
+  assert.match(cliDependencyMetadataSource, /createHash\("sha256"\)/);
+  assert.match(cliDependencyMetadataSource, /openSync\(resolvedFile, constants\.O_RDONLY \| noFollowFlag\(\)\)/);
+  assert.match(cliDependencyMetadataSource, /sameFile\(opened, fstatSync\(fd\)\)/);
   assert.match(cliCryptoDependenciesSource, /const REVIEWED_CRYPTO_DEPENDENCIES = \{/);
   assert.match(cliCryptoDependenciesSource, /name: "@cipherman\/pake-js",\n    version: "0\.1\.1"/);
   assert.match(cliCryptoDependenciesSource, /name: "@noble\/curves",\n    version: "1\.9\.7"/);
   assert.match(cliCryptoDependenciesSource, /name: "@noble\/hashes",\n    version: "1\.8\.0"/);
   assert.match(cliCryptoDependenciesSource, /name: "@noble\/hashes",\n    version: "2\.2\.0"/);
+  assert.match(cliCryptoDependenciesSource, /resolvedFile: "dist\/index\.cjs",\n    resolvedFileSha256: "3acc7e2184b3f9cd7fe01797d15cfe4a6dc07ced0ea48312ae0389e5d519f94d"/);
+  assert.match(cliCryptoDependenciesSource, /resolvedFile: "ed25519\.js",\n    resolvedFileSha256: "33df162c066fcaef63f82118d296dcbb49ab94dc729e76c9dc5dea67f6f1da09"/);
+  assert.match(cliCryptoDependenciesSource, /resolvedFile: "sha2\.js",\n    resolvedFileSha256: "53b6dc30db76a7c4e4b9370049e7a3c01bbb5507d058c084e97ccb3ee050faa4"/);
+  assert.match(cliCryptoDependenciesSource, /resolvedFile: "hkdf\.js",\n    resolvedFileSha256: "c0de209ef30cc76c14781d7746e6802b44eb17b7bfad6c07e5c17c5806c9836d"/);
   assert.match(cliCryptoDependenciesSource, /allowedScripts: \{[\s\S]*prepublishOnly:/);
   assert.match(cliCryptoDependenciesSource, /REVIEWED_SCRIPT_SURFACE = \["preinstall", "install", "postinstall", "prepare", "prepublish", "prepublishOnly"\]/);
   assert.match(cliCryptoDependenciesSource, /function assertReviewedDependencyEvidence/);
+  assert.match(cliCryptoDependenciesSource, /function assertReviewedDependencyFileEvidence/);
+  assert.match(cliCryptoDependenciesSource, /sha256FileEvidenceFromResolvedFile\(resolvedFile\) !== expected\.resolvedFileSha256/);
   assert.match(cliCryptoDependenciesSource, /function assertReviewedScripts/);
   assert.match(cliCryptoDependenciesSource, /function assertRequiredExports/);
   assert.match(cliCryptoDependenciesSource, /requireFromCli\.resolve\("@cipherman\/pake-js"\)/);
@@ -1398,7 +1415,7 @@ test("critical PAKE dependency identity and install surface stay reviewed", () =
   assert.match(cliCryptoDependenciesSource, /requireFromCurves\.resolve\("@noble\/hashes\/sha2\.js"\)/);
   assert.match(cliCryptoDependenciesSource, /requireFromCli\.resolve\("@noble\/hashes\/hkdf\.js"\)/);
   assert.match(cliCryptoDependenciesSource, /Reviewed cryptographic dependency metadata is not installed\./);
-  assert.doesNotMatch(cliCryptoDependenciesSource, /console\.|process\.exit|resolvedFile\}/);
+  assert.doesNotMatch(cliCryptoDependenciesSource, /console\.|process\.exit/);
   assert.match(cpaceReview, /Locked crypto dependency reviewed: `@noble\/curves@1\.9\.7`, with `@noble\/hashes@1\.8\.0`/);
   assert.match(cpaceReview, new RegExp(`Reviewed lockfile integrity for \`@cipherman/pake-js@0\\.1\\.1\`: \`${escapeRegExp(reviewedPakeIntegrity)}\``));
   assert.match(
@@ -1421,6 +1438,7 @@ test("critical PAKE dependency identity and install surface stay reviewed", () =
   assert.match(cpaceReview, /Scheduled dependency integrity monitoring must run `pnpm security:audit` and `pnpm security:signatures` on unchanged `main`/);
   assert.match(cpaceReview, /CPace dependency updates must update this artifact in the same change as the package pin and lockfile/);
   assert.match(cpaceReview, /Release must stop if any of these are true:/);
+  assert.match(cpaceReview, /reviewed resolved-file SHA-256 evidence no longer agree/);
   assert.match(cpaceReview, /`@cipherman\/pake-js` adds `preinstall`, `install`, `postinstall`, or `prepare` hooks, requires build-script allowlisting, or changes to a non-registry source/);
   assert.match(cpaceReview, /`pnpm audit --audit-level low`, `pnpm audit signatures`, scheduled dependency integrity monitoring, dependency review, installed-state verification, package-surface tests, CPace vector\/protocol tests, or release-artifact verification fails/);
 });

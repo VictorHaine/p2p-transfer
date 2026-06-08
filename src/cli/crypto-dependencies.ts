@@ -1,6 +1,6 @@
 import path from "node:path";
 import { createRequire } from "node:module";
-import { packageEvidenceFromResolvedFile, type DependencyEvidence } from "./dependency-metadata.js";
+import { packageEvidenceFromResolvedFile, sha256FileEvidenceFromResolvedFile, type DependencyEvidence } from "./dependency-metadata.js";
 
 const requireFromCli = createRequire(import.meta.url);
 const REVIEWED_CRYPTO_DEPENDENCIES = {
@@ -17,6 +17,8 @@ const REVIEWED_CRYPTO_DEPENDENCIES = {
     files: ["dist", "README.md", "SECURITY.md", "THREAT_MODEL.md", "CHANGELOG.md", "LICENSE"],
     sideEffects: false,
     dependencies: { "@noble/curves": "^1.6.0" },
+    resolvedFile: "dist/index.cjs",
+    resolvedFileSha256: "3acc7e2184b3f9cd7fe01797d15cfe4a6dc07ced0ea48312ae0389e5d519f94d",
     allowedScripts: {
       prepublishOnly: "npm run clean && npm run typecheck && npm run lint && npm run test && npm run build"
     },
@@ -36,6 +38,8 @@ const REVIEWED_CRYPTO_DEPENDENCIES = {
     files: ["*.js", "*.js.map", "*.d.ts", "*.d.ts.map", "esm", "src", "abstract", "!oprf.*", "!webcrypto.*"],
     sideEffects: false,
     dependencies: { "@noble/hashes": "1.8.0" },
+    resolvedFile: "ed25519.js",
+    resolvedFileSha256: "33df162c066fcaef63f82118d296dcbb49ab94dc729e76c9dc5dea67f6f1da09",
     requiredExports: {
       "./ed25519": { import: "./esm/ed25519.js", require: "./ed25519.js" },
       "./ed25519.js": { import: "./esm/ed25519.js", require: "./ed25519.js" }
@@ -49,6 +53,8 @@ const REVIEWED_CRYPTO_DEPENDENCIES = {
     homepage: "https://paulmillr.com/noble/",
     files: ["/*.js", "/*.js.map", "/*.d.ts", "/*.d.ts.map", "esm", "src/*.ts"],
     sideEffects: false,
+    resolvedFile: "sha2.js",
+    resolvedFileSha256: "53b6dc30db76a7c4e4b9370049e7a3c01bbb5507d058c084e97ccb3ee050faa4",
     requiredExports: {
       "./sha2": { import: "./esm/sha2.js", require: "./sha2.js" },
       "./sha2.js": { import: "./esm/sha2.js", require: "./sha2.js" }
@@ -66,6 +72,8 @@ const REVIEWED_CRYPTO_DEPENDENCIES = {
     types: "index.d.ts",
     files: ["*.js", "*.js.map", "*.d.ts", "*.d.ts.map", "src"],
     sideEffects: false,
+    resolvedFile: "hkdf.js",
+    resolvedFileSha256: "c0de209ef30cc76c14781d7746e6802b44eb17b7bfad6c07e5c17c5806c9836d",
     requiredExports: {
       ".": "./index.js",
       "./hkdf.js": "./hkdf.js",
@@ -92,6 +100,8 @@ export type ReviewedDependency = {
   dependencies?: Record<string, string>;
   optionalDependencies?: Record<string, string>;
   peerDependencies?: Record<string, string>;
+  resolvedFile?: string;
+  resolvedFileSha256?: string;
   allowedScripts?: Record<string, string>;
   exports?: Record<string, unknown>;
   requiredExports?: Record<string, unknown>;
@@ -104,20 +114,38 @@ export function assertReviewedCryptoDependencies(): void {
   try {
     const pake = packageEvidenceFromResolvedFile(requireFromCli.resolve("@cipherman/pake-js"));
     assertReviewedDependencyEvidence(pake, REVIEWED_CRYPTO_DEPENDENCIES.pake);
+    assertReviewedDependencyFileEvidence(requireFromCli.resolve("@cipherman/pake-js"), pake, REVIEWED_CRYPTO_DEPENDENCIES.pake);
 
     const requireFromPake = createRequire(path.join(pake.root, "package.json"));
-    const pakeCurves = packageEvidenceFromResolvedFile(requireFromPake.resolve("@noble/curves/ed25519.js"));
+    const pakeCurvesResolved = requireFromPake.resolve("@noble/curves/ed25519.js");
+    const pakeCurves = packageEvidenceFromResolvedFile(pakeCurvesResolved);
     assertReviewedDependencyEvidence(pakeCurves, REVIEWED_CRYPTO_DEPENDENCIES.pakeCurves);
+    assertReviewedDependencyFileEvidence(pakeCurvesResolved, pakeCurves, REVIEWED_CRYPTO_DEPENDENCIES.pakeCurves);
 
     const requireFromCurves = createRequire(path.join(pakeCurves.root, "package.json"));
-    const curvesHashes = packageEvidenceFromResolvedFile(requireFromCurves.resolve("@noble/hashes/sha2.js"));
+    const curvesHashesResolved = requireFromCurves.resolve("@noble/hashes/sha2.js");
+    const curvesHashes = packageEvidenceFromResolvedFile(curvesHashesResolved);
     assertReviewedDependencyEvidence(curvesHashes, REVIEWED_CRYPTO_DEPENDENCIES.curvesHashes);
+    assertReviewedDependencyFileEvidence(curvesHashesResolved, curvesHashes, REVIEWED_CRYPTO_DEPENDENCIES.curvesHashes);
 
-    const directHashes = packageEvidenceFromResolvedFile(requireFromCli.resolve("@noble/hashes/hkdf.js"));
+    const directHashesResolved = requireFromCli.resolve("@noble/hashes/hkdf.js");
+    const directHashes = packageEvidenceFromResolvedFile(directHashesResolved);
     assertReviewedDependencyEvidence(directHashes, REVIEWED_CRYPTO_DEPENDENCIES.directHashes);
+    assertReviewedDependencyFileEvidence(directHashesResolved, directHashes, REVIEWED_CRYPTO_DEPENDENCIES.directHashes);
     verified = true;
   } catch {
     throw new Error("Reviewed cryptographic dependency metadata is not installed.");
+  }
+}
+
+export function assertReviewedDependencyFileEvidence(resolvedFile: string, actual: DependencyEvidence & { root: string }, expected: ReviewedDependency): void {
+  if (expected.resolvedFile === undefined || expected.resolvedFileSha256 === undefined) return;
+  const relative = path.relative(actual.root, resolvedFile).split(path.sep).join("/");
+  if (relative.startsWith("../") || path.isAbsolute(relative) || relative !== expected.resolvedFile) {
+    throw new Error("Reviewed cryptographic dependency file changed.");
+  }
+  if (sha256FileEvidenceFromResolvedFile(resolvedFile) !== expected.resolvedFileSha256) {
+    throw new Error("Reviewed cryptographic dependency file changed.");
   }
 }
 

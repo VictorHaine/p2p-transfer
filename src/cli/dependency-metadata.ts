@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { closeSync, constants, fstatSync, lstatSync, openSync, readSync } from "node:fs";
 import path from "node:path";
 
@@ -8,6 +9,7 @@ export type DependencyEvidence = {
 };
 
 const MAX_PACKAGE_JSON_BYTES = 128 * 1024;
+const MAX_DEPENDENCY_FILE_BYTES = 2 * 1024 * 1024;
 
 export function packageEvidenceFromResolvedFile(resolvedFile: string): DependencyEvidence & { root: string } {
   const root = packageRootFromResolvedFile(resolvedFile);
@@ -16,6 +18,36 @@ export function packageEvidenceFromResolvedFile(resolvedFile: string): Dependenc
     throw new Error("Dependency package metadata is invalid.");
   }
   return { root, name: evidence.name, version: evidence.version, metadata: evidence };
+}
+
+export function sha256FileEvidenceFromResolvedFile(resolvedFile: string): string {
+  const info = lstatSync(resolvedFile);
+  if (!info.isFile()) throw new Error("Dependency package file is invalid.");
+  if (info.size < 1 || info.size > MAX_DEPENDENCY_FILE_BYTES) throw new Error("Dependency package file is invalid.");
+
+  const fd = openSync(resolvedFile, constants.O_RDONLY | noFollowFlag());
+  try {
+    const opened = fstatSync(fd);
+    if (!opened.isFile() || !sameFile(info, opened)) {
+      throw new Error("Dependency package file is invalid.");
+    }
+    const hash = createHash("sha256");
+    const scratch = Buffer.allocUnsafe(Math.min(64 * 1024, opened.size));
+    let offset = 0;
+    while (offset < opened.size) {
+      const length = Math.min(scratch.length, opened.size - offset);
+      const bytesRead = readSync(fd, scratch, 0, length, offset);
+      if (bytesRead === 0) break;
+      hash.update(scratch.subarray(0, bytesRead));
+      offset += bytesRead;
+    }
+    scratch.fill(0);
+    if (offset !== opened.size) throw new Error("Dependency package file is invalid.");
+    if (!sameFile(opened, fstatSync(fd))) throw new Error("Dependency package file is invalid.");
+    return hash.digest("hex");
+  } finally {
+    closeSync(fd);
+  }
 }
 
 function packageRootFromResolvedFile(resolvedFile: string): string {

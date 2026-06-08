@@ -63,6 +63,7 @@ The project is expected to preserve these invariants:
 - WebCrypto AES keys must be imported with the minimum role-specific usages: manifest senders encrypt, manifest receivers decrypt, send keys encrypt, and receive keys decrypt
 - exported AEAD helpers must read session key fields through own data descriptors and require non-destroyed `CryptoKey` fields before encryption, decryption, AAD construction, or wiped-key checks so malformed embedders cannot execute accessors or push bogus keys into WebCrypto
 - exported HMAC authentication helpers must reject non-canonical or non-32-byte binary keys and copy them before dependency calls so malformed embedders cannot execute typed-array length accessors or accidentally authenticate with weak caller-provided keys
+- CLI crypto dependency runtime attestation must verify the exact resolved entry file path and SHA-256 digest for the reviewed CPace, CPace-resolved noble curves, CPace-resolved noble hashes, and direct noble hashes files using bounded no-follow file reads with pre/post-read identity checks before importing the crypto runtime
 - SDP and ICE signaling must be authenticated with the PAKE-derived signaling key
 - schema allowed-key checks must reject non-enumerable and symbol properties so exported validators cannot accept hidden fields outside the JSON parser path
 - WebRTC signal auth helpers must reject noncanonical signal shapes before computing HMAC tags so future call sites cannot accidentally leave extra SDP or ICE fields unauthenticated
