@@ -87,11 +87,11 @@
     "ws": "8.21.0"
   },
   "devDependencies": {
-    "@types/node": "22.13.14",
+    "@types/node": "26.1.1",
     "@types/ws": "8.18.1",
     "playwright": "1.60.0",
-    "tsx": "4.22.3",
-    "typescript": "6.0.3",
+    "tsx": "4.23.1",
+    "typescript": "7.0.2",
     "vite": "8.0.14"
   }
 }
