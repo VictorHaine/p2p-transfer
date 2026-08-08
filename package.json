@@ -80,7 +80,7 @@
     "@noble/hashes": "2.2.0",
     "@roamhq/wrtc": "0.10.0",
     "@scure/bip39": "2.2.0",
-    "commander": "14.0.3",
+    "commander": "15.0.0",
     "domexception": "4.0.0",
     "nanoid": "5.1.11",
     "webidl-conversions": "7.0.0",
